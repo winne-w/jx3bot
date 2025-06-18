@@ -85,10 +85,4 @@ python bot.py
 - 万宝楼物品价格监控
 - 价格变动提醒
 
-## 贡献
 
-欢迎提交 Issue 和 Pull Request！
-
-## 许可证
-
-MIT License 
