@@ -72,7 +72,7 @@ STATUS_check_time = 3   # 分钟检查一次服务器状态
 NEWS_records_time = 30  # 分钟检查一次 新闻技改
 calendar_time = 9  # 每天9点推送日常
 mail = "用于qq掉线提醒 邮箱的tk"
-STATUS_check_API = "https://www.jx3api.com/data/server/check"  # 替换为你的API地址
+STATUS_check_API = "https://www.jx3api.com/data/server/check"  
 # 新闻技改监控配置
 NEWS_API_URL = "https://www.jx3api.com/data/news/allnews?limit=3"  # 新闻API地址
 SKILL_records_URL = "https://www.jx3api.com/data/skills/records"  # 技改API地址
