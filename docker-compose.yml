@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+  jx3bot:
+    build: .
+    container_name: jx3bot
+    restart: always
+    ports:
+      - "5288:5288"
+      - "8000:8000"
+    volumes:
+      - /mnt/sata6-1/jx3bot:/app
+      - ./mpimg:/app/mpimg
+      - ./log.txt:/app/log.txt
+      - ./server_data.json:/app/server_data.json
+      - ./groups.json:/app/groups.json
+    environment:
+      - TZ=Asia/Shanghai
+      - ENVIRONMENT=prod
+      - DRIVER=~fastapi+~websockets
+      - HOST=0.0.0.0
+      - PORT=5288 

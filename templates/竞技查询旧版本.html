@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>对战记录</title>
+    <style>
+		.rong {
+			 
+			height: 60px; 
+			padding-left: 5px; /* 左内边距20px */
+			padding-right: 5px; /* 右内边距25px */
+		    display: flex;
+		}
+        .rongqi {
+            
+            border: 1px solid #ddd;
+            padding: 0px;
+			margin: 5px;
+            border-radius: 5px;
+			width: 100%;
+			padding-top: -5px;
+			padding-left: 5px; /* 左内边距20px */
+			padding-right: 5px; /* 右内边距25px */
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .header span {
+            display: flex;
+            align-items: center;
+        }
+
+        .header img {
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            padding: 7px 0;
+            text-align: center;
+			font-size: 15px;
+
+
+			line-height: 18px;
+        }
+        
+        .stats-item {
+            flex: 1;
+
+        }
+        
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #6666;
+            text-align: center;
+        }
+        
+        .table-header span {
+            flex: 1;
+        }
+        
+        .match-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+            border-bottom: 1px solid #f5f5f5;
+            text-align: center;
+        }
+        
+        .match-row span {
+            flex: 1;
+        }
+        
+        .match-row img {
+            width: 40px;
+            height: 40px;
+            object-fit: cover;
+            margin: 0 7.4%;
+        }
+        
+        .win span {
+            color: #28a745;
+        }
+        
+        .lose span {
+            color: #dc3545;
+        }
+        
+        .avatar {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: #e8f4ff;
+        }
+        
+        .footer {
+            text-align: center;
+            color: #999;
+            padding: 20px 0;
+        }
+    </style>
+</head>
+<body>
+  
+       <div class="header">
+           <span><img src="data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAAZABgDASIAAhEBAxEB/8QAFwAAAwEAAAAAAAAAAAAAAAAAAAkKA//EACUQAAICAgIBBAMBAQAAAAAAAAIDBAUBBwYIAAkKERMSFBUXIv/EABcBAQEBAQAAAAAAAAAAAAAAAAMBAAL/xAAgEQEAAgICAQUAAAAAAAAAAAABAhEAEiExQQNRYZHB/9oADAMBAAIRAxEAPwC4Tsr2M1X1N0lz/f8Aui+HjuvddUrbe4lgv9idNbkhRX01PCEhZPubicxFfWwl5wTpLw/MlqFjAmIP3Me+2Vrd7xPTA247pYm5zCZvQr66F4U4z8Qs3B5DhZ8SBmC/4zFzyL9EXfKjuBMcj4z33BfXbYPZH0wt2cd1nEn2/JNfzOPbebx6sW2RPv6HgL5M/kcODESJNmTIlM+ZcJiLwTpGK1iI63SWJUaCOOe4z6pU3pVw+qTNF80kbyhdcs9fF8LXR03+T2EnPEC4bnl8y8zYfZmsmLMryyqRqDtZVs18cBFT82Cn9OBKFkN1nqlpqUU8J23z0VzdtDOSSrbQoRodkeT4PD93V5ZV1j7I6s7b6P4D2A01d/3eA7Cpws6p7AwmdBeBlHsae1jfJZiWlVOU6FPj5zn63pL8SIMiWTxXvt5+vPPuufpiaeotjonV/INg3HKNtIpLASCVRUXN5aJVFAak85OObqyNHsijkIGkp2QYGDwXyeFICUgbBQfcxC0FUUFOP0x3bFg0DU0AYtgEti2DgwYB4yJgYFjIkBDnIkJYzgsZzjOM4z5M5N9tL1nneojjtUdzFR1yKbnYkjrXFrTVFlbZ/p/u4iFOHGIcfWBSPm7fx9A4lPsPioH6aQmgymXw80ZyjeqllNeTKg1ZdNmYxo0eHHREiITFixUqjRo0dYJRHjoAVJQhS8CtSVLEVrWAiAAIiOMDjGPDzbw85y5//9k=" alt="">{{qufu}}</span>
+           <span><img src="data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAAYABkDASIAAhEBAxEB/8QAGQAAAwEBAQAAAAAAAAAAAAAAAAkKCAYH/8QAKBAAAAcAAgEDAwUAAAAAAAAAAQIDBAUGBwAICRESEwoUFSQyYZHR/8QAFgEBAQEAAAAAAAAAAAAAAAAAAwEC/8QAIhEBAAICAQQCAwAAAAAAAAAAAQIRACExAxJBYYHwUXGh/9oADAMBAAIRAxEAPwCv/vb5J+rPjyp7Gw77czI2extnK1EzCtthmdCvazZUrYU4GCRMVQWv3iiTNSSdnbsUV1SJCsZUQSMt6Z86dlx2mdftr7SdI9vxvr/vLK2O3d7Ri5SckciKxtysPSh0SJViWAN0rfWwbWT3ILIqtiuCos0JFICrnzR5pOiSfdryXdOYLQn09nOAw3X2/Nr1u7eVharCZ9bnlrdnzxqFksy7OIdT8lZAY/j621cHl5EgGM3TSKHzlXxl3XjtH3d1ztt0J7u+Sa6yvVbx/TTCEmXMhKwdSX2ty/cvjUYlxudheJpOUGbqOZlRcW6QsKrRdZII0/vIksDx6fT7Yq7plO1AjfbHtqy7S79bpwZTmMq4uo68lLd+Pf7DdZazhe95B2WzWA17DL5A6PndmSOeKsledg5aHVQN8btk5IIFXZSLFYBQfMHaaLpquUySyZDB6c9f4ij6d/HNFwbx7oZlqVKnqFbYDbNcIvB2JoZs7PHrWAqkXJNVy+5rKRskyFF2wlo9ZxHyDdQjhq4UTMA8evwphGUojYNDrjVX8N/TFirEUpTjMh9zujnXjvrlKuRdiKmvYYFByeTr0tFyTqGsdSnfhMihPV6Tan/TSDYBAxPuEXLZT2gVZBQnqUZ7cR+ljzut7Ze7D2D7S6Rt2DyU3Dy8Fl7Y0jVZu8hEpnGMT2qfRk3SU3+ABQ7BkECi0NKIgZ6daGIspEcOHLHqTiJGSD/ONn4dHGRhGTaCn3Zw/OVOZ7n1Oyqk1nOc/gmlZpdOiGkFW4FiKotIuKYpgk1aIGXUVWMRMgfuVUOcwiJjGEREedj6B/P9j/vDhzGaz//Z" alt="">{{id}}</span>
+           <span><img src="data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAAXABcDASIAAhEBAxEB/8QAFwABAQEBAAAAAAAAAAAAAAAAAAgKBv/EACgQAAEEAgIBAgYDAAAAAAAAAAUCAwQGAQcACBQSFQkTFhcYGSMlNf/EABcBAAMBAAAAAAAAAAAAAAAAAAABAgP/xAAhEQEAAQQBBAMAAAAAAAAAAAABEQACITFhQVFxgZGhsf/aAAwDAQACEQMRAD8A3Obu3TT9CUCZfrg2ZJN+5hq3WqrVhyjVzvl2tBBkPU6LSwSHWVmLPZS8liCPjKejQ4zeZJQtOGhR5IlEkb8j+3mLKoVnTnVVdoSKxYF9amu2iVdlkAcIw+p/xs60xr5ZvEbOPSPwcRUVTVJj/cXEHPu3Ou7hEoFJ2D032/cnERtUa07BEmr+Zl/41NmbK1HsXVmvbtYXV48UcFHX23hK7JOTFtRAb1rjEZT8aIzIks5cRfw2u9EftbIrsjrAbTvHPdBG9f2WqMa+crKdcI3jE2O5sFOyXCH3hcML043I0p+PHg4o8iNLWXkwG57Hz8aWW2oqhBOZzmO5MYmGckGGouuRAmOCe37kOTfStjmk9zVDfOvx+waagxAjPTzAA/WbOOWFuFHuVZJSAtto1zBOOOuBrTVzcSUMKw/nSIzi2m5w2YQEzIBCU5OXTYiPulw7g7eprjb2p9o9jkyNckomMZD3Bev9Say1XfdgV+SjHjkQdiv9KsAuAYiKchG01pZqC/KgkI0uQ5CQ/H2a8mnmqGSfPvOE4dnDVoHgIO0hC1aswYVYq6fHTBBwCcHxCoYyJIMORZ4wqMnNPwiA+bGdcjy4cpl2PIYcW062tClJzGn69uu/hfTapO73Naejx/sw72P3q5pv2zGPTiv512u/5BKqeEfwfR6mVVXMP+vUGyPzmLxxwlNKe6cDsqzQYMLWQwqu1wQMAV8EPhiAgMLAiiw4cUPYbiwBgsbBaYhwIEKK01HiQ4rLUeOw2hpltDaEpw444qK//9k=" alt="">{{items.roleId}}</span>
+       </div>
+		<div class="rong">
+            {% if items.performance['2v2']['mmr'] %}
+        <div class="rongqi" style=" background-color: #A3E4D7;">
+	    <div class="stats">
+            <div class="stats-item">
+                <div>2v2</div>
+                <div>{{ items.performance['2v2']['grade']  | jjctime  }}段</div>
+            </div>
+            <div class="stats-item">
+                <div>{{ items.performance['2v2']['totalCount']   }}</div>
+                <div>场次</div>
+            </div>
+            <div class="stats-item">
+                <div>{{ items.performance['2v2']['winCount']   }}</div>
+                <div>胜场</div>
+            </div>
+            <div class="stats-item">
+                <div>{{ items.performance['2v2']['winRate']   }}%</div>
+                <div>胜率</div>
+            </div>
+            <div class="stats-item">
+                <div>{{items.performance['2v2']['mmr']}}</div>
+                <div>评分</div>
+            </div>
+            <div class="stats-item">
+                <div>{{ items.performance['2v2']['mvpCount']   }}</div>
+                <div>最佳</div>
+            </div>
+            <div class="stats-item">
+                <div>{{ items.performance['2v2']['ranking']   }}</div>
+                <div>周排名</div>
+            </div>
+        </div>
+         </div>
+            {% endif %}
+		 {% if items.performance['3v3']['mmr'] %}
+		  <div class="rongqi" style=" background-color: #ABEBC6;">
+		 <div class="stats">
+		     <div class="stats-item">
+		         <div>3v3</div>
+		         <div>{{ items.performance['3v3']['grade']  | jjctime  }}段</div>
+		     </div>
+		     <div class="stats-item">
+		         <div>{{ items.performance['3v3']['totalCount']   }}</div>
+		         <div>场次</div>
+		     </div>
+		     <div class="stats-item">
+		         <div>{{ items.performance['3v3']['winCount']   }}</div>
+		         <div>胜场</div>
+		     </div>
+		     <div class="stats-item">
+		         <div>{{ items.performance['3v3']['winRate']   }}%</div>
+		         <div>胜率</div>
+		     </div>
+		     <div class="stats-item">
+		         <div>{{items.performance['3v3']['mmr']}}</div>
+		         <div>评分</div>
+		     </div>
+		     <div class="stats-item">
+		         <div>{{ items.performance['3v3']['mvpCount']   }}</div>
+		         <div>最佳</div>
+		     </div>
+		     <div class="stats-item">
+		         <div>{{ items.performance['3v3']['ranking']   }}</div>
+		         <div>周排名</div>
+		     </div>
+		 </div>
+		  </div>
+            {% endif %}
+            {% if items.performance['5v5']['mmr'] %}
+		  <div class="rongqi" style=" background-color: #AED6F1;">
+		<div class="stats">
+
+		    <div class="stats-item">
+		        <div>5v5</div>
+		        <div>{{ items.performance['5v5']['grade']  | jjctime  }}段</div>
+		    </div>
+		    <div class="stats-item">
+		        <div>{{ items.performance['5v5']['totalCount']   }}</div>
+		        <div>场次</div>
+		    </div>
+		    <div class="stats-item">
+		        <div>{{ items.performance['5v5']['winCount']   }}</div>
+		        <div>胜场</div>
+		    </div>
+		    <div class="stats-item">
+		        <div>{{ items.performance['5v5']['winRate']   }}%</div>
+		        <div>胜率</div>
+		    </div>
+		    <div class="stats-item">
+		        <div>{{items.performance['5v5']['mmr']}}</div>
+		        <div>评分</div>
+		    </div>
+		    <div class="stats-item">
+		        <div>{{ items.performance['5v5']['mvpCount']   }}</div>
+		        <div>最佳</div>
+		    </div>
+		    <div class="stats-item">
+		        <div>{{ items.performance['5v5']['ranking']   }}</div>
+		        <div>周排名</div>
+		    </div>
+		</div>
+		   </div>
+            {% endif %}
+		   </div>
+        <div class="table-header">
+            <span style="margin-left: 23px;">使用心法</span>
+            <span>比赛模式</span>
+            <span>比赛评分</span>
+            <span>比赛时长</span>
+            <span>结束时间</span>
+            <span>比赛结果</span>
+        </div>
+        
+        <div class="match-list">
+            <!-- 这里可以用JavaScript动态生成比赛记录 -->
+              {% for item in items.history %}
+            {% if loop.index <= 50 %}
+            {% if item['won'] == True %}
+            <div class="match-row win">
+                {% else %}
+                 <div class="match-row lose" >
+                {% endif %}
+				 {% if items['forceName'] == '段氏' %}
+				<img class="avatar" src="http://192.168.100.1:5244/img/qiyu/img/周天功.png" alt="{{  item['kungfu']  }}">
+				{% else %}
+                <img class="avatar" src="http://192.168.100.1:5244/img/qiyu/img/{{  item['kungfu']  }}.png" alt="{{  item['kungfu']  }}">{% endif %}
+                <span>{{item['avgGrade'] | jjctime }}段局 ({{item['pvpType']}}v{{item['pvpType']}})</span>
+                <span>{{  item['totalMmr']   }}({% if item['won'] == True %}+{{item['mmr']}}{% else %}{{item['mmr']}}{% endif %})</span>
+                <span>{{ (item['endTime'] - item['startTime'])  }}秒</span>
+                <span>{{  item['startTime'] | time  }}</span>
+                <span class="win">{% if item['won'] == True %}胜利{% else %}失败{% endif %}</span>
+            </div>
+             {% endif %}
+             {% endfor %}
+
+        </div>
+        
+   <footer class="footer">
+             <div>【夏鸥】bot:</div>
+            <div>{{text}}</div>
+        </footer>
+	
+</body>
+</html>

@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>机器人功能卡片</title>
+    <style>
+        /* 重置页面元素以消除默认边距 */
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Microsoft YaHei', sans-serif;
+        }
+        
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: auto;
+            overflow: visible;
+            background: transparent;
+        }
+        
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+        
+        .card {
+            width: 820px;
+            margin: 0;
+            background-color: transparent;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            position: relative;
+            border-radius: 0; /* 直角边框 */
+        }
+        
+        /* 为整个卡片设置背景图片 */
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('http://127.0.0.1:8000/img/bg.jpg') center/cover no-repeat;
+            z-index: -1;
+            filter: brightness(0.85);
+        }
+        
+        .card-header {
+            position: relative;
+            color: white;
+            padding: 12px 15px;
+            display: flex;
+            align-items: center;
+            background: linear-gradient(to bottom, 
+                rgba(0, 0, 0, 0.8) 0%,
+                rgba(0, 0, 0, 0.6) 70%, 
+                rgba(0, 0, 0, 0.4) 100%);
+        }
+        
+        .group-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 0; /* 直角头像 */
+            margin-right: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.8);
+            object-fit: cover;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .group-info {
+            flex: 1;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .group-name {
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+            letter-spacing: 0.5px;
+        }
+        
+        .bot-name {
+            font-size: 13px;
+            opacity: 1;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+            margin-top: 3px;
+            font-weight: 500;
+        }
+        
+        .card-body {
+            position: relative;
+            padding: 18px 20px;
+            background: linear-gradient(to bottom, 
+                rgba(255, 255, 255, 0.3) 0%, 
+                rgba(255, 255, 255, 0.5) 10%, 
+                rgba(255, 255, 255, 0.7) 30%, 
+                rgba(255, 255, 255, 0.85) 70%);
+        }
+        
+        .section {
+            margin-bottom: 20px;
+        }
+        
+        .section:last-child {
+            margin-bottom: 0;
+        }
+        
+        .section-title {
+            font-size: 15px;
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: #5348c0;
+            padding: 6px 12px;
+            border-radius: 0; /* 直角标题 */
+            background-color: rgba(255, 255, 255, 0.85);
+            display: inline-flex;
+            align-items: center;
+            border-left: 4px solid rgba(115, 103, 240, 0.9);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        
+        .section-icon {
+            margin-right: 5px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .status-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            column-gap: 105px;
+            row-gap: 14px;
+            font-size: 12px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 12px;
+            background-color: rgba(255, 255, 255, 0.85);
+            border-radius: 0; /* 直角状态项 */
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+        
+        .status-icon {
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .status-icon svg {
+            width: 18px;
+            height: 18px;
+            fill: #5348c0;
+            opacity: 0.9;
+        }
+        
+        .status-name {
+            flex: 1;
+            font-weight: 600;
+            color: #222;
+            font-size: 13px;
+        }
+        
+        .status-value {
+            padding: 3px 8px;
+            border-radius: 0; /* 直角状态值 */
+            font-size: 13px;
+            font-weight: 600;
+            min-width: 46px;
+            text-align: center;
+        }
+        
+        .status-on {
+            background-color: #e8f5e9;
+            color: #1b5e20;
+            border: 1px solid #81c784;
+        }
+        
+        .status-off {
+            background-color: #ffebee;
+            color: #b71c1c;
+            border: 1px solid #e57373;
+        }
+        
+        .status-normal {
+            background-color: #e3f2fd;
+            color: #0d47a1;
+            border: 1px solid #64b5f6;
+        }
+        
+        .commands-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+            margin-bottom: 0;
+        }
+        
+        .command-card {
+            background-color: rgba(255, 255, 255, 0.85);
+            border-radius: 0; /* 直角命令卡片 */
+            padding: 10px 12px;
+            font-size: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+        
+        .command-name {
+            color: #5348c0;
+            font-weight: 600;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        
+        .command-usage {
+            color: #333;
+            font-size: 12px;
+            line-height: 1.5;
+            font-weight: 500;
+        }
+        
+        .quick-commands {
+            background-color: rgba(240, 240, 255, 0.9);
+            padding: 10px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            border-top: 1px solid rgba(200, 200, 220, 0.7);
+        }
+        
+        .quick-commands span {
+            display: inline-block;
+            margin: 0 5px;
+            color: #5348c0;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 3px 8px;
+            border-radius: 0; /* 直角快速命令 */
+            border: 1px solid #d4d0f5;
+        }
+        
+        .footer {
+            background-color: rgba(248, 248, 248, 0.95);
+            padding: 10px;
+            text-align: center;
+            font-size: 11px;
+            font-weight: 500;
+            color: #555;
+            border-top: 1px solid rgba(200, 200, 200, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-header">
+            <img class="group-avatar" src="{{ group_avatar_url }}" alt="群头像">
+            <div class="group-info">
+                <div class="group-name">{{ group_name }}</div>
+                <div class="bot-name">已运行: {{ uptime }}  启动时间: {{ startup_time }}   连接次数: {{ connection_count }}  上次离线: {{ last_offline }}   离线持续: {{ offline_duration }}</div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="section">
+                <div class="section-title">
+                    <span class="section-icon">
+                        <!-- 设置/齿轮图标 -->
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#5348c0">
+                            <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z" />
+                        </svg>
+                    </span>
+                    当前配置
+                </div>
+                <div class="status-list">
+                    <div class="status-item">
+                        <span class="status-icon">
+                            <!-- 服务器图标 -->
+                            <svg viewBox="0 0 24 24">
+                                <path d="M4,1H20A1,1 0 0,1 21,2V6A1,1 0 0,1 20,7H4A1,1 0 0,1 3,6V2A1,1 0 0,1 4,1M4,9H20A1,1 0 0,1 21,10V14A1,1 0 0,1 20,15H4A1,1 0 0,1 3,14V10A1,1 0 0,1 4,9M4,17H20A1,1 0 0,1 21,18V22A1,1 0 0,1 20,23H4A1,1 0 0,1 3,22V18A1,1 0 0,1 4,17M9,5H10V3H9V5M9,13H10V11H9V13M9,21H10V19H9V21M5,3V5H7V3H5M5,11V13H7V11H5M5,19V21H7V19H5Z" />
+                            </svg>
+                        </span>
+                        <span class="status-name">服务器</span>
+                        <span class="status-value status-normal">{{ server }}</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-icon">
+                            <!-- 开服推送图标（铃铛） -->
+                            <svg viewBox="0 0 24 24">
+                                <path d="M21,19V20H3V19L5,17V11C5,7.9 7.03,5.17 10,4.29C10,4.19 10,4.1 10,4A2,2 0 0,1 12,2A2,2 0 0,1 14,4C14,4.1 14,4.19 14,4.29C16.97,5.17 19,7.9 19,11V17L21,19M14,21A2,2 0 0,1 12,23A2,2 0 0,1 10,21" />
+                            </svg>
+                        </span>
+                        <span class="status-name">开服推送</span>
+                      <span class="status-value {{ 'status-on' if server_push == '开启' else 'status-off' }}">{{ server_push }}</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-icon">
+                            <!-- 新闻推送图标（报纸） -->
+                            <svg viewBox="0 0 24 24">
+                                <path d="M20,11H4V8H20M20,15H13V13H20M20,19H13V17H20M11,19H4V13H11M20.33,4.67L18.67,3L17,4.67L15.33,3L13.67,4.67L12,3L10.33,4.67L8.67,3L7,4.67L5.33,3L3.67,4.67L2,3V19A2,2 0 0,0 4,21H20A2,2 0 0,0 22,19V3L20.33,4.67Z" />
+                            </svg>
+                        </span>
+                        <span class="status-name">新闻推送</span>
+                       <span class="status-value {{ 'status-on' if news_push == '开启' else 'status-off' }}">{{ news_push }}</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-icon">
+                            <!-- 技改推送图标（扳手/更新） -->
+                            <svg viewBox="0 0 24 24">
+                                <path d="M12,16C13.1,16 14,16.9 14,18C14,19.1 13.1,20 12,20C10.9,20 10,19.1 10,18C10,16.9 10.9,16 12,16M12,10C13.1,10 14,10.9 14,12C14,13.1 13.1,14 12,14C10.9,14 10,13.1 10,12C10,10.9 10.9,10 12,10M12,4C13.1,4 14,4.9 14,6C14,7.1 13.1,8 12,8C10.9,8 10,7.1 10,6C10,4.9 10.9,4 12,4M6,16C7.1,16 8,16.9 8,18C8,19.1 7.1,20 6,20C4.9,20 4,19.1 4,18C4,16.9 4.9,16 6,16M6,10C7.1,10 8,10.9 8,12C8,13.1 7.1,14 6,14C4.9,14 4,13.1 4,12C4,10.9 4.9,10 6,10M6,4C7.1,4 8,4.9 8,6C8,7.1 7.1,8 6,8C4.9,8 4,7.1 4,6C4,4.9 4.9,4 6,4M18,16C19.1,16 20,16.9 20,18C20,19.1 19.1,20 18,20C16.9,20 16,19.1 16,18C16,16.9 16.9,16 18,16M18,10C19.1,10 20,10.9 20,12C20,13.1 19.1,14 18,14C16.9,14 16,13.1 16,12C16,10.9 16.9,10 18,10M18,4C19.1,4 20,4.9 20,6C20,7.1 19.1,8 18,8C16.9,8 16,7.1 16,6C16,4.9 16.9,4 18,4Z" />
+                            </svg>
+                        </span>
+                        <span class="status-name">技改推送</span>
+                       <span class="status-value {{ 'status-on' if records_push == '开启' else 'status-off' }}">{{ records_push }}</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-icon">
+                            <!-- 日常推送图标（日历） -->
+                            <svg viewBox="0 0 24 24">
+                                <path d="M19,19H5V8H19M16,1V3H8V1H6V3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H18V1M17,12H12V17H17V12Z" />
+                            </svg>
+                        </span>
+                        <span class="status-name">日常推送</span>
+                       <span class="status-value {{ 'status-on' if daily_push == '开启' else 'status-off' }}">{{ daily_push }}</span>
+                    </div>
+                    <div class="status-item" style="background-color: rgba(248, 240, 255, 0.9); border: 1px dashed #9c71e0;">
+                        <span class="status-icon">
+                            <!-- 提示图标（信息） -->
+                            <svg viewBox="0 0 24 24">
+                                <path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z" />
+                            </svg>
+                        </span>
+                        <span class="status-name" style="font-size: 11px; color: #9c22b8; line-height: 1.4; font-weight: 600;">
+                            群管可输入命令开启或关闭<br>如: /新闻推送 关闭<br>防止炸群
+                        </span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="section-title">
+                    <span class="section-icon">
+                        <!-- 命令/终端图标 -->
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#5348c0">
+                            <path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z" />
+                        </svg>
+                    </span>
+                    常用命令
+                </div>
+                <div class="commands-grid">
+                    <div class="command-card">
+                        <div class="command-name">资历查询</div>
+                        <div class="command-usage">资历 角色名<br>资历分布 服务器 角色名</div>
+                    </div>
+                    <div class="command-card">
+                        <div class="command-name">奇遇查询</div>
+                        <div class="command-usage">奇遇 角色名<br>奇遇 服务器 角色名</div>
+                    </div>
+                    <div class="command-card">
+                        <div class="command-name">竞技查询</div>
+                        <div class="command-usage">战绩 角色名<br>竞技 服务器 角色名</div>
+                    </div>
+                    <div class="command-card">
+                        <div class="command-name">装备查询</div>
+                        <div class="command-usage">属性 角色名<br>装分 服务器 角色名</div>
+                    </div>
+                    <div class="command-card">
+                        <div class="command-name">名片查询</div>
+                        <div class="command-usage">名片 角色名<br>名片 服务器 角色名</div>
+                    </div>
+                    <div class="command-card">
+                        <div class="command-name">交易行</div>
+                        <div class="command-usage">物价 物品名<br>交易行 服务器 物品名</div>
+                    </div>
+                    <div class="command-card">
+                        <div class="command-name">副本查询</div>
+                        <div class="command-usage">副本 角色名<br>秘境 服务器 角色名</div>
+                    </div>
+                    <div class="command-card">
+                        <div class="command-name">烟花查询</div>
+                        <div class="command-usage">烟花 角色名<br>烟花 服务器 角色名</div>
+                    </div>
+                    <div class="command-card">
+                        <div class="command-name">骗子查询</div>
+                        <div class="command-usage">查人 QQ号<br>查询贴吧行骗信息，仅限剑网三的</div>
+                    </div>
+                    <div class="command-card">
+                        <div class="command-name">科举答题</div>
+                        <div class="command-usage">支持模糊查询或拼音首字母查询。例如输入 古琴 或 GQ <br>命令：~！或者：答题</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 主动查询命令行 -->
+        <div class="quick-commands">
+            查询命令：
+            <span>百战</span>
+            <span>日常</span>
+            <span>开服</span>
+            <span>技改</span>
+            <span>更新</span>
+            <span>活动</span>
+            <span>奖励</span>
+        </div>
+        
+        <div class="footer">
+            使用 /帮助 查看更多命令 • 群已绑定服务器可省略服务器名
+        </div>
+    </div>
+</body>
+</html>

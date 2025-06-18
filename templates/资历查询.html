@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>进度评分卡片</title>
+<style>
+/* 全局宽度变量 */
+:root {
+  --global-width: 100%; /* 全局宽度设置，可以根据需要调整，如100%、1500px等 */
+}
+
+body {
+  height: 100%;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* 背景渐变，类似图片 */
+  background: linear-gradient(to bottom, #87CEEB, #4682B4);
+  padding: 30px; /* 页面边距 */
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* 添加主容器样式 */
+.main-container {
+  width: var(--global-width); /* 使用全局宽度变量 */
+  max-width: 1500px; /* 增加最大宽度，允许显示更多卡片 */
+  margin: 0 auto;
+  padding: 0 0.5rem;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* 新增的顶部信息区域样式 */
+.top-info-section {
+  background-color: rgba(255, 255, 255, 0.9);
+  padding: clamp(0.5rem, 1vw, 0.8rem); /* 调整内边距 */
+  margin-bottom: clamp(1rem, 2vw, 1.5rem);
+  border-radius: clamp(0.5rem, 1vw, 0.8rem);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  gap: 1rem;
+  box-sizing: border-box;
+}
+
+.info-item {
+  display: flex;
+  /* 改回垂直排列 */
+  flex-direction: column;
+  align-items: center; /* 居中对齐 */
+  text-align: center;
+  /* 恢复一些外边距 */
+  margin: 5px 10px;
+}
+
+.info-title {
+  display: flex;
+  align-items: center;
+  /* 稍微增大字体大小 */
+  font-size: 0.95em;
+  font-weight: 500;
+  color: #333;
+  /* 恢复底部外边距 */
+  margin-bottom: 4px;
+}
+
+.info-title svg { /* 稍微增大 SVG 图标样式 */
+  width: 15px;
+  height: 15px;
+  margin-right: 5px;
+  fill: #555; /* 图标颜色 */
+}
+
+.info-data {
+  /* 稍微增大字体大小，移除左边距 */
+  font-size: 0.9em;
+  color: #555;
+  margin-left: 0;
+}
+
+/* 卡片网格布局 */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 160px); /* 减小卡片宽度 */
+  gap: 1rem; /* 减小间距 */
+  width: 100%;
+  margin: 0 auto;
+  padding: 0;
+  box-sizing: border-box;
+  justify-content: center;
+}
+
+/* 单个卡片样式 */
+.progress-card {
+  background-color: #fff;
+  border-radius: clamp(0.5rem, 1vw, 0.8rem);
+  padding: var(--card-padding);
+  text-align: center;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.2s ease-in-out;
+  position: relative;
+  width: 155px; /* 减小卡片宽度 */
+  height: 220px;
+  margin: 0 auto;
+}
+
+/* 添加卡片序号样式 */
+.card-number {
+  position: absolute;
+  bottom: 5px; /* 从top改为bottom，移至下方 */
+  left: 5px;
+  background: linear-gradient(135deg, #89C4F4, #7BEDFF);
+  color: white;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px; /* 改为方形，保留小圆角 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8em;
+  font-weight: bold;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  z-index: 5;
+}
+
+.progress-card:hover {
+    transform: translateY(-5px); /* 悬停时轻微上移 */
+}
+
+/* 进度条容器 */
+.progress-container {
+    width: 80px; /* 减小进度圆环大小 (原110px * 0.7) */
+    height: 80px;
+    position: relative;
+    margin-bottom: 5px; /* 减小与下方元素的间距 */
+}
+
+/* 进度圆环 */
+.progress-circle {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    /* 移除默认背景，颜色由新类控制 */
+    /* background: conic-gradient(...); */
+    /* 移除外部的细白圈和内边距 */
+    /* border: 2px solid rgba(255, 255, 255, 0.6); */ /* 移除边框 */
+    /* padding: 4px; */ /* 移除内边距 */
+    /* background-clip: content-box; */ /* 移除 */
+    box-sizing: border-box;
+}
+
+/* 新增：不同进度等级的颜色 - 移除 0.5deg 重叠 */
+.progress-low {
+    background: conic-gradient(#FF6347 calc(var(--progress, 0) * 1%), #e0e0e0 calc(var(--progress, 0) * 1%)); /* 红色，灰色背景 */
+}
+.progress-medium {
+    background: conic-gradient(#FFA500 calc(var(--progress, 0) * 1%), #e0e0e0 calc(var(--progress, 0) * 1%)); /* 橙色 */
+}
+.progress-medium-light {
+    background: conic-gradient(#987cae calc(var(--progress, 0) * 1%), #e0e0e0 calc(var(--progress, 0) * 1%)); /* 浅橙色/金色 */
+}
+.progress-high {
+    background: conic-gradient(rgba(145, 30, 144, 0.68) calc(var(--progress, 0) * 1%), #e0e0e0 calc(var(--progress, 0) * 1%)); /* 黄绿色 */
+}
+.progress-excellent {
+    background: conic-gradient(#32CD32 calc(var(--progress, 0) * 1%), #e0e0e0 calc(var(--progress, 0) * 1%)); /* 绿色 */
+}
+.progress-golden {
+     background: conic-gradient(#e103fa calc(var(--progress, 0) * 1%), #e0e0e0 calc(var(--progress, 0) * 1%)); /* 橙色 */
+
+}
+
+/* 中间的白色圆，形成圆环效果 */
+.inner-circle {
+    position: absolute;
+    /* 调整宽度和高度以保持环形厚度 (例如 80px - 2 * 6px) */
+    width: 68px; /* 调整为固定值 */
+    height: 68px; /* 调整为固定值 */
+    background: #fff; /* 使用卡片背景色 */
+    border-radius: 50%;
+    z-index: 1;
+    /* 移除内部的细白圈 */
+    /* border: 2px solid rgba(255, 255, 255, 0.6); */ /* 移除边框 */
+    box-sizing: border-box;
+}
+
+/* 圆环内的内容（百分比和文字） */
+.progress-content {
+    position: relative;
+    z-index: 2; /* 确保内容在 inner-circle 上方 */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #333; /* 文字颜色 */
+}
+
+.percentage {
+    font-size: 1.3em; /* 减小百分比字体大小 (原1.8em * 0.7) */
+    font-weight: 600; /* 调整字重 */
+    line-height: 1.1;
+}
+
+.status {
+    font-size: 0.95em; /* 状态文字字体大小 */
+    color: #555; /* 状态文字颜色 */
+    margin-top: 8px; /* 与百分比的间距 */
+}
+
+/* 评分星星 */
+.rating {
+     /* 如果卡片高度不一致，将评分推到底部 */
+   
+    text-align: center; /* 减小与上方元素的间距 */
+}
+
+.star {
+    font-size: 1.1em; /* 星星大小 (原1.6em * 0.7) */
+    color: #e0e0e0; /* 未点亮星星的颜色 */
+    margin: 0 1px; /* 调整间距 */
+}
+
+.star.filled {
+    color: #FFD700; /* 点亮星星的颜色 (金色) */
+}
+
+/* 新增：卡片主标题样式 */
+.card-main-title {
+
+  
+  font-size: 0.9em; /* 调整标题大小 (原1.25em * 0.7) */
+  font-weight: 600; /* 字体加粗 */
+  color: #333; /* 标题颜色 */
+  margin-bottom: 12px; /* 减小与下方进度环的间距 */
+  width: 100%; /* 确保标题居中 */
+  text-align: center;
+}
+
+/* 新增：子标题容器样式 */
+.card-subtitles {
+  margin-top: 7px; /* 减小与上方进度环的间距 */
+  margin-bottom: 3px; /* 减小与下方星星的间距 */
+  width: 100%;
+  text-align: center;
+}
+
+/* 新增：单个子标题样式 */
+.card-subtitle {
+  font-size: 0.6em; /* 调整子标题大小 (原0.85em * 0.7) */
+  color: #666; /* 子标题颜色 */
+  margin-bottom: 3px; /* 调整间距 */
+  display: flex; /* 使用 flex 布局来对齐图标和文字 */
+  align-items: center; /* 垂直居中对齐 */
+  justify-content: center; /* 水平居中对齐 */
+}
+
+/* 新增：子标题图标样式 */
+.card-subtitle svg {
+  width: 10px; /* 图标大小 (原14px * 0.7) */
+  height: 10px;
+  margin-right: 4px; /* 调整间距 */
+  fill: #888; /* 图标颜色 */
+}
+
+/* 印章样式 */
+.stamp-overlay {
+  position: absolute;
+  top: 1px; /* 调整垂直位置 */
+  right: -10px; /* 调整水平位置，使其部分移出卡片 */
+  background-color: rgba(220, 53, 69, 0.8); /* 半透明红色背景 */
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75em; /* 调整字体大小 */
+  font-weight: bold;
+  transform: rotate(35deg); /* 旋转角度 */
+  z-index: 10; /* 确保在其他元素之上 */
+  display: none; /* 默认隐藏 */
+  pointer-events: none; /* 防止干扰鼠标事件 */
+}
+
+/* 当卡片内的进度圆环 style 包含 --progress: 100 时显示印章 */
+/* 恢复：只要进度为 100% 就显示 */
+.progress-card:has(.progress-circle[style*="--progress: 100"]) .stamp-overlay {
+  display: block;
+}
+
+/* 恢复原始footer样式，但调整宽度 */
+.footer {
+  margin-top: 20px;
+  color: #fff;
+  font-size: 16px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 10px 15px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+}
+
+/* 添加查询提示标签样式 */
+.query-tip {
+  text-align: left;
+  font-size: 14px;
+  color: #fff;
+  background-color: rgba(79, 195, 247, 0.6);
+  padding: 5px 10px;
+  border-radius: 5px;
+  white-space: nowrap;
+  margin-left: 20px;
+}
+
+/* 添加媒体查询，确保在不同屏幕尺寸下有合理的显示效果 */
+@media screen and (max-width: 768px) {
+  .card-grid {
+    grid-template-columns: repeat(auto-fill, 160px);
+    gap: 0.8rem;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .card-grid {
+    grid-template-columns: repeat(auto-fill, 160px);
+    gap: 0.6rem;
+  }
+}
+
+/* 添加隐藏序号的样式 */
+.hide-numbers .card-number {
+  display: none;
+}
+</style> 
+</head>
+<body>
+
+<!-- 添加脚本，用于根据progress值渲染星星评分和序号 -->
+<script>
+// 函数：根据progress值渲染星星评分
+function renderStars() {
+  // 获取所有进度圈元素
+  const progressCircles = document.querySelectorAll('.progress-circle');
+  
+  progressCircles.forEach(circle => {
+    // 获取progress值
+    const progressValue = parseInt(circle.style.getPropertyValue('--progress'));
+    
+    // 更新百分比显示
+    const progressContent = circle.querySelector('.progress-content');
+    if (progressContent) {
+      const percentageElement = progressContent.querySelector('.percentage');
+      if (percentageElement) {
+        percentageElement.textContent = `${progressValue}%`;
+      }
+    }
+    
+    // 查找该进度圈所在卡片的星星评分容器
+    const card = circle.closest('.progress-card');
+    if (!card) return;
+    
+    const ratingContainer = card.querySelector('.rating');
+    if (!ratingContainer) return;
+    
+    // 清空现有星星
+    ratingContainer.innerHTML = '';
+    
+    // 计算应该填充的星星数量（每20%一颗星）
+    const filledStars = Math.min(Math.floor(progressValue / 20), 5);
+    
+    // 创建星星
+    for (let i = 0; i < 5; i++) {
+      const star = document.createElement('span');
+      star.classList.add('star');
+      star.textContent = '★';
+      
+      // 如果当前星星索引小于应填充星星数，则添加filled类
+      if (i < filledStars) {
+        star.classList.add('filled');
+      }
+      
+      ratingContainer.appendChild(star);
+    }
+    
+    // 根据progress值设置颜色类
+    circle.classList.remove('progress-low', 'progress-medium', 'progress-medium-light', 'progress-high', 'progress-excellent', 'progress-golden');
+    
+    // 添加对应的颜色类
+    if (progressValue >= 100) {
+      circle.classList.add('progress-golden'); // 100%及以上为纯金色
+    } else if (progressValue < 20) {
+      circle.classList.add('progress-low'); // 低于20%为红色
+    } else if (progressValue < 40) {
+      circle.classList.add('progress-medium'); // 20%-40%为橙色
+    } else if (progressValue < 60) {
+      circle.classList.add('progress-medium-light'); // 40%-60%为浅橙色
+    } else if (progressValue < 80) {
+      circle.classList.add('progress-high'); // 60%-80%为黄绿色
+    } else {
+      circle.classList.add('progress-excellent'); // 80%-99%为绿色
+    }
+  });
+  
+  // 为卡片添加序号
+  const cards = document.querySelectorAll('.progress-card');
+  cards.forEach((card, index) => {
+    // 检查是否已有序号标签
+    let numberElement = card.querySelector('.card-number');
+    
+    // 如果没有序号标签，则创建一个
+    if (!numberElement) {
+      numberElement = document.createElement('div');
+      numberElement.classList.add('card-number');
+      numberElement.textContent = index + 1;
+      card.appendChild(numberElement);
+    } else {
+      // 如果已有序号标签，则更新其内容
+      numberElement.textContent = index + 1;
+    }
+  });
+}
+
+// 页面加载完成后执行星星渲染
+document.addEventListener('DOMContentLoaded', renderStars);
+</script>
+
+<!-- 顶部信息区域和卡片网格包裹在主容器内 -->
+{% if tongji[4] < 70000 %} <div class="main-container hide-numbers">{% else %}<div class="main-container"> {% endif %}
+  <!-- 新增的顶部信息区域 -->
+  <div class="top-info-section">
+    <div class="info-item">
+        {% if is_second_level %} {% else %}
+      <div class="info-title">
+        <!-- 地点图标 (SVG 示例) -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"> <path d="M215.7 499.2C267 435 384 279.4 384 192C384 86 298 0 192 0S0 86 0 192c0 87.4 117 243 168.3 307.2c12.3 15.3 35.1 15.3 47.4 0zM192 128a64 64 0 1 1 0 128 64 64 0 1 1 0-128z"/> </svg>
+       {{qufu}}
+      </div>
+        {% endif %}
+      <div class="info-data">{% if is_second_level %}{% endif %}进度: {{ tongji[0] }}%</div>
+    </div>
+    <div class="info-item">
+        {% if is_second_level %} {% else %}
+      <div class="info-title">
+        <!-- 资历图标 (SVG 示例) -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"> <path d="M384 160c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32s-14.3 32-32 32zm0 160c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32s-14.3 32-32 32zm-170.5 96C469.7 416 576 319.6 576 192C576 64.4 469.7 -32 191.5 37.5C186 39.9 181.3 42 176 44.4V160c0 17.7-14.3 32-32 32s-32-14.3-32-32V44.4C87.7 42 64 64.3 64 96v54.4c0 10.8 4.2 20.9 11.7 28.5l96 96c11.7 11.7 11.7 30.7 0 42.4s-30.7 11.7-42.4 0l-96-96C22.3 307.7 16 292.2 16 276.5V96C16 43 59 0 112 0c33.1 0 63.1 13.6 85.1 36.1C244.1 13.6 274.1 0 307.2 0C425.2 0 512 68.1 512 153.6c0 51.1-36.9 98.6-87.1 121.7c-14.5 6.6-30.8 10.3-47.9 12.3v5.8c14.1 2.1 27.7 5.2 40.4 9.2c-1.4 7.4-2.8 14.8-4.2 22.2c-16.3-4.5-33.3-8-50.7-10.3c-30.3-4-61.1-6.1-92.5-6.1s-62.2 2.1-92.5 6.1c-17.5 2.3-34.4 5.8-50.7 10.3c-1.4-7.4-2.8-14.8-4.2-22.2c12.8-4 26.3-7.1 40.4-9.2v-5.8c-17.1-2-33.4-5.6-47.9-12.3C400.9 252.2 364 204.8 364 153.6c0-44.8 42.1-85.7 100.2-107.7C436.9 24.4 403.1 16 368 16c-28.5 0-55.6 6.9-79.8 19.5C257.7 60.6 240 89.2 240 121.6c0 26.3 11.5 50.7 30.5 68.1l1.5 1.4c1.8 1.7 3.6 3.4 5.4 5.1C248.8 220.7 224 250.7 224 288c0 8.6 1.4 16.9 3.9 24.7C200.7 305 176 285.1 176 256c0-16.1 6.4-31.3 17.6-42.4L289.4 118c1.1-1.1 2.1-2.2 3.2-3.4c17-19.2 27.4-43.8 27.4-70.6z"/> </svg>
+         {% if zilizonglan %} {{ zilizonglan }}资历 {% else %}资历总览{% endif %}
+      </div>
+        {% endif %}
+      <div class="info-data">资历: {{ tongji[3] }} / {{ tongji[4] }}</div>
+    </div>
+    <div class="info-item">
+        {% if is_second_level %} {% else %}
+      <div class="info-title">
+        <!-- 成就图标 (SVG 示例) -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"> <path d="M256 0c17.7 0 32 14.3 32 32V66.7C360.2 82.2 416 131.2 416 192c0 53-34.3 97.7-80.5 114.4c-6.3 2.3-12.4 4.9-18.1 7.9c-5.7 3-11.1 6.3-15.8 10.2c-4.7 3.8-8.8 8.2-12.1 13s-5.7 10.2-7.4 15.9c-1.7 5.7-2.6 11.8-2.6 18.1s.9 12.4 2.6 18.1c1.7 5.7 4.1 11.1 7.4 15.9s7.4 9.1 12.1 13c4.7 3.8 9.7 7.2 15.8 10.2c5.7 3 11.8 5.6 18.1 7.9C381.7 414.3 416 459 416 512H96c0-53 34.3-97.7 80.5-114.4c6.3-2.3 12.4-4.9 18.1-7.9c5.7-3 11.1-6.3 15.8-10.2c4.7-3.8 8.8-8.2 12.1-13s5.7-10.2 7.4-15.9c1.7-5.7 2.6-11.8 2.6-18.1s-.9-12.4-2.6-18.1c-1.7-5.7-4.1-11.1-7.4-15.9s-7.4-9.1-12.1-13c-4.7-3.8-9.7-7.2-15.8-10.2c-5.7-3-11.8-5.6-18.1-7.9C130.3 289.7 96 245 96 192c0-60.8 55.8-109.8 128-125.3V32c0-17.7 14.3-32 32-32z"/> </svg>
+          {{ tongji[5]}}
+      </div>
+        {% endif %}
+      <div class="info-data">成就: {{ tongji[1] }} / {{ tongji[2] }}</div>
+    </div>
+  </div>
+
+  <div class="card-grid">
+
+
+{% for key, value in items.items() %}
+    <!-- 卡片 1 -->
+    <div class="progress-card">
+      <h3 class="card-main-title">{{ key  }}</h3>
+      <div class="progress-container">
+         <div class="progress-circle progress-high" style="--progress: {{ value.jindu }};">
+           <div class="inner-circle"></div>
+           <div class="progress-content">
+             <span class="percentage">100%</span>
+
+           </div>
+         </div>
+      </div>
+      <div class="card-subtitles">
+          <div class="card-subtitle">
+              <!-- 成就图标 (Trophy) -->
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><use xlink:href="#trophy-icon"></use></svg>
+              成就数目：{{ value.ydcj }}/{{ value.wdcj }}
+          </div>
+          <div class="card-subtitle">
+              <!-- 资历图标 (Scroll) -->
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><use xlink:href="#scroll-icon"></use></svg>
+              资历分数：{{ value.ydzl }}/{{ value.wdzl }}
+          </div>
+      </div>
+      <div class="rating">
+        <span class="star filled">★</span>
+      </div>
+      <div class="stamp-overlay">已达成</div>
+    </div>
+        <!-- 卡片结束 1 -->
+       {% endfor %}
+
+    
+  </div>
+    {% if is_second_level %}
+
+      <footer class="footer">
+
+    <div style="text-align: center;">【{{ tongji[5]}}】  {{ zilizonglan }}
+    </div>
+  </footer>
+
+    {% else %}
+  <footer class="footer">
+    <div class="footer-left">
+
+      <div class="query-tip">45秒内通过回复序列号查看对应的资历分布，输入：0  返回总览</div>
+    </div>
+    <div>【夏鸥】bot: {{  text  }}
+    </div>
+  </footer>
+     {% endif %}
+</div>
+
+<!-- SVG 定义 -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <!-- 将图标更换为心形图标路径 -->
+    <path id="trophy-icon" d="M47.6 300.4L228.3 469.1c7.5 7 17.4 10.9 27.7 10.9s20.2-3.9 27.7-10.9L464.4 300.4c30.4-28.3 47.6-68 47.6-109.5v-5.8c0-69.9-50.5-129.5-119.4-141C347 36.5 300.6 51.4 268 84L256 96 244 84c-32.6-32.6-79-47.5-124.6-39.9C50.5 55.6 0 115.2 0 185.1v5.8c0 41.5 17.2 81.2 47.6 109.5z"/>
+    <path id="scroll-icon" d="M0 64C0 28.7 28.7 0 64 0H224V128c0 17.7 14.3 32 32 32H384V448c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V64zm384 64H256V0L384 128z"/>
+  </defs>
+</svg>
+</body>
+</html>

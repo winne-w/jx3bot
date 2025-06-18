@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>百战异闻录</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            white-space: nowrap;
+            font-family: 'Microsoft YaHei', sans-serif;
+            font-size: 14px;
+            color: #eee;
+            line-height: 1.5;
+            background-color: #1c2130;
+            padding: 20px;
+            width: 100%;
+            min-width: 1000px;
+            overflow-x: auto;
+        }
+
+        .page-title {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            position: relative;
+            padding: 10px;
+            color: #ffffff;
+            text-shadow: 0 0 5px rgba(230, 200, 142, 0.5);
+        }
+
+        .page-title::before {
+            content: "";
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            background-image: url('http://127.0.0.1:8000/img/baizhan/logo.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        .date-range {
+            color: #ffffff;
+            font-weight: normal;
+            margin-left: 5px;
+            font-size: 18px;
+        }
+
+        .canvas-container {
+            position: relative;
+            width: 1000px;
+            margin-left: calc(50% - 475px + -23px);
+            background-color: #232942;
+            border-radius: 10px;
+            padding: 30px 37px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        #connectCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .container {
+            width: 910px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(7, 127px);
+            gap: 10px;
+            justify-content: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* 最后一行居中对齐 */
+        .last-row {
+            display: flex;
+            justify-content: center;
+            grid-column: 1 / -1;
+            gap: 10px;
+        }
+
+        /* 每7个元素之后的元素方向反转 */
+        .item:nth-child(n+8):nth-child(-n+14),
+        .item:nth-child(n+22):nth-child(-n+28),
+        .item:nth-child(n+36):nth-child(-n+42),
+        .item:nth-child(n+50):nth-child(-n+56),
+        .item:nth-child(n+64):nth-child(-n+70),
+        .item:nth-child(n+78):nth-child(-n+84),
+        .item:nth-child(n+92):nth-child(-n+98) {
+            direction: rtl;
+        }
+
+        .item:nth-child(n+8):nth-child(-n+14) .item-content,
+        .item:nth-child(n+22):nth-child(-n+28) .item-content,
+        .item:nth-child(n+36):nth-child(-n+42) .item-content,
+        .item:nth-child(n+50):nth-child(-n+56) .item-content,
+        .item:nth-child(n+64):nth-child(-n+70) .item-content,
+        .item:nth-child(n+78):nth-child(-n+84) .item-content,
+        .item:nth-child(n+92):nth-child(-n+98) .item-content {
+            direction: ltr;
+        }
+
+        .item {
+            position: relative;
+            width: 118px;
+            height: 118px;
+            background-color: #394561;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            border: 1px solid #4e5977;
+            margin-bottom: 30px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+        }
+
+        .item.highlight {
+            background-color: #6b63b6;
+            border-color: #8a7fd2;
+            box-shadow: 0 0 15px rgba(107, 99, 182, 0.7);
+        }
+
+        .item-content {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 10px 5px 5px;
+            position: relative;
+        }
+
+        .item-number {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            font-size: 12px;
+            background-color: #1c2130;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        .avatar-div {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 10px;
+        }
+
+        .avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            object-fit: cover;
+            position: relative;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            border: 2px solid #ffffff;
+        }
+
+        .avatar-divv {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .avatar-divv::before {
+            content: "";
+            position: absolute;
+            top: -2.3px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 50px;
+            height: 50px;
+            border: 4px solid #8a7fd2;
+            border-radius: 50%;
+            clip-path: inset(0 0 50% 0);
+            z-index: 2;
+        }
+
+        .name-div {
+            width: 100%;
+            text-align: center;
+            margin-top: 3px;
+        }
+
+        .item-name {
+            font-size: 15px;
+            color: white;
+            font-weight: bold;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+        }
+
+        .items-name {
+            font-size: 13px;
+            color: #ffe000;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+            font-weight: bold;
+        }
+
+        .itemx-name {
+            font-size: 12px;
+            color: #ffe000;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+            font-weight: bold;
+        }
+
+        .desc-div {
+            width: 100%;
+            text-align: center;
+            margin-top: 4px;
+        }
+
+        .item-description {
+            font-size: 12px;
+            color: #ffffff;
+        }
+
+        .score-div {
+            width: 100%;
+            text-align: center;
+            margin-top: auto;
+            padding-bottom: 5px;
+        }
+
+        .score {
+            display: inline-block;
+            font-size: 12px;
+            background-color: #c4a963;
+            padding: 2px 7px;
+            border-radius: 4px;
+            color: #ffffff;
+            font-weight: bold;
+        }
+
+        .currency {
+          position: relative;
+          padding-left: 0em;
+        }
+        .currency::before {
+          content: "\1F4B0";
+          position: absolute;
+          left: 20px;
+          top: -1px;
+          font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1 class="page-title">百战异闻录 <span class="date-range">{{ start_date }} 至 {{ end_date }}</span></h1>
+
+    <div class="canvas-container">
+        <canvas id="connectCanvas"></canvas>
+        <div class="container" id="itemContainer">
+      {# 计算总行数 - 改为每行7个 #}
+        {% set total_rows = (items|length / 7)|round(0, 'ceil')|int %}
+        {% set total_items = items|length %}
+        {% set last_row_items = total_items % 7 %}
+        {% set is_last_row_incomplete = last_row_items != 0 %}
+
+        {# 遍历每一行 #}
+        {% for row in range(total_rows) %}
+            {# 确定当前行的范围 - 每行7个 #}
+            {% set row_start = row * 7 %}
+            {% set row_end = row_start + 7 %}
+            {% if row_end > items|length %}
+                {% set row_end = items|length %}
+            {% endif %}
+
+            {# 获取当前行的项目 #}
+            {% set row_items = items[row_start:row_end] %}
+
+            {# 奇数行从左到右，偶数行从右到左 #}
+            {% if row % 2 == 0 %}
+                {% set ordered_items = row_items %}
+            {% else %}
+                {% set ordered_items = row_items|reverse %}
+            {% endif %}
+
+            {# 处理最后一行居中对齐 #}
+            {% if row == total_rows - 1 and is_last_row_incomplete %}
+                <div class="last-row">
+            {% endif %}
+
+            {# 渲染当前行的项目 #}
+            {% for item in ordered_items %}
+                {% if item.list_result %}
+                    {# 特殊样式 - 有list数据的项目 #}
+                    <div class="item highlight">
+                        <div class="item-content">
+                            <div class="item-number">{{ item.level }}</div>
+                            <div class="avatar-divv" style="margin-top: -37px;">
+                                <img class="avatar" src="http://127.0.0.1:8000/img/baizhan/{{ item.name }}.png" alt="{{ item.name }}">
+                            </div>
+                            <div class="name-div" style="margin-top: 8px;">
+                                <div class="item-name">{{ item.name }}</div>
+                                {% if item.list_items.list_0 %}
+                                    <div class="items-name" style="margin-top: 5px;color: #ffe000;">{{ item.list_items.list_0 }}</div>
+                                {% endif %}
+                                {% if item.list_items.list_1 and "+100" in item.list_items.list_1 %}
+                                    <div class="itemx-name" style="margin-top: 1px;  color: #ffe000;">100</div>
+                                {% elif item.list_items.list_1 %}
+                                    <div class="itemx-name" style="margin-top: 1px; color: #ffe000;">{{ item.list_items.list_1 }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% else %}
+                    {# 普通样式 - 无list数据的项目 #}
+                    <div class="item">
+                        <div class="item-content">
+                            <div class="item-number">{{ item.level }}</div>
+                            <div class="avatar-div">
+                                <img class="avatar" src="http://127.0.0.1:8000/img/baizhan/{{ item.name }}.png" alt="{{ item.name }}">
+                            </div>
+                            <div class="name-div">
+                                <div class="item-name">{{ item.name }}</div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            {% endfor %}
+
+            {# 关闭最后一行的容器 #}
+            {% if row == total_rows - 1 and is_last_row_incomplete %}
+                </div>
+            {% endif %}
+        {% endfor %}
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                drawConnections();
+                window.addEventListener('resize', function() {
+                    drawConnections();
+                });
+            }, 100);
+        });
+
+        function drawConnections() {
+            const container = document.getElementById('itemContainer');
+            const canvas = document.getElementById('connectCanvas');
+            const containerRect = container.getBoundingClientRect();
+
+            canvas.width = containerRect.width;
+            canvas.height = container.offsetHeight;
+
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 获取所有项目
+            const allItems = Array.from(container.querySelectorAll('.item'));
+            
+            // 定义每行的项目数量
+            const rowSize = 7;
+            
+            // 创建一个规则的行数组，每行恰好7个元素（除非最后一行）
+            const rowsData = [];
+            let rowIndex = 0;
+            
+            // 按行分组，不依赖DOM顺序
+            for (let i = 0; i < allItems.length; i += rowSize) {
+                const rowItems = allItems.slice(i, Math.min(i + rowSize, allItems.length));
+                rowsData.push(rowItems);
+            }
+            
+            // 处理每一行
+            rowsData.forEach((rowItems, rowIndex) => {
+                const isReverseDirection = rowIndex % 2 === 1; // 奇数行反向
+                
+                // 获取单个行中项目的位置和状态信息
+                const rowItemsInfo = rowItems.map(item => {
+                    const rect = item.getBoundingClientRect();
+                    return {
+                        element: item,
+                        rect: rect,
+                        // 精确计算项目中心点（相对于canvas）
+                        x: rect.left + rect.width / 2 - containerRect.left,
+                        y: rect.top + rect.height / 2 - containerRect.top,
+                        width: rect.width,
+                        height: rect.height, 
+                        isHighlight: item.classList.contains('highlight')
+                    };
+                });
+                
+                // 根据X坐标排序以保证从左到右的顺序
+                rowItemsInfo.sort((a, b) => a.rect.left - b.rect.left);
+                
+                // 如果是奇数行，反转顺序以实现蛇形效果
+                const sortedItemsInfo = isReverseDirection ? [...rowItemsInfo].reverse() : rowItemsInfo;
+                
+                // 确保所有行的Y坐标一致（使用中心点）
+                const rowY = sortedItemsInfo.reduce((sum, item) => sum + item.y, 0) / sortedItemsInfo.length;
+                sortedItemsInfo.forEach(item => {
+                    item.y = rowY; // 统一行Y坐标
+                });
+                
+                // 延长线长度和宽度
+                const extension = 60;
+                const lineWidth = 2;
+                
+                // 绘制当前行第一个项目的延长线
+                if (sortedItemsInfo.length > 0) {
+                    const firstItem = sortedItemsInfo[0];
+                    
+                    ctx.save();
+                    ctx.strokeStyle = firstItem.isHighlight ? '#8a7fd2' : '#4e5977';
+                    ctx.lineWidth = lineWidth;
+                    ctx.beginPath();
+                    
+                    if (isReverseDirection) {
+                        // 奇数行，向右延长
+                        ctx.moveTo(firstItem.x, firstItem.y);
+                        ctx.lineTo(firstItem.x + extension, firstItem.y);
+                        
+                        // 小圆点
+                        ctx.fillStyle = ctx.strokeStyle;
+                        ctx.beginPath();
+                        ctx.arc(firstItem.x + extension, firstItem.y, 4, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else {
+                        // 偶数行，向左延长
+                        ctx.moveTo(firstItem.x, firstItem.y);
+                        ctx.lineTo(firstItem.x - extension, firstItem.y);
+                        
+                        // 小圆点
+                        ctx.fillStyle = ctx.strokeStyle;
+                        ctx.beginPath();
+                        ctx.arc(firstItem.x - extension, firstItem.y, 4, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    
+                    ctx.stroke();
+                    ctx.restore();
+                }
+                
+                // 连接行内的项目
+                for (let i = 0; i < sortedItemsInfo.length - 1; i++) {
+                    const current = sortedItemsInfo[i];
+                    const next = sortedItemsInfo[i + 1];
+                    
+                    ctx.save();
+                    ctx.strokeStyle = (current.isHighlight || next.isHighlight) ? '#8a7fd2' : '#4e5977';
+                    ctx.lineWidth = lineWidth;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(current.x, current.y);
+                    ctx.lineTo(next.x, next.y);
+                    ctx.stroke();
+                    
+                    // 中点小圆点
+                    const midX = (current.x + next.x) / 2;
+                    const midY = (current.y + next.y) / 2;
+                    ctx.fillStyle = ctx.strokeStyle;
+                    ctx.beginPath();
+                    ctx.arc(midX, midY, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.restore();
+                }
+                
+                // 绘制当前行最后一个项目的延长线
+                if (sortedItemsInfo.length > 0) {
+                    const lastItem = sortedItemsInfo[sortedItemsInfo.length - 1];
+                    
+                    ctx.save();
+                    ctx.strokeStyle = lastItem.isHighlight ? '#8a7fd2' : '#4e5977';
+                    ctx.lineWidth = lineWidth;
+                    ctx.beginPath();
+                    
+                    if (isReverseDirection) {
+                        // 奇数行，向左延长
+                        ctx.moveTo(lastItem.x, lastItem.y);
+                        ctx.lineTo(lastItem.x - extension, lastItem.y);
+                        
+                        // 小圆点
+                        ctx.fillStyle = ctx.strokeStyle;
+                        ctx.beginPath();
+                        ctx.arc(lastItem.x - extension, lastItem.y, 4, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else {
+                        // 偶数行，向右延长
+                        ctx.moveTo(lastItem.x, lastItem.y);
+                        ctx.lineTo(lastItem.x + extension, lastItem.y);
+                        
+                        // 小圆点
+                        ctx.fillStyle = ctx.strokeStyle;
+                        ctx.beginPath();
+                        ctx.arc(lastItem.x + extension, lastItem.y, 4, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    
+                    ctx.stroke();
+                    ctx.restore();
+                }
+                
+                // 连接行与行之间
+                if (rowIndex < rowsData.length - 1 && sortedItemsInfo.length > 0 && rowsData[rowIndex + 1].length > 0) {
+                    const nextRowItemsInfo = rowsData[rowIndex + 1].map(item => {
+                        const rect = item.getBoundingClientRect();
+                        return {
+                            element: item,
+                            rect: rect,
+                            x: rect.left + rect.width / 2 - containerRect.left,
+                            y: rect.top + rect.height / 2 - containerRect.top,
+                            isHighlight: item.classList.contains('highlight')
+                        };
+                    }).sort((a, b) => a.rect.left - b.rect.left);
+                    
+                    const nextRowDirection = (rowIndex + 1) % 2 === 1;
+                    const nextSortedItemsInfo = nextRowDirection ? [...nextRowItemsInfo].reverse() : nextRowItemsInfo;
+                    
+                    // 如果nextSortedItemsInfo为空，则跳过
+                    if (nextSortedItemsInfo.length === 0) return;
+                    
+                    let current, next;
+                    
+                    if (isReverseDirection) {
+                        // 当前行反向，连接最左侧到下一行最左侧
+                        current = sortedItemsInfo[sortedItemsInfo.length - 1];
+                        next = nextSortedItemsInfo[0];
+                    } else {
+                        // 当前行正向，连接最右侧到下一行最右侧
+                        current = sortedItemsInfo[sortedItemsInfo.length - 1];
+                        next = nextSortedItemsInfo[0];
+                    }
+                    
+                    // 绘制直角连接
+                    ctx.save();
+                    ctx.strokeStyle = (current.isHighlight || next.isHighlight) ? '#8a7fd2' : '#4e5977';
+                    ctx.lineWidth = lineWidth;
+                    
+                    const midY = (current.y + next.y) / 2;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(current.x, current.y);
+                    ctx.lineTo(current.x, midY);
+                    ctx.lineTo(next.x, midY);
+                    ctx.lineTo(next.x, next.y);
+                    ctx.stroke();
+                    
+                    // 角点小圆点
+                    ctx.fillStyle = ctx.strokeStyle;
+                    ctx.beginPath();
+                    ctx.arc(current.x, midY, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.beginPath();
+                    ctx.arc(next.x, midY, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.restore();
+                }
+            });
+        }
+    </script>
+</body>
+</html>

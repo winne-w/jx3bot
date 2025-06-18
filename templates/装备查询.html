@@ -1,0 +1,501 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>角色信息</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            
+        }
+
+        body {
+            font-family: "Microsoft YaHei", sans-serif;
+            padding: 20px;
+            background-color: #fff;
+			
+        }
+
+        .character-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .character-name {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+   
+
+        .equipment-score {
+            color: #ff4444;
+            font-size: 20px;
+        }
+
+        .server-icon {
+            width: 40px;
+            height: 40px;
+        }
+
+        .main-content {
+            display: flex;
+            gap: 20px;
+            margin-top: -5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border: 1px solid #ddd;
+            padding: 20px;
+			padding-bottom: {% if items.qixueList %}80{% else %}3{% endif %}px; 
+        }
+
+        .left-column {
+            width: 240px;
+        }
+
+        .info-section {
+            margin-bottom: 20px;
+        }
+
+        .info-title {
+            font-weight: bold;
+            margin-bottom: 12px;
+            margin-top: 10px;
+        }
+
+        .info-list {
+            list-style: none;
+        }
+
+        .info-item {
+            margin-bottom: 7px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .equipment-list {
+            flex: 1;
+        }
+
+        .equipment-item {
+            display: flex;
+            align-items: center;
+			margin-bottom: 2px; /* 垂直间距 */
+            padding: {% if menpai == '攻击力' %}1.2{% else %}0{% endif %}px;    /* 列表高度  藏剑为1*/
+            border-radius: 5px;  /* 圆角 */
+            background-color: #f8f8f8;
+           
+			 
+        }
+
+        .equipment-icon {
+            width: 40px;
+            height: 40px;
+
+
+        }
+
+        .equipment-info {
+            flex: 1;
+        }
+
+        .equipment-namee {
+            color: #800080;
+            font-weight: bold;
+             font-size: 16px;
+        }
+          .equipment-name {
+            color: #c17e00;
+            /* 金色调 */
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+
+        .star-rating {
+            color: #ffb900;
+            margin-left: auto;
+            margin-right: 10px;
+        }
+
+        .character-image {
+           
+			 display: block; /* 避免图片下方出现空隙 */
+  border-radius: 10px; /* 与容器的圆角相同 */
+             
+        }
+		   .character-imagediv {
+		   {% if menpai == '治疗量' %}margin-top: 75px;{% endif %}
+             width: 240px; /* 或者你想要的宽度 */
+  height: 310px; /* 或者你想要的高度 */
+  overflow: hidden; /* 确保图片不会溢出容器 */
+  border-radius: 10px; /* 可选的圆角边框 */
+  box-shadow: 
+    0 4px 3px rgba(0, 0, 0, 0.1), /* 外阴影 */
+    0 2px 2px rgba(0, 0, 0, 0.06); /* 内阴影 */
+        }
+
+        .skills-bar {
+		    margin-left: 20px;  /* 左边留空 */
+			 margin-right: 20px; /* 右边留空 */
+            display: flex;
+            justify-content: space-between;
+            margin-top: -70px;
+        }
+		.character-imagediv img {
+		        height: 340px
+		}
+
+        .skill-icon {
+            width: 40px;
+            height: 40px;
+        }
+
+            .skill-iconn {
+            width: 40px;
+            height: 40px;
+                  overflow: hidden; /* 确保图片不会溢出容器 */
+  border-radius: 7px; /* 可选的圆角边框 */
+  box-shadow:
+    0 2px 2px rgba(0, 0, 0, 0.1);  /* 外阴影 */
+
+        }
+
+        .equipment-enhancement {
+            width: 24px;
+            height: 24px;
+            margin-left: 10px;
+        }
+
+        .guild-note {
+            font-size: 12px;
+            color: #666;
+            text-align: right;
+        }
+
+        .faction-icon {
+            width: 14px;
+            height: 14px;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+
+
+
+        .equipment-icon {
+            width: 48px;
+            height: 48px;
+            margin-right: 15px;
+        }
+
+        .equipment-info {
+            flex: 1;
+        }
+
+
+
+        .equipment-stats {
+            font-size: 14px;
+            color: #666;
+              max-width: 320px; /* 设置最大宽度 */
+  white-space: nowrap; /* 禁止换行 */
+  overflow: hidden; /* 隐藏溢出部分 */
+  text-overflow: ellipsis; /* 使用省略号表示文本溢出 */
+        }
+
+        .equipment-effects {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+        }
+
+        .effect-group {
+            display: flex;
+            align-items: center;
+        }
+
+        .effect-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 5px;
+        }
+
+        .effect-text {
+			font-weight: 700;
+            color: #ff69b4;
+            /* 五彩石 */
+        }
+		
+		.effectxfm-text {
+			font-weight: 510;
+		    color: #464298;
+		    /* 小附魔 */
+		}
+
+        .equipment-right {
+		 
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 5px;
+           
+
+        }
+
+        .star-rating {
+            color: #ffd700;
+            font-size: 14px;
+		 
+        }
+
+        .enhancement-icons {
+            display: flex;
+            gap: 2px;
+        }
+
+        .enhancement-icon {
+            width: 20px;
+            height: 20px;
+        }
+
+        .rightheader {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #ff0000;
+            padding-bottom: 10px;
+        }
+
+        .score-container {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .score-label {
+            font-size: 16px;
+            color: #000;
+            margin-bottom: 5px;
+        }
+
+        .equipment-score {
+            color: #ff4444;
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .server-icon {
+            width: 40px;
+            height: 40px;
+        }
+
+        .server-text {
+            text-align: center;
+            margin-top: 5px;
+            font-size: 14px;
+        }
+
+
+ 
+
+.skill-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.skill-name {
+    margin-top: 5px;
+    font-size: 12px;
+    color: #666;
+}
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+   		.footer {
+            margin-top: 15px;
+          text-align: center;
+          color: #999;
+
+
+        }
+        .characterqufu{
+            margin-top: 10px;
+            font-size: 18px;
+
+
+        }
+        .faction-icon{
+            width: 25px;
+            height: 25px;
+        }
+
+    </style>
+</head>
+
+<body>
+
+    <div class="main-content">
+        <div class="left-column">
+            <div class="leftheader">
+                <h1 class="character-name">{{id}}</h1>
+                <div class="characterqufu" >{{qufu}}</div>
+            </div>
+
+            <div class="info-section">
+                <h3 class="info-title">角色信息</h3>
+                <ul class="info-list">
+                    <li class="info-item">门派 <span>{{ items.forceName }}</span></li>
+                    <li class="info-item">心法 <span><img src="http://127.0.0.1:8000/img/qiyu/img/{{ items.kungfuName }}.png" class="faction-icon" alt="{{ items.kungfuName }}">{{ items.kungfuName }}</span></li>
+                    <li class="info-item">体型 <span>{{ items.bodyName }}</span></li>
+                    <li class="info-item">阵营 <span><img src="http://127.0.0.1:8000/img/qiyu/img/{{ items.campName }}.webp" class="faction-icon">{{ items.campName }}</span></li>
+                    <li class="info-item">帮会 <span>{{ items.tongName }}</span></li>
+                </ul>
+                <div class="guild-note">角色信息世界发言后更新</div>
+            </div>
+
+               <div class="info-section">
+                <h3 class="info-title">基础属性</h3>
+                <ul class="info-list">
+                     {% for item in items.panelList['panel'][:4] %}
+                    <li class="info-item">{{ item.name }}<span>{{ item.value }}{% if item.value > 0 and item.value < 300 %}%{% endif %}</span></li>
+                    {% endfor %}
+
+                </ul>
+            </div>
+
+            <div class="info-section">
+                <h3 class="info-title">详细属性</h3>
+                <ul class="info-list">
+                     {% for item in items.panelList['panel'][4:] %}
+                    <li class="info-item">{{ item.name }}<span>{{ item.value }}{% if item.value > 0 and item.value < 300 %}%{% endif %}</span></li>
+                    {% endfor %}
+
+                </ul>
+            </div>
+
+<div class="section">
+                {% if newpng != 0 %}
+				<div class="character-imagediv">
+                   
+            <img src="http://127.0.0.1:8000/{{mpimg}}" alt="通过查询角色名片后 更新" class="{{mpimg}}">
+    
+			 
+                   
+			</div>
+			 {% endif %}
+			  </div>
+        </div>
+
+        <div class="equipment-list">
+            <div class="rightheader">
+                <div class="score-container">
+                    <div class="score-label">装备分数</div>
+                    <div class="equipment-score">{{ items.panelList.score }}</div>
+                </div>
+            
+ 
+   
+			  <div class="skill-container">
+					<img src="http://127.0.0.1:8000/img/qiyu/img/{{ items.kungfuName }}.png" alt="{{ items.kungfuName }}" class="skill-icon">
+
+					<div class="character-title" style="font-size: 12px;">{{ items.kungfuName }}</div>
+				</div>
+
+            </div>
+             
+           {% for item in items.equipList %}
+            <div class="equipment-item">
+                <img src="{{item.icon}}" alt="{{item.name}}" class="equipment-icon">
+                <div class="equipment-info">
+                    {% if item.maxStrengthLevel | int  > 6 %}  <div class="equipment-name">  {% else %}
+                    <div class="equipment-namee">{% endif %}{{item.name}}<span style="color: #000;">({{item.quality}}) </span> </div>
+                    <div class="equipment-stats">{% for itemm in item.modifyType %} {{ itemm.name}} {% endfor %} </div>
+                    <div class="equipment-stats">{{item.source}}</div>
+                </div>
+             
+                <div class="equipment-right">
+                    <div class="star-rating" style="font-size: 20px;">
+                    {% set solid_stars = item.strengthLevel | int %}
+                    {% set hollow_stars = item.maxStrengthLevel | int - solid_stars %}
+                    {% for i in range(solid_stars) %}
+                        ★
+                    {% endfor %}
+                    {% for i in range(hollow_stars) %}
+                        ☆
+                    {% endfor %}
+
+                    </div>
+                    <div class="equipment-effects">
+                        <div class="effect-group" style="height: 24px;"   >
+                              {% if loop.index == 1 %}
+                            {% if items.qixueList %}<img src="{% if item.colorStone is defined and item.colorStone.icon is defined %}{{ item.colorStone.icon }}{% endif %}" alt="" class="effect-icon"> {% endif %}
+                            <span class="effect-text">{% if item.colorStone is defined and item.colorStone.name is defined %}{{ item.colorStone.name }}{% endif %}</span>
+                               {% else %}
+                             {% if item.commonEnchant %}
+                             <img src="{% for itemmm in item.commonEnchant %} {% if loop.index == 1 %} {{item.commonEnchant.icon}}  {% endif %}  {% endfor %} " alt="" class="effect-icon">
+                             <span class="effect-text"> {% for itemmm in item.commonEnchant %} {% if loop.index == 1 %} {{item.commonEnchant.name}}  {% endif %}  {% endfor %} </span>
+                                {% endif %}
+                               {% endif %}
+                        </div>
+                        <div class="effect-group">
+                             {% if item.permanentEnchant %}
+                            <img src="{% for itemm in item.permanentEnchant %}{{itemm.icon}}{% endfor %}" alt="" class="effect-icon">
+                            <span class="effectxfm-text"> {% for itemm in item.permanentEnchant %}   {{itemm.name}}     {% endfor %} </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="enhancement-icons" style="height: 20px;" >
+
+                        {% for itemm in item.fiveStone %}
+                        <img src="{{ itemm.icon}}" alt="{{ itemm.name }}" class="enhancement-icon">
+                         {% endfor %}
+
+                    </div>
+                </div>
+            </div>
+			   {% endfor %}
+			 
+			
+			
+                
+
+
+
+        </div>
+
+ 
+    </div>
+{% if items.qixueList %}
+    <div class="skills-bar">
+        {% for item in items.qixueList %}
+        <div class="skill-container">
+            <img src="{{ item.icon }}" alt="{{item.name}}" class="skill-iconn">
+            <div class="skill-name">{{item.name}}</div>
+        </div>
+   {% endfor %}
+   {% else %}
+
+   {% endif %}
+
+    </div>
+
+      <div style="color: #666; font-size: 12px; text-align: center; margin-top: 10px;">
+    
+    
+    </div>
+   <footer class="footer">
+          <div>【夏鸥】bot:</div>
+            <div>{{text}}</div>
+        </footer>
+</body>
+
+</html>

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>外观列表</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f5;
+        }
+
+        .header-image {
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .header-image img {
+            width: 100%;
+            max-height: 80%;
+            object-fit: contain;
+        }
+
+        .item-count {
+            position: absolute;
+            left: 10px;
+            bottom: -10px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 5px 10px;
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+        }
+       .item-count {
+            position: absolute;
+            left: 10px;
+            bottom: -10px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 5px 10px;
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+        }
+
+        .thumb-icon {
+            position: absolute;
+            left: 6px;
+            top: -65px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+
+        .thumb-icon img {
+            width: 55px;
+            height: 55px;
+            object-fit: cover;
+            border-radius: 8px;
+            display: block;
+        }
+        .subscribe-btn {
+            margin-left: 15px;
+            padding: 5px 12px;
+            border-radius: 4px;
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        .subscribed {
+            background-color: #4bce72;
+        }
+
+        .not-subscribed {
+            background-color: #f76c5e;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 805px;
+            margin: 0 auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            table-layout: fixed;
+        }
+
+        thead {
+            background-color: #e9f7fc;
+        }
+
+        th {
+            padding: 10px 5px;
+            text-align: center;
+            font-weight: bold;
+            color: #333;
+            border-bottom: 1px solid #ddd;
+            font-size: 17px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        td {
+            padding: 10px 5px;
+            text-align: center;
+            border-bottom: 1px solid #f0f0f0;
+            vertical-align: middle;
+            font-size: 20px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        th:nth-child(1), td:nth-child(1) { width: 28%; }
+        th:nth-child(2), td:nth-child(2) { width: 14%; }
+        th:nth-child(3), td:nth-child(3) { width: 16%; }
+        th:nth-child(4), td:nth-child(4) { width: 11%; }
+        th:nth-child(5), td:nth-child(5) { width: 21%; }
+        th:nth-child(6), td:nth-child(6) { width: 10%; }
+
+        tr:hover {
+            background-color: #f9f9f9;
+        }
+
+        .sortable::after {
+            content: "⇅";
+            margin-left: 2px;
+            font-size: 0.8em;
+        }
+
+        .name-cell {
+            display: flex;
+            align-items: center;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .status-tag {
+            width: 28px;
+            height: 45px;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            margin-right: 8px;
+            font-size: 12px;
+            line-height: 1.2;
+            padding: 3px 0;
+            flex-shrink: 0;
+        }
+
+        .status-tag.sale {
+            background-color: #4bce72;
+        }
+
+        .status-tag.public {
+            background-color: #f76c5e;
+        }
+
+        .price {
+            color: #f05654;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            vertical-align: middle;
+            font-size: 16px;
+        }
+
+        .price img {
+            width: 16px;
+            height: 16px;
+            margin-right: 2px;
+            vertical-align: middle;
+        }
+
+        .heart-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .heart {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 3px;
+        }
+
+        .heart img {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .count {
+            color: #4bce72;
+            font-size: 14px;
+        }
+        .item-count .public-count {
+            color: #4bce72;
+        }
+
+        .item-count .sale-count {
+            color: #f05654;
+        }
+.footer {
+    margin-top: 5px;
+    margin-bottom: 5px;
+    text-align: center;
+    background: linear-gradient(135deg, #4bce72, #8bcf6c);
+    color: white;
+    font-size: 16px;
+    padding: 5px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    max-width: 785px;
+    margin-left: auto;
+    margin-right: auto;
+    position: relative;
+    overflow: hidden;
+}
+
+.footer::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent);
+    animation: shine 2s infinite;
+}
+
+.footer div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+.footer div::before {
+    content: "✨";
+    margin-right: 8px;
+    font-size: 16px;
+}
+
+.footer div::after {
+    content: "✨";
+    margin-left: 8px;
+    font-size: 16px;
+}
+    </style>
+</head>
+<body>
+    <!-- 顶部图片 -->
+    <div class="header-image">
+        <img src="{{ header_image|default('https://dl.pvp.xoyo.com/prod/icons/handbook/image/玉雪灵龙礼盒-详情-1.png') }}" alt="顶部图片">
+
+
+
+        <div class="item-count">
+                <!-- 确保正确获取缩略图 -->
+        <div class="thumb-icon">
+            {% if sale_items and sale_items|length > 0 %}
+                <img src="{{ sale_items[0]['thumb'] }}" alt="缩略图">
+
+            {% endif %}
+        </div>
+            <div>
+                <span class="public-count">在售: {{ sale_total|default('0') }}个</span> · <span class="sale-count">公示: {{ public_total|default('0') }}个</span>
+            </div>
+            <!-- 订阅按钮 -->
+{% if is_subscribed %}
+<div class="subscribe-btn subscribed">已订阅 ¥{{ subscribed_price }}</div>
+{% else %}
+<div class="subscribe-btn not-subscribed">未订阅</div>
+{% endif %}
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 在售期列表 -->
+        <table>
+            <thead>
+                <tr>
+                    <th>外观名称</th>
+                    <th>外观类型</th>
+                    <th class="sortable">价格</th>
+                    <th>卖售人</th>
+                    <th>剩余时间</th>
+                    <th class="sortable">关注</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if sale_items %}
+                    {% for item in sale_items %}
+                    <tr>
+                        <td>
+                            <div class="name-cell">
+                                <div class="status-tag sale">在<br>售</div>
+                                {{ item.name }}
+                            </div>
+                        </td>
+                        <td>{{ item.type }}</td>
+                        <td>
+                            <div class="price">
+                                <img src="https://jx3wbl.xoyocdn.com/img/icon-rmb.c3ce8bfb.png" alt="¥">
+                                {{ "%.2f"|format(item.price) }}
+                            </div>
+                        </td>
+                        <td>{{ item.seller }}</td>
+                        <td>{{ item.formatted_time }}</td>
+                        <td>
+                            <div class="heart-container">
+                                <div class="heart">
+                                    <img src="https://jx3wbl.xoyocdn.com/img/icon-heart-outline.76bd341d.png" alt="关注">
+                                </div>
+                                <div class="count">{{ item.follows }}</div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 20px;">暂无在售物品</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+
+        <!-- 公示期列表 -->
+        <table>
+            <thead>
+                <tr>
+                    <th>外观名称</th>
+                    <th>外观类型</th>
+                    <th class="sortable">价格</th>
+                    <th>卖售人</th>
+                    <th>剩余时间</th>
+                    <th class="sortable">关注</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if public_items %}
+                    {% for item in public_items %}
+                    <tr>
+                        <td>
+                            <div class="name-cell">
+                                <div class="status-tag public">公<br>示</div>
+                                {{ item.name }}
+                            </div>
+                        </td>
+                        <td>{{ item.type }}</td>
+                        <td>
+                            <div class="price">
+                                <img src="https://jx3wbl.xoyocdn.com/img/icon-rmb.c3ce8bfb.png" alt="¥">
+                                {{ "%.2f"|format(item.price) }}
+                            </div>
+                        </td>
+                        <td>{{ item.seller }}</td>
+                        <td>{{ item.formatted_time }}</td>
+                        <td>
+                            <div class="heart-container">
+                                <div class="heart">
+                                    <img src="https://jx3wbl.xoyocdn.com/img/icon-heart-outline.76bd341d.png" alt="关注">
+                                </div>
+                                <div class="count">{{ item.follows }}</div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 20px;">暂无公示物品</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+ <footer class="footer">
+
+            <div>【夏鸥】bot  输入：订阅 价格 订阅当前物品！</div>
+        </footer>
+
+</body>
+</html>

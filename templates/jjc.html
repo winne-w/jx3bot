@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>对战记录</title>
+    <style>
+:root {
+  --main-bg: linear-gradient(150deg, #a8edea 0%, #fed6e3 100%);
+  --yanhua-gradient: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);
+  --card-bg: rgba(255,255,255,0.9);
+  --text-primary: #2c3e50;
+  --accent-blue: #89C4F4;
+  --accent-pink: #FF79B0;
+  --shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+  --global-width: 100%; /* 全局宽度设置，可以根据需要调整，如100%、1500px等 */
+}
+
+body {
+  background: var(--yanhua-gradient);
+  font-family: 'Microsoft YaHei', sans-serif;
+  color: var(--text-primary);
+  padding: 1rem 1rem;
+  min-height: 100vh;
+}
+
+/* 修改table-header */
+.table-header {
+  background: linear-gradient(135deg, #89C4F4 0%, #7BEDFF 100%);
+  color: #fff;
+  padding: 0.9rem 1.5rem; /* 调整与match-row相同 */
+  border-radius: 12px 12px 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 4px 20px rgba(137, 196, 244, 0.3);
+  text-align: center;
+  width: var(--global-width);
+  max-width: 900px; /* 与其他容器保持一致 */
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+}
+
+.table-header span {
+  font-weight: 500;
+  /* 移除 flex: 1; 以便自定义各列宽度 */
+}
+
+.table-header span:nth-child(1) { /* 使用心法 */
+  flex: 0.8;
+  text-align: center;
+}
+.table-header span:nth-child(2) { /* 比赛模式 */
+  flex: 1;
+  text-align: center;
+}
+.table-header span:nth-child(3) { /* 比赛评分 */
+  flex: 0.9;
+  text-align: center;
+}
+.table-header span:nth-child(4) { /* 比赛时长 */
+  flex: 0.8;
+  text-align: center;
+}
+.table-header span:nth-child(5) { /* 结束时间 */
+  flex: 1.8; /* 增加结束时间更多空间 */
+  text-align: center;
+}
+.table-header span:nth-child(6) { /* 比赛结果 */
+  flex: 0.8;
+  text-align: center;
+}
+
+/* 修改rong容器 - 基本设置 */
+.rong {
+  display: grid;
+  max-width: 900px;
+  width: var(--global-width);
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  /* 基本网格设置为空，由子元素数量决定 */
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem;
+  padding: 0;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* 根据网格数量动态调整大小 */
+/* 只有一个网格时 */
+.rong:has(.rongqi:first-child:last-child) {
+  grid-template-columns: 1fr; /* 单列占满 */
+}
+
+/* 只有两个网格时 */
+.rong:has(.rongqi:nth-child(2):last-child) {
+  grid-template-columns: repeat(2, 1fr); /* 两列平分 */
+}
+
+/* 三个及以上网格时保持三列布局 */
+
+/* 在不支持:has选择器的浏览器中的备选方案 */
+@supports not (selector(:has(*))) {
+  /* 媒体查询方案 */
+  @media (min-width: 901px) {
+    .rong {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  
+  @media (max-width: 900px) and (min-width: 768px) {
+                .rong {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  
+  @media (max-width: 767px) {
+    .rong {
+      grid-template-columns: repeat(1, 1fr);
+    }
+  }
+}
+
+.rongqi {
+  background: rgba(255,255,255,0.98) !important;
+  border-radius: 16px;
+  padding: 0.7rem; /* 稍微减小内边距 */
+  box-shadow: 0 8px 32px rgba(137, 196, 244, 0.1);
+  transition: all 0.4s cubic-bezier(0.25,0.8,0.25,1);
+  border: 1px solid rgba(137, 196, 244, 0.15);
+  display: flex;
+  flex-direction: column;
+}
+
+.rongqi:hover {
+  transform: translateY(-5px);
+}
+
+/* 添加卡片标题和图标 */
+.card-title {
+                    display: flex;
+  align-items: center;
+  margin-bottom: 1.2rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 2px solid rgba(137, 196, 244, 0.2);
+}
+
+.card-title svg {
+  width: 24px;
+  height: 24px;
+  margin-right: 0.8rem;
+  fill: #89C4F4;
+}
+
+.card-title h3 {
+  font-size: 1.1rem;
+  color: #2c3e50;
+            margin: 0;
+        }
+
+/* 新增布局样式 */
+.stats-layout {
+            display: flex;
+  flex-direction: column;
+  align-items: center; /* Center children horizontally */
+  gap: 1.5rem; /* Space between primary and secondary stats */
+  width: 100%;
+  flex-grow: 1;
+}
+
+.primary-stat {
+  /* Inherits .stats-item styles */
+  width: 60%; /* Adjust width as needed */
+  max-width: 200px; /* Optional max width */
+  text-align: center;
+}
+
+.secondary-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr); /* Always 3 columns */
+  gap: 1rem;
+  width: 100%;
+  justify-items: center;
+}
+
+/* Remove alternating background rules */
+/*
+.secondary-stats .stats-item:nth-child(odd) {
+  background: rgba(137, 196, 244, 0.06);
+}
+.secondary-stats .stats-item:nth-child(even) {
+  background: rgba(137, 196, 244, 0.12);
+}
+*/
+
+/* Also remove specific hover for secondary-stats if it existed */
+/*
+.secondary-stats .stats-item:hover {
+  background: rgba(137, 196, 244, 0.20);
+  transform: scale(1.03);
+  border-color: rgba(79, 195, 247, 0.3);
+}
+*/
+
+/* Restore single background and add default border for separation */
+.stats-item {
+  background: rgba(137, 196, 244, 0.08); /* Restore single background */
+  width: 60%;
+  text-align: center;
+  padding: 0.6rem;  /* 修改边框Restore single background and add default border for separation */
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(137, 196, 244, 0.15); /* Add default subtle border */
+}
+
+/* Adjust hover effect for the unified style */
+.stats-item:hover {
+  transform: scale(1.03);
+  border-color: rgba(79, 195, 247, 0.5); /* Make border more prominent on hover */
+  box-shadow: 0 2px 8px rgba(79, 195, 247, 0.15); /* Optional: add slight shadow on hover */
+  /* Keep background change on hover or remove it */
+  /* background: rgba(137, 196, 244, 0.15); */
+}
+
+.stats-item div:first-child {
+  font-size: 1.3rem;
+  color: #502c3b;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+.stats-item div:last-child {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+/* 比赛列表样式 */
+.match-list {
+  background: var(--card-bg);
+  border-radius: 0 0 15px 15px;
+  box-shadow: var(--shadow);
+  width: var(--global-width);
+  max-width: 900px; /* 与表头保持一致 */
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 2rem;
+  box-sizing: border-box;
+  overflow: hidden; /* 避免内容溢出 */
+}
+
+.match-row {
+  display: grid;
+  grid-template-columns: 0.8fr 1fr 0.9fr 0.8fr 1.8fr 0.8fr; /* 匹配表头的比例 */
+            align-items: center;
+  padding: 0.9rem 1.5rem;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(137, 196, 244, 0.2);
+  transition: background-color 0.3s ease;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+/* 添加列表内容不换行样式 */
+.match-row span {
+  white-space: nowrap; /* 禁止文本换行 */
+  overflow: hidden; /* 隐藏溢出内容 */
+  text-overflow: ellipsis; /* 显示省略号 */
+}
+
+.match-row img.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  justify-self: center;
+  margin-left: 0;
+}
+
+/* Ensure spans in match-row also align center by default (unless first) */
+.match-row span:first-of-type { /* Target the span *after* the image in the first column */
+   /* This likely needs adjustment if the structure is img -> span -> span ... */
+   /* If the first column truly contains the img AND the first span, this is complex */
+   /* Let's assume text-align:left on the first column is desired */
+   /* The easiest way is often to wrap the first column content */
+}
+
+/* Alternative: Target the first grid *cell* if possible, but CSS doesn't directly do that. */
+/* Let's stick to aligning the *text* content left in the first column if needed */
+/* Apply text-align left specifically to the spans within the first column if needed */
+/* This might require adding a class or using :nth-child carefully */
+
+/* Refined Card Layout */
+.rong {
+  display: grid;
+  /* 调整为与其他容器一致 */
+  max-width: 1100px;
+  width: var(--global-width);
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  /* 基本网格设置 */
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem; /* 减小间距 卡片左右距离*/
+  padding: 0; /* 移除内边距以确保完全对齐 */
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* 确保所有主要容器使用相同的宽度和对齐方式 */
+.top-info-section,
+.table-header,
+.match-list,
+.rong,
+.footer {
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 删除强制2列的媒体查询，替换为更合理的响应式设计 */
+/* 大屏幕：允许显示更多列 */
+@media (min-width: 1201px) {
+  .rong {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  /* 确保所有卡片都显示 */
+  .rong .rongqi {
+    display: flex !important;
+  }
+}
+
+/* 中等宽度屏幕：允许显示3列 */
+@media (max-width: 1200px) and (min-width: 992px) {
+  .rong {
+    grid-template-columns: repeat(3, 1fr); /* 强制显示3列 */
+    gap: 0.8rem;
+  }
+  
+  /* 确保所有卡片都显示 */
+  .rong .rongqi {
+    display: flex !important;
+  }
+}
+
+/* 添加特定宽度媒体查询，确保在1000px左右宽度显示3个网格 */
+@media (max-width: 1080px) and (min-width: 900px) {
+  .rong {
+    grid-template-columns: repeat(3, 1fr); /* 强制显示3列 */
+    gap: 0.8rem;
+  }
+}
+
+/* 小屏幕：单列显示所有网格 */
+@media (max-width: 991px) and (min-width: 768px) {
+  .rong {
+    grid-template-columns: repeat(2, 1fr); /* 2列布局 */
+    gap: 1rem;
+  }
+  
+  /* 确保所有网格都显示 */
+  .rong .rongqi {
+    display: flex !important; /* 覆盖任何可能的隐藏规则 */
+  }
+}
+
+/* 更小屏幕：单列显示 */
+@media (max-width: 767px) {
+  .rong {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  /* 确保所有网格都显示 */
+  .rong .rongqi {
+    display: flex !important; /* 覆盖任何可能的隐藏规则 */
+  }
+  
+  /* 减小字体大小 */
+  .card-header h3 {
+    font-size: 1rem;
+  }
+  
+  .stats-item div:first-child {
+    font-size: 0.9rem;
+  }
+  
+  .stats-item div:last-child {
+    font-size: 0.7rem;
+  }
+  
+  /* 信息区域小标题 */
+  .info-title {
+    font-size: 0.85rem !important;
+  }
+  
+  .info-data {
+    font-size: 0.8rem !important;
+  }
+  
+  /* 确保顶部信息项标题也缩小 */
+  .info-item {
+    font-size: 0.85rem !important;
+  }
+}
+
+/* 中等小屏幕调整 */
+@media (max-width: 768px) {
+  /* 布局调整 */
+  .top-info-section {
+    margin-bottom: 0rem; /* 新值 */
+    padding: 1rem;
+    gap: 1rem;
+  }
+  .info-item {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.9rem !important; /* 减小字体大小 */
+  }
+  .info-title, .info-data {
+    font-size: 0.9rem !important;
+  }
+  .secondary-stats {
+    grid-template-columns: repeat(3, 1fr); /* Keep 3 columns for stats */
+    gap: 0.8rem;
+  }
+  
+  /* 表头适配 */
+        .table-header {
+            display: flex;
+    flex-wrap: nowrap; /* 禁止换行 */
+    padding: 0.5rem;
+    font-size: 0.7rem;
+    overflow-x: auto;  /* 横向滚动 */
+    -webkit-overflow-scrolling: touch; /* 移动端平滑滚动 */
+  }
+  .table-header span {
+    flex: 0 0 auto;    /* 自动宽度 */
+    min-width: 80px;   /* 最小宽度 */
+    padding: 0 0.8rem;
+    white-space: nowrap; /* 禁止文本换行 */
+  }
+  
+  /* 列表行调整 */
+  .match-row {
+    grid-template-columns: 60px 1fr 1fr; /* Adjust as needed */
+    padding: 1rem;
+    gap: 0.8rem;
+    text-align: left;
+    align-items: start;
+    font-size: 0.8rem; /* 减小字体大小 */
+  }
+  .match-row img.avatar {
+    grid-row: span 1;
+    width: 42px; /* 减小图片大小 */
+    height: 42px;
+    justify-self: center;
+    align-self: center;
+  }
+  
+  /* 隐藏滚动条（可选） */
+  .table-header::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* 800px以下也隐藏第三个网格 */
+  .rong .rongqi:nth-child(3) {
+    display: none !important;
+  }
+}
+
+/* Further adjustments for even smaller screens (already 1 column) */
+@media (max-width: 480px) {
+  /* Styles for 480px (already 1 column for .rong) */
+  .rong {
+    gap: 0.8rem; /* Further reduce gap */
+  }
+  .top-info-section {
+    justify-content: center;
+  }
+  .info-item {
+    flex-basis: calc(50% - 1rem);
+    justify-content: center;
+  }
+  .secondary-stats {
+    grid-template-columns: repeat(2, 1fr); /* Switch stats to 2 columns */
+    gap: 0.6rem;
+  }
+  .stats-item {
+    padding: 0.5rem;
+  }
+  .stats-item div:first-child {
+    font-size: 0.85rem; /* 进一步减小字体 */
+    margin-bottom: 0.1rem;
+  }
+  .stats-item div:last-child {
+    font-size: 0.65rem; /* 进一步减小字体 */
+  }
+        .match-row {
+    grid-template-columns: 60px 1fr;
+    align-items: start;
+  }
+  .match-row > span {
+    padding-bottom: 0.3rem;
+    font-size: 0.8rem; /* 减小列表字体 */
+  }
+  .match-row img.avatar {
+    grid-row: span 3;
+  }
+  .match-row span:nth-child(4),
+  .match-row span:nth-child(5) {
+    display: none;
+  }
+  
+  /* 调整卡片标题大小 */
+  .card-header h3 {
+    font-size: 0.9rem;
+  }
+}
+
+/* 添加800px以下屏幕适配 */
+@media (max-width: 800px) and (min-width: 768px) {
+  .rong {
+    grid-template-columns: repeat(2, 1fr); /* 强制2列 */
+    gap: 0.8rem;
+  }
+  
+  /* 隐藏第三个网格 */
+  .rong .rongqi:nth-child(3) {
+    display: none !important;
+  }
+}
+
+.footer {
+  margin-top: 20px;
+  text-align: center;
+  color: #fff;
+  font-size: 16px;
+  padding: 10px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+}
+
+/* Adjust Card Header Styling for new content */
+.card-header {
+  text-align: center;
+  margin-bottom: 0.9rem;  /* 边框顶部Adjust Card Header Styling for new content */
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(137, 196, 244, 0.2);
+}
+
+/* Style for the main title (Mode + Rank) with Gradient */
+.card-header h3 {
+    font-size: 1.2rem; /* 大标题Large title size */
+    font-weight: 700;
+    margin: 0;
+    line-height: 1.3;
+    /* Gradient Text Effect */
+    background: linear-gradient(45deg, var(--accent-blue), var(--accent-pink));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+/* Remove styles for the previously moved score */
+/*
+.header-score { ... }
+.header-score div { ... }
+.header-score span { ... }
+*/
+
+/* Adjust Secondary Stat Labels */
+.stats-item div:last-child { /* Target the label */
+  font-size: 0.8rem; /* Make label smaller */
+  color: #666;
+  font-weight: normal; /* Ensure not bold */
+  text-transform: none; /* Remove uppercase if previously added */
+  letter-spacing: normal; /* Remove letter spacing if previously added */
+}
+
+/* Ensure the stat value remains styled */
+.stats-item div:first-child { /* 评分数字*/
+  font-size: 0.9rem;
+  color: #455e77;
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+
+/* Restore secondary-stats grid to fit 6 items well */
+.secondary-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr); /* Back to 3 columns */
+  gap: 1rem;
+  width: 100%;
+  justify-items: center;
+}
+
+/* Add Top Info Section Styles (similar to 副本查询.html) */
+.top-info-section {
+  background-color: rgba(255, 255, 255, 0.9);
+  padding: clamp(0.5rem, 1vw, 0rem);
+  margin-bottom: clamp(0rem, 2vw, 1.5rem);
+  border-radius: clamp(0.5rem, 1vw, 0.8rem);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.info-item {
+            display: flex;
+    flex-direction: column;
+            align-items: center;
+            text-align: center;
+    margin: 5px 10px;
+}
+
+.info-item:hover {
+  background-color: rgba(79, 195, 247, 0.15);
+}
+
+.info-item svg {
+  width: 15px;
+  height: 15px;
+  margin-right: 5px;
+  fill: #555;
+}
+
+/* Ensure Consistent Width and Centering */
+.top-info-section,
+.rong,
+.match-list,
+.table-header,
+.footer {
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+.top-info-section {
+  margin-bottom: 1rem !important; /* 示例值 */
+}
+
+.rong {
+  margin-top: 1rem !important; /* 示例值 */
+  margin-bottom: 1rem !important; /* 示例值 */
+}
+.table-header {
+  margin-top: 0rem !important; /* 示例值 */
+}
+
+/* Adjust individual element margins if needed, remove max-width/margin from individual rules if redundant */
+
+/* 比赛结果样式 - 基于行的类名区分颜色 */
+.match-row.win > span:last-child {
+  color: #4CAF50 !important; /* 绿色 */
+  font-weight: 600;
+}
+
+.match-row.lose > span:last-child {
+  color: #F44336 !important; /* 红色 */
+  font-weight: 600;
+}
+
+
+        .match-row span {
+   
+  transition: color 0.3s ease;
+}
+
+/* 适配低分辨率屏幕 */
+@media screen and (max-width: 767px) {
+  .rong {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.8rem;
+  }
+  
+  .rongqi {
+    padding: 0.6rem;
+  }
+  
+  .stats-item {
+    padding: 0.5rem;
+  }
+  
+  .stats-item div:first-child {
+    font-size: 0.8rem;
+  }
+  
+  .stats-item div:last-child {
+    font-size: 0.8rem;
+  }
+}
+
+/* 修改媒体查询 */
+/* 大屏幕：3列布局 */
+@media (min-width: 901px) {
+  .rong {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* 中等和小屏幕：2列布局 */
+@media (max-width: 900px) {
+  .rong {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 移动设备：仍保持2列布局 */
+@media (max-width: 767px) {
+  .rong {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 评分星星 */
+.rating {
+     /* 如果卡片高度不一致，将评分推到底部 */
+   
+    text-align: center; /* 减小与上方元素的间距 */
+}
+
+.star {
+    font-size: 1.1em; /* 星星大小 (原1.6em * 0.7) */
+    color: #e0e0e0; /* 未点亮星星的颜色 */
+    margin: 0 1px; /* 调整间距 */
+}
+
+.star.filled {
+    color: #FFD700; /* 点亮星星的颜色 (金色) */
+}
+
+    </style>
+</head>
+<body>
+
+<!-- 添加脚本，用于根据progress值渲染星星评分 -->
+<script>
+// 函数：根据progress值渲染星星评分
+function renderStars() {
+  // 获取所有进度圈元素
+  const progressCircles = document.querySelectorAll('.progress-circle');
+  
+  progressCircles.forEach(circle => {
+    // 获取progress值
+    const progressValue = parseInt(circle.style.getPropertyValue('--progress'));
+    
+    // 查找该进度圈所在卡片的星星评分容器
+    const card = circle.closest('.progress-card');
+    if (!card) return;
+    
+    const ratingContainer = card.querySelector('.rating');
+    if (!ratingContainer) return;
+    
+    // 清空现有星星
+    ratingContainer.innerHTML = '';
+    
+    // 计算应该填充的星星数量（每20%一颗星）
+    const filledStars = Math.min(Math.floor(progressValue / 20), 5);
+    
+    // 创建星星
+    for (let i = 0; i < 5; i++) {
+      const star = document.createElement('span');
+      star.classList.add('star');
+      star.textContent = '★';
+      
+      // 如果当前星星索引小于应填充星星数，则添加filled类
+      if (i < filledStars) {
+        star.classList.add('filled');
+      }
+      
+      ratingContainer.appendChild(star);
+    }
+  });
+}
+
+// 页面加载完成后执行星星渲染
+document.addEventListener('DOMContentLoaded', renderStars);
+</script>
+
+<!-- Replace header div with top-info-section div -->
+<div class="top-info-section">
+    <div class="info-item">
+      <div class="info-title">
+        <!-- Use the same user icon SVG -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8zm0-14a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm0 6a2 2 0 1 1 2-2 2 2 0 0 1-2 2z"/></svg>
+        梦江南
+      </div>
+    </div>
+    <div class="info-item">
+      <div class="info-title">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8zm0-14a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm0 6a2 2 0 1 1 2-2 2 2 0 0 1-2 2z"/></svg>
+        花苏苏
+      </div>
+    </div>
+    <div class="info-item">
+      <div class="info-title">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8zm0-14a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm0 6a2 2 0 1 1 2-2 2 2 0 0 1-2 2z"/></svg>
+        29641236
+      </div>
+    </div>
+       </div>
+
+                <div class="rong">
+
+        <div class="rongqi">
+            <div class="card-header">
+              <!-- Reverted to Mode/Rank Title -->
+              <h3>2v2 八段</h3>
+              <!-- Removed header-score div -->
+            </div>
+            <div class="stats-layout">
+                <div class="secondary-stats">
+            <div class="stats-item">
+                <div>21</div>
+                <div>场次</div>
+            </div>
+            <div class="stats-item">
+                <div>19</div>
+                <div>胜场</div>
+            </div>
+            <div class="stats-item">
+                        <div>90</div>
+                <div>胜率</div>
+            </div>
+                    <div class="stats-item"> <!-- Score Item restored -->
+                <div>1941</div>
+                <div>评分</div>
+            </div>
+            <div class="stats-item">
+                <div>3</div>
+                <div>最佳</div>
+            </div>
+            <div class="stats-item">
+                <div>-</div>
+                <div>周排名</div>
+                    </div>
+            </div>
+        </div>
+         </div>
+
+
+         <div class="rongqi">
+            <div class="card-header">
+               <h3>3v3 十五段</h3>
+                     </div>
+            <div class="stats-layout">
+                <div class="secondary-stats">
+                     <div class="stats-item">
+                         <div>573</div>
+                         <div>场次</div>
+                     </div>
+                     <div class="stats-item">
+                         <div>311</div>
+                         <div>胜场</div>
+                     </div>
+                     <div class="stats-item">
+                        <div>54</div>
+                         <div>胜率</div>
+                     </div>
+                    <div class="stats-item"> <!-- Score Item restored -->
+                         <div>2457</div>
+                         <div>评分</div>
+                     </div>
+                     <div class="stats-item">
+                         <div>30</div>
+                         <div>最佳</div>
+                     </div>
+                     <div class="stats-item">
+                         <div>-</div>
+                         <div>周排名</div>
+                    </div>
+                     </div>
+                 </div>
+                  </div>
+
+             <div class="rongqi">
+            <div class="card-header">
+               <h3>3v3 十五段</h3>
+                    </div>
+            <div class="stats-layout">
+                <div class="secondary-stats">
+                    <div class="stats-item">
+                        <div>573</div>
+                        <div>场次</div>
+                    </div>
+                    <div class="stats-item">
+                        <div>311</div>
+                        <div>胜场</div>
+                    </div>
+                    <div class="stats-item">
+                        <div>54</div>
+                        <div>胜率</div>
+                    </div>
+                    <div class="stats-item"> <!-- Score Item restored -->
+                        <div>2457</div>
+                        <div>评分</div>
+                    </div>
+                    <div class="stats-item">
+                        <div>30</div>
+                        <div>最佳</div>
+                    </div>
+                    <div class="stats-item">
+                        <div>-</div>
+                        <div>周排名</div>
+                    </div>
+                </div>
+                   </div>
+         </div>
+                   </div>
+        <div class="table-header">
+            <span >使用心法</span>
+            <span>比赛模式</span>
+            <span>比赛评分</span>
+            <span>比赛时长</span>
+            <span>结束时间</span>
+            <span>比赛结果</span>
+        </div>
+
+        <div class="match-list">
+            <!-- 这里可以用JavaScript动态生成比赛记录 -->
+
+
+
+       
+
+
+
+            <div id="list" class="match-row win">
+
+
+                <img  class="avatar" src="http://192.168.100.1:5244/img/qiyu/img/云裳心经.png" alt="云裳心经">
+                <span>五段局 (5v5)</span>
+                <span>1782(-11)</span>
+                <span>141秒</span>
+                <span>157天07小时19分钟前</span>
+                <span class="win">失败</span>
+            </div>
+
+
+
+
+
+
+
+
+            <div class="match-row win">
+
+
+                <img class="avatar" src="http://192.168.100.1:5244/img/qiyu/img/云裳心经.png" alt="云裳心经">
+                <span>四段局 (5v5)</span>
+                <span>1758(+7)</span>
+                <span>26秒</span>
+                <span>157天07小时24分钟前</span>
+                <span class="win">胜利</span>
+            </div>
+
+
+
+
+                 <div class="match-row win" >
+
+
+                <img class="avatar" src="http://192.168.100.1:5244/img/qiyu/img/云裳心经.png" alt="云裳心经">
+                <span>五段局 (5v5)</span>
+                <span>1751(-12)</span>
+                <span>56秒</span>
+                <span>157天07小时26分钟前</span>
+                <span>胜利</span>
+            </div>
+
+
+
+
+                 <div class="match-row lose" >
+
+
+                <img class="avatar" src="http://192.168.100.1:5244/img/qiyu/img/云裳心经.png" alt="云裳心经">
+                <span>五段局 (5v5)</span>
+                <span>1763(-10)</span>
+                <span>60秒</span>
+                <span>157天07小时28分钟前</span>
+                <span>失败</span>
+            </div>
+
+        </div>
+   <footer class="footer">
+             <div>【夏鸥】bot:</div>
+            <div>人间最美，不过鲸落，一念百草生，一念山河成。</div>
+        </footer>
+</body>
+</html>

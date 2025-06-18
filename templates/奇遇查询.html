@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8" maximum-scale=1.0, user-scalable=0>
+    <title>用户列表</title>
+
+    <style>
+		.rong {
+
+			height: 30px;
+			display: flex;
+			gap: 13px;
+            
+			margin-left: 85px;
+		}
+		.rongqi {
+
+
+			border: 1px solid #ddd;
+			margin: -2px;
+			border-radius: 20px;
+			width: 23%;
+			font-size: 20px;
+
+		}
+		  .stats {
+					display: flex;
+					justify-content: space-between;
+					padding: 5px 1px;
+					letter-spacing: 2px;
+					text-align: center;
+					line-height: 21px;
+					font-size: 16px;
+		
+				}
+			  .stats-item {
+			            flex: 1;
+			
+			        }	
+        body {
+            width: 800px;
+          
+            
+        }
+  
+        .user-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            padding: 0px;
+        }
+        .user-card {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+        }
+        .user-icon {
+            font-size: 16px;
+            margin-right: 5px;
+        }
+        .user-info {
+            flex-grow: 1;
+			 
+        }
+  
+     
+        .time-info {
+            font-size: 16px;
+            color: #444444;
+            text-align: center;
+			
+        }
+		
+		
+			.divider {
+			  position: relative;
+			  text-align: center;
+			  color: #666;
+			  font-size: 16px;
+			  padding: 10px 0;
+			  width: 55%;
+			  left: 200px;
+			  
+			}
+			 
+			.divider::before,
+			.divider::after {
+			  content: '';
+			  position: absolute;
+			  top: 50%;
+			  width: 360px; /* 可以根据需要调整线的宽度 */
+			  height: 1px; /* 线的高度 */
+			  background: #eee; /* 线的颜色 */
+			  box-shadow: 1 2px 1px rgba(0, 0, 0, 0.5);
+			   
+			}
+			 
+			.divider::before {
+			  left: 0;
+			  transform: translateX(-55%);
+			}
+			 
+			.divider::after {
+			  right: 0;
+			  transform: translateX(55%);
+			}
+        
+		
+		
+		.footer {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-size: 14px;
+        }
+        .user-name img{
+            width: 100%;
+            height: 100%;
+			 
+			 
+			 
+        }
+        .header-image {
+		margin-top: -15px;     
+		margin-bottom: -10px;
+        display: flex;
+        justify-content: center;
+		 gap: 70px;      /* ID */
+		 }
+ 
+      
+      .float-left {
+          float: left;
+		  margin-top: -52px;
+		  margin-left: 190px;
+          margin-right: 0px; /* 可选的间距 */
+      }
+    .header {
+        display: flex;
+        justify-content: space-around;
+        padding: 10px 0;
+      
+    }
+    
+    .header span {
+        display: flex;
+        align-items: center;
+    }
+ 
+    .icon-container {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        margin-right: 8px;
+        position: relative;
+    }
+    
+    .icon-container svg {
+        width: 16px;
+        height: 16px;
+        fill: #7367f0;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+    }
+ 
+    </style>
+</head>
+<body>
+   
+
+ <div class="header">
+     <span><img src="data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAAZABgDASIAAhEBAxEB/8QAFwAAAwEAAAAAAAAAAAAAAAAAAAkKA//EACUQAAICAgIBBAMBAQAAAAAAAAIDBAUBBwYIAAkKERMSFBUXIv/EABcBAQEBAQAAAAAAAAAAAAAAAAMBAAL/xAAgEQEAAgICAQUAAAAAAAAAAAABAhEAEiExQQNRYZHB/9oADAMBAAIRAxEAPwC4Tsr2M1X1N0lz/f8Aui+HjuvddUrbe4lgv9idNbkhRX01PCEhZPubicxFfWwl5wTpLw/MlqFjAmIP3Me+2Vrd7xPTA247pYm5zCZvQr66F4U4z8Qs3B5DhZ8SBmC/4zFzyL9EXfKjuBMcj4z33BfXbYPZH0wt2cd1nEn2/JNfzOPbebx6sW2RPv6HgL5M/kcODESJNmTIlM+ZcJiLwTpGK1iI63SWJUaCOOe4z6pU3pVw+qTNF80kbyhdcs9fF8LXR03+T2EnPEC4bnl8y8zYfZmsmLMryyqRqDtZVs18cBFT82Cn9OBKFkN1nqlpqUU8J23z0VzdtDOSSrbQoRodkeT4PD93V5ZV1j7I6s7b6P4D2A01d/3eA7Cpws6p7AwmdBeBlHsae1jfJZiWlVOU6FPj5zn63pL8SIMiWTxXvt5+vPPuufpiaeotjonV/INg3HKNtIpLASCVRUXN5aJVFAak85OObqyNHsijkIGkp2QYGDwXyeFICUgbBQfcxC0FUUFOP0x3bFg0DU0AYtgEti2DgwYB4yJgYFjIkBDnIkJYzgsZzjOM4z5M5N9tL1nneojjtUdzFR1yKbnYkjrXFrTVFlbZ/p/u4iFOHGIcfWBSPm7fx9A4lPsPioH6aQmgymXw80ZyjeqllNeTKg1ZdNmYxo0eHHREiITFixUqjRo0dYJRHjoAVJQhS8CtSVLEVrWAiAAIiOMDjGPDzbw85y5//9k=" alt="">{{  qufu  }}</span>
+     <span><img src="data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAAYABkDASIAAhEBAxEB/8QAGQAAAwEBAQAAAAAAAAAAAAAAAAkKCAYH/8QAKBAAAAcAAgEDAwUAAAAAAAAAAQIDBAUGBwAICRESEwoUFSQyYZHR/8QAFgEBAQEAAAAAAAAAAAAAAAAAAwEC/8QAIhEBAAICAQQCAwAAAAAAAAAAAQIRACExAxJBYYHwUXGh/9oADAMBAAIRAxEAPwCv/vb5J+rPjyp7Gw77czI2extnK1EzCtthmdCvazZUrYU4GCRMVQWv3iiTNSSdnbsUV1SJCsZUQSMt6Z86dlx2mdftr7SdI9vxvr/vLK2O3d7Ri5SckciKxtysPSh0SJViWAN0rfWwbWT3ILIqtiuCos0JFICrnzR5pOiSfdryXdOYLQn09nOAw3X2/Nr1u7eVharCZ9bnlrdnzxqFksy7OIdT8lZAY/j621cHl5EgGM3TSKHzlXxl3XjtH3d1ztt0J7u+Sa6yvVbx/TTCEmXMhKwdSX2ty/cvjUYlxudheJpOUGbqOZlRcW6QsKrRdZII0/vIksDx6fT7Yq7plO1AjfbHtqy7S79bpwZTmMq4uo68lLd+Pf7DdZazhe95B2WzWA17DL5A6PndmSOeKsledg5aHVQN8btk5IIFXZSLFYBQfMHaaLpquUySyZDB6c9f4ij6d/HNFwbx7oZlqVKnqFbYDbNcIvB2JoZs7PHrWAqkXJNVy+5rKRskyFF2wlo9ZxHyDdQjhq4UTMA8evwphGUojYNDrjVX8N/TFirEUpTjMh9zujnXjvrlKuRdiKmvYYFByeTr0tFyTqGsdSnfhMihPV6Tan/TSDYBAxPuEXLZT2gVZBQnqUZ7cR+ljzut7Ze7D2D7S6Rt2DyU3Dy8Fl7Y0jVZu8hEpnGMT2qfRk3SU3+ABQ7BkECi0NKIgZ6daGIspEcOHLHqTiJGSD/ONn4dHGRhGTaCn3Zw/OVOZ7n1Oyqk1nOc/gmlZpdOiGkFW4FiKotIuKYpgk1aIGXUVWMRMgfuVUOcwiJjGEREedj6B/P9j/vDhzGaz//Z" alt="">{{  id  }}</span>
+    
+ </div>
+ <div class="rong">
+         <div class="rongqi" style=" background-color: #F7F8F9;">
+ 	    <div class="stats">
+             <div class="stats-item">
+                <div><span class="icon-container">
+					<svg viewBox="0 0 24 24">
+						<path d="M21,19V20H3V19L5,17V11C5,7.9 7.03,5.17 10,4.29C10,4.19 10,4.1 10,4A2,2 0 0,1 12,2A2,2 0 0,1 14,4C14,4.1 14,4.19 14,4.29C16.97,5.17 19,7.9 19,11V17L21,19M14,21A2,2 0 0,1 12,23A2,2 0 0,1 10,21" />
+					</svg>
+</span>绝世奇遇 {{jsqiyu}} 番</div>
+             
+             </div>
+          
+         </div>
+          </div>
+ 		 
+ 		  <div class="rongqi" style=" background-color: #F7F8F9;">
+ 		 <div class="stats">
+ 		     <div class="stats-item">
+ 		         <div><span class="icon-container">
+    <svg viewBox="0 0 24 24">
+        <path d="M10,21H14C14,22.1 13.1,23 12,23C10.9,23 10,22.1 10,21M21,19V20H3V19L5,17V11C5,7.9 7.03,5.17 10,4.29C10,4.19 10,4.1 10,4A2,2 0 0,1 12,2A2,2 0 0,1 14,4C14,4.1 14,4.19 14,4.29C16.97,5.17 19,7.9 19,11V17L21,19M17,11A5,5 0 0,0 12,6A5,5 0 0,0 7,11V18H17V11M19.75,3.19L18.33,4.61C20.04,6.3 21,8.6 21,11H23C23,8.07 21.84,5.25 19.75,3.19M1,11H3C3,8.6 3.96,6.3 5.67,4.61L4.25,3.19C2.16,5.25 1,8.07 1,11Z" />
+    </svg>
+</span>普通奇遇  {{ptqiyu}}  番</div>
+ 		       
+ 		     </div>
+		 </div>
+ 		  </div>
+		  <div class="rongqi" style=" background-color: #F7F8F9;">
+		  <div class="stats">
+		      <div class="stats-item">
+		         <div><span class="icon-container">
+					<span class="icon-container">
+						 
+							<svg viewBox="0 0 24 24" style="transform: translate(-50%, -50%) scale(0.9);">
+								<path d="M12,8L10.67,8.09C9.81,7.07 7.4,4.5 5,4.5C5,4.5 3.03,7.46 4.96,11.41C4.41,12.24 4.07,12.67 4,13.66L2.07,13.95L2.28,14.93L4.04,14.67L4.18,15.38L2.61,16.32L3.08,17.21L4.53,16.32C5.68,18.76 8.59,20 12,20C15.41,20 18.32,18.76 19.47,16.32L20.92,17.21L21.39,16.32L19.82,15.38L19.96,14.67L21.72,14.93L21.93,13.95L20,13.66C19.93,12.67 19.59,12.24 19.04,11.41C20.97,7.46 19,4.5 19,4.5C16.6,4.5 14.19,7.07 13.33,8.09L12,8M9,11A1,1 0 0,1 10,12A1,1 0 0,1 9,13A1,1 0 0,1 8,12A1,1 0 0,1 9,11M15,11A1,1 0 0,1 16,12A1,1 0 0,1 15,13A1,1 0 0,1 14,12A1,1 0 0,1 15,11M11,14H13L12.3,15.39C12.5,16.03 13.06,16.5 13.75,16.5A1.5,1.5 0 0,0 15.25,15H15.75A2,2 0 0,1 13.75,17C13,17 12.35,16.59 12,16V16H12C11.65,16.59 11,17 10.25,17A2,2 0 0,1 8.25,15H8.75A1.5,1.5 0 0,0 10.25,16.5C10.94,16.5 11.5,16.03 11.7,15.39L11,14Z" />
+							</svg>
+					 
+					</span>
+</span>宠物奇遇  {{cwqiyu}}  番</div>
+		        
+		      </div>
+		  </div>
+		   </div>
+ 		  <div class="rongqi" style=" background-color: #f6daf6">
+ 		<div class="stats">
+ 		    <div class="stats-item">
+ 		       <div><span class="icon-container">
+			    <svg viewBox="0 0 24 24">
+					<path d="M19,3H5C3.9,3 3,3.9 3,5V19C3,20.1 3.9,21 5,21H19C20.1,21 21,20.1 21,19V5C21,3.9 20.1,3 19,3M9,17H7V10H9V17M13,17H11V7H13V17M17,17H15V13H17V17Z" />
+				</svg>
+</span>总计  {{zcslist}}  番</div>
+ 				
+ 		    </div>
+ 		 
+ 		</div>
+ 		   </div>
+ 		   </div>
+		   
+		   
+		
+		 
+        <div class="user-grid">
+            
+              {% if jsqiyu != 0 %}
+			{% for item in items %}
+			  {% if item.level == 2 %}
+			<div class="user-card">
+			    <div class="user-info">
+			        <div class="user-name">
+
+			       <img  style="width: 224px;height: 100%;"    src="http://127.0.0.1:8000/img/qiyu/qiyu/{{  item.event  }}.png" alt="{{  item.event  }}" >
+					 <img class="float-left" style="width: 64px;height: 100%;"   src="http://127.0.0.1:8000/img/qiyu/qiyu/img/%E7%BB%9D%E4%B8%96%E5%A5%87%E9%81%87.png" >
+
+					 </div>
+
+			        <div class="time-info">
+			            <span class="icon-container">
+    <svg viewBox="0 0 24 24">
+        <path d="M19,19H5V8H19M16,1V3H8V1H6V3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H18V1M17,12H12V17H17V12Z" />
+    </svg>
+</span>
+			
+			            {{item.time | timejjc}}<br>
+			            {{item.time | time}}
+			        </div>
+			    </div>
+			</div>  {% endif %}
+                {% endfor %}
+			     {% endif %}
+
+			   {% if ptqiyu != 0 %}
+			{% for item in items %}
+			  {% if item.level == 1 %}
+				<div class="user-card">
+                <div class="user-info">
+                    <div class="user-name">
+
+                    <img  style="width: 224px;height: 100%;"    src="http://127.0.0.1:8000/img/qiyu/qiyu/{{  item.event  }}.png" alt="{{  item.event  }}" >
+                    <div class="float-left" style="width: 64px;height: 100%;"  > </div>
+					 </div>
+
+                    <div class="time-info">
+                      <span class="icon-container">
+    <svg viewBox="0 0 24 24">
+        <path d="M19,19H5V8H19M16,1V3H8V1H6V3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H18V1M17,12H12V17H17V12Z" />
+    </svg>
+</span>
+
+                        {{item.time | timejjc}}<br>
+                        {{item.time | time}}
+                    </div>
+                </div>
+			</div>
+               {% endif %}
+                {% endfor %}
+			     {% endif %}
+            
+			
+			
+        </div>
+
+        <div class="divider">
+             <span class="icon-container">
+				<svg viewBox="0 0 24 24" >
+					<path d="M12,8L10.67,8.09C9.81,7.07 7.4,4.5 5,4.5C5,4.5 3.03,7.46 4.96,11.41C4.41,12.24 4.07,12.67 4,13.66L2.07,13.95L2.28,14.93L4.04,14.67L4.18,15.38L2.61,16.32L3.08,17.21L4.53,16.32C5.68,18.76 8.59,20 12,20C15.41,20 18.32,18.76 19.47,16.32L20.92,17.21L21.39,16.32L19.82,15.38L19.96,14.67L21.72,14.93L21.93,13.95L20,13.66C19.93,12.67 19.59,12.24 19.04,11.41C20.97,7.46 19,4.5 19,4.5C16.6,4.5 14.19,7.07 13.33,8.09L12,8M9,11A1,1 0 0,1 10,12A1,1 0 0,1 9,13A1,1 0 0,1 8,12A1,1 0 0,1 9,11M15,11A1,1 0 0,1 16,12A1,1 0 0,1 15,13A1,1 0 0,1 14,12A1,1 0 0,1 15,11M11,14H13L12.3,15.39C12.5,16.03 13.06,16.5 13.75,16.5A1.5,1.5 0 0,0 15.25,15H15.75A2,2 0 0,1 13.75,17C13,17 12.35,16.59 12,16V16H12C11.65,16.59 11,17 10.25,17A2,2 0 0,1 8.25,15H8.75A1.5,1.5 0 0,0 10.25,16.5C10.94,16.5 11.5,16.03 11.7,15.39L11,14Z" />
+				</svg>
+</span> 宠物奇遇   
+        </div>
+
+        <div class="user-grid">
+            <!-- 历史用户卡片 -->
+				   {% if cwqiyu != 0 %}
+			{% for item in items %}
+			  {% if item.level == 3 %}
+			<div class="user-card">
+			    <div class="user-info">
+			        <div class="user-name">
+			
+                    <img  style="width: 224px;height: 100%;"    src="http://127.0.0.1:8000/img/qiyu/qiyu/{{  item.event  }}.png" alt="{{  item.event  }}" >
+					<div class="float-left" style="width: 64px;height: 100%;"  > </div>
+
+
+					 												
+					 </div>
+					
+			        <div class="time-info">
+			            <span class="icon-container" >
+    <svg viewBox="0 0 24 24"  >
+        <path d="M19,19H5V8H19M16,1V3H8V1H6V3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H18V1M17,12H12V17H17V12Z" />
+    </svg>
+</span>
+
+			             {{item.time | timejjc}}<br>
+			             {{item.time | time}}
+			        </div>
+			    </div>
+			</div>
+			    {% endif %}
+                {% endfor %}
+			     {% endif %}
+			
+            
+
+        </div>
+
+        <footer class="footer">
+             <div>【夏鸥】bot:</div>
+            <div>{{text}}</div>
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>烟花记录</title>
+    <style>
+        /* 全局宽度变量 */
+        :root {
+          --global-width: min(100%, 1100px); /* 修改为限制最大宽度 */
+        }
+        
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            /* 背景渐变，类似图片 */
+            background: linear-gradient(to bottom, #87CEEB, #4682B4);
+            padding: 30px; /* 页面边距 */
+            min-height: 100vh;
+            box-sizing: border-box;
+            display: flex; /* 添加弹性布局 */
+            flex-direction: column;
+            align-items: center; /* 使内容居中 */
+        }
+
+/* 新增的顶部信息区域样式 */
+.top-info-section {
+  background-color: rgba(255, 255, 255, 0.9);
+  padding: clamp(0.5rem, 1vw, 0rem);
+  margin-bottom: clamp(1rem, 2vw, 1.5rem);
+  border-radius: clamp(0.5rem, 1vw, 0.8rem);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  flex-wrap: wrap;
+  max-width: 1100px;
+  width: var(--global-width);
+  margin-left: auto;
+  margin-right: auto;
+  gap: 1rem;
+  box-sizing: border-box;
+}
+
+        .info-item {
+            display: flex;
+            /* 改回垂直排列 */
+            flex-direction: column;
+            align-items: center; /* 居中对齐 */
+            text-align: center;
+            /* 恢复一些外边距 */
+            margin: 5px 10px;
+        }
+
+        .info-title {
+            display: flex;
+            align-items: center;
+            /* 稍微增大字体大小 */
+            font-size: 0.95em;
+            font-weight: 500;
+            color: #333;
+            /* 恢复底部外边距 */
+            margin-bottom: 4px;
+        }
+
+        .info-title svg { /* 稍微增大 SVG 图标样式 */
+            width: 15px;
+            height: 15px;
+            margin-right: 5px;
+            fill: #555; /* 图标颜色 */
+        }
+
+        .info-data {
+            /* 稍微增大字体大小，移除左边距 */
+            font-size: 0.9em;
+            color: #555;
+            margin-left: 0;
+        }
+
+        /* 恢复原始样式 */
+        .table-header {
+          background-color: rgba(255, 255, 255, 0.9); /* 半透明白色背景 */
+          padding: 10px 15px; /* 减小左右内边距与数据行匹配 */
+          margin-bottom: 10px; /* 减小底部间距与列表匹配 */
+          border-radius: 10px; 
+          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+          display: flex;
+          justify-content: flex-start; /* 改为从左开始排列 */
+          align-items: center;
+          max-width: 1100px; /* 修改为与其他容器一致的最大宽度 */
+          width: var(--global-width);
+          margin-left: auto;
+          margin-right: auto;
+          text-align: center;
+          font-size: 18px;
+          font-weight: 600;
+          color: #333;
+          box-sizing: border-box; /* 添加box-sizing确保宽度计算包含padding */
+        }
+
+        .table-header div {
+            /* 使用与数据行完全相同的宽度 */
+            text-align: center;
+            white-space: nowrap; /* 防止文本换行 */
+            overflow: hidden; /* 防止溢出 */
+            text-overflow: ellipsis; /* 溢出时显示省略号 */
+        }
+        
+        /* 确保表头和数据行的各列宽度一致 */
+        .table-header div:nth-child(1),
+        .match-row div:nth-child(1),
+        .match-new div:nth-child(1) {
+            width: 7%;
+        }
+        
+        .table-header div:nth-child(2),
+        .match-row div:nth-child(2),
+        .match-new div:nth-child(2) {
+            width: 20%;
+        }
+        
+        .table-header div:nth-child(3),
+        .match-row div:nth-child(3),
+        .match-new div:nth-child(3) {
+            width: 20%;
+        }
+        
+        .table-header div:nth-child(4),
+        .match-row div:nth-child(4),
+        .match-new div:nth-child(4) {
+            width: 23%;
+        }
+        
+        .table-header div:nth-child(5),
+        .match-row div:nth-child(5),
+        .match-new div:nth-child(5) {
+            width: 10%;
+        }
+        
+        .table-header div:nth-child(6),
+        .match-row div:nth-child(6),
+        .match-new div:nth-child(6) {
+            width: 20%;
+        }
+
+        .match-row, .match-new {
+            background-color: rgba(255, 255, 255, 0.9); /* 半透明白色背景 */
+            padding: 10px 15px; /* 减小左右内边距与表头匹配 */
+            margin-bottom: 10px;
+            border-radius: 10px; 
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+            display: flex;
+            justify-content: flex-start; /* 改为从左开始排列 */
+            align-items: center;
+            text-align: center;
+            font-size: 18px; /* 调整与表头一致 */
+            transition: transform 0.2s ease-in-out; /* 添加悬停效果 */
+        }
+
+        .match-row:hover, .match-new:hover {
+            transform: translateY(-5px); /* 悬停时轻微上移 */
+        }
+
+        .match-new {
+            background-color: rgba(246, 218, 246, 0.9); /* 半透明粉色背景 */
+        }
+
+        .footer {
+            margin-top: 20px;
+            text-align: center;
+            color: #fff;
+            font-size: 16px;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+
+        /* 确保表头和列表容器使用相同宽度 */
+        .match-list {
+            width: var(--global-width); /* 使用全局变量控制宽度 */
+            margin-left: auto;
+            margin-right: auto;
+            margin-bottom: 5px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+  <!-- 顶部信息区域 -->
+  <div class="top-info-section">
+    <div class="info-item">
+      <div class="info-title">
+        <!-- 地点图标 (SVG 示例) -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"> <path d="M215.7 499.2C267 435 384 279.4 384 192C384 86 298 0 192 0S0 86 0 192c0 87.4 117 243 168.3 307.2c12.3 15.3 35.1 15.3 47.4 0zM192 128a64 64 0 1 1 0 128 64 64 0 1 1 0-128z"/> </svg>
+        梦江南
+      </div>
+      <div class="info-data">送出: {{ csid }}个</div>
+    </div>
+    <div class="info-item">
+      <div class="info-title">
+        <!-- 资历图标 (SVG 示例) -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"> <path d="M256 0c17.7 0 32 14.3 32 32V66.7C360.2 82.2 416 131.2 416 192c0 53-34.3 97.7-80.5 114.4c-6.3 2.3-12.4 4.9-18.1 7.9c-5.7 3-11.1 6.3-15.8 10.2c-4.7 3.8-8.8 8.2-12.1 13s-5.7 10.2-7.4 15.9c-1.7 5.7-2.6 11.8-2.6 18.1s.9 12.4 2.6 18.1c1.7 5.7 4.1 11.1 7.4 15.9s7.4 9.1 12.1 13c4.7 3.8 9.7 7.2 15.8 10.2c5.7 3 11.8 5.6 18.1 7.9C381.7 414.3 416 459 416 512H96c0-53 34.3-97.7 80.5-114.4c6.3-2.3 12.4-4.9 18.1-7.9c5.7-3 11.1-6.3 15.8-10.2c4.7-3.8 8.8-8.2 12.1-13s5.7-10.2 7.4-15.9c1.7-5.7 2.6-11.8 2.6-18.1s-.9-12.4-2.6-18.1c-1.7-5.7-4.1-11.1-7.4-15.9s-7.4-9.1-12.1-13c-4.7-3.8-9.7-7.2-15.8-10.2c-5.7-3-11.8-5.6-18.1-7.9C130.3 289.7 96 245 96 192c0-60.8 55.8-109.8 128-125.3V32c0-17.7 14.3-32 32-32z"/> </svg>
+
+        {{ id }}
+      </div>
+      <div class="info-data">收到: {{ jieshou }}个</div>
+    </div>
+    <div class="info-item">
+      <div class="info-title">
+        <!-- 成就图标 (SVG 示例) -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"> <path d="M384 160c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32s-14.3 32-32 32zm0 160c-17.7 0-32-14.3-32-32s14.3-32 32-32s32 14.3 32 32s-14.3 32-32 32zm-170.5 96C469.7 416 576 319.6 576 192C576 64.4 469.7 -32 191.5 37.5C186 39.9 181.3 42 176 44.4V160c0 17.7-14.3 32-32 32s-32-14.3-32-32V44.4C87.7 42 64 64.3 64 96v54.4c0 10.8 4.2 20.9 11.7 28.5l96 96c11.7 11.7 11.7 30.7 0 42.4s-30.7 11.7-42.4 0l-96-96C22.3 307.7 16 292.2 16 276.5V96C16 43 59 0 112 0c33.1 0 63.1 13.6 85.1 36.1C244.1 13.6 274.1 0 307.2 0C425.2 0 512 68.1 512 153.6c0 51.1-36.9 98.6-87.1 121.7c-14.5 6.6-30.8 10.3-47.9 12.3v5.8c14.1 2.1 27.7 5.2 40.4 9.2c-1.4 7.4-2.8 14.8-4.2 22.2c-16.3-4.5-33.3-8-50.7-10.3c-30.3-4-61.1-6.1-92.5-6.1s-62.2 2.1-92.5 6.1c-17.5 2.3-34.4 5.8-50.7 10.3c-1.4-7.4-2.8-14.8-4.2-22.2c12.8-4 26.3-7.1 40.4-9.2v-5.8c-17.1-2-33.4-5.6-47.9-12.3C400.9 252.2 364 204.8 364 153.6c0-44.8 42.1-85.7 100.2-107.7C436.9 24.4 403.1 16 368 16c-28.5 0-55.6 6.9-79.8 19.5C257.7 60.6 240 89.2 240 121.6c0 26.3 11.5 50.7 30.5 68.1l1.5 1.4c1.8 1.7 3.6 3.4 5.4 5.1C248.8 220.7 224 250.7 224 288c0 8.6 1.4 16.9 3.9 24.7C200.7 305 176 285.1 176 256c0-16.1 6.4-31.3 17.6-42.4L289.4 118c1.1-1.1 2.1-2.2 3.2-3.4c17-19.2 27.4-43.8 27.4-70.6z"/> </svg>
+
+        总计
+      </div>
+      <div class="info-data">&nbsp;&nbsp;&nbsp;&nbsp;{{ zcslist }}个</div>
+    </div>
+  </div>
+   <div class="match-list">
+        <div class="table-header">
+            <div style="width: 7%; " >序号</div>
+             <div style="width: 20%;">赠送</div>
+            <div style="width: 20%;">接收</div>
+            <div style="width: 23%;">地图</div>
+             <div style="width: 10%;">烟花</div>
+            <div style="width: 20%;">时间</div>
+        </div>
+
+
+
+     </div>
+        {% for item in items %}
+        <div class="match-list">
+            <!-- 这里可以用JavaScript动态生成比赛记录 -->
+              {% if item.sender == id %}
+			   <div  class="match-row" >
+				{% else %}
+			  <div  class="match-new" >
+				{% endif %}
+         	<div style="width: 7%;">{{ loop.index }}</div>
+				<div style="width: 20%;">{{ item.sender }}</div>
+				<div style="width: 20%;">{{ item.receive }}</div>
+				<div style="width: 23%;">{{ item.map_name }}</div>
+				 <div style="width: 10%;">{{ item.name }}</div>
+				<div style="width: 20%;"> {{ item.time | time }}</div>
+           </div>
+         <!-- 这里可以用JavaScript动态生成比赛记录 -->
+                 {% endfor %}
+
+
+
+
+
+
+
+
+
+
+
+
+   </div>
+
+ <footer class="footer">
+             <div>【夏鸥】bot:</div>
+            <div>{{text}}</div>
+        </footer>
+
+</body>
+</html>

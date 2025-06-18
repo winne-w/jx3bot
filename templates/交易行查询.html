@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>对战记录</title>
+    <style>
+
+		.rong {
+			 
+			height: 60px; 
+			padding-left: 5px; /* 左内边距20px */
+			padding-right: 5px; /* 右内边距25px */
+		    display: flex;
+		}
+        .rongqi {
+            
+            border: 1px solid #ddd;
+            padding: 0px;
+            margin: 5px;
+            border-radius: 5px;
+			width: 100%;
+			 
+			padding-left: 5px; /* 左内边距20px */
+			padding-right: 5px; /* 右内边距25px */
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 0;
+          
+        }
+        
+        .header span {
+            display: flex;
+            align-items: center;
+        }
+
+        .header img {
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 1px;
+			letter-spacing: 2px; 
+            text-align: center;
+			line-height: 21px;
+			font-size: 14px;
+			 
+        }
+        
+        .stats-item {
+            flex: 1;
+			 
+        }
+        
+        .table-header {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #6666;
+            text-align: center;
+			
+        }
+        
+        .table-header span {
+            flex: 1;
+        }
+        
+        .match-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 7px 0;
+			 
+            border-bottom: 1px solid #f5f5f5;
+            text-align: center;
+        }
+        
+        .match-row span {
+            flex: 1;
+        }
+        
+        .match-row img {
+            width: 40px;
+            height: 40px;
+            object-fit: cover;
+            margin: 0 7.4%;
+        }
+        
+        .win span {
+			white-space: nowrap;
+            color: #000000;
+        }
+        
+        .lose span {
+            color: #dc3545;
+        }
+ 
+        
+        .footer {
+            text-align: center;
+            color: #999;
+            padding: 20px 0;
+	    		
+        }
+				.img img{
+			height: 14px;
+			width: 14px;
+			 display: inline-block;
+			  margin: 0px;
+			  margin-left: 5px;
+		}
+
+    </style>
+	<style type="text/css">
+		.jinger{
+			 height: 14px;
+			 width: 14px;
+			 margin-left: 5px; 
+			 display: inline-block;
+			 margin: 0px; 
+			 margin-left: 5px;
+			
+		}	
+	</style>
+</head>
+<body>
+  
+        <div class="header">
+            <span><img src="data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAAZABgDASIAAhEBAxEB/8QAFwAAAwEAAAAAAAAAAAAAAAAAAAkKA//EACUQAAICAgIBBAMBAQAAAAAAAAIDBAUBBwYIAAkKERMSFBUXIv/EABcBAQEBAQAAAAAAAAAAAAAAAAMBAAL/xAAgEQEAAgICAQUAAAAAAAAAAAABAhEAEiExQQNRYZHB/9oADAMBAAIRAxEAPwC4Tsr2M1X1N0lz/f8Aui+HjuvddUrbe4lgv9idNbkhRX01PCEhZPubicxFfWwl5wTpLw/MlqFjAmIP3Me+2Vrd7xPTA247pYm5zCZvQr66F4U4z8Qs3B5DhZ8SBmC/4zFzyL9EXfKjuBMcj4z33BfXbYPZH0wt2cd1nEn2/JNfzOPbebx6sW2RPv6HgL5M/kcODESJNmTIlM+ZcJiLwTpGK1iI63SWJUaCOOe4z6pU3pVw+qTNF80kbyhdcs9fF8LXR03+T2EnPEC4bnl8y8zYfZmsmLMryyqRqDtZVs18cBFT82Cn9OBKFkN1nqlpqUU8J23z0VzdtDOSSrbQoRodkeT4PD93V5ZV1j7I6s7b6P4D2A01d/3eA7Cpws6p7AwmdBeBlHsae1jfJZiWlVOU6FPj5zn63pL8SIMiWTxXvt5+vPPuufpiaeotjonV/INg3HKNtIpLASCVRUXN5aJVFAak85OObqyNHsijkIGkp2QYGDwXyeFICUgbBQfcxC0FUUFOP0x3bFg0DU0AYtgEti2DgwYB4yJgYFjIkBDnIkJYzgsZzjOM4z5M5N9tL1nneojjtUdzFR1yKbnYkjrXFrTVFlbZ/p/u4iFOHGIcfWBSPm7fx9A4lPsPioH6aQmgymXw80ZyjeqllNeTKg1ZdNmYxo0eHHREiITFixUqjRo0dYJRHjoAVJQhS8CtSVLEVrWAiAAIiOMDjGPDzbw85y5//9k=" alt="">{{qufu}}</span>
+            <span><img src="data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAAYABkDASIAAhEBAxEB/8QAGQAAAwEBAQAAAAAAAAAAAAAAAAkKCAYH/8QAKBAAAAcAAgEDAwUAAAAAAAAAAQIDBAUGBwAICRESEwoUFSQyYZHR/8QAFgEBAQEAAAAAAAAAAAAAAAAAAwEC/8QAIhEBAAICAQQCAwAAAAAAAAAAAQIRACExAxJBYYHwUXGh/9oADAMBAAIRAxEAPwCv/vb5J+rPjyp7Gw77czI2extnK1EzCtthmdCvazZUrYU4GCRMVQWv3iiTNSSdnbsUV1SJCsZUQSMt6Z86dlx2mdftr7SdI9vxvr/vLK2O3d7Ri5SckciKxtysPSh0SJViWAN0rfWwbWT3ILIqtiuCos0JFICrnzR5pOiSfdryXdOYLQn09nOAw3X2/Nr1u7eVharCZ9bnlrdnzxqFksy7OIdT8lZAY/j621cHl5EgGM3TSKHzlXxl3XjtH3d1ztt0J7u+Sa6yvVbx/TTCEmXMhKwdSX2ty/cvjUYlxudheJpOUGbqOZlRcW6QsKrRdZII0/vIksDx6fT7Yq7plO1AjfbHtqy7S79bpwZTmMq4uo68lLd+Pf7DdZazhe95B2WzWA17DL5A6PndmSOeKsledg5aHVQN8btk5IIFXZSLFYBQfMHaaLpquUySyZDB6c9f4ij6d/HNFwbx7oZlqVKnqFbYDbNcIvB2JoZs7PHrWAqkXJNVy+5rKRskyFF2wlo9ZxHyDdQjhq4UTMA8evwphGUojYNDrjVX8N/TFirEUpTjMh9zujnXjvrlKuRdiKmvYYFByeTr0tFyTqGsdSnfhMihPV6Tan/TSDYBAxPuEXLZT2gVZBQnqUZ7cR+ljzut7Ze7D2D7S6Rt2DyU3Dy8Fl7Y0jVZu8hEpnGMT2qfRk3SU3+ABQ7BkECi0NKIgZ6daGIspEcOHLHqTiJGSD/ONn4dHGRhGTaCn3Zw/OVOZ7n1Oyqk1nOc/gmlZpdOiGkFW4FiKotIuKYpgk1aIGXUVWMRMgfuVUOcwiJjGEREedj6B/P9j/vDhzGaz//Z" alt="">{{mz}}</span>
+           
+        </div>
+ {% if newxs.LowestPrice %}
+<div class="rong">
+        <div class="rongqi" style=" background-color: #A3E4D7;">
+	    <div class="stats">
+            <div class="stats-item">
+                <div>昨日最低价格:</div>
+            <div>{{ newxs.LowestPrice | timego }}</div>
+
+            </div>
+
+        </div>
+         </div>
+
+		  <div class="rongqi" style=" background-color: #ABEBC6;">
+		 <div class="stats">
+		     <div class="stats-item">
+		         <div>昨日平均价格:</div>
+		       <div>{{ newxs.AvgPrice | timego }}</div>
+
+		     </div>
+
+		 </div>
+		  </div>
+		  <div class="rongqi" style=" background-color: #AED6F1;">
+		<div class="stats">
+		    <div class="stats-item">
+		        <div>昨日最高价格:</div>
+				<div> {{ newxs.HighestPrice | timego }}</div>
+
+		    </div>
+
+		</div>
+		   </div>
+		   </div>
+{% endif %}
+	 
+        <div class="table-header">
+            <span style="margin-left: -7px;">图鉴</span>
+            <span style="margin-left: -15px;">名称</span>
+            <span>价格</span>
+            <span>数量</span>
+            <span>更新时间</span>
+            
+        </div>
+        
+        <div class="match-list">
+            <!-- 这里可以用JavaScript动态生成比赛记录 -->
+             {% if newpm %}
+			 {% for newp in newpm %}
+            <div  class="match-row win">
+                <img style="clip-path:inset(2px)" src="{{  ico  }}" alt="图鉴">
+                <span>{{mz}}</span>
+                <span class="img">{{ newp.unit_price | timego }}</span>
+                <span>  {{ newp.n_count }}</span>
+                <span>{{ newp.created | time }}</span>
+            </div>
+             {% endfor %}
+             {% endif %}
+			 
+	 
+			
+        
+    
+        </div>
+        
+    <footer class="footer">
+            <div>【夏鸥】bot:</div>
+            <div>{{Desc}}</div>
+        </footer>
+	
+</body>
+</html>
