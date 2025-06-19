@@ -19,7 +19,7 @@ except ImportError:
       GROUP_CONFIG_FILE = "groups.json"
 
 # 服务器地址
-BASE_URL = "https://music.xohome.cn:88"
+BASE_URL = "https://music.xxxxx.cn:88"
 ADMIN_USERNAME = "useradmin"  # 管理员用户名
 ADMIN_PASSWORD = "useradmin"  # 管理员密码
 # 初始化
