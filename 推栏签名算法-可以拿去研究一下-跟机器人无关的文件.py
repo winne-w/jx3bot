@@ -11,7 +11,7 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 
 # 配置参数 - 修改这里控制显示数量
 PERSON_ID = "ce6357408d204997abb10c7d92e44fc0"
-SIZE = 100  # 每页显示的记录数量，可以设置为5-50之间的值
+SIZE = 50  # 每页显示的记录数量，可以设置为5-50之间的值
 CURSOR = 0  # 起始位置，0表示第一页
 
 
