@@ -10,6 +10,8 @@ import aiohttp
 import json
 import sys
 import argparse
+import os
+import time
 from typing import Optional
 
 # 导入配置文件
@@ -106,6 +108,31 @@ async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
     if ticket is None:
         ticket = TICKET
     
+    # 缓存配置
+    cache_dir = "data/cache"
+    cache_file = os.path.join(cache_dir, "jjc_ranking_cache.json")
+    cache_duration = 20 * 60  # 20分钟，单位秒
+    
+    # 创建缓存目录
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    # 检查缓存是否存在且有效
+    if os.path.exists(cache_file):
+        try:
+            file_time = os.path.getmtime(cache_file)
+            current_time = time.time()
+            
+            # 检查缓存是否在20分钟内
+            if current_time - file_time < cache_duration:
+                print("从缓存中读取竞技场排行榜数据")
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cached_data = json.load(f)
+                return cached_data
+            else:
+                print("缓存已过期，重新请求数据")
+        except Exception as e:
+            print(f"读取缓存文件失败: {e}")
+    
     # API接口地址
     url = "https://www.jx3api.com/data/arena/awesome"
     
@@ -161,12 +188,21 @@ async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
                 "msg": "success",
                 "data": all_data,
                 "total_count": len(all_data),
-                "second_request_time": second_response_time
+                "second_request_time": second_response_time,
+                "cache_time": time.time()
             }
             
             print(f"合并完成，总共获取到 {len(all_data)} 条排行榜数据")
             if second_response_time:
                 print(f"第二次请求时间戳: {second_response_time}")
+            
+            # 保存到缓存
+            try:
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    json.dump(result, f, ensure_ascii=False, indent=2)
+                print(f"数据已缓存到: {cache_file}")
+            except Exception as e:
+                print(f"保存缓存失败: {e}")
             
             return result
                     
