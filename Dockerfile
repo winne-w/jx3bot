@@ -1,6 +1,16 @@
 FROM python:3.9-slim
 
 WORKDIR /app
+# 替换 Debian 源为清华镜像
+RUN echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian bullseye main contrib non-free\n\
+deb https://mirrors.tuna.tsinghua.edu.cn/debian bullseye-updates main contrib non-free\n\
+deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bullseye-security main contrib non-free" \
+> /etc/apt/sources.list
+
+RUN mkdir -p /root/.pip && \
+    echo "[global]\nindex-url = https://pypi.tuna.tsinghua.edu.cn/simple" > /root/.pip/pip.conf
+
+
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -50,4 +60,4 @@ ENV ENVIRONMENT=prod
 EXPOSE 5288 8000
 
 # 启动命令
-CMD ["/app/start.sh"] 
+CMD ["/app/start.sh"]
