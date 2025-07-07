@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>竞技场心法排名统计</title>
+    <style>
+        :root {
+            --main-bg: linear-gradient(150deg, #a8edea 0%, #fed6e3 100%);
+            --yanhua-gradient: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);
+            --card-bg: rgba(255,255,255,0.9);
+            --text-primary: #2c3e50;
+            --accent-blue: #89C4F4;
+            --accent-pink: #FF79B0;
+            --shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+            --global-width: 100%;
+        }
+        body {
+            background: var(--yanhua-gradient);
+            font-family: 'Microsoft YaHei', sans-serif;
+            color: var(--text-primary);
+            padding: 1rem 1rem;
+            min-height: 100vh;
+        }
+        .main-title {
+            text-align: center;
+            font-size: 2rem;
+            font-weight: bold;
+            margin: 1.5rem 0 1rem 0;
+            background: linear-gradient(45deg, var(--accent-blue), var(--accent-pink));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .desc {
+            text-align: center;
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        .rank-section {
+            max-width: 1100px;
+            margin: 0 auto 2.5rem auto;
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            padding: 2rem 1rem 1.5rem 1rem;
+        }
+        .rank-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 1.2rem;
+            color: #2c3e50;
+            border-left: 5px solid var(--accent-blue);
+            padding-left: 0.7rem;
+        }
+        .rank-flex {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            justify-content: space-between;
+        }
+        .rank-table {
+            flex: 1 1 350px;
+            min-width: 320px;
+            background: rgba(137,196,244,0.07);
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(137,196,244,0.08);
+            margin-bottom: 1.5rem;
+            padding: 1.2rem 1rem 1rem 1rem;
+        }
+        .rank-table-title {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 0.7rem;
+            color: #455e77;
+            text-align: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 0.5rem;
+        }
+        th, td {
+            padding: 0.5rem 0.3rem;
+            text-align: left;
+        }
+        th {
+            background: linear-gradient(90deg, #89C4F4 0%, #7BEDFF 100%);
+            color: #fff;
+            font-weight: 500;
+            border-radius: 6px 6px 0 0;
+        }
+        tr:nth-child(even) td {
+            background: rgba(137,196,244,0.05);
+        }
+        tr:hover td {
+            background: rgba(137,196,244,0.13);
+        }
+        .percent-bar {
+            display: inline-block;
+            height: 12px;
+            border-radius: 6px;
+            background: linear-gradient(90deg, #89C4F4 0%, #FF79B0 100%);
+            vertical-align: middle;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #fff;
+            font-size: 16px;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+        @media (max-width: 900px) {
+            .rank-flex {
+                flex-direction: column;
+                gap: 1.2rem;
+            }
+            .rank-table {
+                min-width: unset;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-title">竞技场心法排名统计</div>
+    <div class="desc">支持前200、前100、前50 奶妈与DPS心法分布展示</div>
+
+    <!-- 前200 -->
+    <div class="rank-section">
+        <div class="rank-title">前200排名分布</div>
+        <div class="rank-flex">
+            <div class="rank-table">
+                <div class="rank-table-title">奶妈心法</div>
+                <table>
+                    <thead>
+                        <tr><th>心法</th><th>人数</th><th>占比</th><th>可视化</th></tr>
+                    </thead>
+                    <tbody id="healer-200">
+                        <!-- 数据填充 -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="rank-table">
+                <div class="rank-table-title">DPS心法</div>
+                <table>
+                    <thead>
+                        <tr><th>心法</th><th>人数</th><th>占比</th><th>可视化</th></tr>
+                    </thead>
+                    <tbody id="dps-200">
+                        <!-- 数据填充 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 前100 -->
+    <div class="rank-section">
+        <div class="rank-title">前100排名分布</div>
+        <div class="rank-flex">
+            <div class="rank-table">
+                <div class="rank-table-title">奶妈心法</div>
+                <table>
+                    <thead>
+                        <tr><th>心法</th><th>人数</th><th>占比</th><th>可视化</th></tr>
+                    </thead>
+                    <tbody id="healer-100">
+                        <!-- 数据填充 -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="rank-table">
+                <div class="rank-table-title">DPS心法</div>
+                <table>
+                    <thead>
+                        <tr><th>心法</th><th>人数</th><th>占比</th><th>可视化</th></tr>
+                    </thead>
+                    <tbody id="dps-100">
+                        <!-- 数据填充 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 前50 -->
+    <div class="rank-section">
+        <div class="rank-title">前50排名分布</div>
+        <div class="rank-flex">
+            <div class="rank-table">
+                <div class="rank-table-title">奶妈心法</div>
+                <table>
+                    <thead>
+                        <tr><th>心法</th><th>人数</th><th>占比</th><th>可视化</th></tr>
+                    </thead>
+                    <tbody id="healer-50">
+                        <!-- 数据填充 -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="rank-table">
+                <div class="rank-table-title">DPS心法</div>
+                <table>
+                    <thead>
+                        <tr><th>心法</th><th>人数</th><th>占比</th><th>可视化</th></tr>
+                    </thead>
+                    <tbody id="dps-50">
+                        <!-- 数据填充 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div>【夏鸥】bot:</div>
+        <div>人间最美，不过鲸落，一念百草生，一念山河成。</div>
+    </footer>
+
+    <!-- 数据渲染脚本（示例数据，实际请用后端模板或JS渲染） -->
+    <script>
+    // 示例数据结构，实际请用后端渲染或ajax填充
+    const data = {
+        top_200: {
+            healer: [
+                // [心法, 人数, 占比]
+                ["离经易道", 4, "40%"],
+                ["补天诀", 2, "20%"],
+            ],
+            dps: [
+                ["紫霞功", 23, "11.5%"],
+                ["花间游", 11, "5.5%"],
+            ]
+        },
+        top_100: {
+            healer: [
+                ["离经易道", 2, "20%"],
+                ["补天诀", 1, "10%"],
+            ],
+            dps: [
+                ["紫霞功", 12, "12%"],
+                ["花间游", 6, "6%"],
+            ]
+        },
+        top_50: {
+            healer: [
+                ["离经易道", 1, "10%"],
+            ],
+            dps: [
+                ["紫霞功", 6, "12%"],
+            ]
+        }
+    };
+    function renderTable(tbodyId, arr) {
+        const tbody = document.getElementById(tbodyId);
+        tbody.innerHTML = '';
+        let max = 0;
+        arr.forEach(row => { if(row[1] > max) max = row[1]; });
+        arr.forEach(([xf, num, percent]) => {
+            const barWidth = max ? (num / max * 90) : 0;
+            tbody.innerHTML += `<tr><td>${xf}</td><td>${num}</td><td>${percent}</td><td><span class='percent-bar' style='width:${barWidth}%'></span></td></tr>`;
+        });
+    }
+    renderTable('healer-200', data.top_200.healer);
+    renderTable('dps-200', data.top_200.dps);
+    renderTable('healer-100', data.top_100.healer);
+    renderTable('dps-100', data.top_100.dps);
+    renderTable('healer-50', data.top_50.healer);
+    renderTable('dps-50', data.top_50.dps);
+    </script>
+</body>
+</html> 
