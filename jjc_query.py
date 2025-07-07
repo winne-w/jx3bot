@@ -378,6 +378,13 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     # 定义奶妈心法列表
     healer_kuangfu = ["离经易道", "补天诀", "云裳心经", "灵素", "相知"]
     
+    # 定义所有DPS心法列表
+    dps_kuangfu = [
+        "紫霞功", "周天功", "冰心诀", "花间游", "太虚剑意", "傲血战意", "凌海诀", 
+        "北傲诀", "莫问", "惊羽诀", "笑尘诀", "隐龙诀", "焚影圣诀", "太玄经", 
+        "分山劲", "山居剑意", "毒经", "无方", "山海心诀", "孤锋诀", "易筋经", "天罗诡道"
+    ]
+    
     # 统计各个排名段的kuangfu数量
     def count_kuangfu_by_rank(kuangfu_data, max_rank):
         """统计指定排名范围内的kuangfu数量，区分奶妈和DPS"""
@@ -385,6 +392,16 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         dps_count = {}
         healer_valid_count = 0
         dps_valid_count = 0
+        
+        # 记录每个kuangfu第一次出现的排名
+        healer_first_rank = {}
+        dps_first_rank = {}
+        
+        # 初始化所有心法计数为0
+        for kuangfu in healer_kuangfu:
+            healer_count[kuangfu] = 0
+        for kuangfu in dps_kuangfu:
+            dps_count[kuangfu] = 0
         
         for i, player_data in enumerate(kuangfu_data[:max_rank]):
             if player_data.get("found") and player_data.get("kuangfu"):
@@ -394,13 +411,27 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
                 if kuangfu in healer_kuangfu:
                     healer_count[kuangfu] = healer_count.get(kuangfu, 0) + 1
                     healer_valid_count += 1
-                else:
+                    # 记录第一次出现的排名
+                    if kuangfu not in healer_first_rank:
+                        healer_first_rank[kuangfu] = i + 1
+                elif kuangfu in dps_kuangfu:
                     dps_count[kuangfu] = dps_count.get(kuangfu, 0) + 1
                     dps_valid_count += 1
+                    # 记录第一次出现的排名
+                    if kuangfu not in dps_first_rank:
+                        dps_first_rank[kuangfu] = i + 1
         
-        # 按数量降序排序
-        sorted_healer = sorted(healer_count.items(), key=lambda x: x[1], reverse=True)
-        sorted_dps = sorted(dps_count.items(), key=lambda x: x[1], reverse=True)
+        # 为没有出现的心法设置默认首次排名（按心法列表顺序）
+        for i, kuangfu in enumerate(healer_kuangfu):
+            if kuangfu not in healer_first_rank:
+                healer_first_rank[kuangfu] = 9999 + i  # 使用很大的数字确保排在后面
+        for i, kuangfu in enumerate(dps_kuangfu):
+            if kuangfu not in dps_first_rank:
+                dps_first_rank[kuangfu] = 9999 + i  # 使用很大的数字确保排在后面
+        
+        # 按数量降序排序，数量相同时按首次出现排名升序排序
+        sorted_healer = sorted(healer_count.items(), key=lambda x: (x[1], -healer_first_rank[x[0]]), reverse=True)
+        sorted_dps = sorted(dps_count.items(), key=lambda x: (x[1], -dps_first_rank[x[0]]), reverse=True)
         
         return {
             "total_players": max_rank,
