@@ -458,6 +458,22 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     
     print("="*80)
     
+    # 打印具体排名和kuangfu信息
+    print("\n" + "="*80)
+    print("具体排名和KUANGFU信息")
+    print("="*80)
+    
+    for i, player_data in enumerate(kuangfu_results):
+        rank = i + 1
+        
+        if player_data.get("found") and player_data.get("kuangfu"):
+            kuangfu = player_data["kuangfu"]
+            print(f"第{rank:3d}名: {kuangfu}")
+        else:
+            print(f"第{rank:3d}名: 未知心法")
+    
+    print("="*80)
+    
     return result
 
 
