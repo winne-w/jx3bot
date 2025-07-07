@@ -199,7 +199,7 @@ async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
     # 缓存配置
     cache_dir = "data/cache"
     cache_file = os.path.join(cache_dir, "jjc_ranking_cache.json")
-    cache_duration = 20 * 60  # 20分钟，单位秒
+    cache_duration = 2000 * 60  # 20分钟，单位秒
     
     # 创建缓存目录
     os.makedirs(cache_dir, exist_ok=True)
@@ -331,6 +331,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     
     # 检查排行榜数据是否有效
     if ranking_data.get("error") or ranking_data.get("code") != 200:
+        print(f"排行榜数据无效，无法获取kuangfu信息: {ranking_data}");
         return {
             "error": True,
             "message": "排行榜数据无效，无法获取kuangfu信息",
@@ -339,6 +340,8 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     
     # 获取排行榜数据
     all_data = ranking_data.get("data", [])
+    print(f"all_data: len{len(all_data)}")
+
     if not all_data:
         return {
             "error": True,
@@ -351,8 +354,13 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     kuangfu_results = []
     
     for i, player in enumerate(all_data):  # 遍历整个排行榜数据
-        player_server = player.get("serverName")
-        player_name = player.get("roleName")
+
+        # 从新的数据格式中获取服务器和角色名
+        person_info = player.get("personInfo", {})
+        player_server = person_info.get("server")
+        player_name = person_info.get("roleName")
+  
+        print(f"player_server: {player_server}, player_name: {player_name}")
         # 从roleName中提取·符号左边部分作为player_name
         if player_name and "·" in player_name:
             player_name = player_name.split("·")[0]
@@ -366,35 +374,6 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     result = ranking_data.copy()
     result["kuangfu_data"] = kuangfu_results
     print(f"kuangfu信息获取完成，共处理 {len(kuangfu_results)} 个用户")
-    
-    # 统计各个排名段的kuangfu数量
-    def count_kuangfu_by_rank(kuangfu_data, max_rank):
-        """统计指定排名范围内的kuangfu数量"""
-        kuangfu_count = {}
-        for i, player_data in enumerate(kuangfu_data[:max_rank]):
-            if not player_data.get("error") and player_data.get("found"):
-                kuangfu = player_data.get("kuangfu")
-                if kuangfu:
-                    kuangfu_count[kuangfu] = kuangfu_count.get(kuangfu, 0) + 1
-        return kuangfu_count
-    
-    # 统计前50、前100、前200的kuangfu数量
-    result["kuangfu_stats"] = {
-        "top_50": count_kuangfu_by_rank(kuangfu_results, 50),
-        "top_100": count_kuangfu_by_rank(kuangfu_results, 100),
-        "top_200": count_kuangfu_by_rank(kuangfu_results, 200)
-    }
-    
-    # 打印统计结果
-    print("\n=== Kuangfu统计结果 ===")
-    for rank_range, stats in result["kuangfu_stats"].items():
-        print(f"\n{rank_range}排名:")
-        if stats:
-            sorted_stats = sorted(stats.items(), key=lambda x: x[1], reverse=True)
-            for kuangfu, count in sorted_stats:
-                print(f"  {kuangfu}: {count}人")
-        else:
-            print("  暂无数据")
     
     return result
 
@@ -419,7 +398,6 @@ def main():
             token=args.token,
             ticket=args.ticket
         ))
-        
         # 获取排行榜数据的kuangfu信息
         result = asyncio.run(get_ranking_kuangfu_data(
             ranking_data=ranking_result,
