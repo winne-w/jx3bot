@@ -375,6 +375,89 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     result["kuangfu_data"] = kuangfu_results
     print(f"kuangfu信息获取完成，共处理 {len(kuangfu_results)} 个用户")
     
+    # 定义奶妈心法列表
+    healer_kuangfu = ["离经易道", "补天诀", "云裳心经", "灵素", "相知"]
+    
+    # 统计各个排名段的kuangfu数量
+    def count_kuangfu_by_rank(kuangfu_data, max_rank):
+        """统计指定排名范围内的kuangfu数量，区分奶妈和DPS"""
+        healer_count = {}
+        dps_count = {}
+        healer_valid_count = 0
+        dps_valid_count = 0
+        
+        for i, player_data in enumerate(kuangfu_data[:max_rank]):
+            if player_data.get("found") and player_data.get("kuangfu"):
+                kuangfu = player_data["kuangfu"]
+                
+                # 判断是否为奶妈心法
+                if kuangfu in healer_kuangfu:
+                    healer_count[kuangfu] = healer_count.get(kuangfu, 0) + 1
+                    healer_valid_count += 1
+                else:
+                    dps_count[kuangfu] = dps_count.get(kuangfu, 0) + 1
+                    dps_valid_count += 1
+        
+        # 按数量降序排序
+        sorted_healer = sorted(healer_count.items(), key=lambda x: x[1], reverse=True)
+        sorted_dps = sorted(dps_count.items(), key=lambda x: x[1], reverse=True)
+        
+        return {
+            "total_players": max_rank,
+            "healer": {
+                "valid_count": healer_valid_count,
+                "distribution": dict(sorted_healer),
+                "list": sorted_healer
+            },
+            "dps": {
+                "valid_count": dps_valid_count,
+                "distribution": dict(sorted_dps),
+                "list": sorted_dps
+            },
+            "total_valid_count": healer_valid_count + dps_valid_count
+        }
+    
+    # 统计前200、前100、前50的kuangfu分布
+    print("正在统计kuangfu分布...")
+    kuangfu_stats = {
+        "top_200": count_kuangfu_by_rank(kuangfu_results, 200),
+        "top_100": count_kuangfu_by_rank(kuangfu_results, 100),
+        "top_50": count_kuangfu_by_rank(kuangfu_results, 50)
+    }
+    
+    result["kuangfu_statistics"] = kuangfu_stats
+    
+    # 打印统计结果
+    print("\n" + "="*80)
+    print("KUANGFU统计结果 (奶妈/DPS分类)")
+    print("="*80)
+    
+    for rank_range, stats in kuangfu_stats.items():
+        print(f"\n{rank_range.upper()} ({stats['total_players']}人，有效数据{stats['total_valid_count']}人):")
+        print("=" * 60)
+        
+        # 奶妈统计
+        print(f"\n【奶妈排名】({stats['healer']['valid_count']}人):")
+        print("-" * 40)
+        if stats['healer']['list']:
+            for kuangfu, count in stats['healer']['list']:
+                percentage = (count / stats['healer']['valid_count'] * 100) if stats['healer']['valid_count'] > 0 else 0
+                print(f"  {kuangfu}: {count}人 ({percentage:.1f}%)")
+        else:
+            print("  无奶妈数据")
+        
+        # DPS统计
+        print(f"\n【DPS排名】({stats['dps']['valid_count']}人):")
+        print("-" * 40)
+        if stats['dps']['list']:
+            for kuangfu, count in stats['dps']['list']:
+                percentage = (count / stats['dps']['valid_count'] * 100) if stats['dps']['valid_count'] > 0 else 0
+                print(f"  {kuangfu}: {count}人 ({percentage:.1f}%)")
+        else:
+            print("  无DPS数据")
+    
+    print("="*80)
+    
     return result
 
 
@@ -434,9 +517,8 @@ def main():
         except Exception as e:
             print(f"保存文件失败: {e}")
             print(json_str)
-    # else:
-        # print(json_str)
-    # todo
+    else:
+        print(json_str)
 
 
 if __name__ == "__main__":
