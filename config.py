@@ -16,7 +16,9 @@ API_URLS = {
     "副本查询": "https://www.jx3api.com/data/role/teamCdList",
     "名片查询": "https://www.jx3api.com/data/show/card",
     "百战查询": "https://www.jx3api.com/data/role/monster",
-    "资历查询": "https://www.jx3api.com/data/tuilan/achievement"
+    "资历查询": "https://www.jx3api.com/data/tuilan/achievement",
+    "竞技场时间查询": "https://m.pvp.xoyo.com/3c/mine/arena/time-tag",
+    "竞技场排行榜查询": "https://m.pvp.xoyo.com/3c/mine/arena/top200",
 
 }
 
@@ -49,7 +51,7 @@ REGEX_PATTERNS = {
     "名片查询": r"^名片 (?P<value1>[\S]+)$|^名片 (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "资历查询": r"^(?:资历|资历分布) (?P<value1>[\S]+)$|^(?:资历|资历分布) (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "资历选择": r"^(\d+)$",  # 用于匹配用户回复的数字序号
-    "竞技排名": r"^\s*竞技排名\s*$"
+    "竞技排名": r"^\s*竞技排名(?:\s+拆分)?\s*$"
 }
 
 # 定义一个包含文本的列表
@@ -79,5 +81,9 @@ NEWS_API_URL = "https://www.jx3api.com/data/news/allnews?limit=3"  # 新闻API�
 SKILL_records_URL = "https://www.jx3api.com/data/skills/records"  # 技改API地址
 calendar_URL = "https://www.jx3api.com/data/active/calendar"   #活动日常
 jx3box_URL = "https://cms.jx3box.com/api/cms/config/banner?client=std&type=code"   #福利
+
+# 赛季时间定义
+CURRENT_SEASON = "太极密录"
+CURRENT_SEASON_START = "2025-04-14"
 
  
