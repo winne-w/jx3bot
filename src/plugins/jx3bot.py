@@ -2188,80 +2188,6 @@ async def check_server(server_name):
 
     return False
 
-# ================== 战绩排名相关方法移植 ==================
-async def query_jjc_data(server: str, name: str, token: str = None, ticket: str = None) -> dict:
-    """
-    查询剑网3竞技场数据
-    
-    Args:
-        server: 服务器名称
-        name: 角色名称
-        token: API认证令牌（可选，默认从config文件获取）
-        ticket: 推栏cookie（可选，默认从config文件获取）
-    
-    Returns:
-        dict: API返回的原始数据
-    """
-    # 使用配置文件中的默认值
-    if token is None:
-        token = TOKEN
-    if ticket is None:
-        ticket = TICKET
-    
-    # API接口地址
-    url = "https://www.jx3api.com/data/arena/recent"
-    
-    # 清理角色名中的特殊字符
-    if name:
-        name = name.replace('[', '').replace(']', '').replace('&#91;', '').replace('&#93;', '').replace(" ", "")
-    
-    # 构建请求参数
-    params = {
-        'server': server,
-        'name': name,
-        "mode": 33,
-        'token': token,
-        'ticket': ticket
-    }
-    
-    print(f"正在查询: 服务器={server}, 角色={name}")
-    print(f"请求URL: {url}")
-    print(f"请求参数: {params}")
-    print("-" * 50)
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as response:
-                print(f"HTTP状态码: {response.status}")
-                
-                if response.status == 200:
-                    data = await response.json()
-                    return data
-                else:
-                    error_text = await response.text()
-                    return {
-                        "error": True,
-                        "status_code": response.status,
-                        "message": f"HTTP请求失败: {response.status}",
-                        "response_text": error_text
-                    }
-                    
-    except aiohttp.ClientError as e:
-        return {
-            "error": True,
-            "message": f"网络请求错误: {str(e)}"
-        }
-    except json.JSONDecodeError as e:
-        return {
-            "error": True,
-            "message": f"JSON解析错误: {str(e)}"
-        }
-    except Exception as e:
-        return {
-            "error": True,
-            "message": f"未知错误: {str(e)}"
-        }
-
 
 async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: str = None) -> dict:
     """
@@ -2300,14 +2226,20 @@ async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: st
             print(f"读取缓存文件失败: {e}")
     
     # 随机延迟1-5秒，防止被反爬虫检测
-    delay = random.uniform(1, 5)
+    delay = random.uniform(1, 2)
     print(f"等待 {delay:.2f} 秒后发起请求...")
     await asyncio.sleep(delay)
     
     # 查询用户的竞技场数据
     print(f"正在查询 {server}_{name} 的kuangfu信息")
-    jjc_data = await query_jjc_data(server, name, token, ticket)
-    
+    jjs_data = await get(
+        url=竞技查询,
+        server=qufu,
+        name=id,
+        token=TOKEN,
+        ticket=TICKET,
+    )
+
     if jjc_data.get("error") or jjc_data.get("msg") != "success":
         print(f"获取竞技场数据失败: {jjc_data}")
         return {
