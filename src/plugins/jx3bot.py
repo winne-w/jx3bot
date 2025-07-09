@@ -2373,7 +2373,6 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
     # 检查缓存是否存在
     if os.path.exists(cache_file):
         try:
-            print(f"从缓存中读取 {server}_{name} 的kuangfu信息")
             with open(cache_file, 'r', encoding='utf-8') as f:
                 cached_data = json.load(f)
             return cached_data
