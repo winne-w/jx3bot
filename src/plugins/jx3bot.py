@@ -36,8 +36,6 @@ server_data_cache = None  # 存储服务器数据的全局缓存
 SERVER_DATA_FILE = "server_data.json"  # 文件路径
 GROUP_CONFIG_FILE = "groups.json"
 # 竞技场排行榜缓存
-jjc_ranking_cache = None
-jjc_ranking_cache_time = 0
 JJC_RANKING_CACHE_DURATION = 7200  # 缓存时间2小时（秒）
 JJC_RANKING_CACHE_FILE = "data/cache/jjc_ranking_cache.json"  # 缓存文件路径
 # 从配置文件中获取API URL
@@ -2136,7 +2134,7 @@ def check_valid_items(items_data):
 @driver.on_startup
 async def init_cache():
     """初始化服务器数据：获取、保存到文件并设置为全局变量"""
-    global server_data_cache, token_data, jjc_ranking_cache, jjc_ranking_cache_time
+    global server_data_cache, token_data
 
     try:
         await download_json()
@@ -2176,7 +2174,7 @@ async def init_cache():
         except Exception as read_error:
             print(f"读取本地文件失败: {read_error}")
 
-    # 加载竞技场排行榜缓存
+    # 检查竞技场排行榜缓存文件状态
     try:
         if os.path.exists(JJC_RANKING_CACHE_FILE):
             with open(JJC_RANKING_CACHE_FILE, 'r', encoding='utf-8') as f:
@@ -2186,15 +2184,13 @@ async def init_cache():
             cache_time = cached_data.get("cache_time", 0)
             
             if current_time - cache_time < JJC_RANKING_CACHE_DURATION:
-                jjc_ranking_cache = cached_data.get("data")
-                jjc_ranking_cache_time = cache_time
-                print(f"已从文件加载竞技场排行榜缓存，缓存时间: {datetime.fromtimestamp(cache_time).strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"竞技场排行榜文件缓存有效，缓存时间: {datetime.fromtimestamp(cache_time).strftime('%Y-%m-%d %H:%M:%S')}")
             else:
                 print("竞技场排行榜文件缓存已过期")
         else:
             print("竞技场排行榜缓存文件不存在")
     except Exception as e:
-        print(f"加载竞技场排行榜缓存失败: {e}")
+        print(f"检查竞技场排行榜缓存失败: {e}")
 
 
 # 使用全局数据的函数示例
@@ -2439,7 +2435,7 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
 
 async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
     """
-    查询剑网3竞技场排行榜数据（带文件缓存）
+    查询剑网3竞技场排行榜数据（仅文件缓存）
     
     Args:
         token: API认证令牌（可选，默认从config文件获取）
@@ -2448,20 +2444,12 @@ async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
     Returns:
         dict: 竞技场排行榜数据
     """
-    global jjc_ranking_cache, jjc_ranking_cache_time
-    
     # 创建缓存目录
     cache_dir = os.path.dirname(JJC_RANKING_CACHE_FILE)
     os.makedirs(cache_dir, exist_ok=True)
     
-    # 检查内存缓存是否有效
-    current_time = time.time()
-    if (jjc_ranking_cache is not None and 
-        current_time - jjc_ranking_cache_time < JJC_RANKING_CACHE_DURATION):
-        print("使用内存缓存的竞技场排行榜数据")
-        return jjc_ranking_cache
-    
     # 检查文件缓存是否有效
+    current_time = time.time()
     if os.path.exists(JJC_RANKING_CACHE_FILE):
         try:
             with open(JJC_RANKING_CACHE_FILE, 'r', encoding='utf-8') as f:
@@ -2470,10 +2458,7 @@ async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
             cache_time = cached_data.get("cache_time", 0)
             if current_time - cache_time < JJC_RANKING_CACHE_DURATION:
                 print("使用文件缓存的竞技场排行榜数据")
-                # 更新内存缓存
-                jjc_ranking_cache = cached_data.get("data")
-                jjc_ranking_cache_time = cache_time
-                return jjc_ranking_cache
+                return cached_data.get("data")
             else:
                 print("文件缓存已过期")
         except Exception as e:
@@ -2516,10 +2501,6 @@ async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
         if ranking_result.get("code") == 0:
             ranking_result["defaultWeek"] = default_week
             ranking_result["cache_time"] = current_time
-        
-        # 更新内存缓存
-        jjc_ranking_cache = ranking_result
-        jjc_ranking_cache_time = current_time
         
         # 保存到文件缓存
         try:
