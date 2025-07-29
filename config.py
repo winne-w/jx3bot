@@ -83,7 +83,36 @@ calendar_URL = "https://www.jx3api.com/data/active/calendar"   #活动日常
 jx3box_URL = "https://cms.jx3box.com/api/cms/config/banner?client=std&type=code"   #福利
 
 # 赛季时间定义
-CURRENT_SEASON = "太极密录"
+CURRENT_SEASON = "太极秘录"
 CURRENT_SEASON_START = "2025-04-14"
 
- 
+# 心法拼音到中文映射表
+KUNGFU_PINYIN_TO_CHINESE = {
+    "lijing": "离经易道",
+    "zixia": "紫霞功",
+    "beiao": "北傲诀",
+    "lingsu": "灵素",
+    "huajian": "花间游",
+    "fenshan": "分山劲",
+    "taixu": "太虚剑意",
+    "zhoutian": "周天功",
+    "butian": "补天诀",
+    "bingxin": "冰心诀",
+    "xiangzhi": "相知",
+    "jingyu": "惊羽诀",
+    "fenying": "焚影圣诀",
+    "wufang": "无方",
+    "yunshang": "云裳心经",
+    "taixuan": "太玄经",
+    "dujing": "毒经",
+    "gufeng": "孤锋诀",
+    "tianluo": "天罗诡道",
+    "yijin": "易筋经",
+    "aoxue": "傲血战意",
+    "mowen": "莫问",
+    "xiaochen": "笑尘诀",
+    "yinlong": "隐龙诀",
+    "linghai": "凌海诀",
+    "cangjian": "山居剑意",
+    "shanhai": "山海心决"
+}
