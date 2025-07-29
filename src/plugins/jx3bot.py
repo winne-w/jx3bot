@@ -2375,7 +2375,11 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
         try:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 cached_data = json.load(f)
-            return cached_data
+            # 如果缓存的 kuangfu 字段为空，则继续请求数据，否则直接返回缓存
+            if cached_data.get("kuangfu") not in [None, ""]:
+                return cached_data
+            else:
+                print(f"缓存 kuangfu 为空，重新请求数据: {server}_{name}")
         except Exception as e:
             print(f"读取缓存文件失败: {e}")
     
@@ -2565,7 +2569,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     # 获取排行榜中用户的kuangfu信息
     print("正在获取排行榜用户的kuangfu信息...")
     kuangfu_results = []
-    
+    ranking_kungfu_lines = []
     for i, player in enumerate(all_data):  # 遍历整个排行榜数据
 
         # 从新的数据格式中获取服务器和角色名
@@ -2582,10 +2586,14 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
             print(f"处理第{i+1}名: {player_server}_{player_name}")
             kuangfu_info = await get_user_kuangfu(player_server, player_name)
             kuangfu_results.append(kuangfu_info)
+            # 输出所有排名的心法
+            kungfu = kuangfu_info.get("kuangfu", "-")
+            ranking_kungfu_lines.append(f"第{i+1}名：{player_server} {player_name}（{kungfu}）")
 
     # 将kuangfu信息添加到排行榜数据中
     result = ranking_data.copy()
     result["kuangfu_data"] = kuangfu_results
+    result["ranking_kungfu_lines"] = ranking_kungfu_lines
     print(f"kuangfu信息获取完成，共处理 {len(kuangfu_results)} 个用户")
     
     # 定义奶妈心法列表
@@ -2780,6 +2788,11 @@ async def zhanji_ranking_to_image(bot: Bot, event: Event):
         else:
             # 正常模式：生成1张总图
             await generate_combined_ranking_image(bot, event, stats, week_info)
+
+        # 新增：输出所有排名的角色名和心法
+        ranking_kungfu_lines = result.get("ranking_kungfu_lines", [])
+        if ranking_kungfu_lines:
+            await bot.send(event, "\n".join(ranking_kungfu_lines))
         
     except Exception as e:
         import traceback
