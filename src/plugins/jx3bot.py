@@ -18,7 +18,98 @@ from nonebot.plugin import require
 from src.utils.shared_data import user_sessions,SEARCH_RESULTS
 
 # 导入配置文件
-from config import TOKEN, TICKET, API_URLS, DEFAULT_SERVER, SESSION_TIMEOUT, REGEX_PATTERNS,NEWS_API_URL,SKILL_records_URL,IMAGE_CACHE_DIR,CURRENT_SEASON,CURRENT_SEASON_START
+from config import TOKEN, TICKET, API_URLS, DEFAULT_SERVER, SESSION_TIMEOUT, REGEX_PATTERNS,NEWS_API_URL,SKILL_records_URL,IMAGE_CACHE_DIR,CURRENT_SEASON,CURRENT_SEASON_START,KUNGFU_PINYIN_TO_CHINESE,FORCE_TO_KUNGFU
+
+# 心法查询相关函数
+def get_role_indicator(role_id, zone, server):
+    """
+    获取角色详细信息
+    """
+    url = "https://m.pvp.xoyo.com/role/indicator"
+    params = {
+        "role_id": role_id,
+        "zone": zone,
+        "server": server
+    }
+    
+    print(f"正在获取角色信息...")
+    print(f"请求地址: {url}")
+    print(f"请求参数: {json.dumps(params, ensure_ascii=False, indent=2)}")
+    
+    result = tuilan_request(url, params)
+    
+    if result is None:
+        print(f"\n❌ 获取角色信息失败: 请求返回None")
+        return None
+    
+    print(f"\n✅ 角色信息获取成功")
+    print(f"响应数据: {json.dumps(result, ensure_ascii=False, indent=2)}")
+    
+    return result
+
+
+def get_kungfu_by_role_info(game_role_id, zone, server):
+    """
+    根据角色信息获取心法
+    Args:
+        game_role_id: 角色ID
+        zone: 大区
+        server: 服务器
+    Returns:
+        str: 心法中文名称, 如果查不到返回None
+    """
+    print(f"\n🔍 开始查询心法信息...")
+    print(f"角色ID: {game_role_id}")
+    print(f"大区: {zone}")
+    print(f"服务器: {server}")
+    
+    if game_role_id == "未知" or server == "未知" or zone == "未知":
+        print("❌ 参数无效，无法查询")
+        return None
+    
+    role_detail = get_role_indicator(game_role_id, zone, server)
+    if role_detail and "data" in role_detail and role_detail["data"] and "indicator" in role_detail["data"]:
+        indicators = role_detail["data"]["indicator"]
+        print(f"\n📊 找到 {len(indicators)} 个指标")
+        
+        for i, indicator in enumerate(indicators):
+            print(f"\n指标 {i+1}:")
+            print(f"  类型: {indicator.get('type')}")
+            
+            if indicator.get("type") == "3c":
+                metrics = indicator.get("metrics", [])
+                print(f"  找到 {len(metrics)} 个心法数据")
+                
+                if metrics:
+                    # 只取场次最多的心法
+                    max_total_count = 0
+                    best_metric = None
+                    
+                    for j, metric in enumerate(metrics):
+                        if metric and metric.get("items"):
+                            total_count = metric.get("total_count", 0)
+                            kungfu_pinyin = metric.get("kungfu", "未知")
+                            print(f"    心法{j+1}: {kungfu_pinyin} (场次: {total_count})")
+                            
+                            if total_count > max_total_count:
+                                max_total_count = total_count
+                                best_metric = metric
+                    
+                    if best_metric:
+                        kungfu_pinyin = best_metric.get("kungfu", None)
+                        kungfu_name = KUNGFU_PINYIN_TO_CHINESE.get(kungfu_pinyin, None)
+                        print(f"\n🎯 最终选择心法: {kungfu_pinyin} -> {kungfu_name}")
+                        return kungfu_name
+                    else:
+                        print("❌ 未找到有效的心法数据")
+            else:
+                print(f"  跳过非3c类型指标")
+    else:
+        print("❌ 角色详情数据格式异常")
+        if role_detail:
+            print(f"响应结构: {list(role_detail.keys())}")
+    
+    return None
 
 # 添加常量控制秘境分布的最大显示层数
 MAX_DEPTH = 2  # 0是顶层，1是第一层子项目，2是第二层子项目，最多显示3层
@@ -1084,7 +1175,7 @@ async def jjc_to_image(bot: Bot, event: Event,foo: Annotated[tuple[Any, ...], Re
         else:
             text = suijitext()
             env.filters['time'] = time_ago_fenzhong
-            env.filters['jjctime'] = jjcdaxiaoxie
+            env.filters['jjctime'] = timestamp_jjc
             template = env.get_template('竞技查询.html')
             html_content = template.render(items=items, id=id, qufu=qufu, text=text)
 
@@ -2388,8 +2479,72 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
     print(f"等待 {delay:.2f} 秒后发起请求...")
     await asyncio.sleep(delay)
     
+    # 优先使用心法查询接口
+    print(f"优先使用心法查询接口查询 {server}_{name} 的心法信息")
+    
+    try:
+        # 获取排行榜数据来查找角色信息
+        ranking_result = await query_jjc_ranking()
+        if ranking_result and not ranking_result.get("error") and ranking_result.get("code") == 0:
+            ranking_data = ranking_result.get("data", [])
+            
+            # 在排行榜中查找匹配的角色
+            for player in ranking_data:
+                person_info = player.get("personInfo", {})
+                player_server = person_info.get("server")
+                player_name = person_info.get("roleName")
+                
+                # 从roleName中提取·符号左边部分作为player_name
+                if player_name and "·" in player_name:
+                    player_name = player_name.split("·")[0]
+                
+                # 检查是否匹配当前查询的角色
+                if player_server == server and player_name == name:
+                    game_role_id = person_info.get("gameRoleId")
+                    zone = person_info.get("zone")
+                    
+                    if game_role_id and zone:
+                        print(f"在排行榜中找到角色: {server}_{name}, 角色ID: {game_role_id}, 大区: {zone}")
+                        
+                        # 使用心法查询接口
+                        kungfu_name = get_kungfu_by_role_info(game_role_id, zone, server)
+                        
+                        if kungfu_name:
+                            print(f"心法查询成功: {kungfu_name}")
+                            
+                            # 更新缓存
+                            result = {
+                                "server": server,
+                                "name": name,
+                                "kuangfu": kungfu_name,
+                                "found": True,
+                                "cache_time": time.time()
+                            }
+                            
+                            # 保存到缓存
+                            try:
+                                with open(cache_file, 'w', encoding='utf-8') as f:
+                                    json.dump(result, f, ensure_ascii=False, indent=2)
+                                print(f"心法信息已更新缓存到: {cache_file}")
+                            except Exception as e:
+                                print(f"更新缓存失败: {e}")
+                            
+                            return result
+                        else:
+                            print(f"心法查询失败: 未找到心法信息")
+                            break
+            
+            print(f"在排行榜中未找到匹配的角色: {server}_{name}")
+        else:
+            print(f"获取排行榜数据失败，无法进行心法查询")
+    except Exception as e:
+        print(f"心法查询过程中出错: {e}")
+    
+    # 如果心法查询失败，使用竞技场数据查询作为备选方案
+    print(f"心法查询失败，使用竞技场数据查询作为备选方案...")
+    
     # 查询用户的竞技场数据
-    print(f"正在查询 {server}_{name} 的kuangfu信息")
+    print(f"正在查询 {server}_{name} 的竞技场数据")
     jjc_data = await get(
         url=竞技查询,
         server=server,
@@ -2398,9 +2553,7 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
         ticket=TICKET,
     )
 
-
-
-    
+    # 如果竞技场数据查询失败，返回错误信息
     if jjc_data.get("error") or jjc_data.get("msg") != "success":
         print(f"获取竞技场数据失败: {jjc_data}")
         return {
@@ -2576,6 +2729,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         person_info = player.get("personInfo", {})
         player_server = person_info.get("server")
         player_name = person_info.get("roleName")
+        force = person_info.get("force")
   
         print(f"player_server: {player_server}, player_name: {player_name}")
         # 从roleName中提取·符号左边部分作为player_name
@@ -2584,7 +2738,24 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         
         if player_server and player_name:
             print(f"处理第{i+1}名: {player_server}_{player_name}")
-            kuangfu_info = await get_user_kuangfu(player_server, player_name)
+            
+            # 检查force是否在FORCE_TO_KUNGFU配置中
+            if force and force in FORCE_TO_KUNGFU:
+                # 如果force在配置中，直接使用配置的心法
+                configured_kungfu = FORCE_TO_KUNGFU[force]
+                print(f"使用配置的心法: {force} -> {configured_kungfu}")
+                kuangfu_info = {
+                    "server": player_server,
+                    "name": player_name,
+                    "kuangfu": configured_kungfu,
+                    "found": True,
+                    "cache_time": time.time(),
+                    "from_config": True
+                }
+            else:
+                # 否则从API获取心法信息
+                kuangfu_info = await get_user_kuangfu(player_server, player_name)
+            
             kuangfu_results.append(kuangfu_info)
             # 输出所有排名的心法
             kungfu = kuangfu_info.get("kuangfu", "-")
@@ -3031,17 +3202,65 @@ async def update_kuangfu_cache(server: str, name: str, jjc_data: dict) -> None:
     # 创建缓存目录
     os.makedirs(cache_dir, exist_ok=True)
     
-    # 从竞技场数据中提取kuangfu信息
+    # 优先使用心法查询接口
+    print(f"优先使用心法查询接口更新 {server}_{name} 的心法信息")
+    
     kuangfu_info = None
     
-    # 从history数组中获取kuangfu信息
-    history_data = jjc_data.get("data", {}).get("history", [])
-    if history_data:
-        # 查找最近一次获胜的记录
-        for match in history_data:
-            if match.get("won"):
-                kuangfu_info = match.get("kungfu")
-                break
+    try:
+        # 获取排行榜数据来查找角色信息
+        ranking_result = await query_jjc_ranking()
+        if ranking_result and not ranking_result.get("error") and ranking_result.get("code") == 0:
+            ranking_data = ranking_result.get("data", [])
+            
+            # 在排行榜中查找匹配的角色
+            for player in ranking_data:
+                person_info = player.get("personInfo", {})
+                player_server = person_info.get("server")
+                player_name = person_info.get("roleName")
+                
+                # 从roleName中提取·符号左边部分作为player_name
+                if player_name and "·" in player_name:
+                    player_name = player_name.split("·")[0]
+                
+                # 检查是否匹配当前查询的角色
+                if player_server == server and player_name == name:
+                    game_role_id = person_info.get("gameRoleId")
+                    zone = person_info.get("zone")
+                    
+                    if game_role_id and zone:
+                        print(f"在排行榜中找到角色: {server}_{name}, 角色ID: {game_role_id}, 大区: {zone}")
+                        
+                        # 使用心法查询接口
+                        kungfu_name = get_kungfu_by_role_info(game_role_id, zone, server)
+                        
+                        if kungfu_name:
+                            print(f"心法查询成功: {kungfu_name}")
+                            kuangfu_info = kungfu_name
+                            break
+                        else:
+                            print(f"心法查询失败: 未找到心法信息")
+                            break
+            
+            if not kuangfu_info:
+                print(f"在排行榜中未找到匹配的角色: {server}_{name}")
+        else:
+            print(f"获取排行榜数据失败，无法进行心法查询")
+    except Exception as e:
+        print(f"心法查询过程中出错: {e}")
+    
+    # 如果心法查询失败，从竞技场数据中提取kuangfu信息作为备选方案
+    if not kuangfu_info:
+        print(f"心法查询失败，从竞技场数据中提取心法信息作为备选方案...")
+        
+        # 从history数组中获取kuangfu信息
+        history_data = jjc_data.get("data", {}).get("history", [])
+        if history_data:
+            # 查找最近一次获胜的记录
+            for match in history_data:
+                if match.get("won"):
+                    kuangfu_info = match.get("kungfu")
+                    break
     
     result = {
         "server": server,
