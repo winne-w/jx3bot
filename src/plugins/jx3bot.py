@@ -42,9 +42,7 @@ def get_role_indicator(role_id, zone, server):
         print(f"\n❌ 获取角色信息失败: 请求返回None")
         return None
     
-    print(f"\n✅ 角色信息获取成功")
-    print(f"响应数据: {json.dumps(result, ensure_ascii=False, indent=2)}")
-    
+
     return result
 
 
@@ -70,16 +68,12 @@ def get_kungfu_by_role_info(game_role_id, zone, server):
     role_detail = get_role_indicator(game_role_id, zone, server)
     if role_detail and "data" in role_detail and role_detail["data"] and "indicator" in role_detail["data"]:
         indicators = role_detail["data"]["indicator"]
-        print(f"\n📊 找到 {len(indicators)} 个指标")
-        
+
         for i, indicator in enumerate(indicators):
-            print(f"\n指标 {i+1}:")
-            print(f"  类型: {indicator.get('type')}")
-            
+
             if indicator.get("type") == "3c":
                 metrics = indicator.get("metrics", [])
-                print(f"  找到 {len(metrics)} 个心法数据")
-                
+
                 if metrics:
                     # 只取场次最多的心法
                     max_total_count = 0
@@ -88,9 +82,7 @@ def get_kungfu_by_role_info(game_role_id, zone, server):
                     for j, metric in enumerate(metrics):
                         if metric and metric.get("items"):
                             total_count = metric.get("total_count", 0)
-                            kungfu_pinyin = metric.get("kungfu", "未知")
-                            print(f"    心法{j+1}: {kungfu_pinyin} (场次: {total_count})")
-                            
+
                             if total_count > max_total_count:
                                 max_total_count = total_count
                                 best_metric = metric
@@ -102,8 +94,6 @@ def get_kungfu_by_role_info(game_role_id, zone, server):
                         return kungfu_name
                     else:
                         print("❌ 未找到有效的心法数据")
-            else:
-                print(f"  跳过非3c类型指标")
     else:
         print("❌ 角色详情数据格式异常")
         if role_detail:
@@ -2727,6 +2717,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
 
         # 从新的数据格式中获取服务器和角色名
         person_info = player.get("personInfo", {})
+        score = player.get("score")
         player_server = person_info.get("server")
         player_name = person_info.get("roleName")
         force = person_info.get("force")
@@ -2759,7 +2750,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
             kuangfu_results.append(kuangfu_info)
             # 输出所有排名的心法
             kungfu = kuangfu_info.get("kuangfu", "-")
-            ranking_kungfu_lines.append(f"第{i+1}名：{player_server} {player_name}（{kungfu}）")
+            ranking_kungfu_lines.append(f"第{i+1}名：{player_server} {player_name}（{kungfu}）({score})")
 
     # 将kuangfu信息添加到排行榜数据中
     result = ranking_data.copy()
