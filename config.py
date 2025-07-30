@@ -114,7 +114,7 @@ KUNGFU_PINYIN_TO_CHINESE = {
     "yinlong": "隐龙诀",
     "linghai": "凌海诀",
     "cangjian": "山居剑意",
-    "shanhai": "山海心决"
+    "shanhai": "山海心诀"
 }
 
 FORCE_TO_KUNGFU = {
@@ -122,7 +122,7 @@ FORCE_TO_KUNGFU = {
     "丐帮": "笑尘诀",
     "少林": "易筋经",
     "明教": "焚影圣诀",
-    "万灵山庄": "山海心决",
+    "万灵山庄": "山海心诀",
     "苍云": "分山劲",
     "蓬莱": "凌海诀",
     "霸刀": "北傲诀",
