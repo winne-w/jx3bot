@@ -2758,6 +2758,21 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     result["ranking_kungfu_lines"] = ranking_kungfu_lines
     print(f"kuangfu信息获取完成，共处理 {len(kuangfu_results)} 个用户")
     
+    # 输出无效数据的角色
+    invalid_players = []
+    for i, kuangfu_info in enumerate(kuangfu_results):
+        if not kuangfu_info.get("found") or not kuangfu_info.get("kuangfu"):
+            player_server = kuangfu_info.get("server", "未知")
+            player_name = kuangfu_info.get("name", "未知")
+            invalid_players.append(f"第{i+1}名：{player_server} {player_name}")
+    
+    if invalid_players:
+        print(f"\n⚠️ 无效数据角色（共{len(invalid_players)}个）：")
+        for player in invalid_players:
+            print(f"  {player}")
+    else:
+        print("\n✅ 所有角色心法数据获取成功")
+    
     # 定义奶妈心法列表
     healer_kuangfu = ["离经易道", "补天诀", "云裳心经", "灵素", "相知"]
     
@@ -2775,6 +2790,8 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         dps_count = {}
         healer_valid_count = 0
         dps_valid_count = 0
+        invalid_count = 0  # 新增：无效数据计数
+        invalid_details = []  # 新增：记录无效数据详细信息
         
         # 记录每个kuangfu第一次出现的排名
         healer_first_rank = {}
@@ -2803,6 +2820,15 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
                     # 记录第一次出现的排名
                     if kuangfu not in dps_first_rank:
                         dps_first_rank[kuangfu] = i + 1
+                else:
+                    # 新增：处理不在定义列表中的心法
+                    print(f"⚠️ 发现未分类心法：第{i+1}名 {player_data.get('server', '未知')} {player_data.get('name', '未知')} - {kuangfu}")
+            else:
+                # 新增：统计无效数据并记录详细信息
+                invalid_count += 1
+                player_server = player_data.get("server", "未知")
+                player_name = player_data.get("name", "未知")
+                invalid_details.append(f"第{i+1}名：{player_server} {player_name}")
         
         # 为没有出现的心法设置默认首次排名（按心法列表顺序）
         for i, kuangfu in enumerate(healer_kuangfu):
@@ -2816,6 +2842,12 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         sorted_healer = sorted(healer_count.items(), key=lambda x: (x[1], -healer_first_rank[x[0]]), reverse=True)
         sorted_dps = sorted(dps_count.items(), key=lambda x: (x[1], -dps_first_rank[x[0]]), reverse=True)
         
+        # 输出无效数据详细信息
+        if invalid_details:
+            print(f"\n⚠️ 前{max_rank}名中无效数据角色（共{len(invalid_details)}个）：")
+            for detail in invalid_details:
+                print(f"  {detail}")
+        
         return {
             "total_players": max_rank,
             "healer": {
@@ -2828,7 +2860,10 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
                 "distribution": dict(sorted_dps),
                 "list": sorted_dps
             },
-            "total_valid_count": healer_valid_count + dps_valid_count
+            "total_valid_count": healer_valid_count + dps_valid_count,
+            "invalid_count": invalid_count,  # 新增：返回无效数据数量
+            "invalid_details": invalid_details,  # 新增：返回无效数据详细信息
+            "unclassified_count": max_rank - (healer_valid_count + dps_valid_count + invalid_count)  # 新增：未分类心法数量
         }
     
     # 统计前200、前100、前50的kuangfu分布
@@ -2847,7 +2882,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     print("="*80)
     
     for rank_range, stats in kuangfu_stats.items():
-        print(f"\n{rank_range.upper()} ({stats['total_players']}人，有效数据{stats['total_valid_count']}人):")
+        print(f"\n{rank_range.upper()} ({stats['total_players']}人，有效数据{stats['total_valid_count']}人，无效数据{stats['invalid_count']}人):")
         print("=" * 60)
         
         # 奶妈统计
