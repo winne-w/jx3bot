@@ -2,10 +2,10 @@
 剑三机器人配置文件
 包含API Token、URL等
 """
-ADMIN_QQ = [11010783]
+ADMIN_QQ = [595910443,1773356547]
 # API认证凭证
-TOKEN = "jx3api"
-TICKET = "推栏cookie"
+TOKEN = "v2c862e0a8773838af"
+TICKET = "620a02d67e954aaf93bf247e13fcbca1:595910443@qq.com:kingsoft::rTwshUGD/0H22V8IRj6d3Q=="
 
 # API接口地址
 API_URLS = {
@@ -29,7 +29,7 @@ DEFAULT_SERVER = "梦江南"
 SESSION_TIMEOUT = 45  # 用户会话超时时间（秒）
 
 # GET请求缓存时间
-SESSION_data = 43200  # GET请求缓存
+SESSION_data = 720
 
 # 名片缓存目录
 IMAGE_CACHE_DIR = "mpimg"
@@ -115,4 +115,20 @@ KUNGFU_PINYIN_TO_CHINESE = {
     "linghai": "凌海诀",
     "cangjian": "山居剑意",
     "shanhai": "山海心决"
+}
+
+FORCE_TO_KUNGFU = {
+    "凌雪阁": "隐龙诀",
+    "丐帮": "笑尘诀",
+    "少林": "易筋经",
+    "明教": "焚影圣诀",
+    "万灵山庄": "山海心决",
+    "苍云": "分山劲",
+    "蓬莱": "凌海诀",
+    "霸刀": "北傲诀",
+    "段氏": "周天功",
+    "衍天宗": "太玄经",
+    "刀宗": "孤锋诀",
+    "天策": "傲血战意",
+    "藏剑": "山居剑意",
 }
