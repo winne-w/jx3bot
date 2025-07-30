@@ -86,9 +86,9 @@
     <div class="main-title">竞技场心法排名统计</div>
     <div class="desc">前50 奶妈心法分布（{{ current_season }}{{ week_info }} ）</div>
     <div class="chart-container">
-        <div class="chart-title">前50 奶妈心法</div>
+        <div class="chart-title">前50 奶妈心法{% if top_50_healer and top_50_healer[0][3] %} （{{ top_50_healer[0][3] }}）{% endif %}</div>
         {% set max_count = top_50_healer[0][1] if top_50_healer else 1 %}
-        {% for kuangfu, count, percent in top_50_healer %}
+        {% for kuangfu, count, percent, min_score in top_50_healer %}
         <div class="bar-row">
             <div class="bar-label">{{ kuangfu }}</div>
             <div class="bar" style="width:{{ 500 * count / max_count }}px;"></div>
