@@ -36,14 +36,27 @@ def get_role_indicator(role_id, zone, server):
     print(f"请求地址: {url}")
     print(f"请求参数: {json.dumps(params, ensure_ascii=False, indent=2)}")
     
-    result = tuilan_request(url, params)
-    
-    if result is None:
-        print(f"\n❌ 获取角色信息失败: 请求返回None")
+    try:
+        result = tuilan_request(url, params)
+        
+        if result is None:
+            print(f"\n❌ 获取角色信息失败: 请求返回None")
+            return None
+        
+        # 检查是否有错误
+        if "error" in result:
+            print(f"\n❌ 获取角色信息失败: {result['error']}")
+            return None
+        
+        print(f"\n✅ 角色信息获取成功")
+        print(f"响应数据: {json.dumps(result, ensure_ascii=False, indent=2)}")
+        
+        return result
+    except Exception as e:
+        print(f"\n❌ 获取角色信息时发生异常: {e}")
+        import traceback
+        traceback.print_exc()
         return None
-    
-
-    return result
 
 
 def get_kungfu_by_role_info(game_role_id, zone, server):
@@ -2392,10 +2405,25 @@ def get_arena_time_tag(type_param="role"):
     print(f"请求地址: {url}")
     print(f"请求参数: {json.dumps(params, ensure_ascii=False, indent=2)}")
     
-    # 调用封装的请求方法
-    result = tuilan_request(url, params)
-    
-    return result
+    try:
+        # 调用封装的请求方法
+        result = tuilan_request(url, params)
+        
+        if result is None:
+            print(f"❌ 竞技场时间标签请求失败: 返回None")
+            return {"error": "请求返回None"}
+        
+        if "error" in result:
+            print(f"❌ 竞技场时间标签请求失败: {result['error']}")
+            return result
+        
+        print(f"✅ 竞技场时间标签请求成功")
+        return result
+    except Exception as e:
+        print(f"❌ 竞技场时间标签请求异常: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"请求异常: {e}"}
 
 
 def get_arena_ranking(tag):
@@ -2421,10 +2449,25 @@ def get_arena_ranking(tag):
     print(f"请求地址: {url}")
     print(f"请求参数: {json.dumps(params, ensure_ascii=False, indent=2)}")
     
-    # 调用封装的请求方法
-    result = tuilan_request(url, params)
-    
-    return result
+    try:
+        # 调用封装的请求方法
+        result = tuilan_request(url, params)
+        
+        if result is None:
+            print(f"❌ 竞技场排行榜请求失败: 返回None")
+            return {"error": "请求返回None"}
+        
+        if "error" in result:
+            print(f"❌ 竞技场排行榜请求失败: {result['error']}")
+            return result
+        
+        print(f"✅ 竞技场排行榜请求成功")
+        return result
+    except Exception as e:
+        print(f"❌ 竞技场排行榜请求异常: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"请求异常: {e}"}
 
 
 async def get_user_kuangfu(server: str, name: str) -> dict:
@@ -2543,7 +2586,7 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
         ticket=TICKET,
     )
 
-    # 如果竞技场数据查询失败，返回错误信息
+    # 如果竞技场数据查询失败，返回错误信息，不更新缓存
     if jjc_data.get("error") or jjc_data.get("msg") != "success":
         print(f"获取竞技场数据失败: {jjc_data}")
         return {
@@ -2553,7 +2596,7 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
             "name": name
         }
     
-    # 使用新的update_kuangfu_cache方法更新缓存
+    # 只有在成功获取数据时才更新缓存
     await update_kuangfu_cache(server, name, jjc_data)
     
     # 从竞技场数据中提取kuangfu信息用于返回
@@ -2617,6 +2660,13 @@ async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
         print("第一步：获取竞技场时间标签...")
         time_tag_result = get_arena_time_tag()
 
+        if time_tag_result.get("error"):
+            print(f"获取时间标签失败: {time_tag_result}")
+            return {
+                "error": True,
+                "message": f"获取时间标签失败: {time_tag_result.get('error', '未知错误')}"
+            }
+
         if time_tag_result.get("code") != 0:
             print(f"获取时间标签失败: {time_tag_result}")
             return {
@@ -2643,28 +2693,40 @@ async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
         print("第二步：获取竞技场排行榜...")
         ranking_result = get_arena_ranking(default_week)
         
-        # 将 defaultWeek 和缓存时间添加到返回结果中
+        if ranking_result.get("error"):
+            print(f"获取竞技场排行榜失败: {ranking_result}")
+            return {
+                "error": True,
+                "message": f"获取竞技场排行榜失败: {ranking_result.get('error', '未知错误')}"
+            }
+        
+        # 只有在成功获取数据时才保存缓存
         if ranking_result.get("code") == 0:
+            # 将 defaultWeek 和缓存时间添加到返回结果中
             ranking_result["defaultWeek"] = default_week
             ranking_result["cache_time"] = current_time
-        
-        # 保存到文件缓存
-        try:
-            cache_data = {
-                "data": ranking_result,
-                "cache_time": current_time
-            }
-            with open(JJC_RANKING_CACHE_FILE, 'w', encoding='utf-8') as f:
-                json.dump(cache_data, f, ensure_ascii=False, indent=2)
-            print(f"竞技场排行榜数据已保存到文件缓存: {JJC_RANKING_CACHE_FILE}")
-        except Exception as e:
-            print(f"保存文件缓存失败: {e}")
+            
+            # 保存到文件缓存
+            try:
+                cache_data = {
+                    "data": ranking_result,
+                    "cache_time": current_time
+                }
+                with open(JJC_RANKING_CACHE_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                print(f"竞技场排行榜数据已保存到文件缓存: {JJC_RANKING_CACHE_FILE}")
+            except Exception as e:
+                print(f"保存文件缓存失败: {e}")
+        else:
+            print(f"获取竞技场排行榜失败，不保存缓存: {ranking_result}")
         
         print(f"竞技场排行榜查询完成,返回结果：{ranking_result}")
         return ranking_result
         
     except Exception as e:
         print(f"query_jjc_ranking 未知错误: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             "error": True,
             "message": f"未知错误: {str(e)}"
@@ -2741,11 +2803,14 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
                     "kuangfu": configured_kungfu,
                     "found": True,
                     "cache_time": time.time(),
-                    "from_config": True
+                    "from_config": True,
+                    "score": score
                 }
             else:
                 # 否则从API获取心法信息
                 kuangfu_info = await get_user_kuangfu(player_server, player_name)
+                # 添加分数信息
+                kuangfu_info["score"] = score
             
             kuangfu_results.append(kuangfu_info)
             # 输出所有排名的心法
@@ -2797,6 +2862,10 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         healer_first_rank = {}
         dps_first_rank = {}
         
+        # 记录最低分数
+        healer_min_score = None
+        dps_min_score = None
+        
         # 初始化所有心法计数为0
         for kuangfu in healer_kuangfu:
             healer_count[kuangfu] = 0
@@ -2806,6 +2875,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         for i, player_data in enumerate(kuangfu_data[:max_rank]):
             if player_data.get("found") and player_data.get("kuangfu"):
                 kuangfu = player_data["kuangfu"]
+                score = player_data.get("score")
                 
                 # 判断是否为奶妈心法
                 if kuangfu in healer_kuangfu:
@@ -2814,12 +2884,18 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
                     # 记录第一次出现的排名
                     if kuangfu not in healer_first_rank:
                         healer_first_rank[kuangfu] = i + 1
+                    # 记录最低分数
+                    if score is not None and (healer_min_score is None or score < healer_min_score):
+                        healer_min_score = score
                 elif kuangfu in dps_kuangfu:
                     dps_count[kuangfu] = dps_count.get(kuangfu, 0) + 1
                     dps_valid_count += 1
                     # 记录第一次出现的排名
                     if kuangfu not in dps_first_rank:
                         dps_first_rank[kuangfu] = i + 1
+                    # 记录最低分数
+                    if score is not None and (dps_min_score is None or score < dps_min_score):
+                        dps_min_score = score
                 else:
                     # 新增：处理不在定义列表中的心法
                     print(f"⚠️ 发现未分类心法：第{i+1}名 {player_data.get('server', '未知')} {player_data.get('name', '未知')} - {kuangfu}")
@@ -2853,12 +2929,14 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
             "healer": {
                 "valid_count": healer_valid_count,
                 "distribution": dict(sorted_healer),
-                "list": sorted_healer
+                "list": sorted_healer,
+                "min_score": healer_min_score
             },
             "dps": {
                 "valid_count": dps_valid_count,
                 "distribution": dict(sorted_dps),
-                "list": sorted_dps
+                "list": sorted_dps,
+                "min_score": dps_min_score
             },
             "total_valid_count": healer_valid_count + dps_valid_count,
             "invalid_count": invalid_count,  # 新增：返回无效数据数量
@@ -3009,7 +3087,8 @@ async def generate_combined_ranking_image(bot, event, stats, week_info):
         if not sorted_list:
             return []
         valid_count = rank_data[rank_type].get('valid_count', 0)
-        return [(k, v, f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%") for k, v in sorted_list]
+        min_score = rank_data[rank_type].get('min_score')
+        return [(k, v, f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%", min_score) for k, v in sorted_list]
     
     # 4. 渲染HTML
     template = env.get_template('竞技场心法排名统计.html')
@@ -3049,7 +3128,8 @@ async def generate_split_ranking_images(bot, event, stats, week_info):
         if not sorted_list:
             return []
         valid_count = rank_data[rank_type].get('valid_count', 0)
-        return [(k, v, f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%") for k, v in sorted_list]
+        min_score = rank_data[rank_type].get('min_score')
+        return [(k, v, f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%", min_score) for k, v in sorted_list]
     
     # 定义6个排名段的配置
     ranking_configs = [
@@ -3296,11 +3376,14 @@ async def update_kuangfu_cache(server: str, name: str, jjc_data: dict) -> None:
         "cache_time": time.time()
     }
 
-    print(f"更新kuangfu缓存到文件: {cache_file}")
-    # 保存到缓存
-    try:
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
-        print(f"kuangfu信息已更新缓存到: {cache_file}")
-    except Exception as e:
-        print(f"更新缓存失败: {e}")
+    # 只有在找到心法信息时才保存缓存
+    if kuangfu_info:
+        print(f"更新kuangfu缓存到文件: {cache_file}")
+        try:
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+            print(f"kuangfu信息已更新缓存到: {cache_file}")
+        except Exception as e:
+            print(f"更新缓存失败: {e}")
+    else:
+        print(f"未找到心法信息，不保存缓存: {server}_{name}")

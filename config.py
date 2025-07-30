@@ -2,10 +2,10 @@
 剑三机器人配置文件
 包含API Token、URL等
 """
-ADMIN_QQ = [595910443,1773356547]
+ADMIN_QQ = [595910443]
 # API认证凭证
-TOKEN = "v2c862e0a8773838af"
-TICKET = "620a02d67e954aaf93bf247e13fcbca1:595910443@qq.com:kingsoft::rTwshUGD/0H22V8IRj6d3Q=="
+TOKEN = ""
+TICKET = ""
 
 # API接口地址
 API_URLS = {
