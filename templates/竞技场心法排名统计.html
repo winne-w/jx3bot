@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>竞技场心法排名统计</title>
+    <style>
+        body {
+            background: #f7fafd;
+            font-family: 'Microsoft YaHei', sans-serif;
+            color: #2c3e50;
+            padding: 0;
+            margin: 0;
+        }
+        .main-title {
+            text-align: center;
+            font-size: 2.2rem;
+            font-weight: bold;
+            margin: 2rem 0 1rem 0;
+            letter-spacing: 2px;
+        }
+        .desc {
+            text-align: center;
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: repeat(3, 1fr);
+            gap: 32px 32px;
+            max-width: 1200px;
+            margin: 0 auto 2rem auto;
+        }
+        .chart-block {
+            background: #fff;
+            border-radius: 18px;
+            box-shadow: 0 4px 24px rgba(137,196,244,0.10);
+            padding: 1.5rem 1.2rem 1.2rem 1.2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        .chart-title {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin-bottom: 1.2rem;
+            color: #3b4a5a;
+        }
+        .bar-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.7rem;
+        }
+        .bar-label {
+            width: 70px;
+            text-align: right;
+            margin-right: 10px;
+            font-size: 1rem;
+            color: #455e77;
+        }
+        .bar {
+            height: 28px;
+            border-radius: 8px;
+            background: linear-gradient(90deg, #89C4F4 0%, #FF79B0 100%);
+            min-width: 10px;
+            position: relative;
+            transition: width 0.3s;
+        }
+        .bar-value {
+            margin-left: 12px;
+            font-size: 1.05rem;
+            font-weight: bold;
+            color: #2c3e50;
+            min-width: 32px;
+        }
+        .bar-percent {
+            margin-left: 8px;
+            color: #888;
+            font-size: 0.95rem;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #fff;
+            font-size: 16px;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-title">竞技场心法排名统计</div>
+    <div class="desc">前200、前100、前50 奶妈与DPS心法分布（{{ current_season }}{{ week_info }} ）</div>
+    <div class="charts-grid">
+        <!-- 前200奶妈 -->
+        <div class="chart-block">
+            <div class="chart-title">前200 奶妈心法{% if top_200_healer and top_200_healer[0][3] %} （{{ top_200_healer[0][3] }}）{% endif %}</div>
+            {% set max_count = top_200_healer[0][1] if top_200_healer else 1 %}
+            {% for kuangfu, count, percent, min_score in top_200_healer %}
+            <div class="bar-row">
+                <div class="bar-label">{{ kuangfu }}</div>
+                <div class="bar" style="width:{{ 320 * count / max_count }}px;"></div>
+                <div class="bar-value">{{ count }}</div>
+                <div class="bar-percent">{{ percent }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        <!-- 前200DPS -->
+        <div class="chart-block">
+            <div class="chart-title">前200 DPS心法{% if top_200_dps and top_200_dps[0][3] %} （{{ top_200_dps[0][3] }}）{% endif %}</div>
+            {% set max_count = top_200_dps[0][1] if top_200_dps else 1 %}
+            {% for kuangfu, count, percent, min_score in top_200_dps %}
+            <div class="bar-row">
+                <div class="bar-label">{{ kuangfu }}</div>
+                <div class="bar" style="width:{{ 320 * count / max_count }}px;"></div>
+                <div class="bar-value">{{ count }}</div>
+                <div class="bar-percent">{{ percent }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        <!-- 前100奶妈 -->
+        <div class="chart-block">
+            <div class="chart-title">前100 奶妈心法{% if top_100_healer and top_100_healer[0][3] %} （{{ top_100_healer[0][3] }}）{% endif %}</div>
+            {% set max_count = top_100_healer[0][1] if top_100_healer else 1 %}
+            {% for kuangfu, count, percent, min_score in top_100_healer %}
+            <div class="bar-row">
+                <div class="bar-label">{{ kuangfu }}</div>
+                <div class="bar" style="width:{{ 320 * count / max_count }}px;"></div>
+                <div class="bar-value">{{ count }}</div>
+                <div class="bar-percent">{{ percent }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        <!-- 前100DPS -->
+        <div class="chart-block">
+            <div class="chart-title">前100 DPS心法{% if top_100_dps and top_100_dps[0][3] %} （{{ top_100_dps[0][3] }}）{% endif %}</div>
+            {% set max_count = top_100_dps[0][1] if top_100_dps else 1 %}
+            {% for kuangfu, count, percent, min_score in top_100_dps %}
+            <div class="bar-row">
+                <div class="bar-label">{{ kuangfu }}</div>
+                <div class="bar" style="width:{{ 320 * count / max_count }}px;"></div>
+                <div class="bar-value">{{ count }}</div>
+                <div class="bar-percent">{{ percent }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        <!-- 前50奶妈 -->
+        <div class="chart-block">
+            <div class="chart-title">前50 奶妈心法{% if top_50_healer and top_50_healer[0][3] %} （{{ top_50_healer[0][3] }}）{% endif %}</div>
+            {% set max_count = top_50_healer[0][1] if top_50_healer else 1 %}
+            {% for kuangfu, count, percent, min_score in top_50_healer %}
+            <div class="bar-row">
+                <div class="bar-label">{{ kuangfu }}</div>
+                <div class="bar" style="width:{{ 320 * count / max_count }}px;"></div>
+                <div class="bar-value">{{ count }}</div>
+                <div class="bar-percent">{{ percent }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        <!-- 前50DPS -->
+        <div class="chart-block">
+            <div class="chart-title">前50 DPS心法{% if top_50_dps and top_50_dps[0][3] %} （{{ top_50_dps[0][3] }}）{% endif %}</div>
+            {% set max_count = top_50_dps[0][1] if top_50_dps else 1 %}
+            {% for kuangfu, count, percent, min_score in top_50_dps %}
+            <div class="bar-row">
+                <div class="bar-label">{{ kuangfu }}</div>
+                <div class="bar" style="width:{{ 320 * count / max_count }}px;"></div>
+                <div class="bar-value">{{ count }}</div>
+                <div class="bar-percent">{{ percent }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html> 

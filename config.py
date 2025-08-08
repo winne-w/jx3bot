@@ -2,10 +2,10 @@
 剑三机器人配置文件
 包含API Token、URL等
 """
-ADMIN_QQ = [11010783]
+ADMIN_QQ = [595910443]
 # API认证凭证
-TOKEN = "jx3api"
-TICKET = "推栏cookie"
+TOKEN = ""
+TICKET = ""
 
 # API接口地址
 API_URLS = {
@@ -16,7 +16,9 @@ API_URLS = {
     "副本查询": "https://www.jx3api.com/data/role/teamCdList",
     "名片查询": "https://www.jx3api.com/data/show/card",
     "百战查询": "https://www.jx3api.com/data/role/monster",
-    "资历查询": "https://www.jx3api.com/data/tuilan/achievement"
+    "资历查询": "https://www.jx3api.com/data/tuilan/achievement",
+    "竞技场时间查询": "https://m.pvp.xoyo.com/3c/mine/arena/time-tag",
+    "竞技场排行榜查询": "https://m.pvp.xoyo.com/3c/mine/arena/top200",
 
 }
 
@@ -27,7 +29,7 @@ DEFAULT_SERVER = "梦江南"
 SESSION_TIMEOUT = 45  # 用户会话超时时间（秒）
 
 # GET请求缓存时间
-SESSION_data = 43200  # GET请求缓存
+SESSION_data = 720
 
 # 名片缓存目录
 IMAGE_CACHE_DIR = "mpimg"
@@ -48,7 +50,8 @@ REGEX_PATTERNS = {
     "交易行查询": r"^(?:交易行|交易行) (?P<value1>[\S]+)$|^(?:交易行|交易行) (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "名片查询": r"^名片 (?P<value1>[\S]+)$|^名片 (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "资历查询": r"^(?:资历|资历分布) (?P<value1>[\S]+)$|^(?:资历|资历分布) (?P<server>[\S]+) (?P<value2>[\S]+)$",
-    "资历选择": r"^(\d+)$"  # 用于匹配用户回复的数字序号
+    "资历选择": r"^(\d+)$",  # 用于匹配用户回复的数字序号
+    "竞技排名": r"^\s*竞技排名(?:\s+拆分)?\s*$"
 }
 
 # 定义一个包含文本的列表
@@ -79,4 +82,53 @@ SKILL_records_URL = "https://www.jx3api.com/data/skills/records"  # 技改API地
 calendar_URL = "https://www.jx3api.com/data/active/calendar"   #活动日常
 jx3box_URL = "https://cms.jx3box.com/api/cms/config/banner?client=std&type=code"   #福利
 
- 
+# 赛季时间定义
+CURRENT_SEASON = "太极秘录"
+CURRENT_SEASON_START = "2025-04-14"
+
+# 心法拼音到中文映射表
+KUNGFU_PINYIN_TO_CHINESE = {
+    "lijing": "离经易道",
+    "zixia": "紫霞功",
+    "beiao": "北傲诀",
+    "lingsu": "灵素",
+    "huajian": "花间游",
+    "fenshan": "分山劲",
+    "taixu": "太虚剑意",
+    "zhoutian": "周天功",
+    "butian": "补天诀",
+    "bingxin": "冰心诀",
+    "xiangzhi": "相知",
+    "jingyu": "惊羽诀",
+    "fenying": "焚影圣诀",
+    "wufang": "无方",
+    "yunshang": "云裳心经",
+    "taixuan": "太玄经",
+    "dujing": "毒经",
+    "gufeng": "孤锋诀",
+    "tianluo": "天罗诡道",
+    "yijin": "易筋经",
+    "aoxue": "傲血战意",
+    "mowen": "莫问",
+    "xiaochen": "笑尘诀",
+    "yinlong": "隐龙诀",
+    "linghai": "凌海诀",
+    "cangjian": "山居剑意",
+    "shanhai": "山海心诀"
+}
+
+FORCE_TO_KUNGFU = {
+    "凌雪阁": "隐龙诀",
+    "丐帮": "笑尘诀",
+    "少林": "易筋经",
+    "明教": "焚影圣诀",
+    "万灵山庄": "山海心诀",
+    "苍云": "分山劲",
+    "蓬莱": "凌海诀",
+    "霸刀": "北傲诀",
+    "段氏": "周天功",
+    "衍天宗": "太玄经",
+    "刀宗": "孤锋诀",
+    "天策": "傲血战意",
+    "藏剑": "山居剑意",
+}
