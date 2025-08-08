@@ -4,17 +4,115 @@ from typing import Any, Annotated, Dict
 from nonebot.params import RegexGroup, CommandArg, EventPlainText, Matcher
 from jinja2 import Environment, FileSystemLoader, Template
 from src.utils.defget import get, time_ago_filter, suijitext, jietu, time_ago_fenzhong, timestamp_jjc, jjcdaxiaoxie,convert_number, jiaoyiget, mp_image, sum_specified_keys, get_image, idget, jx3web,download_json
+from src.utils.tuilan_request import tuilan_request
 import time
+import random
+import asyncio
+import aiohttp
 from typing import List, Dict, Any, Tuple
 import os
 import json
 import aiofiles  # 需要先安装: pip install aiofiles
-from datetime import datetime
+from datetime import datetime, timedelta
 from nonebot.plugin import require
 from src.utils.shared_data import user_sessions,SEARCH_RESULTS
 
 # 导入配置文件
-from config import TOKEN, TICKET, API_URLS, DEFAULT_SERVER, SESSION_TIMEOUT, REGEX_PATTERNS,NEWS_API_URL,SKILL_records_URL,IMAGE_CACHE_DIR
+from config import TOKEN, TICKET, API_URLS, DEFAULT_SERVER, SESSION_TIMEOUT, REGEX_PATTERNS,NEWS_API_URL,SKILL_records_URL,IMAGE_CACHE_DIR,CURRENT_SEASON,CURRENT_SEASON_START,KUNGFU_PINYIN_TO_CHINESE,FORCE_TO_KUNGFU
+
+# 心法查询相关函数
+def get_role_indicator(role_id, zone, server):
+    """
+    获取角色详细信息
+    """
+    url = "https://m.pvp.xoyo.com/role/indicator"
+    params = {
+        "role_id": role_id,
+        "zone": zone,
+        "server": server
+    }
+    
+    print(f"正在获取角色信息...")
+    print(f"请求地址: {url}")
+    print(f"请求参数: {json.dumps(params, ensure_ascii=False, indent=2)}")
+    
+    try:
+        result = tuilan_request(url, params)
+        
+        if result is None:
+            print(f"\n❌ 获取角色信息失败: 请求返回None")
+            return None
+        
+        # 检查是否有错误
+        if "error" in result:
+            print(f"\n❌ 获取角色信息失败: {result['error']}")
+            return None
+        
+        print(f"\n✅ 角色信息获取成功")
+        print(f"响应数据: {json.dumps(result, ensure_ascii=False, indent=2)}")
+        
+        return result
+    except Exception as e:
+        print(f"\n❌ 获取角色信息时发生异常: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def get_kungfu_by_role_info(game_role_id, zone, server):
+    """
+    根据角色信息获取心法
+    Args:
+        game_role_id: 角色ID
+        zone: 大区
+        server: 服务器
+    Returns:
+        str: 心法中文名称, 如果查不到返回None
+    """
+    print(f"\n🔍 开始查询心法信息...")
+    print(f"角色ID: {game_role_id}")
+    print(f"大区: {zone}")
+    print(f"服务器: {server}")
+    
+    if game_role_id == "未知" or server == "未知" or zone == "未知":
+        print("❌ 参数无效，无法查询")
+        return None
+    
+    role_detail = get_role_indicator(game_role_id, zone, server)
+    if role_detail and "data" in role_detail and role_detail["data"] and "indicator" in role_detail["data"]:
+        indicators = role_detail["data"]["indicator"]
+
+        for i, indicator in enumerate(indicators):
+
+            if indicator.get("type") == "3c":
+                metrics = indicator.get("metrics", [])
+
+                if metrics:
+                    # 只取场次最多的心法
+                    max_total_count = 0
+                    best_metric = None
+                    
+                    for j, metric in enumerate(metrics):
+                        if metric and metric.get("items"):
+                            total_count = metric.get("total_count", 0)
+
+                            if total_count > max_total_count:
+                                max_total_count = total_count
+                                best_metric = metric
+                    
+                    if best_metric:
+                        kungfu_pinyin = best_metric.get("kungfu", None)
+                        kungfu_name = KUNGFU_PINYIN_TO_CHINESE.get(kungfu_pinyin, None)
+                        print(f"\n🎯 最终选择心法: {kungfu_pinyin} -> {kungfu_name}")
+                        return kungfu_name
+                    else:
+                        print("❌ 未找到有效的心法数据")
+    else:
+        print("❌ 角色详情数据格式异常")
+        if role_detail:
+            print(f"响应结构: {list(role_detail.keys())}")
+    
+    return None
 
 # 添加常量控制秘境分布的最大显示层数
 MAX_DEPTH = 2  # 0是顶层，1是第一层子项目，2是第二层子项目，最多显示3层
@@ -31,6 +129,9 @@ driver = get_driver()
 server_data_cache = None  # 存储服务器数据的全局缓存
 SERVER_DATA_FILE = "server_data.json"  # 文件路径
 GROUP_CONFIG_FILE = "groups.json"
+# 竞技场排行榜缓存
+JJC_RANKING_CACHE_DURATION = 7200  # 缓存时间2小时（秒）
+JJC_RANKING_CACHE_FILE = "data/cache/jjc_ranking_cache.json"  # 缓存文件路径
 # 从配置文件中获取API URL
 烟花查询 = API_URLS["烟花查询"]
 奇遇查询 = API_URLS["奇遇查询"]
@@ -40,6 +141,8 @@ GROUP_CONFIG_FILE = "groups.json"
 名片查询 = API_URLS["名片查询"]
 资历查询 = API_URLS["资历查询"]
 百战查询 = API_URLS["百战查询"]
+竞技场时间查询 = API_URLS["竞技场时间查询"]
+竞技场排行榜查询 = API_URLS["竞技场排行榜查询"]
 # 使用配置文件中的正则表达式创建命令处理器
 yanhua = on_regex(REGEX_PATTERNS["烟花查询"])
 qiyu = on_regex(REGEX_PATTERNS["奇遇查询"])
@@ -56,6 +159,7 @@ mingpian = on_regex(REGEX_PATTERNS["名片查询"])
 baizhan = on_regex(REGEX_PATTERNS["百战查询"])
 zili = on_regex(REGEX_PATTERNS["资历查询"])
 zili_choice = on_regex(REGEX_PATTERNS["资历选择"])
+zhanji_ranking = on_regex(REGEX_PATTERNS["竞技排名"])
 
 # 全局变量，记录机器人状态
 BOT_STATUS = {
@@ -1063,6 +1167,9 @@ async def jjc_to_image(bot: Bot, event: Event,foo: Annotated[tuple[Any, ...], Re
 
 
     if items["msg"] == "success":
+        # 更新kuangfu缓存信息
+        await update_kuangfu_cache(qufu, id, items)
+        
         items = items["data"]
 
 
@@ -1071,7 +1178,7 @@ async def jjc_to_image(bot: Bot, event: Event,foo: Annotated[tuple[Any, ...], Re
         else:
             text = suijitext()
             env.filters['time'] = time_ago_fenzhong
-            env.filters['jjctime'] = jjcdaxiaoxie
+            env.filters['jjctime'] = timestamp_jjc
             template = env.get_template('竞技查询.html')
             html_content = template.render(items=items, id=id, qufu=qufu, text=text)
 
@@ -2121,7 +2228,7 @@ def check_valid_items(items_data):
 @driver.on_startup
 async def init_cache():
     """初始化服务器数据：获取、保存到文件并设置为全局变量"""
-    global server_data_cache,token_data
+    global server_data_cache, token_data
 
     try:
         await download_json()
@@ -2161,6 +2268,24 @@ async def init_cache():
         except Exception as read_error:
             print(f"读取本地文件失败: {read_error}")
 
+    # 检查竞技场排行榜缓存文件状态
+    try:
+        if os.path.exists(JJC_RANKING_CACHE_FILE):
+            with open(JJC_RANKING_CACHE_FILE, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+            
+            current_time = time.time()
+            cache_time = cached_data.get("cache_time", 0)
+            
+            if current_time - cache_time < JJC_RANKING_CACHE_DURATION:
+                print(f"竞技场排行榜文件缓存有效，缓存时间: {datetime.fromtimestamp(cache_time).strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                print("竞技场排行榜文件缓存已过期")
+        else:
+            print("竞技场排行榜缓存文件不存在")
+    except Exception as e:
+        print(f"检查竞技场排行榜缓存失败: {e}")
+
 
 # 使用全局数据的函数示例
 async def check_server(server_name):
@@ -2183,3 +2308,1082 @@ async def check_server(server_name):
                 return True
 
     return False
+
+# ================== 战绩排名相关方法移植 ==================
+async def query_jjc_data(server: str, name: str, token: str = None, ticket: str = None) -> dict:
+    """
+    查询剑网3竞技场数据
+    
+    Args:
+        server: 服务器名称
+        name: 角色名称
+        token: API认证令牌（可选，默认从config文件获取）
+        ticket: 推栏cookie（可选，默认从config文件获取）
+    
+    Returns:
+        dict: API返回的原始数据
+    """
+    # 使用配置文件中的默认值
+    if token is None:
+        token = TOKEN
+    if ticket is None:
+        ticket = TICKET
+    
+    # API接口地址
+    url = "https://www.jx3api.com/data/arena/recent"
+    
+    # 清理角色名中的特殊字符
+    if name:
+        name = name.replace('[', '').replace(']', '').replace('&#91;', '').replace('&#93;', '').replace(" ", "")
+    
+    # 构建请求参数
+    params = {
+        'server': server,
+        'name': name,
+        "mode": 33,
+        'token': token,
+        'ticket': ticket
+    }
+    
+    print(f"正在查询: 服务器={server}, 角色={name}")
+    print(f"请求URL: {url}")
+    print(f"请求参数: {params}")
+    print("-" * 50)
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as response:
+                print(f"HTTP状态码: {response.status}")
+                
+                if response.status == 200:
+                    data = await response.json()
+                    return data
+                else:
+                    error_text = await response.text()
+                    return {
+                        "error": True,
+                        "status_code": response.status,
+                        "message": f"HTTP请求失败: {response.status}",
+                        "response_text": error_text
+                    }
+                    
+    except aiohttp.ClientError as e:
+        return {
+            "error": True,
+            "message": f"网络请求错误: {str(e)}"
+        }
+    except json.JSONDecodeError as e:
+        return {
+            "error": True,
+            "message": f"JSON解析错误: {str(e)}"
+        }
+    except Exception as e:
+        return {
+            "error": True,
+            "message": f"未知错误: {str(e)}"
+                 }
+
+
+def get_arena_time_tag(type_param="role"):
+    """
+    获取竞技场时间标签信息
+    
+    Args:
+        type_param (str): 类型参数，默认为"role"
+        
+    Returns:
+        dict: 响应结果
+    """
+    url = 竞技场时间查询
+    
+    # 构造请求参数（ts会自动添加，无需手动指定）
+    params = {
+        "type": type_param
+    }
+    
+    print(f"正在请求竞技场时间标签...")
+    print(f"请求地址: {url}")
+    print(f"请求参数: {json.dumps(params, ensure_ascii=False, indent=2)}")
+    
+    try:
+        # 调用封装的请求方法
+        result = tuilan_request(url, params)
+        
+        if result is None:
+            print(f"❌ 竞技场时间标签请求失败: 返回None")
+            return {"error": "请求返回None"}
+        
+        if "error" in result:
+            print(f"❌ 竞技场时间标签请求失败: {result['error']}")
+            return result
+        
+        print(f"✅ 竞技场时间标签请求成功")
+        return result
+    except Exception as e:
+        print(f"❌ 竞技场时间标签请求异常: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"请求异常: {e}"}
+
+
+def get_arena_ranking(tag):
+    """
+    获取竞技场排行榜信息
+    
+    Args:
+        tag (int): 骑宠tag参数
+        
+    Returns:
+        dict: 响应结果
+    """
+    url = 竞技场排行榜查询
+    
+    # 构造请求参数（ts会自动添加，无需手动指定）
+    params = {
+        "typeName": "week",
+        "heiMaBang": False,
+        "tag": tag
+    }
+    
+    print(f"正在请求竞技场排行榜...")
+    print(f"请求地址: {url}")
+    print(f"请求参数: {json.dumps(params, ensure_ascii=False, indent=2)}")
+    
+    try:
+        # 调用封装的请求方法
+        result = tuilan_request(url, params)
+        
+        if result is None:
+            print(f"❌ 竞技场排行榜请求失败: 返回None")
+            return {"error": "请求返回None"}
+        
+        if "error" in result:
+            print(f"❌ 竞技场排行榜请求失败: {result['error']}")
+            return result
+        
+        print(f"✅ 竞技场排行榜请求成功")
+        return result
+    except Exception as e:
+        print(f"❌ 竞技场排行榜请求异常: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"请求异常: {e}"}
+
+
+async def get_user_kuangfu(server: str, name: str) -> dict:
+    """
+    获取用户的kuangfu信息
+    
+    Args:
+        server: 服务器名称
+        name: 角色名称
+        token: API认证令牌（可选，默认从config文件获取）
+        ticket: 推栏cookie（可选，默认从config文件获取）
+    
+    Returns:
+        dict: 包含kuangfu信息的结果
+    """
+    # 使用配置文件中的默认值
+    token = TOKEN
+    ticket = TICKET
+    
+    # 缓存配置
+    cache_dir = "data/cache/kuangfu"
+    cache_file = os.path.join(cache_dir, f"{server}_{name}.json")
+    
+    # 创建缓存目录
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    # 检查缓存是否存在
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+            # 如果缓存的 kuangfu 字段为空，则继续请求数据，否则直接返回缓存
+            if cached_data.get("kuangfu") not in [None, ""]:
+                return cached_data
+            else:
+                print(f"缓存 kuangfu 为空，重新请求数据: {server}_{name}")
+        except Exception as e:
+            print(f"读取缓存文件失败: {e}")
+    
+    # 随机延迟1-5秒，防止被反爬虫检测
+    delay = random.uniform(5, 10)
+    print(f"等待 {delay:.2f} 秒后发起请求...")
+    await asyncio.sleep(delay)
+    
+    # 优先使用心法查询接口
+    print(f"优先使用心法查询接口查询 {server}_{name} 的心法信息")
+    
+    try:
+        # 获取排行榜数据来查找角色信息
+        ranking_result = await query_jjc_ranking()
+        if ranking_result and not ranking_result.get("error") and ranking_result.get("code") == 0:
+            ranking_data = ranking_result.get("data", [])
+            
+            # 在排行榜中查找匹配的角色
+            for player in ranking_data:
+                person_info = player.get("personInfo", {})
+                player_server = person_info.get("server")
+                player_name = person_info.get("roleName")
+                
+                # 从roleName中提取·符号左边部分作为player_name
+                if player_name and "·" in player_name:
+                    player_name = player_name.split("·")[0]
+                
+                # 检查是否匹配当前查询的角色
+                if player_server == server and player_name == name:
+                    game_role_id = person_info.get("gameRoleId")
+                    zone = person_info.get("zone")
+                    
+                    if game_role_id and zone:
+                        print(f"在排行榜中找到角色: {server}_{name}, 角色ID: {game_role_id}, 大区: {zone}")
+                        
+                        # 使用心法查询接口
+                        kungfu_name = get_kungfu_by_role_info(game_role_id, zone, server)
+                        
+                        if kungfu_name:
+                            print(f"心法查询成功: {kungfu_name}")
+                            
+                            # 更新缓存
+                            result = {
+                                "server": server,
+                                "name": name,
+                                "kuangfu": kungfu_name,
+                                "found": True,
+                                "cache_time": time.time()
+                            }
+                            
+                            # 保存到缓存
+                            try:
+                                with open(cache_file, 'w', encoding='utf-8') as f:
+                                    json.dump(result, f, ensure_ascii=False, indent=2)
+                                print(f"心法信息已更新缓存到: {cache_file}")
+                            except Exception as e:
+                                print(f"更新缓存失败: {e}")
+                            
+                            return result
+                        else:
+                            print(f"心法查询失败: 未找到心法信息")
+                            break
+            
+            print(f"在排行榜中未找到匹配的角色: {server}_{name}")
+        else:
+            print(f"获取排行榜数据失败，无法进行心法查询")
+    except Exception as e:
+        print(f"心法查询过程中出错: {e}")
+    
+    # 如果心法查询失败，使用竞技场数据查询作为备选方案
+    print(f"心法查询失败，使用竞技场数据查询作为备选方案...")
+    
+    # 查询用户的竞技场数据
+    print(f"正在查询 {server}_{name} 的竞技场数据")
+    jjc_data = await get(
+        url=竞技查询,
+        server=server,
+        name=name,
+        token=TOKEN,
+        ticket=TICKET,
+    )
+
+    # 如果竞技场数据查询失败，返回错误信息，不更新缓存
+    if jjc_data.get("error") or jjc_data.get("msg") != "success":
+        print(f"获取竞技场数据失败: {jjc_data}")
+        return {
+            "error": True,
+            "message": f"获取竞技场数据失败: {jjc_data.get('message', '未知错误')}",
+            "server": server,
+            "name": name
+        }
+    
+    # 只有在成功获取数据时才更新缓存
+    await update_kuangfu_cache(server, name, jjc_data)
+    
+    # 从竞技场数据中提取kuangfu信息用于返回
+    kuangfu_info = None
+    
+    # 从history数组中获取kuangfu信息
+    history_data = jjc_data.get("data", {}).get("history", [])
+    if history_data:
+        # 查找最近一次获胜的记录
+        for match in history_data:
+            if match.get("won") == True:
+                kuangfu_info = match.get("kungfu")
+                break
+    
+    result = {
+        "server": server,
+        "name": name,
+        "kuangfu": kuangfu_info,
+        "found": kuangfu_info is not None,
+        "cache_time": time.time()
+    }
+    
+    return result
+
+
+async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
+    """
+    查询剑网3竞技场排行榜数据（仅文件缓存）
+    
+    Args:
+        token: API认证令牌（可选，默认从config文件获取）
+        ticket: 推栏cookie（可选，默认从config文件获取）
+    
+    Returns:
+        dict: 竞技场排行榜数据
+    """
+    # 创建缓存目录
+    cache_dir = os.path.dirname(JJC_RANKING_CACHE_FILE)
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    # 检查文件缓存是否有效
+    current_time = time.time()
+    if os.path.exists(JJC_RANKING_CACHE_FILE):
+        try:
+            with open(JJC_RANKING_CACHE_FILE, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+            
+            cache_time = cached_data.get("cache_time", 0)
+            if current_time - cache_time < JJC_RANKING_CACHE_DURATION:
+                print("使用文件缓存的竞技场排行榜数据")
+                return cached_data.get("data")
+            else:
+                print("文件缓存已过期")
+        except Exception as e:
+            print(f"读取文件缓存失败: {e}")
+    
+    print("正在查询竞技场排行榜数据...")
+    
+    try:
+        # 第一步：调用 get_arena_time_tag 获取 defaultWeek
+        print("第一步：获取竞技场时间标签...")
+        time_tag_result = get_arena_time_tag()
+
+        if time_tag_result.get("error"):
+            print(f"获取时间标签失败: {time_tag_result}")
+            return {
+                "error": True,
+                "message": f"获取时间标签失败: {time_tag_result.get('error', '未知错误')}"
+            }
+
+        if time_tag_result.get("code") != 0:
+            print(f"获取时间标签失败: {time_tag_result}")
+            return {
+                "error": True,
+                "message": f"获取时间标签失败: {time_tag_result.get('msg', '未知错误')}"
+            }
+
+        await asyncio.sleep(5.45)
+        
+        # 从响应中获取 defaultWeek
+        data = time_tag_result.get("data", {})
+        default_week = data.get("defaultWeek")
+        
+        if default_week is None:
+            print("未找到 defaultWeek 参数")
+            return {
+                "error": True,
+                "message": "未找到 defaultWeek 参数"
+            }
+        
+        print(f"获取到 defaultWeek: {default_week}")
+        
+        # 第二步：使用 defaultWeek 调用 get_arena_ranking
+        print("第二步：获取竞技场排行榜...")
+        ranking_result = get_arena_ranking(default_week)
+        
+        if ranking_result.get("error"):
+            print(f"获取竞技场排行榜失败: {ranking_result}")
+            return {
+                "error": True,
+                "message": f"获取竞技场排行榜失败: {ranking_result.get('error', '未知错误')}"
+            }
+        
+        # 只有在成功获取数据时才保存缓存
+        if ranking_result.get("code") == 0:
+            # 将 defaultWeek 和缓存时间添加到返回结果中
+            ranking_result["defaultWeek"] = default_week
+            ranking_result["cache_time"] = current_time
+            
+            # 保存到文件缓存
+            try:
+                cache_data = {
+                    "data": ranking_result,
+                    "cache_time": current_time
+                }
+                with open(JJC_RANKING_CACHE_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                print(f"竞技场排行榜数据已保存到文件缓存: {JJC_RANKING_CACHE_FILE}")
+            except Exception as e:
+                print(f"保存文件缓存失败: {e}")
+        else:
+            print(f"获取竞技场排行榜失败，不保存缓存: {ranking_result}")
+        
+        print(f"竞技场排行榜查询完成,返回结果：{ranking_result}")
+        return ranking_result
+        
+    except Exception as e:
+        print(f"query_jjc_ranking 未知错误: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "error": True,
+            "message": f"未知错误: {str(e)}"
+        }
+
+
+async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket: str = None) -> dict:
+    """
+    获取排行榜数据的kuangfu信息
+    
+    Args:
+        ranking_data: 排行榜数据（query_jjc_ranking的返回值）
+        token: API认证令牌（可选，默认从config文件获取）
+        ticket: 推栏cookie（可选，默认从config文件获取）
+    
+    Returns:
+        dict: 包含kuangfu信息的排行榜数据
+    """
+    # 使用配置文件中的默认值
+    if token is None:
+        token = TOKEN
+    if ticket is None:
+        ticket = TICKET
+    
+    # 检查排行榜数据是否有效
+    if ranking_data.get("error") or ranking_data.get("code") != 0:
+        print(f"排行榜数据无效，无法获取kuangfu信息: {ranking_data}");
+        return {
+            "error": True,
+            "message": "排行榜数据无效，无法获取kuangfu信息",
+            "ranking_data": ranking_data
+        }
+    
+    # 获取排行榜数据
+    all_data = ranking_data.get("data", [])
+    print(f"all_data: len{len(all_data)}")
+
+    if not all_data:
+        return {
+            "error": True,
+            "message": "排行榜数据为空，无法获取kuangfu信息",
+            "ranking_data": ranking_data
+        }
+    
+    # 获取排行榜中用户的kuangfu信息
+    print("正在获取排行榜用户的kuangfu信息...")
+    kuangfu_results = []
+    ranking_kungfu_lines = []
+    for i, player in enumerate(all_data):  # 遍历整个排行榜数据
+
+        # 从新的数据格式中获取服务器和角色名
+        person_info = player.get("personInfo", {})
+        score = player.get("score")
+        player_server = person_info.get("server")
+        player_name = person_info.get("roleName")
+        force = person_info.get("force")
+  
+        print(f"player_server: {player_server}, player_name: {player_name}")
+        # 从roleName中提取·符号左边部分作为player_name
+        if player_name and "·" in player_name:
+            player_name = player_name.split("·")[0]
+        
+        if player_server and player_name:
+            print(f"处理第{i+1}名: {player_server}_{player_name}")
+            
+            # 检查force是否在FORCE_TO_KUNGFU配置中
+            if force and force in FORCE_TO_KUNGFU:
+                # 如果force在配置中，直接使用配置的心法
+                configured_kungfu = FORCE_TO_KUNGFU[force]
+                print(f"使用配置的心法: {force} -> {configured_kungfu}")
+                kuangfu_info = {
+                    "server": player_server,
+                    "name": player_name,
+                    "kuangfu": configured_kungfu,
+                    "found": True,
+                    "cache_time": time.time(),
+                    "from_config": True,
+                    "score": score
+                }
+            else:
+                # 否则从API获取心法信息
+                kuangfu_info = await get_user_kuangfu(player_server, player_name)
+                # 添加分数信息
+                kuangfu_info["score"] = score
+            
+            kuangfu_results.append(kuangfu_info)
+            # 输出所有排名的心法
+            kungfu = kuangfu_info.get("kuangfu", "-")
+            ranking_kungfu_lines.append(f"第{i+1}名：{player_server} {player_name}（{kungfu}）({score})")
+
+    # 将kuangfu信息添加到排行榜数据中
+    result = ranking_data.copy()
+    result["kuangfu_data"] = kuangfu_results
+    result["ranking_kungfu_lines"] = ranking_kungfu_lines
+    print(f"kuangfu信息获取完成，共处理 {len(kuangfu_results)} 个用户")
+    
+    # 输出无效数据的角色
+    invalid_players = []
+    for i, kuangfu_info in enumerate(kuangfu_results):
+        if not kuangfu_info.get("found") or not kuangfu_info.get("kuangfu"):
+            player_server = kuangfu_info.get("server", "未知")
+            player_name = kuangfu_info.get("name", "未知")
+            invalid_players.append(f"第{i+1}名：{player_server} {player_name}")
+    
+    if invalid_players:
+        print(f"\n⚠️ 无效数据角色（共{len(invalid_players)}个）：")
+        for player in invalid_players:
+            print(f"  {player}")
+    else:
+        print("\n✅ 所有角色心法数据获取成功")
+    
+    # 定义奶妈心法列表
+    healer_kuangfu = ["离经易道", "补天诀", "云裳心经", "灵素", "相知"]
+    
+    # 定义所有DPS心法列表
+    dps_kuangfu = [
+        "紫霞功", "周天功", "冰心诀", "花间游", "太虚剑意", "傲血战意", "凌海诀", 
+        "北傲诀", "莫问", "惊羽诀", "笑尘诀", "隐龙诀", "焚影圣诀", "太玄经", 
+        "分山劲", "山居剑意", "毒经", "无方", "山海心诀", "孤锋诀", "易筋经", "天罗诡道"
+    ]
+    
+    # 统计各个排名段的kuangfu数量
+    def count_kuangfu_by_rank(kuangfu_data, max_rank):
+        """统计指定排名范围内的kuangfu数量，区分奶妈和DPS"""
+        healer_count = {}
+        dps_count = {}
+        healer_valid_count = 0
+        dps_valid_count = 0
+        invalid_count = 0  # 新增：无效数据计数
+        invalid_details = []  # 新增：记录无效数据详细信息
+        
+        # 记录每个kuangfu第一次出现的排名
+        healer_first_rank = {}
+        dps_first_rank = {}
+        
+        # 记录最低分数
+        healer_min_score = None
+        dps_min_score = None
+        
+        # 初始化所有心法计数为0
+        for kuangfu in healer_kuangfu:
+            healer_count[kuangfu] = 0
+        for kuangfu in dps_kuangfu:
+            dps_count[kuangfu] = 0
+        
+        for i, player_data in enumerate(kuangfu_data[:max_rank]):
+            if player_data.get("found") and player_data.get("kuangfu"):
+                kuangfu = player_data["kuangfu"]
+                score = player_data.get("score")
+                
+                # 判断是否为奶妈心法
+                if kuangfu in healer_kuangfu:
+                    healer_count[kuangfu] = healer_count.get(kuangfu, 0) + 1
+                    healer_valid_count += 1
+                    # 记录第一次出现的排名
+                    if kuangfu not in healer_first_rank:
+                        healer_first_rank[kuangfu] = i + 1
+                    # 记录最低分数
+                    if score is not None and (healer_min_score is None or score < healer_min_score):
+                        healer_min_score = score
+                elif kuangfu in dps_kuangfu:
+                    dps_count[kuangfu] = dps_count.get(kuangfu, 0) + 1
+                    dps_valid_count += 1
+                    # 记录第一次出现的排名
+                    if kuangfu not in dps_first_rank:
+                        dps_first_rank[kuangfu] = i + 1
+                    # 记录最低分数
+                    if score is not None and (dps_min_score is None or score < dps_min_score):
+                        dps_min_score = score
+                else:
+                    # 新增：处理不在定义列表中的心法
+                    print(f"⚠️ 发现未分类心法：第{i+1}名 {player_data.get('server', '未知')} {player_data.get('name', '未知')} - {kuangfu}")
+            else:
+                # 新增：统计无效数据并记录详细信息
+                invalid_count += 1
+                player_server = player_data.get("server", "未知")
+                player_name = player_data.get("name", "未知")
+                invalid_details.append(f"第{i+1}名：{player_server} {player_name}")
+        
+        # 为没有出现的心法设置默认首次排名（按心法列表顺序）
+        for i, kuangfu in enumerate(healer_kuangfu):
+            if kuangfu not in healer_first_rank:
+                healer_first_rank[kuangfu] = 9999 + i  # 使用很大的数字确保排在后面
+        for i, kuangfu in enumerate(dps_kuangfu):
+            if kuangfu not in dps_first_rank:
+                dps_first_rank[kuangfu] = 9999 + i  # 使用很大的数字确保排在后面
+        
+        # 按数量降序排序，数量相同时按首次出现排名升序排序
+        sorted_healer = sorted(healer_count.items(), key=lambda x: (x[1], -healer_first_rank[x[0]]), reverse=True)
+        sorted_dps = sorted(dps_count.items(), key=lambda x: (x[1], -dps_first_rank[x[0]]), reverse=True)
+        
+        # 输出无效数据详细信息
+        if invalid_details:
+            print(f"\n⚠️ 前{max_rank}名中无效数据角色（共{len(invalid_details)}个）：")
+            for detail in invalid_details:
+                print(f"  {detail}")
+        
+        return {
+            "total_players": max_rank,
+            "healer": {
+                "valid_count": healer_valid_count,
+                "distribution": dict(sorted_healer),
+                "list": sorted_healer,
+                "min_score": healer_min_score
+            },
+            "dps": {
+                "valid_count": dps_valid_count,
+                "distribution": dict(sorted_dps),
+                "list": sorted_dps,
+                "min_score": dps_min_score
+            },
+            "total_valid_count": healer_valid_count + dps_valid_count,
+            "invalid_count": invalid_count,  # 新增：返回无效数据数量
+            "invalid_details": invalid_details,  # 新增：返回无效数据详细信息
+            "unclassified_count": max_rank - (healer_valid_count + dps_valid_count + invalid_count)  # 新增：未分类心法数量
+        }
+    
+    # 统计前200、前100、前50的kuangfu分布
+    print("正在统计kuangfu分布...")
+    kuangfu_stats = {
+        "top_200": count_kuangfu_by_rank(kuangfu_results, 200),
+        "top_100": count_kuangfu_by_rank(kuangfu_results, 100),
+        "top_50": count_kuangfu_by_rank(kuangfu_results, 50)
+    }
+    
+    result["kuangfu_statistics"] = kuangfu_stats
+    
+    # 打印统计结果
+    print("\n" + "="*80)
+    print("KUANGFU统计结果 (奶妈/DPS分类)")
+    print("="*80)
+    
+    for rank_range, stats in kuangfu_stats.items():
+        print(f"\n{rank_range.upper()} ({stats['total_players']}人，有效数据{stats['total_valid_count']}人，无效数据{stats['invalid_count']}人):")
+        print("=" * 60)
+        
+        # 奶妈统计
+        print(f"\n【奶妈排名】({stats['healer']['valid_count']}人):")
+        print("-" * 40)
+        if stats['healer']['list']:
+            for kuangfu, count in stats['healer']['list']:
+                percentage = (count / stats['healer']['valid_count'] * 100) if stats['healer']['valid_count'] > 0 else 0
+                print(f"  {kuangfu}: {count}人 ({percentage:.1f}%)")
+        else:
+            print("  无奶妈数据")
+        
+        # DPS统计
+        print(f"\n【DPS排名】({stats['dps']['valid_count']}人):")
+        print("-" * 40)
+        if stats['dps']['list']:
+            for kuangfu, count in stats['dps']['list']:
+                percentage = (count / stats['dps']['valid_count'] * 100) if stats['dps']['valid_count'] > 0 else 0
+                print(f"  {kuangfu}: {count}人 ({percentage:.1f}%)")
+        else:
+            print("  无DPS数据")
+    
+    print("="*80)
+    
+    return result
+
+@zhanji_ranking.handle()
+async def zhanji_ranking_to_image(bot: Bot, event: Event):
+    """
+    群聊输入"竞技排名"时，统计JJC排名并生成竞技场心法分布图片发送到群聊。
+    """
+    try:
+        # 获取消息内容，判断是否为拆分模式
+        message_text = event.get_plaintext().strip()
+        is_split_mode = "拆分" in message_text
+        
+        if is_split_mode:
+            await bot.send(event, "正在统计竞技场心法排名（拆分模式），请稍候...")
+        else:
+            await bot.send(event, "正在统计竞技场心法排名，请稍候...")
+        
+        # 1. 查询JJC排行榜数据
+        ranking_result = await query_jjc_ranking()
+        
+        # 检查排行榜数据是否有效
+        if ranking_result is None:
+            await bot.send(event, "获取竞技场排行榜数据失败：返回数据为空")
+            return
+            
+        if ranking_result.get("error"):
+            error_msg = ranking_result.get("message", "未知错误")
+            await bot.send(event, f"获取竞技场排行榜数据失败：{error_msg}")
+            return
+            
+        if ranking_result.get("code") != 0:
+            await bot.send(event, f"获取竞技场排行榜数据失败：API返回错误码 {ranking_result.get('code')}")
+            return
+        
+        # 获取defaultWeek和缓存时间用于计算周信息
+        default_week = ranking_result.get("defaultWeek")
+        cache_time = ranking_result.get("cache_time")
+        
+        # 计算周信息
+        week_info = calculate_season_week_info(default_week, cache_time) if default_week else "第12周"
+        
+        # 2. 获取排行榜心法分布
+        result = await get_ranking_kuangfu_data(ranking_data=ranking_result)
+        
+        # 检查心法分布数据是否有效
+        if result is None:
+            await bot.send(event, "获取心法分布数据失败：返回数据为空")
+            return
+            
+        if result.get("error"):
+            error_msg = result.get("message", "未知错误")
+            await bot.send(event, f"获取心法分布数据失败：{error_msg}")
+            return
+        
+        # 3. 组织模板数据
+        stats = result.get("kuangfu_statistics", {})
+        
+        if not stats:
+            await bot.send(event, "心法统计数据为空，无法生成统计图片")
+            return
+        
+        # 准备模板数据，使用已排序的list数据
+        def prepare_template_data(rank_data, rank_type):
+            """准备模板数据，使用已排序的list数据"""
+            if not rank_data or rank_type not in rank_data:
+                return []
+            sorted_list = rank_data[rank_type].get('list', [])
+            if not sorted_list:
+                return []
+            valid_count = rank_data[rank_type].get('valid_count', 0)
+            return [(k, v, f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%") for k, v in sorted_list]
+        
+        if is_split_mode:
+            # 拆分模式：生成6张单独的图片
+            await generate_split_ranking_images(bot, event, stats, week_info)
+        else:
+            # 正常模式：生成1张总图
+            await generate_combined_ranking_image(bot, event, stats, week_info)
+
+        # 新增：输出所有排名的角色名和心法
+        ranking_kungfu_lines = result.get("ranking_kungfu_lines", [])
+        if ranking_kungfu_lines:
+            await bot.send(event, "\n".join(ranking_kungfu_lines))
+        
+    except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"战绩排名统计详细错误：{error_traceback}")
+        await bot.send(event, f"战绩排名统计失败：{str(e)}")
+
+
+async def generate_combined_ranking_image(bot, event, stats, week_info):
+    """生成合并的排名图片"""
+    # 准备模板数据，使用已排序的list数据
+    def prepare_template_data(rank_data, rank_type):
+        """准备模板数据，使用已排序的list数据"""
+        if not rank_data or rank_type not in rank_data:
+            return []
+        sorted_list = rank_data[rank_type].get('list', [])
+        if not sorted_list:
+            return []
+        valid_count = rank_data[rank_type].get('valid_count', 0)
+        min_score = rank_data[rank_type].get('min_score')
+        return [(k, v, f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%", min_score) for k, v in sorted_list]
+    
+    # 4. 渲染HTML
+    template = env.get_template('竞技场心法排名统计.html')
+    html_content = template.render(
+        current_season=CURRENT_SEASON,
+        week_info=week_info,
+        top_200_healer=prepare_template_data(stats.get('top_200', {}), 'healer'),
+        top_200_dps=prepare_template_data(stats.get('top_200', {}), 'dps'),
+        top_100_healer=prepare_template_data(stats.get('top_100', {}), 'healer'),
+        top_100_dps=prepare_template_data(stats.get('top_100', {}), 'dps'),
+        top_50_healer=prepare_template_data(stats.get('top_50', {}), 'healer'),
+        top_50_dps=prepare_template_data(stats.get('top_50', {}), 'dps'),
+    )
+    
+    # 5. 截图生成图片
+    image_bytes = await jietu(html_content, 1120, "ck")
+    
+    # 6. 发送图片和统计信息
+    # 计算总的有效数据条数
+    total_valid_data = 0
+    if stats:
+        total_valid_data = (stats.get('top_200', {}).get('total_valid_count', 0) or 0)
+    
+    # 发送图片和统计信息
+    await bot.send(event, MessageSegment.image(image_bytes))
+    await bot.send(event, f"统计完成！共处理 {total_valid_data} 条有效数据（前200名）")
+
+
+async def generate_split_ranking_images(bot, event, stats, week_info):
+    """生成拆分的排名图片（6张单独图片）"""
+    # 准备模板数据，使用已排序的list数据
+    def prepare_template_data(rank_data, rank_type):
+        """准备模板数据，使用已排序的list数据"""
+        if not rank_data or rank_type not in rank_data:
+            return []
+        sorted_list = rank_data[rank_type].get('list', [])
+        if not sorted_list:
+            return []
+        valid_count = rank_data[rank_type].get('valid_count', 0)
+        min_score = rank_data[rank_type].get('min_score')
+        return [(k, v, f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%", min_score) for k, v in sorted_list]
+    
+    # 定义6个排名段的配置
+    ranking_configs = [
+        {
+            "name": "前200奶妈",
+            "template": "竞技场心法排名_前200奶妈.html",
+            "data_key": "top_200_healer",
+            "data": prepare_template_data(stats.get('top_200', {}), 'healer')
+        },
+        {
+            "name": "前200DPS",
+            "template": "竞技场心法排名_前200DPS.html",
+            "data_key": "top_200_dps",
+            "data": prepare_template_data(stats.get('top_200', {}), 'dps')
+        },
+        {
+            "name": "前100奶妈",
+            "template": "竞技场心法排名_前100奶妈.html",
+            "data_key": "top_100_healer",
+            "data": prepare_template_data(stats.get('top_100', {}), 'healer')
+        },
+        {
+            "name": "前100DPS",
+            "template": "竞技场心法排名_前100DPS.html",
+            "data_key": "top_100_dps",
+            "data": prepare_template_data(stats.get('top_100', {}), 'dps')
+        },
+        {
+            "name": "前50奶妈",
+            "template": "竞技场心法排名_前50奶妈.html",
+            "data_key": "top_50_healer",
+            "data": prepare_template_data(stats.get('top_50', {}), 'healer')
+        },
+        {
+            "name": "前50DPS",
+            "template": "竞技场心法排名_前50DPS.html",
+            "data_key": "top_50_dps",
+            "data": prepare_template_data(stats.get('top_50', {}), 'dps')
+        }
+    ]
+    
+    # 生成并发送6张图片
+    for i, config in enumerate(ranking_configs, 1):
+        try:
+            # 渲染HTML
+            template = env.get_template(config["template"])
+            html_content = template.render(
+                current_season=CURRENT_SEASON,
+                week_info=week_info,
+                **{config["data_key"]: config["data"]}
+            )
+            
+            # 生成图片
+            image_bytes = await jietu(html_content, 800, "ck")
+            
+            # 发送图片
+            await bot.send(event, MessageSegment.image(image_bytes))
+            
+            # 添加延迟，避免消息发送过快
+            if i < len(ranking_configs):
+                await asyncio.sleep(1)
+                
+        except Exception as e:
+            print(f"生成{config['name']}图片失败: {e}")
+            await bot.send(event, f"生成{config['name']}图片失败: {str(e)}")
+    
+    # 计算总的有效数据条数
+    total_valid_data = 0
+    if stats:
+        total_valid_data = (stats.get('top_200', {}).get('total_valid_count', 0) or 0)
+    
+    # 发送完成信息
+    await bot.send(event, f"拆分统计完成！共处理 {total_valid_data} 条有效数据（前200名），已生成6张详细排名图")
+
+
+def calculate_season_week_info(default_week: int, cache_time: float = None) -> str:
+    """
+    计算当前是第几周并获取时间信息
+    
+    Args:
+        default_week: 从API获取的defaultWeek值
+        cache_time: 缓存时间戳，如果提供则使用缓存时间计算
+        
+    Returns:
+        str: 格式化的周信息，如"第13周 周2 17:31" 或 "第12周 结算"
+    """
+    try:
+        # 获取时间（使用缓存时间或当前时间）
+        if cache_time:
+            now = datetime.fromtimestamp(cache_time)
+        else:
+            now = datetime.now()
+        
+        # 解析赛季开始时间
+        season_start = datetime.strptime(CURRENT_SEASON_START, "%Y-%m-%d")
+        
+        # 计算当前时间与赛季开始时间的差值
+        time_diff = now - season_start
+        
+        # 计算当前是第几周（从赛季开始算起）
+        current_week = (time_diff.days // 7) + 1
+        
+        # 获取当前年份的第几周
+        current_year_week = now.isocalendar()[1]
+        
+        # 情况1：defaultWeek 与当前年份周数一致
+        if default_week == current_year_week:
+            # 获取当前是星期几（0=周一，6=周日）
+            weekday = now.weekday()
+            weekday_names = ["周1", "周2", "周3", "周4", "周5", "周6", "周7"]
+            weekday_str = weekday_names[weekday]
+            
+            # 获取当前时间
+            time_str = now.strftime("%H:%M")
+            
+            # 使用从赛季开始计算的周数，并拼接星期几和时间
+            return f"第{current_week}周 {weekday_str} {time_str}"
+        
+        # 情况2：defaultWeek 小于当前年份周数
+        elif default_week < current_year_week:
+            # 计算defaultWeek对应的日期
+            # 首先找到defaultWeek对应的年份（假设是当前年份）
+            target_year = now.year
+            
+            # 计算defaultWeek对应的日期（使用isocalendar的逆运算）
+            # 找到该年份第defaultWeek周的第一天（周一）
+            jan1 = datetime(target_year, 1, 1)
+            jan1_weekday = jan1.weekday()  # 0=周一，6=周日
+            
+            # 计算该年第一周的第一天
+            if jan1_weekday <= 3:  # 如果1月1日是周一到周四
+                first_week_start = jan1 - timedelta(days=jan1_weekday)
+            else:  # 如果1月1日是周五到周日
+                first_week_start = jan1 + timedelta(days=7-jan1_weekday)
+            
+            # 计算defaultWeek对应的日期
+            target_date = first_week_start + timedelta(weeks=default_week-1)
+            
+            # 计算从赛季开始到target_date是第几周
+            target_diff = target_date - season_start
+            target_season_week = (target_diff.days // 7) + 1
+            
+            # 返回结算格式
+            return f"第{target_season_week}周 结算"
+        
+        # 情况3：defaultWeek 大于当前年份周数（异常情况）
+        else:
+            # 获取当前是星期几和时间
+            weekday = now.weekday()
+            weekday_names = ["周1", "周2", "周3", "周4", "周5", "周6", "周7"]
+            weekday_str = weekday_names[weekday]
+            time_str = now.strftime("%H:%M")
+            
+            # 使用从赛季开始计算的周数
+            return f"第{current_week}周 {weekday_str} {time_str}"
+            
+    except Exception as e:
+        print(f"计算赛季周信息失败: {e}")
+        # 如果计算失败，返回默认格式
+        return f"第{default_week}周"
+
+
+async def update_kuangfu_cache(server: str, name: str, jjc_data: dict) -> None:
+    """
+    更新用户的kuangfu缓存信息
+    
+    Args:
+        server: 服务器名称
+        name: 角色名称
+        jjc_data: 竞技场查询返回的数据
+    """
+    # 缓存配置
+    cache_dir = "data/cache/kuangfu"
+    cache_file = os.path.join(cache_dir, f"{server}_{name}.json")
+    
+    # 创建缓存目录
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    # 优先使用心法查询接口
+    print(f"优先使用心法查询接口更新 {server}_{name} 的心法信息")
+    
+    kuangfu_info = None
+    
+    try:
+        # 获取排行榜数据来查找角色信息
+        ranking_result = await query_jjc_ranking()
+        if ranking_result and not ranking_result.get("error") and ranking_result.get("code") == 0:
+            ranking_data = ranking_result.get("data", [])
+            
+            # 在排行榜中查找匹配的角色
+            for player in ranking_data:
+                person_info = player.get("personInfo", {})
+                player_server = person_info.get("server")
+                player_name = person_info.get("roleName")
+                
+                # 从roleName中提取·符号左边部分作为player_name
+                if player_name and "·" in player_name:
+                    player_name = player_name.split("·")[0]
+                
+                # 检查是否匹配当前查询的角色
+                if player_server == server and player_name == name:
+                    game_role_id = person_info.get("gameRoleId")
+                    zone = person_info.get("zone")
+                    
+                    if game_role_id and zone:
+                        print(f"在排行榜中找到角色: {server}_{name}, 角色ID: {game_role_id}, 大区: {zone}")
+                        
+                        # 使用心法查询接口
+                        kungfu_name = get_kungfu_by_role_info(game_role_id, zone, server)
+                        
+                        if kungfu_name:
+                            print(f"心法查询成功: {kungfu_name}")
+                            kuangfu_info = kungfu_name
+                            break
+                        else:
+                            print(f"心法查询失败: 未找到心法信息")
+                            break
+            
+            if not kuangfu_info:
+                print(f"在排行榜中未找到匹配的角色: {server}_{name}")
+        else:
+            print(f"获取排行榜数据失败，无法进行心法查询")
+    except Exception as e:
+        print(f"心法查询过程中出错: {e}")
+    
+    # 如果心法查询失败，从竞技场数据中提取kuangfu信息作为备选方案
+    if not kuangfu_info:
+        print(f"心法查询失败，从竞技场数据中提取心法信息作为备选方案...")
+        
+        # 从history数组中获取kuangfu信息
+        history_data = jjc_data.get("data", {}).get("history", [])
+        if history_data:
+            # 查找最近一次获胜的记录
+            for match in history_data:
+                if match.get("won"):
+                    kuangfu_info = match.get("kungfu")
+                    break
+    
+    result = {
+        "server": server,
+        "name": name,
+        "kuangfu": kuangfu_info,
+        "found": kuangfu_info is not None,
+        "cache_time": time.time()
+    }
+
+    # 只有在找到心法信息时才保存缓存
+    if kuangfu_info:
+        print(f"更新kuangfu缓存到文件: {cache_file}")
+        try:
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+            print(f"kuangfu信息已更新缓存到: {cache_file}")
+        except Exception as e:
+            print(f"更新缓存失败: {e}")
+    else:
+        print(f"未找到心法信息，不保存缓存: {server}_{name}")
