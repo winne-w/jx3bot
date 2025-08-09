@@ -27,6 +27,9 @@ class Config(BaseModel):
 
     ]
 
+    # 本地服务器配置
+    local_server_url: str = "http://127.0.0.1:8000"
+
 
 # 全局配置
 driver = get_driver()
@@ -52,3 +55,5 @@ if hasattr(global_config, "jx3_api_endpoints"):
     config.jx3_api_endpoints = global_config.jx3_api_endpoints
 if hasattr(global_config, "jx3_item_image_templates"):
     config.jx3_item_image_templates = global_config.jx3_item_image_templates
+if hasattr(global_config, "local_server_url"):
+    config.local_server_url = global_config.local_server_url
