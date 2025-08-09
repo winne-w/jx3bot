@@ -272,7 +272,7 @@ class JX3TradeAPI:
         safe_filename = re.sub(r'[\\/:*?"<>|]', '_', item_name)
         file_name = f"{safe_filename}.png"
         local_path = cache_dir / file_name
-        base_url = "http://192.168.100.1:8000/wanbaolou"
+        base_url = f"{config.local_server_url}/wanbaolou"
 
         # 检查本地缓存
         if local_path.exists():
@@ -311,7 +311,7 @@ class JX3TradeAPI:
 
         # 如果所有模板都失败，返回指定的默认URL格式
         logger.warning(f"未能获取物品 '{item_name}' 的图片，使用默认路径")
-        return "http://192.168.100.1:8000/bg-empty.png"
+        return f"{config.local_server_url}/bg-empty.png"
 
 
 
