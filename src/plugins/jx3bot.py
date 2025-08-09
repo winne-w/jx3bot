@@ -1178,7 +1178,7 @@ async def jjc_to_image(bot: Bot, event: Event,foo: Annotated[tuple[Any, ...], Re
         else:
             text = suijitext()
             env.filters['time'] = time_ago_fenzhong
-            env.filters['jjctime'] = timestamp_jjc
+            env.filters['jjctime'] = jjcdaxiaoxie
             template = env.get_template('竞技查询.html')
             html_content = template.render(items=items, id=id, qufu=qufu, text=text)
 
