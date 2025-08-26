@@ -215,10 +215,40 @@ async def get(url: str, server: Optional[str] = None, name: Optional[str] = None
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, params=params) as response:
-
-                data = await response.json()
-
-                cache.set(f'{url}{server}{name}', data)
+                
+                # 检查响应状态码
+                if response.status != 200:
+                    print(f"HTTP请求失败，状态码: {response.status}")
+                    return {"error": True, "message": f"HTTP请求失败，状态码: {response.status}"}
+                
+                # 检查响应内容类型
+                content_type = response.headers.get('content-type', '')
+                if 'application/json' not in content_type and 'text/plain' not in content_type:
+                    print(f"响应内容类型不支持: {content_type}")
+                    return {"error": True, "message": f"响应内容类型不支持: {content_type}"}
+                
+                try:
+                    # 获取响应文本
+                    response_text = await response.text()
+                    
+                    # 检查响应是否为空
+                    if not response_text.strip():
+                        print("响应内容为空")
+                        return {"error": True, "message": "响应内容为空"}
+                    
+                    # 尝试解析JSON
+                    data = json.loads(response_text)
+                    
+                    # 缓存成功的结果
+                    cache.set(f'{url}{server}{name}', data)
+                    
+                except json.JSONDecodeError as e:
+                    print(f"JSON解析失败: {e}")
+                    print(f"响应内容: {response_text[:200]}...")  # 只打印前200个字符
+                    return {"error": True, "message": f"JSON解析失败: {e}"}
+                except Exception as e:
+                    print(f"处理响应时出错: {e}")
+                    return {"error": True, "message": f"处理响应时出错: {e}"}
 
     return data
 
