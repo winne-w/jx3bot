@@ -1,5 +1,6 @@
 from nonebot import get_driver
 from pydantic import BaseModel
+from typing import Optional
 
 
 class Config(BaseModel):
@@ -30,6 +31,16 @@ class Config(BaseModel):
     # 本地服务器配置
     local_server_url: str = "http://127.0.0.1:8000"
 
+    # 别名数据源（可选）
+    # 若提供本地路径，则优先读取本地；否则尝试从远端接口获取
+    alias_local_path: Optional[str] = None
+    alias_source_url: Optional[str] = "https://www.aijx3.cn/api2/aijx3-wblwg/basedata/getSearchData"
+    alias_request_method: str = "POST"
+
+    # 别名缓存配置
+    alias_cache_path: str = "data/wanbaolou_alias_cache.json"
+    alias_refresh_minutes: int = 360
+
 
 # 全局配置
 driver = get_driver()
@@ -57,3 +68,10 @@ if hasattr(global_config, "jx3_item_image_templates"):
     config.jx3_item_image_templates = global_config.jx3_item_image_templates
 if hasattr(global_config, "local_server_url"):
     config.local_server_url = global_config.local_server_url
+# 别名配置
+if hasattr(global_config, "alias_local_path"):
+    config.alias_local_path = global_config.alias_local_path
+if hasattr(global_config, "alias_source_url"):
+    config.alias_source_url = global_config.alias_source_url
+if hasattr(global_config, "alias_request_method"):
+    config.alias_request_method = global_config.alias_request_method
