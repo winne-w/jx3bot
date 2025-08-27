@@ -3387,3 +3387,5 @@ async def update_kuangfu_cache(server: str, name: str, jjc_data: dict) -> None:
             print(f"更新缓存失败: {e}")
     else:
         print(f"未找到心法信息，不保存缓存: {server}_{name}")
+
+
