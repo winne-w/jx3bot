@@ -4,6 +4,7 @@ from nonebot import get_driver, on_regex, require,on_command
 from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
 from nonebot.plugin import PluginMetadata
 from nonebot.params import RegexGroup
+from nonebot.exception import FinishedException
 from nonebot.log import logger
 import json
 import os
@@ -19,6 +20,7 @@ from src.plugins.wanbaolou.utils import format_time_string, save_image_cache
 from src.utils.defget import jietu,suijitext
 from config import wanbaolou
 from src.utils.shared_data import SEARCH_RESULTS,user_sessions
+from .alias import setup_alias_refresh_job
 
 
 # 导出主要功能函数，方便直接导入使用
@@ -163,6 +165,9 @@ async def _():
     # 启动超时检查任务
     scheduler.add_job(check_timeouts, "interval", seconds=5)
 
+    # 初始化并定时刷新别名缓存，仅用于物价/外观查询时本地解析别名
+    await setup_alias_refresh_job(scheduler)
+
 
 # 定期检查超时会话的函数
 async def check_timeouts():
@@ -300,9 +305,9 @@ async def handle_search(bot: Bot, event: Event, matcher: Matcher, matched: Annot
         return
 
     try:
+        print(f"[cmd] start search keyword='{keyword}'")
         results = await search_appearance(keyword)
-
-        logger.info(f"关键词 '{keyword}' 搜索结果数量: {len(results) if results else 0}")
+        print(f"[cmd] search done keyword='{keyword}', count={len(results) if results else 0}")
 
         if not results:
             await matcher.finish(f"未找到与 '{keyword}' 相关的物品")
@@ -327,15 +332,20 @@ async def handle_search(bot: Bot, event: Event, matcher: Matcher, matched: Annot
         # 构建回复消息
         reply = f"找到 {len(results)} 个与 '{keyword}' 相关的物品：\n"
         for i, item in enumerate(results, 1):
-            reply += f"{i}. {item['name']} ({item['category']})\n"
+            name_to_show = item.get('display') or f"{item['name']} ({item.get('category','')})"
+            reply += f"{i}. {name_to_show}\n"
         reply += f"--------------------------------"
         reply += f"\n请在 {SESSION_TIMEOUT} 秒内回复数字选择"
         reply += f"超时将自动选择第一项: {results[0]['name']}"
 
         await matcher.finish(Message(reply.strip()))
 
+    except FinishedException:
+        # 由 matcher.finish 主动结束流程，直接抛出交给 NoneBot 处理
+        raise
     except Exception as e:
-        print(e)
+        logger.exception(f"外观/物价搜索异常，关键词: {keyword}")
+        await matcher.finish("搜索出现异常，请稍后重试")
 
 
 
