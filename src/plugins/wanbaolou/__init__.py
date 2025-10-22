@@ -4,6 +4,7 @@ from nonebot import get_driver, on_regex, require,on_command
 from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
 from nonebot.plugin import PluginMetadata
 from nonebot.params import RegexGroup
+from nonebot.exception import FinishedException
 from nonebot.log import logger
 import json
 import os
@@ -339,8 +340,11 @@ async def handle_search(bot: Bot, event: Event, matcher: Matcher, matched: Annot
 
         await matcher.finish(Message(reply.strip()))
 
+    except FinishedException:
+        # 由 matcher.finish 主动结束流程，直接抛出交给 NoneBot 处理
+        raise
     except Exception as e:
-        print(f"[cmd] search handler failed for keyword='{keyword}': {e}")
+        logger.exception(f"外观/物价搜索异常，关键词: {keyword}")
         await matcher.finish("搜索出现异常，请稍后重试")
 
 
