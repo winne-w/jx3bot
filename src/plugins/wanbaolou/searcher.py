@@ -3,6 +3,7 @@ import json
 import aiofiles
 from typing import List, Dict, Any, Set
 from nonebot import logger
+from .alias import get_canonical_name, search_aliases
 
 
 class TrieNode:
@@ -128,8 +129,18 @@ async def search_appearance(keyword: str, limit: int = 15) -> List[Dict[str, Any
         logger.warning("搜索器未初始化，正在尝试初始化...")
         await appearance_searcher.initialize()
 
+    print(f"[search] incoming keyword='{keyword}', limit={limit}")
+    # 将别名转为原名后再参与匹配
+    canonical = await get_canonical_name(keyword)
+    print(f"[search] canonical='{canonical}' from keyword='{keyword}'")
+    # 同时执行别名模糊匹配，得到一组原名（当关键字仅出现在别名中时也能命中）
+    alias_canonicals = await search_aliases(keyword)
+    alias_canonical_set = set(alias_canonicals)
+    if alias_canonicals:
+        print(f"[search] alias fuzzy matched canonicals count={len(alias_canonicals)} sample={alias_canonicals[:5]}")
+
     # 清理关键词
-    clean_keyword = keyword.lower().replace('·', '').replace(' ', '')
+    clean_keyword = canonical.lower().replace('·', '').replace(' ', '')
 
     # 存储所有结果及其得分
     scored_results = []
@@ -186,12 +197,44 @@ async def search_appearance(keyword: str, limit: int = 15) -> List[Dict[str, Any
         if score > 0:
             scored_results.append((item, score))
 
+    # 使用字典聚合同名项分数，便于后续基于别名结果加分/补全
+    item_score_map: Dict[str, int] = {}
+    item_obj_map: Dict[str, Dict[str, Any]] = {}
+    for item, score in scored_results:
+        key = f"{item['name']}|{item['category']}"
+        prev = item_score_map.get(key, 0)
+        if score > prev:
+            item_score_map[key] = score
+            item_obj_map[key] = item
+
+    # 对别名模糊匹配到的原名，直接给予较高分数，确保能够被检索到
+    if alias_canonical_set:
+        for item in appearance_searcher.data:
+            if item.get('name') in alias_canonical_set:
+                key = f"{item['name']}|{item['category']}"
+                # 给予一个较高的基础分，但低于原有的“完全精确匹配(1000)”
+                boosted = max(item_score_map.get(key, 0), 850)
+                item_score_map[key] = boosted
+                item_obj_map[key] = item
+        print(f"[search] alias boosted items={len(item_obj_map)}")
+
+    # 还原为列表并排序
+    scored_results = [(item_obj_map[k], v) for k, v in item_score_map.items()]
     # 按分数降序排序
     scored_results.sort(key=lambda x: x[1], reverse=True)
 
     # 获取前limit个结果
-    top_results = [item for item, _ in scored_results[:limit]]
-
+    top_results_raw = [item for item, _ in scored_results[:limit]]
+    # 构造用于展示的条目：如果存在 alias，则展示 别名(原名)(分类)
+    top_results: List[Dict[str, Any]] = []
+    for it in top_results_raw:
+        display = it['name']
+        if 'alias' in it and it['alias']:
+            display = f"{it['alias']}({it['name']})"
+        category = it.get('category', '')
+        display_full = f"{display}({category})" if category else display
+        top_results.append({'name': it['name'], 'category': it.get('category', ''), 'display': display_full, 'alias': it.get('alias', '')})
+    print(f"[search] result_count={len(top_results)} for canonical='{canonical}'")
     return top_results
 
 
