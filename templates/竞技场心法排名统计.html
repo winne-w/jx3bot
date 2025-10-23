@@ -26,8 +26,8 @@
         }
         .charts-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: repeat(3, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-auto-rows: auto;
             gap: 32px 32px;
             max-width: 1200px;
             margin: 0 auto 2rem auto;
@@ -92,8 +92,36 @@
 </head>
 <body>
     <div class="main-title">竞技场心法排名统计</div>
-    <div class="desc">前200、前100、前50 奶妈与DPS心法分布（{{ current_season }}{{ week_info }} ）</div>
+    <div class="desc">{{ scope_desc }} 奶妈与DPS心法分布（{{ current_season }}{{ week_info }} ）</div>
     <div class="charts-grid">
+        {% if has_top_1000 %}
+        <!-- 前1000奶妈 -->
+        <div class="chart-block">
+            <div class="chart-title">前1000 奶妈心法{% if top_1000_healer and top_1000_healer[0][3] %} （{{ top_1000_healer[0][3] }}）{% endif %}</div>
+            {% set max_count = top_1000_healer[0][1] if top_1000_healer else 1 %}
+            {% for kuangfu, count, percent, min_score in top_1000_healer %}
+            <div class="bar-row">
+                <div class="bar-label">{{ kuangfu }}</div>
+                <div class="bar" style="width:{{ 320 * count / max_count }}px;"></div>
+                <div class="bar-value">{{ count }}</div>
+                <div class="bar-percent">{{ percent }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        <!-- 前1000DPS -->
+        <div class="chart-block">
+            <div class="chart-title">前1000 DPS心法{% if top_1000_dps and top_1000_dps[0][3] %} （{{ top_1000_dps[0][3] }}）{% endif %}</div>
+            {% set max_count = top_1000_dps[0][1] if top_1000_dps else 1 %}
+            {% for kuangfu, count, percent, min_score in top_1000_dps %}
+            <div class="bar-row">
+                <div class="bar-label">{{ kuangfu }}</div>
+                <div class="bar" style="width:{{ 320 * count / max_count }}px;"></div>
+                <div class="bar-value">{{ count }}</div>
+                <div class="bar-percent">{{ percent }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
         <!-- 前200奶妈 -->
         <div class="chart-block">
             <div class="chart-title">前200 奶妈心法{% if top_200_healer and top_200_healer[0][3] %} （{{ top_200_healer[0][3] }}）{% endif %}</div>
