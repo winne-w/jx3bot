@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>前1000 DPS心法排名</title>
+    <style>
+        body {
+            background: #f7fafd;
+            font-family: 'Microsoft YaHei', sans-serif;
+            color: #2c3e50;
+            padding: 0;
+            margin: 0;
+        }
+        .main-title {
+            text-align: center;
+            font-size: 2.2rem;
+            font-weight: bold;
+            margin: 2rem 0 1rem 0;
+            letter-spacing: 2px;
+        }
+        .desc {
+            text-align: center;
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        .chart-container {
+            background: #fff;
+            border-radius: 18px;
+            box-shadow: 0 4px 24px rgba(137,196,244,0.10);
+            padding: 2rem;
+            max-width: 800px;
+            margin: 0 auto 2rem auto;
+        }
+        .chart-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: #3b4a5a;
+            text-align: center;
+        }
+        .bar-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .bar-label {
+            width: 80px;
+            text-align: right;
+            margin-right: 15px;
+            font-size: 1.1rem;
+            color: #455e77;
+        }
+        .bar {
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(90deg, #89C4F4 0%, #FF79B0 100%);
+            min-width: 10px;
+            position: relative;
+            transition: width 0.3s;
+        }
+        .bar-value {
+            margin-left: 15px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #2c3e50;
+            min-width: 40px;
+        }
+        .bar-percent {
+            margin-left: 10px;
+            color: #888;
+            font-size: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-title">竞技场心法排名统计</div>
+    <div class="desc">前1000 DPS心法分布（{{ current_season }}{{ week_info }} ）</div>
+    <div class="chart-container">
+        <div class="chart-title">前1000 DPS心法{% if top_1000_dps and top_1000_dps[0][3] %} （{{ top_1000_dps[0][3] }}）{% endif %}</div>
+        {% set max_count = top_1000_dps[0][1] if top_1000_dps else 1 %}
+        {% for kuangfu, count, percent, min_score in top_1000_dps %}
+        <div class="bar-row">
+            <div class="bar-label">{{ kuangfu }}</div>
+            <div class="bar" style="width:{{ 500 * count / max_count }}px;"></div>
+            <div class="bar-value">{{ count }}</div>
+            <div class="bar-percent">{{ percent }}</div>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+</html>
