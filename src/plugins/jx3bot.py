@@ -18,7 +18,11 @@ from nonebot.plugin import require
 from src.utils.shared_data import user_sessions,SEARCH_RESULTS
 
 # 导入配置文件
-from config import TOKEN, TICKET, API_URLS, DEFAULT_SERVER, SESSION_TIMEOUT, REGEX_PATTERNS,NEWS_API_URL,SKILL_records_URL,IMAGE_CACHE_DIR,CURRENT_SEASON,CURRENT_SEASON_START,KUNGFU_PINYIN_TO_CHINESE,FORCE_TO_KUNGFU
+from config import TOKEN, TICKET, API_URLS, DEFAULT_SERVER, SESSION_TIMEOUT, REGEX_PATTERNS,NEWS_API_URL,SKILL_records_URL,IMAGE_CACHE_DIR,CURRENT_SEASON,CURRENT_SEASON_START,KUNGFU_META
+
+KUNGFU_PINYIN_TO_CHINESE = {key: value["name"] for key, value in KUNGFU_META.items()}
+KUNGFU_HEALER_LIST = [value["name"] for value in KUNGFU_META.values() if value.get("category") == "healer"]
+KUNGFU_DPS_LIST = [value["name"] for value in KUNGFU_META.values() if value.get("category") == "dps"]
 
 # 心法查询相关函数
 def get_role_indicator(role_id, zone, server):
@@ -84,7 +88,7 @@ def get_kungfu_by_role_info(game_role_id, zone, server):
 
         for i, indicator in enumerate(indicators):
 
-            if indicator.get("type") == "3c":
+            if indicator.get("type") == "3c" or indicator.get("type") == "3d":
                 metrics = indicator.get("metrics", [])
 
                 if metrics:
@@ -2507,8 +2511,8 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
         except Exception as e:
             print(f"读取缓存文件失败: {e}")
     
-    # 随机延迟1-5秒，防止被反爬虫检测
-    delay = random.uniform(5, 10)
+    # 随机延迟3-5秒，防止被反爬虫检测
+    delay = random.uniform(3, 5)
     print(f"等待 {delay:.2f} 秒后发起请求...")
     await asyncio.sleep(delay)
     
@@ -2782,7 +2786,6 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         score = player.get("score")
         player_server = person_info.get("server")
         player_name = person_info.get("roleName")
-        force = person_info.get("force")
   
         print(f"player_server: {player_server}, player_name: {player_name}")
         # 从roleName中提取·符号左边部分作为player_name
@@ -2792,25 +2795,10 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         if player_server and player_name:
             print(f"处理第{i+1}名: {player_server}_{player_name}")
             
-            # 检查force是否在FORCE_TO_KUNGFU配置中
-            if force and force in FORCE_TO_KUNGFU:
-                # 如果force在配置中，直接使用配置的心法
-                configured_kungfu = FORCE_TO_KUNGFU[force]
-                print(f"使用配置的心法: {force} -> {configured_kungfu}")
-                kuangfu_info = {
-                    "server": player_server,
-                    "name": player_name,
-                    "kuangfu": configured_kungfu,
-                    "found": True,
-                    "cache_time": time.time(),
-                    "from_config": True,
-                    "score": score
-                }
-            else:
-                # 否则从API获取心法信息
-                kuangfu_info = await get_user_kuangfu(player_server, player_name)
-                # 添加分数信息
-                kuangfu_info["score"] = score
+            # 总是通过战绩查询心法信息
+            kuangfu_info = await get_user_kuangfu(player_server, player_name)
+            # 添加分数信息
+            kuangfu_info["score"] = score
             
             kuangfu_results.append(kuangfu_info)
             # 输出所有排名的心法
@@ -2841,15 +2829,9 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     else:
         print("\n✅ 所有角色心法数据获取成功")
     
-    # 定义奶妈心法列表
-    healer_kuangfu = ["离经易道", "补天诀", "云裳心经", "灵素", "相知"]
-    
-    # 定义所有DPS心法列表
-    dps_kuangfu = [
-        "紫霞功", "周天功", "冰心诀", "花间游", "太虚剑意", "傲血战意", "凌海诀", 
-        "北傲诀", "莫问", "惊羽诀", "笑尘诀", "隐龙诀", "焚影圣诀", "太玄经", 
-        "分山劲", "山居剑意", "毒经", "无方", "山海心诀", "孤锋诀", "易筋经", "天罗诡道"
-    ]
+    # 从配置中获取奶妈和DPS心法列表
+    healer_kuangfu = KUNGFU_HEALER_LIST
+    dps_kuangfu = KUNGFU_DPS_LIST
     
     # 统计各个排名段的kuangfu数量
     def count_kuangfu_by_rank(kuangfu_data, max_rank):
