@@ -18,7 +18,11 @@ from nonebot.plugin import require
 from src.utils.shared_data import user_sessions,SEARCH_RESULTS
 
 # 导入配置文件
-from config import TOKEN, TICKET, API_URLS, DEFAULT_SERVER, SESSION_TIMEOUT, REGEX_PATTERNS,NEWS_API_URL,SKILL_records_URL,IMAGE_CACHE_DIR,CURRENT_SEASON,CURRENT_SEASON_START,KUNGFU_PINYIN_TO_CHINESE,FORCE_TO_KUNGFU
+from config import TOKEN, TICKET, API_URLS, DEFAULT_SERVER, SESSION_TIMEOUT, REGEX_PATTERNS,NEWS_API_URL,SKILL_records_URL,IMAGE_CACHE_DIR,CURRENT_SEASON,CURRENT_SEASON_START,KUNGFU_META
+
+KUNGFU_PINYIN_TO_CHINESE = {key: value["name"] for key, value in KUNGFU_META.items()}
+KUNGFU_HEALER_LIST = [value["name"] for value in KUNGFU_META.values() if value.get("category") == "healer"]
+KUNGFU_DPS_LIST = [value["name"] for value in KUNGFU_META.values() if value.get("category") == "dps"]
 
 # 心法查询相关函数
 def get_role_indicator(role_id, zone, server):
@@ -84,7 +88,7 @@ def get_kungfu_by_role_info(game_role_id, zone, server):
 
         for i, indicator in enumerate(indicators):
 
-            if indicator.get("type") == "3c":
+            if indicator.get("type") == "3c" or indicator.get("type") == "3d":
                 metrics = indicator.get("metrics", [])
 
                 if metrics:
@@ -2507,8 +2511,8 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
         except Exception as e:
             print(f"读取缓存文件失败: {e}")
     
-    # 随机延迟1-5秒，防止被反爬虫检测
-    delay = random.uniform(5, 10)
+    # 随机延迟3-5秒，防止被反爬虫检测
+    delay = random.uniform(3, 5)
     print(f"等待 {delay:.2f} 秒后发起请求...")
     await asyncio.sleep(delay)
     
@@ -2782,7 +2786,6 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         score = player.get("score")
         player_server = person_info.get("server")
         player_name = person_info.get("roleName")
-        force = person_info.get("force")
   
         print(f"player_server: {player_server}, player_name: {player_name}")
         # 从roleName中提取·符号左边部分作为player_name
@@ -2792,25 +2795,10 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         if player_server and player_name:
             print(f"处理第{i+1}名: {player_server}_{player_name}")
             
-            # 检查force是否在FORCE_TO_KUNGFU配置中
-            if force and force in FORCE_TO_KUNGFU:
-                # 如果force在配置中，直接使用配置的心法
-                configured_kungfu = FORCE_TO_KUNGFU[force]
-                print(f"使用配置的心法: {force} -> {configured_kungfu}")
-                kuangfu_info = {
-                    "server": player_server,
-                    "name": player_name,
-                    "kuangfu": configured_kungfu,
-                    "found": True,
-                    "cache_time": time.time(),
-                    "from_config": True,
-                    "score": score
-                }
-            else:
-                # 否则从API获取心法信息
-                kuangfu_info = await get_user_kuangfu(player_server, player_name)
-                # 添加分数信息
-                kuangfu_info["score"] = score
+            # 总是通过战绩查询心法信息
+            kuangfu_info = await get_user_kuangfu(player_server, player_name)
+            # 添加分数信息
+            kuangfu_info["score"] = score
             
             kuangfu_results.append(kuangfu_info)
             # 输出所有排名的心法
@@ -2821,7 +2809,10 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     result = ranking_data.copy()
     result["kuangfu_data"] = kuangfu_results
     result["ranking_kungfu_lines"] = ranking_kungfu_lines
-    print(f"kuangfu信息获取完成，共处理 {len(kuangfu_results)} 个用户")
+    total_players = len(kuangfu_results)
+    print(f"kuangfu信息获取完成，共处理 {total_players} 个用户")
+    result["ranking_player_count"] = total_players
+    result["has_top_1000"] = total_players >= 1000
     
     # 输出无效数据的角色
     invalid_players = []
@@ -2838,15 +2829,9 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     else:
         print("\n✅ 所有角色心法数据获取成功")
     
-    # 定义奶妈心法列表
-    healer_kuangfu = ["离经易道", "补天诀", "云裳心经", "灵素", "相知"]
-    
-    # 定义所有DPS心法列表
-    dps_kuangfu = [
-        "紫霞功", "周天功", "冰心诀", "花间游", "太虚剑意", "傲血战意", "凌海诀", 
-        "北傲诀", "莫问", "惊羽诀", "笑尘诀", "隐龙诀", "焚影圣诀", "太玄经", 
-        "分山劲", "山居剑意", "毒经", "无方", "山海心诀", "孤锋诀", "易筋经", "天罗诡道"
-    ]
+    # 从配置中获取奶妈和DPS心法列表
+    healer_kuangfu = KUNGFU_HEALER_LIST
+    dps_kuangfu = KUNGFU_DPS_LIST
     
     # 统计各个排名段的kuangfu数量
     def count_kuangfu_by_rank(kuangfu_data, max_rank):
@@ -2946,11 +2931,13 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     
     # 统计前200、前100、前50的kuangfu分布
     print("正在统计kuangfu分布...")
-    kuangfu_stats = {
-        "top_200": count_kuangfu_by_rank(kuangfu_results, 200),
-        "top_100": count_kuangfu_by_rank(kuangfu_results, 100),
-        "top_50": count_kuangfu_by_rank(kuangfu_results, 50)
-    }
+    kuangfu_stats = {}
+    if total_players >= 1000:
+        print("检测到排行榜包含1000条数据，开始统计前1000心法分布...")
+        kuangfu_stats["top_1000"] = count_kuangfu_by_rank(kuangfu_results, 1000)
+    kuangfu_stats["top_200"] = count_kuangfu_by_rank(kuangfu_results, 200)
+    kuangfu_stats["top_100"] = count_kuangfu_by_rank(kuangfu_results, 100)
+    kuangfu_stats["top_50"] = count_kuangfu_by_rank(kuangfu_results, 50)
     
     result["kuangfu_statistics"] = kuangfu_stats
     
@@ -3092,15 +3079,24 @@ async def generate_combined_ranking_image(bot, event, stats, week_info):
     
     # 4. 渲染HTML
     template = env.get_template('竞技场心法排名统计.html')
+    has_top_1000 = 'top_1000' in stats
+    scope_desc = "前200、前100、前50"
+    if has_top_1000:
+        scope_desc = "前1000、前200、前100、前50"
+
     html_content = template.render(
         current_season=CURRENT_SEASON,
         week_info=week_info,
+        scope_desc=scope_desc,
+        top_1000_healer=prepare_template_data(stats.get('top_1000', {}), 'healer') if has_top_1000 else [],
+        top_1000_dps=prepare_template_data(stats.get('top_1000', {}), 'dps') if has_top_1000 else [],
         top_200_healer=prepare_template_data(stats.get('top_200', {}), 'healer'),
         top_200_dps=prepare_template_data(stats.get('top_200', {}), 'dps'),
         top_100_healer=prepare_template_data(stats.get('top_100', {}), 'healer'),
         top_100_dps=prepare_template_data(stats.get('top_100', {}), 'dps'),
         top_50_healer=prepare_template_data(stats.get('top_50', {}), 'healer'),
         top_50_dps=prepare_template_data(stats.get('top_50', {}), 'dps'),
+        has_top_1000=has_top_1000,
     )
     
     # 5. 截图生成图片
@@ -3108,13 +3104,15 @@ async def generate_combined_ranking_image(bot, event, stats, week_info):
     
     # 6. 发送图片和统计信息
     # 计算总的有效数据条数
+    processed_key = 'top_1000' if has_top_1000 else 'top_200'
     total_valid_data = 0
     if stats:
-        total_valid_data = (stats.get('top_200', {}).get('total_valid_count', 0) or 0)
+        total_valid_data = (stats.get(processed_key, {}).get('total_valid_count', 0) or 0)
+    processed_label = "前1000名" if has_top_1000 else "前200名"
     
     # 发送图片和统计信息
     await bot.send(event, MessageSegment.image(image_bytes))
-    await bot.send(event, f"统计完成！共处理 {total_valid_data} 条有效数据（前200名）")
+    await bot.send(event, f"统计完成！共处理 {total_valid_data} 条有效数据（{processed_label}）")
 
 
 async def generate_split_ranking_images(bot, event, stats, week_info):
@@ -3132,46 +3130,70 @@ async def generate_split_ranking_images(bot, event, stats, week_info):
         return [(k, v, f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%", min_score) for k, v in sorted_list]
     
     # 定义6个排名段的配置
-    ranking_configs = [
-        {
-            "name": "前200奶妈",
-            "template": "竞技场心法排名_前200奶妈.html",
-            "data_key": "top_200_healer",
-            "data": prepare_template_data(stats.get('top_200', {}), 'healer')
-        },
-        {
-            "name": "前200DPS",
-            "template": "竞技场心法排名_前200DPS.html",
-            "data_key": "top_200_dps",
-            "data": prepare_template_data(stats.get('top_200', {}), 'dps')
-        },
-        {
-            "name": "前100奶妈",
-            "template": "竞技场心法排名_前100奶妈.html",
-            "data_key": "top_100_healer",
-            "data": prepare_template_data(stats.get('top_100', {}), 'healer')
-        },
-        {
-            "name": "前100DPS",
-            "template": "竞技场心法排名_前100DPS.html",
-            "data_key": "top_100_dps",
-            "data": prepare_template_data(stats.get('top_100', {}), 'dps')
-        },
-        {
-            "name": "前50奶妈",
-            "template": "竞技场心法排名_前50奶妈.html",
-            "data_key": "top_50_healer",
-            "data": prepare_template_data(stats.get('top_50', {}), 'healer')
-        },
-        {
-            "name": "前50DPS",
-            "template": "竞技场心法排名_前50DPS.html",
-            "data_key": "top_50_dps",
-            "data": prepare_template_data(stats.get('top_50', {}), 'dps')
-        }
-    ]
+    has_top_1000 = 'top_1000' in stats
+    ranking_configs = []
+
+    if has_top_1000:
+        ranking_configs.extend(
+            [
+                {
+                    "name": "前1000奶妈",
+                    "template": "竞技场心法排名_前1000奶妈.html",
+                    "data_key": "top_1000_healer",
+                    "data": prepare_template_data(stats.get('top_1000', {}), 'healer')
+                },
+                {
+                    "name": "前1000DPS",
+                    "template": "竞技场心法排名_前1000DPS.html",
+                    "data_key": "top_1000_dps",
+                    "data": prepare_template_data(stats.get('top_1000', {}), 'dps')
+                },
+            ]
+        )
+
+    ranking_configs.extend(
+        [
+            {
+                "name": "前200奶妈",
+                "template": "竞技场心法排名_前200奶妈.html",
+                "data_key": "top_200_healer",
+                "data": prepare_template_data(stats.get('top_200', {}), 'healer')
+            },
+            {
+                "name": "前200DPS",
+                "template": "竞技场心法排名_前200DPS.html",
+                "data_key": "top_200_dps",
+                "data": prepare_template_data(stats.get('top_200', {}), 'dps')
+            },
+            {
+                "name": "前100奶妈",
+                "template": "竞技场心法排名_前100奶妈.html",
+                "data_key": "top_100_healer",
+                "data": prepare_template_data(stats.get('top_100', {}), 'healer')
+            },
+            {
+                "name": "前100DPS",
+                "template": "竞技场心法排名_前100DPS.html",
+                "data_key": "top_100_dps",
+                "data": prepare_template_data(stats.get('top_100', {}), 'dps')
+            },
+            {
+                "name": "前50奶妈",
+                "template": "竞技场心法排名_前50奶妈.html",
+                "data_key": "top_50_healer",
+                "data": prepare_template_data(stats.get('top_50', {}), 'healer')
+            },
+            {
+                "name": "前50DPS",
+                "template": "竞技场心法排名_前50DPS.html",
+                "data_key": "top_50_dps",
+                "data": prepare_template_data(stats.get('top_50', {}), 'dps')
+            },
+        ]
+    )
     
     # 生成并发送6张图片
+    images_sent = 0
     for i, config in enumerate(ranking_configs, 1):
         try:
             # 渲染HTML
@@ -3187,6 +3209,7 @@ async def generate_split_ranking_images(bot, event, stats, week_info):
             
             # 发送图片
             await bot.send(event, MessageSegment.image(image_bytes))
+            images_sent += 1
             
             # 添加延迟，避免消息发送过快
             if i < len(ranking_configs):
@@ -3197,12 +3220,14 @@ async def generate_split_ranking_images(bot, event, stats, week_info):
             await bot.send(event, f"生成{config['name']}图片失败: {str(e)}")
     
     # 计算总的有效数据条数
+    processed_key = 'top_1000' if has_top_1000 else 'top_200'
     total_valid_data = 0
     if stats:
-        total_valid_data = (stats.get('top_200', {}).get('total_valid_count', 0) or 0)
+        total_valid_data = (stats.get(processed_key, {}).get('total_valid_count', 0) or 0)
+    processed_label = "前1000名" if has_top_1000 else "前200名"
     
     # 发送完成信息
-    await bot.send(event, f"拆分统计完成！共处理 {total_valid_data} 条有效数据（前200名），已生成6张详细排名图")
+    await bot.send(event, f"拆分统计完成！共处理 {total_valid_data} 条有效数据（{processed_label}），已生成{images_sent}张详细排名图")
 
 
 def calculate_season_week_info(default_week: int, cache_time: float = None) -> str:

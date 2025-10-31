@@ -83,52 +83,37 @@ calendar_URL = "https://www.jx3api.com/data/active/calendar"   #活动日常
 jx3box_URL = "https://cms.jx3box.com/api/cms/config/banner?client=std&type=code"   #福利
 
 # 赛季时间定义
-CURRENT_SEASON = "太极秘录"
-CURRENT_SEASON_START = "2025-04-14"
+CURRENT_SEASON = "山海源流"
+CURRENT_SEASON_START = "2025-10-30"
 
-# 心法拼音到中文映射表
-KUNGFU_PINYIN_TO_CHINESE = {
-    "lijing": "离经易道",
-    "zixia": "紫霞功",
-    "beiao": "北傲诀",
-    "lingsu": "灵素",
-    "huajian": "花间游",
-    "fenshan": "分山劲",
-    "taixu": "太虚剑意",
-    "zhoutian": "周天功",
-    "butian": "补天诀",
-    "bingxin": "冰心诀",
-    "xiangzhi": "相知",
-    "jingyu": "惊羽诀",
-    "fenying": "焚影圣诀",
-    "wufang": "无方",
-    "yunshang": "云裳心经",
-    "taixuan": "太玄经",
-    "dujing": "毒经",
-    "gufeng": "孤锋诀",
-    "tianluo": "天罗诡道",
-    "yijin": "易筋经",
-    "aoxue": "傲血战意",
-    "mowen": "莫问",
-    "xiaochen": "笑尘诀",
-    "yinlong": "隐龙诀",
-    "linghai": "凌海诀",
-    "cangjian": "山居剑意",
-    "shanhai": "山海心诀"
-}
-
-FORCE_TO_KUNGFU = {
-    "凌雪阁": "隐龙诀",
-    "丐帮": "笑尘诀",
-    "少林": "易筋经",
-    "明教": "焚影圣诀",
-    "万灵山庄": "山海心诀",
-    "苍云": "分山劲",
-    "蓬莱": "凌海诀",
-    "霸刀": "北傲诀",
-    "段氏": "周天功",
-    "衍天宗": "太玄经",
-    "刀宗": "孤锋诀",
-    "天策": "傲血战意",
-    "藏剑": "山居剑意",
+# 心法拼音映射及分类
+KUNGFU_META = {
+    "lijing": {"name": "离经易道", "category": "healer"},
+    "zixia": {"name": "紫霞功", "category": "dps"},
+    "beiao": {"name": "北傲诀", "category": "dps"},
+    "lingsu": {"name": "灵素", "category": "healer"},
+    "huajian": {"name": "花间游", "category": "dps"},
+    "fenshan": {"name": "分山劲", "category": "dps"},
+    "taixu": {"name": "太虚剑意", "category": "dps"},
+    "zhoutian": {"name": "周天功", "category": "dps"},
+    "butian": {"name": "补天诀", "category": "healer"},
+    "bingxin": {"name": "冰心诀", "category": "dps"},
+    "xiangzhi": {"name": "相知", "category": "healer"},
+    "jingyu": {"name": "惊羽诀", "category": "dps"},
+    "fenying": {"name": "焚影圣诀", "category": "dps"},
+    "wufang": {"name": "无方", "category": "dps"},
+    "yunshang": {"name": "云裳心经", "category": "healer"},
+    "taixuan": {"name": "太玄经", "category": "dps"},
+    "dujing": {"name": "毒经", "category": "dps"},
+    "gufeng": {"name": "孤锋诀", "category": "dps"},
+    "tianluo": {"name": "天罗诡道", "category": "dps"},
+    "yijin": {"name": "易筋经", "category": "dps"},
+    "aoxue": {"name": "傲血战意", "category": "dps"},
+    "mowen": {"name": "莫问", "category": "dps"},
+    "xiaochen": {"name": "笑尘诀", "category": "dps"},
+    "yinlong": {"name": "隐龙诀", "category": "dps"},
+    "linghai": {"name": "凌海诀", "category": "dps"},
+    "cangjian": {"name": "山居剑意", "category": "dps"},
+    "shanhai": {"name": "山海心诀", "category": "dps"},
+    "youluo": {"name": "无相楼", "category": "dps"},
 }
