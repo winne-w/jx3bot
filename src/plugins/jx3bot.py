@@ -3054,7 +3054,13 @@ async def zhanji_ranking_to_image(bot: Bot, event: Event):
         # 新增：输出所有排名的角色名和心法
         ranking_kungfu_lines = result.get("ranking_kungfu_lines", [])
         if ranking_kungfu_lines:
-            await bot.send(event, "\n".join(ranking_kungfu_lines))
+            chunk_size = 200
+            total_lines = len(ranking_kungfu_lines)
+            for start in range(0, total_lines, chunk_size):
+                end = min(start + chunk_size, total_lines)
+                chunk_header = f"竞技场心法排名（第{start + 1}-{end}名）"
+                chunk_message = "\n".join(ranking_kungfu_lines[start:end])
+                await bot.send(event, f"{chunk_header}\n{chunk_message}")
         
     except Exception as e:
         import traceback
