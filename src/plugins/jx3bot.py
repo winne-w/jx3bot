@@ -136,6 +136,7 @@ GROUP_CONFIG_FILE = "groups.json"
 # 竞技场排行榜缓存
 JJC_RANKING_CACHE_DURATION = 7200  # 缓存时间2小时（秒）
 JJC_RANKING_CACHE_FILE = "data/cache/jjc_ranking_cache.json"  # 缓存文件路径
+KUNGFU_CACHE_DURATION = 7 * 24 * 60 * 60  # 心法缓存有效期一周（秒）
 # 从配置文件中获取API URL
 烟花查询 = API_URLS["烟花查询"]
 奇遇查询 = API_URLS["奇遇查询"]
@@ -2503,9 +2504,16 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
         try:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 cached_data = json.load(f)
-            # 如果缓存的 kuangfu 字段为空，则继续请求数据，否则直接返回缓存
-            if cached_data.get("kuangfu") not in [None, ""]:
-                return cached_data
+            cache_time = cached_data.get("cache_time", 0)
+            kungfu_value = cached_data.get("kuangfu")
+
+            if kungfu_value not in [None, ""]:
+                current_time = time.time()
+                if cache_time and current_time - cache_time < KUNGFU_CACHE_DURATION:
+                    return cached_data
+
+                cache_dt = datetime.fromtimestamp(cache_time).strftime("%Y-%m-%d %H:%M:%S") if cache_time else "未知"
+                print(f"心法缓存已超过一周或缺少时间标记，重新请求数据: {server}_{name}（缓存时间: {cache_dt}）")
             else:
                 print(f"缓存 kuangfu 为空，重新请求数据: {server}_{name}")
         except Exception as e:
@@ -3301,7 +3309,8 @@ def calculate_season_week_info(default_week: int, cache_time: float = None) -> s
             
             # 计算从赛季开始到target_date是第几周
             target_diff = target_date - season_start
-            target_season_week = (target_diff.days // 7) + 1
+            # 赛季开始前的周数会算出非正值，向上取到第1周避免出现第0周
+            target_season_week = max(1, (target_diff.days // 7) + 1)
             
             # 返回结算格式
             return f"第{target_season_week}周 结算"
