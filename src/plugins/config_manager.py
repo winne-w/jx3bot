@@ -16,6 +16,9 @@ import src.utils.shared_data
 CONFIG_FILE = "config.py"
 RESTART_FLAG_FILE = "restart_info.json"
 
+# 存储待发送的重启通知
+pending_restart_info = None
+
 # 读取配置文件
 def read_config_file():
     if not os.path.exists(CONFIG_FILE):
@@ -99,41 +102,53 @@ async def startup_handler():
             
             print(f"重启信息: {restart_info}")
             
-            # 设置定时器，等待机器人完全初始化后发送消息
-            asyncio.create_task(send_restart_notification(restart_info))
+            # 保存待发送的重启信息，等待连接建立后回复
+            global pending_restart_info
+            pending_restart_info = restart_info
+            print("已记录待发送的重启通知，等待 WebSocket 连接完成后发送")
         except Exception as e:
             print(f"处理重启标记失败: {e}")
 
-async def send_restart_notification(restart_info):
-    """发送重启完成通知"""
+@driver.on_bot_connect
+async def handle_bot_connect(bot: Bot):
+    """WebSocket 连接建立后发送重启完成通知"""
+    global pending_restart_info
+
     try:
-        # 等待15秒确保机器人完全初始化
-        print("等待15秒后发送重启通知...")
-        await asyncio.sleep(15)
-        
-        # 获取群组ID
+        # 如果内存中暂无信息但仍存在标记文件，则尝试加载一次
+        if pending_restart_info is None and os.path.exists(RESTART_FLAG_FILE):
+            with open(RESTART_FLAG_FILE, "r", encoding="utf-8") as f:
+                pending_restart_info = json.load(f)
+            print(f"从文件补充待发送的重启信息: {pending_restart_info}")
+
+        if not pending_restart_info:
+            return
+
+        restart_info = pending_restart_info
+        pending_restart_info = None
+
+        restart_reason = restart_info.get("reason", "未知原因")
         group_id = restart_info.get("group_id")
-        
+        user_id = restart_info.get("user_id")
+
+        message = f"启动完成，重启原因: {restart_reason}"
+
         if group_id:
-            # 获取机器人实例
-            bots = list(get_driver().bots.values())
-            if bots:
-                bot = bots[0]
-                
-                # 发送通知
-                restart_reason = restart_info.get("reason", "未知原因")
-                message = f"机器人重启完成，重启原因: {restart_reason}"
-                
-                print(f"准备向群{group_id}发送重启通知...")
-                await bot.send_group_msg(group_id=int(group_id), message=message)
-                print(f"已向群{group_id}发送重启通知")
-        
-        # 最后再删除重启标记文件
+            print(f"准备向群{group_id}发送重启完成通知")
+            await bot.send_group_msg(group_id=int(group_id), message=message)
+            print(f"已向群{group_id}发送重启完成通知")
+        elif user_id:
+            print(f"准备向用户{user_id}发送重启完成通知")
+            await bot.send_private_msg(user_id=int(user_id), message=message)
+            print(f"已向用户{user_id}发送重启完成通知")
+        else:
+            print("未找到群组或用户 ID，跳过重启通知发送")
+    except Exception as e:
+        print(f"发送重启通知时出错: {e}")
+    finally:
         if os.path.exists(RESTART_FLAG_FILE):
             os.remove(RESTART_FLAG_FILE)
             print(f"已删除重启标记文件: {RESTART_FLAG_FILE}")
-    except Exception as e:
-        print(f"发送重启通知时出错: {e}")
 
 # 查看配置命令
 view_config_cmd = on_command("查看配置", priority=5)
