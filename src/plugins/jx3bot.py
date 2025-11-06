@@ -765,6 +765,7 @@ async def handle_help(bot: Bot, event: GroupMessageEvent):
         news_push = "开启" if config.get("新闻推送", False) else "关闭"
         records_push = "开启" if config.get("技改推送", False) else "关闭"
         daily_push = "开启" if config.get("日常推送", False) else "关闭"
+        ranking_push = "开启" if config.get("竞技排名推送", False) else "关闭"
 
         # 渲染HTML模板
         template = env.get_template('qun.html')
@@ -774,6 +775,7 @@ async def handle_help(bot: Bot, event: GroupMessageEvent):
             news_push=news_push,
             records_push=records_push,
             daily_push=daily_push,
+            ranking_push=ranking_push,
             group_name = group_name,
             group_avatar_url=group_avatar_url,
             startup_time=startup_time_str,
@@ -3099,8 +3101,17 @@ async def zhanji_ranking_to_image(bot: Bot, event: Event):
         await bot.send(event, f"战绩排名统计失败：{str(e)}")
 
 
-async def generate_combined_ranking_image(bot, event, stats, week_info):
-    """生成合并的排名图片"""
+async def render_combined_ranking_image(stats, week_info):
+    """
+    生成合并的竞技场排名统计图，并返回推送所需的数据载荷
+
+    Args:
+        stats: 心法统计数据
+        week_info: 周信息字符串
+
+    Returns:
+        dict: 包含图片字节、统计范围描述等信息
+    """
     # 准备模板数据，使用已排序的list数据
     def prepare_template_data(rank_data, rank_type):
         """准备模板数据，使用已排序的list数据"""
@@ -3138,17 +3149,35 @@ async def generate_combined_ranking_image(bot, event, stats, week_info):
     # 5. 截图生成图片
     image_bytes = await jietu(html_content, 1120, "ck")
     
-    # 6. 发送图片和统计信息
-    # 计算总的有效数据条数
+    # 6. 计算总的有效数据条数
     processed_key = 'top_1000' if has_top_1000 else 'top_200'
     total_valid_data = 0
     if stats:
         total_valid_data = (stats.get(processed_key, {}).get('total_valid_count', 0) or 0)
     processed_label = "前1000名" if has_top_1000 else "前200名"
     
+    return {
+        "image_bytes": image_bytes,
+        "total_valid_data": total_valid_data,
+        "processed_label": processed_label,
+        "scope_desc": scope_desc,
+        "has_top_1000": has_top_1000,
+    }
+
+
+async def generate_combined_ranking_image(bot, event, stats, week_info):
+    """生成合并的排名图片"""
+    payload = await render_combined_ranking_image(stats, week_info)
+    if not payload:
+        await bot.send(event, "生成竞技场排名统计图失败，请稍后重试")
+        return
+
     # 发送图片和统计信息
-    await bot.send(event, MessageSegment.image(image_bytes))
-    await bot.send(event, f"统计完成！共处理 {total_valid_data} 条有效数据（{processed_label}）")
+    await bot.send(event, MessageSegment.image(payload["image_bytes"]))
+    await bot.send(
+        event,
+        f"统计完成！共处理 {payload['total_valid_data']} 条有效数据（{payload['processed_label']}）",
+    )
 
 
 async def generate_split_ranking_images(bot, event, stats, week_info):
