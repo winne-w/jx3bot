@@ -2787,6 +2787,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     print("正在获取排行榜用户的kuangfu信息...")
     kuangfu_results = []
     ranking_kungfu_lines = []
+    missing_kungfu_lines = []
     for i, player in enumerate(all_data):  # 遍历整个排行榜数据
 
         # 从新的数据格式中获取服务器和角色名
@@ -2810,13 +2811,22 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
             
             kuangfu_results.append(kuangfu_info)
             # 输出所有排名的心法
-            kungfu = kuangfu_info.get("kuangfu", "-")
-            ranking_kungfu_lines.append(f"第{i+1}名：{player_server} {player_name}（{kungfu}）({score})")
+            kungfu = kuangfu_info.get("kuangfu")
+            kungfu_display = kungfu if kungfu else "-"
+            ranking_kungfu_lines.append(f"第{i+1}名：{player_server} {player_name}（{kungfu_display}）({score})")
+
+            # 记录未查询到心法的角色
+            found = kuangfu_info.get("found", False)
+            if not found or not kungfu:
+                missing_kungfu_lines.append(
+                    f"第{i+1}名：{player_server} {player_name}（未查询到心法）({score})"
+                )
 
     # 将kuangfu信息添加到排行榜数据中
     result = ranking_data.copy()
     result["kuangfu_data"] = kuangfu_results
     result["ranking_kungfu_lines"] = ranking_kungfu_lines
+    result["missing_kungfu_lines"] = missing_kungfu_lines
     total_players = len(kuangfu_results)
     print(f"kuangfu信息获取完成，共处理 {total_players} 个用户")
     result["ranking_player_count"] = total_players
@@ -2990,7 +3000,9 @@ async def zhanji_ranking_to_image(bot: Bot, event: Event):
     try:
         # 获取消息内容，判断是否为拆分模式
         message_text = event.get_plaintext().strip()
+        message_text_lower = message_text.lower()
         is_split_mode = "拆分" in message_text
+        is_debug_mode = "debug" in message_text_lower
         
         if is_split_mode:
             await bot.send(event, "正在统计竞技场心法排名（拆分模式），请稍候...")
@@ -3059,15 +3071,25 @@ async def zhanji_ranking_to_image(bot: Bot, event: Event):
             # 正常模式：生成1张总图
             await generate_combined_ranking_image(bot, event, stats, week_info)
 
-        # 新增：输出所有排名的角色名和心法
+        # 根据模式输出心法信息
         ranking_kungfu_lines = result.get("ranking_kungfu_lines", [])
-        if ranking_kungfu_lines:
+        missing_kungfu_lines = result.get("missing_kungfu_lines", [])
+
+        if is_debug_mode and ranking_kungfu_lines:
             chunk_size = 200
             total_lines = len(ranking_kungfu_lines)
             for start in range(0, total_lines, chunk_size):
                 end = min(start + chunk_size, total_lines)
                 chunk_header = f"竞技场心法排名（第{start + 1}-{end}名）"
                 chunk_message = "\n".join(ranking_kungfu_lines[start:end])
+                await bot.send(event, f"{chunk_header}\n{chunk_message}")
+        elif missing_kungfu_lines:
+            chunk_size = 100
+            total_lines = len(missing_kungfu_lines)
+            for start in range(0, total_lines, chunk_size):
+                end = min(start + chunk_size, total_lines)
+                chunk_header = f"未查询到心法的角色（共{total_lines}人，第{start + 1}-{end}名）"
+                chunk_message = "\n".join(missing_kungfu_lines[start:end])
                 await bot.send(event, f"{chunk_header}\n{chunk_message}")
         
     except Exception as e:
