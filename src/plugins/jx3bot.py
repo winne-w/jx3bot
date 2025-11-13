@@ -3300,86 +3300,68 @@ def calculate_season_week_info(default_week: int, cache_time: float = None) -> s
     计算当前是第几周并获取时间信息
     
     Args:
-        default_week: 从API获取的defaultWeek值
+        default_week: 从API获取的赛季周次（defaultWeek，ISO周）
         cache_time: 缓存时间戳，如果提供则使用缓存时间计算
         
     Returns:
         str: 格式化的周信息，如"第13周 周2 17:31" 或 "第12周 结算"
     """
     try:
-        # 获取时间（使用缓存时间或当前时间）
-        if cache_time:
-            now = datetime.fromtimestamp(cache_time)
-        else:
-            now = datetime.now()
-        
-        # 解析赛季开始时间
+        now = datetime.fromtimestamp(cache_time) if cache_time else datetime.now()
         season_start = datetime.strptime(CURRENT_SEASON_START, "%Y-%m-%d")
+
+        # 以周一为锚点，将ISO周转换为赛季周
+        def week_monday(dt: datetime) -> datetime:
+            monday = dt - timedelta(days=dt.weekday())
+            return monday.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        # 计算当前时间与赛季开始时间的差值
-        time_diff = now - season_start
+        season_anchor_monday = week_monday(season_start)
+        current_monday = week_monday(now)
+        season_week_now = max(1, ((current_monday - season_anchor_monday).days // 7) + 1)
+        api_week = max(1, int(default_week))
+
+        now_iso_year, now_iso_week, _ = now.isocalendar()
+        api_year = now_iso_year
+        week_gap = api_week - now_iso_week
+        if week_gap > 26:
+            api_year -= 1  # API指向上一年
+        elif week_gap < -26:
+            api_year += 1  # API指向下一年（理论上不会）
         
-        # 计算当前是第几周（从赛季开始算起）
-        current_week = (time_diff.days // 7) + 1
+        try:
+            target_monday = datetime.fromisocalendar(api_year, api_week, 1)
+        except ValueError:
+            print(
+                f"calculate_season_week_info: defaultWeek={default_week} 生成ISO日期失败，使用当前周"
+            )
+            target_monday = current_monday
         
-        # 获取当前年份的第几周
-        current_year_week = now.isocalendar()[1]
+        season_week_from_api = max(
+            1, ((target_monday - season_anchor_monday).days // 7) + 1
+        )
+        weekday_names = ["周1", "周2", "周3", "周4", "周5", "周6", "周7"]
+        weekday_str = weekday_names[now.weekday()]
+        time_str = now.strftime("%H:%M")
+
+        print(
+            f"defaultWeek={default_week} season_anchor_monday={season_anchor_monday} current_monday={current_monday} season_week_now={season_week_now} api_week={api_week} target_monday={target_monday} weekday_str={weekday_str} time_str={time_str}"
+        )
+        if target_monday < current_monday:
+            # API落后一个ISO周，展示结算周次
+            return f"第{season_week_from_api}周 结算"
         
-        # 情况1：defaultWeek 与当前年份周数一致
-        if default_week == current_year_week:
-            # 获取当前是星期几（0=周一，6=周日）
-            weekday = now.weekday()
-            weekday_names = ["周1", "周2", "周3", "周4", "周5", "周6", "周7"]
-            weekday_str = weekday_names[weekday]
-            
-            # 获取当前时间
-            time_str = now.strftime("%H:%M")
-            
-            # 使用从赛季开始计算的周数，并拼接星期几和时间
-            return f"第{current_week}周 {weekday_str} {time_str}"
+        if target_monday == current_monday:
+            # 实时周次
+            return f"第{season_week_now}周 {weekday_str} {time_str}"
         
-        # 情况2：defaultWeek 小于当前年份周数
-        elif default_week < current_year_week:
-            # 计算defaultWeek对应的日期
-            # 首先找到defaultWeek对应的年份（假设是当前年份）
-            target_year = now.year
-            
-            # 计算defaultWeek对应的日期（使用isocalendar的逆运算）
-            # 找到该年份第defaultWeek周的第一天（周一）
-            jan1 = datetime(target_year, 1, 1)
-            jan1_weekday = jan1.weekday()  # 0=周一，6=周日
-            
-            # 计算该年第一周的第一天
-            if jan1_weekday <= 3:  # 如果1月1日是周一到周四
-                first_week_start = jan1 - timedelta(days=jan1_weekday)
-            else:  # 如果1月1日是周五到周日
-                first_week_start = jan1 + timedelta(days=7-jan1_weekday)
-            
-            # 计算defaultWeek对应的日期
-            target_date = first_week_start + timedelta(weeks=default_week-1)
-            
-            # 计算从赛季开始到target_date是第几周
-            target_diff = target_date - season_start
-            # 赛季开始前的周数会算出非正值，向上取到第1周避免出现第0周
-            target_season_week = max(1, (target_diff.days // 7) + 1)
-            
-            # 返回结算格式
-            return f"第{target_season_week}周 结算"
-        
-        # 情况3：defaultWeek 大于当前年份周数（异常情况）
-        else:
-            # 获取当前是星期几和时间
-            weekday = now.weekday()
-            weekday_names = ["周1", "周2", "周3", "周4", "周5", "周6", "周7"]
-            weekday_str = weekday_names[weekday]
-            time_str = now.strftime("%H:%M")
-            
-            # 使用从赛季开始计算的周数
-            return f"第{current_week}周 {weekday_str} {time_str}"
+        # API指向未来ISO周（极少数情况），保留推算信息方便排查
+        print(
+            f"calculate_season_week_info: defaultWeek={api_week} 指向未来周，锚定赛季周 {season_week_from_api}"
+        )
+        return f"第{season_week_from_api}周 {weekday_str} {time_str}"
             
     except Exception as e:
         print(f"计算赛季周信息失败: {e}")
-        # 如果计算失败，返回默认格式
         return f"第{default_week}周"
 
 
