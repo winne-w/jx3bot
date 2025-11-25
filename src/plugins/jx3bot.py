@@ -92,21 +92,38 @@ def get_kungfu_by_role_info(game_role_id, zone, server):
                 metrics = indicator.get("metrics", [])
 
                 if metrics:
-                    # 只取场次最多的心法
-                    max_total_count = 0
-                    best_metric = None
+                    # 只取胜场最多的心法，同时记录场次最多的心法用于对比
+                    max_win_count = -1
+                    max_total_count = -1
+                    best_win_metric = None
+                    best_total_metric = None
                     
                     for j, metric in enumerate(metrics):
                         if metric and metric.get("items"):
-                            total_count = metric.get("total_count", 0)
+                            win_count = metric.get("win_count", 0)
+                            if win_count is None:
+                                win_count = 0
+                            total_count = metric.get("total_count", 0) or 0
 
+                            if win_count > max_win_count:
+                                max_win_count = win_count
+                                best_win_metric = metric
                             if total_count > max_total_count:
                                 max_total_count = total_count
-                                best_metric = metric
+                                best_total_metric = metric
                     
-                    if best_metric:
-                        kungfu_pinyin = best_metric.get("kungfu", None)
+                    if best_win_metric:
+                        kungfu_pinyin = best_win_metric.get("kungfu", None)
                         kungfu_name = KUNGFU_PINYIN_TO_CHINESE.get(kungfu_pinyin, None)
+
+                        if best_total_metric:
+                            total_kungfu = KUNGFU_PINYIN_TO_CHINESE.get(best_total_metric.get("kungfu"), None)
+                            if kungfu_name != total_kungfu:
+                                print(
+                                    f"⚠️ 胜场/场次心法不一致: role_id={game_role_id}, zone={zone}, server={server}, "
+                                    f"win_count={kungfu_name}({max_win_count}), total_count={total_kungfu}({max_total_count})"
+                                )
+
                         print(f"\n🎯 最终选择心法: {kungfu_pinyin} -> {kungfu_name}")
                         return kungfu_name
                     else:
