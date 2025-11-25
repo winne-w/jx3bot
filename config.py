@@ -115,5 +115,5 @@ KUNGFU_META = {
     "linghai": {"name": "凌海诀", "category": "dps"},
     "cangjian": {"name": "山居剑意", "category": "dps"},
     "shanhai": {"name": "山海心诀", "category": "dps"},
-    "youluo": {"name": "无相楼", "category": "dps"},
+    "youluo": {"name": "幽罗引", "category": "dps"},
 }
