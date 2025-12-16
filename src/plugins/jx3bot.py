@@ -92,21 +92,38 @@ def get_kungfu_by_role_info(game_role_id, zone, server):
                 metrics = indicator.get("metrics", [])
 
                 if metrics:
-                    # 只取场次最多的心法
-                    max_total_count = 0
-                    best_metric = None
+                    # 只取胜场最多的心法，同时记录场次最多的心法用于对比
+                    max_win_count = -1
+                    max_total_count = -1
+                    best_win_metric = None
+                    best_total_metric = None
                     
                     for j, metric in enumerate(metrics):
                         if metric and metric.get("items"):
-                            total_count = metric.get("total_count", 0)
+                            win_count = metric.get("win_count", 0)
+                            if win_count is None:
+                                win_count = 0
+                            total_count = metric.get("total_count", 0) or 0
 
+                            if win_count > max_win_count:
+                                max_win_count = win_count
+                                best_win_metric = metric
                             if total_count > max_total_count:
                                 max_total_count = total_count
-                                best_metric = metric
+                                best_total_metric = metric
                     
-                    if best_metric:
-                        kungfu_pinyin = best_metric.get("kungfu", None)
+                    if best_win_metric:
+                        kungfu_pinyin = best_win_metric.get("kungfu", None)
                         kungfu_name = KUNGFU_PINYIN_TO_CHINESE.get(kungfu_pinyin, None)
+
+                        if best_total_metric:
+                            total_kungfu = KUNGFU_PINYIN_TO_CHINESE.get(best_total_metric.get("kungfu"), None)
+                            if kungfu_name != total_kungfu:
+                                print(
+                                    f"⚠️ 胜场/场次心法不一致: role_id={game_role_id}, zone={zone}, server={server}, "
+                                    f"win_count={kungfu_name}({max_win_count}), total_count={total_kungfu}({max_total_count})"
+                                )
+
                         print(f"\n🎯 最终选择心法: {kungfu_pinyin} -> {kungfu_name}")
                         return kungfu_name
                     else:
@@ -136,6 +153,7 @@ GROUP_CONFIG_FILE = "groups.json"
 # 竞技场排行榜缓存
 JJC_RANKING_CACHE_DURATION = 7200  # 缓存时间2小时（秒）
 JJC_RANKING_CACHE_FILE = "data/cache/jjc_ranking_cache.json"  # 缓存文件路径
+KUNGFU_CACHE_DURATION = 7 * 24 * 60 * 60  # 心法缓存有效期一周（秒）
 # 从配置文件中获取API URL
 烟花查询 = API_URLS["烟花查询"]
 奇遇查询 = API_URLS["奇遇查询"]
@@ -764,6 +782,7 @@ async def handle_help(bot: Bot, event: GroupMessageEvent):
         news_push = "开启" if config.get("新闻推送", False) else "关闭"
         records_push = "开启" if config.get("技改推送", False) else "关闭"
         daily_push = "开启" if config.get("日常推送", False) else "关闭"
+        ranking_push = "开启" if config.get("竞技排名推送", False) else "关闭"
 
         # 渲染HTML模板
         template = env.get_template('qun.html')
@@ -773,6 +792,7 @@ async def handle_help(bot: Bot, event: GroupMessageEvent):
             news_push=news_push,
             records_push=records_push,
             daily_push=daily_push,
+            ranking_push=ranking_push,
             group_name = group_name,
             group_avatar_url=group_avatar_url,
             startup_time=startup_time_str,
@@ -2503,9 +2523,16 @@ async def get_user_kuangfu(server: str, name: str) -> dict:
         try:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 cached_data = json.load(f)
-            # 如果缓存的 kuangfu 字段为空，则继续请求数据，否则直接返回缓存
-            if cached_data.get("kuangfu") not in [None, ""]:
-                return cached_data
+            cache_time = cached_data.get("cache_time", 0)
+            kungfu_value = cached_data.get("kuangfu")
+
+            if kungfu_value not in [None, ""]:
+                current_time = time.time()
+                if cache_time and current_time - cache_time < KUNGFU_CACHE_DURATION:
+                    return cached_data
+
+                cache_dt = datetime.fromtimestamp(cache_time).strftime("%Y-%m-%d %H:%M:%S") if cache_time else "未知"
+                print(f"心法缓存已超过一周或缺少时间标记，重新请求数据: {server}_{name}（缓存时间: {cache_dt}）")
             else:
                 print(f"缓存 kuangfu 为空，重新请求数据: {server}_{name}")
         except Exception as e:
@@ -2779,6 +2806,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     print("正在获取排行榜用户的kuangfu信息...")
     kuangfu_results = []
     ranking_kungfu_lines = []
+    missing_kungfu_lines = []
     for i, player in enumerate(all_data):  # 遍历整个排行榜数据
 
         # 从新的数据格式中获取服务器和角色名
@@ -2802,13 +2830,23 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
             
             kuangfu_results.append(kuangfu_info)
             # 输出所有排名的心法
-            kungfu = kuangfu_info.get("kuangfu", "-")
-            ranking_kungfu_lines.append(f"第{i+1}名：{player_server} {player_name}（{kungfu}）({score})")
+            kungfu = kuangfu_info.get("kuangfu")
+            kungfu_display = kungfu if kungfu else "-"
+            ranking_kungfu_lines.append(f"第{i+1}名：{player_server} {player_name}（{kungfu_display}）({score})")
+            print(f"第{i+1}名处理完成：{player_server}_{player_name} 心法 {kungfu_display} 分数 {score}")
+
+            # 记录未查询到心法的角色
+            found = kuangfu_info.get("found", False)
+            if not found or not kungfu:
+                missing_kungfu_lines.append(
+                    f"第{i+1}名：{player_server} {player_name}（未查询到心法）({score})"
+                )
 
     # 将kuangfu信息添加到排行榜数据中
     result = ranking_data.copy()
     result["kuangfu_data"] = kuangfu_results
     result["ranking_kungfu_lines"] = ranking_kungfu_lines
+    result["missing_kungfu_lines"] = missing_kungfu_lines
     total_players = len(kuangfu_results)
     print(f"kuangfu信息获取完成，共处理 {total_players} 个用户")
     result["ranking_player_count"] = total_players
@@ -2982,7 +3020,9 @@ async def zhanji_ranking_to_image(bot: Bot, event: Event):
     try:
         # 获取消息内容，判断是否为拆分模式
         message_text = event.get_plaintext().strip()
+        message_text_lower = message_text.lower()
         is_split_mode = "拆分" in message_text
+        is_debug_mode = "debug" in message_text_lower
         
         if is_split_mode:
             await bot.send(event, "正在统计竞技场心法排名（拆分模式），请稍候...")
@@ -3051,10 +3091,26 @@ async def zhanji_ranking_to_image(bot: Bot, event: Event):
             # 正常模式：生成1张总图
             await generate_combined_ranking_image(bot, event, stats, week_info)
 
-        # 新增：输出所有排名的角色名和心法
+        # 根据模式输出心法信息
         ranking_kungfu_lines = result.get("ranking_kungfu_lines", [])
-        if ranking_kungfu_lines:
-            await bot.send(event, "\n".join(ranking_kungfu_lines))
+        missing_kungfu_lines = result.get("missing_kungfu_lines", [])
+
+        if is_debug_mode and ranking_kungfu_lines:
+            chunk_size = 200
+            total_lines = len(ranking_kungfu_lines)
+            for start in range(0, total_lines, chunk_size):
+                end = min(start + chunk_size, total_lines)
+                chunk_header = f"竞技场心法排名（第{start + 1}-{end}名）"
+                chunk_message = "\n".join(ranking_kungfu_lines[start:end])
+                await bot.send(event, f"{chunk_header}\n{chunk_message}")
+        elif missing_kungfu_lines:
+            chunk_size = 100
+            total_lines = len(missing_kungfu_lines)
+            for start in range(0, total_lines, chunk_size):
+                end = min(start + chunk_size, total_lines)
+                chunk_header = f"未查询到心法的角色（共{total_lines}人，第{start + 1}-{end}名）"
+                chunk_message = "\n".join(missing_kungfu_lines[start:end])
+                await bot.send(event, f"{chunk_header}\n{chunk_message}")
         
     except Exception as e:
         import traceback
@@ -3063,8 +3119,17 @@ async def zhanji_ranking_to_image(bot: Bot, event: Event):
         await bot.send(event, f"战绩排名统计失败：{str(e)}")
 
 
-async def generate_combined_ranking_image(bot, event, stats, week_info):
-    """生成合并的排名图片"""
+async def render_combined_ranking_image(stats, week_info):
+    """
+    生成合并的竞技场排名统计图，并返回推送所需的数据载荷
+
+    Args:
+        stats: 心法统计数据
+        week_info: 周信息字符串
+
+    Returns:
+        dict: 包含图片字节、统计范围描述等信息
+    """
     # 准备模板数据，使用已排序的list数据
     def prepare_template_data(rank_data, rank_type):
         """准备模板数据，使用已排序的list数据"""
@@ -3102,17 +3167,35 @@ async def generate_combined_ranking_image(bot, event, stats, week_info):
     # 5. 截图生成图片
     image_bytes = await jietu(html_content, 1120, "ck")
     
-    # 6. 发送图片和统计信息
-    # 计算总的有效数据条数
+    # 6. 计算总的有效数据条数
     processed_key = 'top_1000' if has_top_1000 else 'top_200'
     total_valid_data = 0
     if stats:
         total_valid_data = (stats.get(processed_key, {}).get('total_valid_count', 0) or 0)
     processed_label = "前1000名" if has_top_1000 else "前200名"
     
+    return {
+        "image_bytes": image_bytes,
+        "total_valid_data": total_valid_data,
+        "processed_label": processed_label,
+        "scope_desc": scope_desc,
+        "has_top_1000": has_top_1000,
+    }
+
+
+async def generate_combined_ranking_image(bot, event, stats, week_info):
+    """生成合并的排名图片"""
+    payload = await render_combined_ranking_image(stats, week_info)
+    if not payload:
+        await bot.send(event, "生成竞技场排名统计图失败，请稍后重试")
+        return
+
     # 发送图片和统计信息
-    await bot.send(event, MessageSegment.image(image_bytes))
-    await bot.send(event, f"统计完成！共处理 {total_valid_data} 条有效数据（{processed_label}）")
+    await bot.send(event, MessageSegment.image(payload["image_bytes"]))
+    await bot.send(
+        event,
+        f"统计完成！共处理 {payload['total_valid_data']} 条有效数据（{payload['processed_label']}）",
+    )
 
 
 async def generate_split_ranking_images(bot, event, stats, week_info):
@@ -3235,85 +3318,68 @@ def calculate_season_week_info(default_week: int, cache_time: float = None) -> s
     计算当前是第几周并获取时间信息
     
     Args:
-        default_week: 从API获取的defaultWeek值
+        default_week: 从API获取的赛季周次（defaultWeek，ISO周）
         cache_time: 缓存时间戳，如果提供则使用缓存时间计算
         
     Returns:
         str: 格式化的周信息，如"第13周 周2 17:31" 或 "第12周 结算"
     """
     try:
-        # 获取时间（使用缓存时间或当前时间）
-        if cache_time:
-            now = datetime.fromtimestamp(cache_time)
-        else:
-            now = datetime.now()
-        
-        # 解析赛季开始时间
+        now = datetime.fromtimestamp(cache_time) if cache_time else datetime.now()
         season_start = datetime.strptime(CURRENT_SEASON_START, "%Y-%m-%d")
+
+        # 以周一为锚点，将ISO周转换为赛季周
+        def week_monday(dt: datetime) -> datetime:
+            monday = dt - timedelta(days=dt.weekday())
+            return monday.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        # 计算当前时间与赛季开始时间的差值
-        time_diff = now - season_start
+        season_anchor_monday = week_monday(season_start)
+        current_monday = week_monday(now)
+        season_week_now = max(1, ((current_monday - season_anchor_monday).days // 7) + 1)
+        api_week = max(1, int(default_week))
+
+        now_iso_year, now_iso_week, _ = now.isocalendar()
+        api_year = now_iso_year
+        week_gap = api_week - now_iso_week
+        if week_gap > 26:
+            api_year -= 1  # API指向上一年
+        elif week_gap < -26:
+            api_year += 1  # API指向下一年（理论上不会）
         
-        # 计算当前是第几周（从赛季开始算起）
-        current_week = (time_diff.days // 7) + 1
+        try:
+            target_monday = datetime.fromisocalendar(api_year, api_week, 1)
+        except ValueError:
+            print(
+                f"calculate_season_week_info: defaultWeek={default_week} 生成ISO日期失败，使用当前周"
+            )
+            target_monday = current_monday
         
-        # 获取当前年份的第几周
-        current_year_week = now.isocalendar()[1]
+        season_week_from_api = max(
+            1, ((target_monday - season_anchor_monday).days // 7) + 1
+        )
+        weekday_names = ["周1", "周2", "周3", "周4", "周5", "周6", "周7"]
+        weekday_str = weekday_names[now.weekday()]
+        time_str = now.strftime("%H:%M")
+
+        print(
+            f"defaultWeek={default_week} season_anchor_monday={season_anchor_monday} current_monday={current_monday} season_week_now={season_week_now} api_week={api_week} target_monday={target_monday} weekday_str={weekday_str} time_str={time_str}"
+        )
+        if target_monday < current_monday:
+            # API落后一个ISO周，展示结算周次
+            return f"第{season_week_from_api}周 结算"
         
-        # 情况1：defaultWeek 与当前年份周数一致
-        if default_week == current_year_week:
-            # 获取当前是星期几（0=周一，6=周日）
-            weekday = now.weekday()
-            weekday_names = ["周1", "周2", "周3", "周4", "周5", "周6", "周7"]
-            weekday_str = weekday_names[weekday]
-            
-            # 获取当前时间
-            time_str = now.strftime("%H:%M")
-            
-            # 使用从赛季开始计算的周数，并拼接星期几和时间
-            return f"第{current_week}周 {weekday_str} {time_str}"
+        if target_monday == current_monday:
+            # 实时周次
+            return f"第{season_week_now}周 {weekday_str} {time_str}"
         
-        # 情况2：defaultWeek 小于当前年份周数
-        elif default_week < current_year_week:
-            # 计算defaultWeek对应的日期
-            # 首先找到defaultWeek对应的年份（假设是当前年份）
-            target_year = now.year
-            
-            # 计算defaultWeek对应的日期（使用isocalendar的逆运算）
-            # 找到该年份第defaultWeek周的第一天（周一）
-            jan1 = datetime(target_year, 1, 1)
-            jan1_weekday = jan1.weekday()  # 0=周一，6=周日
-            
-            # 计算该年第一周的第一天
-            if jan1_weekday <= 3:  # 如果1月1日是周一到周四
-                first_week_start = jan1 - timedelta(days=jan1_weekday)
-            else:  # 如果1月1日是周五到周日
-                first_week_start = jan1 + timedelta(days=7-jan1_weekday)
-            
-            # 计算defaultWeek对应的日期
-            target_date = first_week_start + timedelta(weeks=default_week-1)
-            
-            # 计算从赛季开始到target_date是第几周
-            target_diff = target_date - season_start
-            target_season_week = (target_diff.days // 7) + 1
-            
-            # 返回结算格式
-            return f"第{target_season_week}周 结算"
-        
-        # 情况3：defaultWeek 大于当前年份周数（异常情况）
-        else:
-            # 获取当前是星期几和时间
-            weekday = now.weekday()
-            weekday_names = ["周1", "周2", "周3", "周4", "周5", "周6", "周7"]
-            weekday_str = weekday_names[weekday]
-            time_str = now.strftime("%H:%M")
-            
-            # 使用从赛季开始计算的周数
-            return f"第{current_week}周 {weekday_str} {time_str}"
+        # API指向未来ISO周（极少数情况），保留推算信息方便排查
+        print(
+            f"calculate_season_week_info: defaultWeek={api_week} 指向未来周，锚定赛季周 {season_week_from_api}"
+        )
+        return f"第{season_week_from_api}周 {weekday_str} {time_str}"
             
     except Exception as e:
         print(f"计算赛季周信息失败: {e}")
-        # 如果计算失败，返回默认格式
         return f"第{default_week}周"
 
 

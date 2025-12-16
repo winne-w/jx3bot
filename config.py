@@ -51,7 +51,7 @@ REGEX_PATTERNS = {
     "名片查询": r"^名片 (?P<value1>[\S]+)$|^名片 (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "资历查询": r"^(?:资历|资历分布) (?P<value1>[\S]+)$|^(?:资历|资历分布) (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "资历选择": r"^(\d+)$",  # 用于匹配用户回复的数字序号
-    "竞技排名": r"^\s*竞技排名(?:\s+拆分)?\s*$"
+    "竞技排名": r"^\s*竞技排名(?:统计)?(?:\s+拆分)?(?:\s+(?i:debug))?\s*$"
 }
 
 # 定义一个包含文本的列表
@@ -115,5 +115,5 @@ KUNGFU_META = {
     "linghai": {"name": "凌海诀", "category": "dps"},
     "cangjian": {"name": "山居剑意", "category": "dps"},
     "shanhai": {"name": "山海心诀", "category": "dps"},
-    "youluo": {"name": "无相楼", "category": "dps"},
+    "youluo": {"name": "幽罗引", "category": "dps"},
 }

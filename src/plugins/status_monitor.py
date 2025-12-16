@@ -1,6 +1,6 @@
-import json, os, httpx
+import json, os, httpx, asyncio
 from nonebot import get_driver, on_command,on_regex
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.plugin import require
 from datetime import datetime
@@ -27,6 +27,12 @@ GROUP_CONFIG_FILE = "groups.json"
 driver = get_driver()
 require("nonebot_plugin_apscheduler")
 from nonebot_plugin_apscheduler import scheduler
+from src.plugins.jx3bot import (
+    query_jjc_ranking,
+    get_ranking_kuangfu_data,
+    calculate_season_week_info,
+    render_combined_ranking_image,
+)
 
 
 # 群组配置简化函数
@@ -844,6 +850,89 @@ async def daily_gte_report():
         print(f"执行每日GTE推送时出错: {e}")
 
 
+# 竞技排名每日推送
+@scheduler.scheduled_job("cron", hour=8, minute=30)
+async def daily_jjc_ranking_report():
+    try:
+        print("开始执行每日竞技排名推送")
+
+        groups_config = load_groups()
+        if not groups_config:
+            print("没有群组配置")
+            return
+
+        bots = get_driver().bots
+        if not bots:
+            print("没有可用的机器人")
+            return
+
+        bot = list(bots.values())[0]
+
+        # 找到开启竞技排名推送的群
+        target_groups = [
+            gid for gid, config in groups_config.items()
+            if isinstance(config, dict) and config.get("竞技排名推送", False)
+        ]
+
+        if not target_groups:
+            print("没有开启竞技排名推送的群组")
+            return
+
+        ranking_result = await query_jjc_ranking()
+        if not ranking_result:
+            print("获取竞技场排行榜数据失败：返回为空")
+            return
+
+        if ranking_result.get("error"):
+            print(f"获取竞技场排行榜数据失败：{ranking_result.get('message', '未知错误')}")
+            return
+
+        if ranking_result.get("code") != 0:
+            print(f"获取竞技场排行榜数据失败：API返回错误码 {ranking_result.get('code')}")
+            return
+
+        default_week = ranking_result.get("defaultWeek")
+        cache_time = ranking_result.get("cache_time")
+        week_info = calculate_season_week_info(default_week, cache_time) if default_week else "第12周"
+
+        ranking_data = await get_ranking_kuangfu_data(ranking_data=ranking_result)
+        if not ranking_data:
+            print("获取心法统计数据失败：返回为空")
+            return
+
+        if ranking_data.get("error"):
+            print(f"获取心法统计数据失败：{ranking_data.get('message', '未知错误')}")
+            return
+
+        stats = ranking_data.get("kuangfu_statistics", {})
+        if not stats:
+            print("心法统计数据为空")
+            return
+
+        payload = await render_combined_ranking_image(stats, week_info)
+        if not payload:
+            print("渲染竞技场统计图失败")
+            return
+
+        summary_text = (
+            f"⏰ 每日08:30竞技排名推送（{week_info}）\n"
+            f"统计范围：{payload['scope_desc']}\n"
+            f"统计完成！共处理 {payload['total_valid_data']} 条有效数据（{payload['processed_label']}）"
+        )
+
+        for gid in target_groups:
+            try:
+                await bot.send_group_msg(group_id=int(gid), message=MessageSegment.image(payload["image_bytes"]))
+                await bot.send_group_msg(group_id=int(gid), message=summary_text)
+                print(f"向群 {gid} 推送了每日竞技排名统计")
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                print(f"向群 {gid} 推送竞技排名统计时出错: {e}")
+
+    except Exception as e:
+        print(f"执行每日竞技排名推送时出错: {e}")
+
+
 # 查魔盒奖励
 gte_cmd = on_regex(r"^\s*奖励\s*$", priority=5)
 @gte_cmd.handle()
@@ -1205,6 +1294,47 @@ async def rchandle_toggle(event: GroupMessageEvent, args=CommandArg()):
     else:
         await rctoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
 
+# 竞技排名推送命令
+jjctoggle_cmd = on_command("竞技排名推送", priority=5)
+@jjctoggle_cmd.handle()
+async def jjchandle_toggle(event: GroupMessageEvent, args=CommandArg()):
+    cfg = load_groups()
+    gid = str(event.group_id)
+    status = args.extract_plain_text().strip()
+
+    if not status:
+        await jjctoggle_cmd.finish("用法: /竞技排名推送 开启/关闭")
+
+    if gid not in cfg:
+        await jjctoggle_cmd.finish("请先绑定服务器，如: /绑定 梦江南")
+
+    if isinstance(cfg[gid], list):
+        servers = cfg[gid]
+        cfg[gid] = {"servers": servers, "竞技排名推送": False}
+    elif isinstance(cfg[gid], dict) and "servers" not in cfg[gid]:
+        servers = []
+        for key in cfg[gid]:
+            if key not in {"开服推送", "新闻推送", "技改推送", "福利推送", "日常推送", "竞技排名推送"}:
+                servers.append(key)
+        cfg[gid] = {
+            "servers": servers,
+            "竞技排名推送": cfg[gid].get("竞技排名推送", False)
+        }
+
+    if isinstance(cfg[gid], dict) and "竞技排名推送" not in cfg[gid]:
+        cfg[gid]["竞技排名推送"] = False
+
+    if status == "开启":
+        cfg[gid]["竞技排名推送"] = True
+        save_groups(cfg)
+        await jjctoggle_cmd.finish("已开启本群竞技排名推送功能")
+    elif status == "关闭":
+        cfg[gid]["竞技排名推送"] = False
+        save_groups(cfg)
+        await jjctoggle_cmd.finish("已关闭本群竞技排名推送功能")
+    else:
+        await jjctoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
+
 
 bind_cmd = on_command("绑定", priority=5)
 @bind_cmd.handle()
@@ -1226,10 +1356,15 @@ async def handle_bind(event: GroupMessageEvent, args=CommandArg()):
         "福利推送": True,
         "技改推送": True,
         "新闻推送": True,
-        "日常推送": True  # 也添加日常推送选项
+        "日常推送": True,  # 也添加日常推送选项
+        "竞技排名推送": False  # 默认关闭竞技排名推送
     }
     save_groups(cfg)
-    await bind_cmd.finish(f"已绑定服务器: {server}\n已默认开启：开服推送、福利推送、技改推送、新闻推送、日常推送")
+    await bind_cmd.finish(
+        f"已绑定服务器: {server}\n"
+        f"已默认开启：开服推送、福利推送、技改推送、新闻推送、日常推送\n"
+        f"默认关闭：竞技排名推送，可使用「/竞技排名推送 开启」启用每日统计"
+    )
 
 
 unbind_cmd = on_command("解绑", aliases={"解除绑定"}, priority=5)
@@ -1278,7 +1413,8 @@ async def handle_list(event: GroupMessageEvent):
         news_push = "开启" if config.get("新闻推送", False) else "关闭"
         records_push = "开启" if config.get("技改推送", False) else "关闭"
         daily_push = "开启" if config.get("日常推送", False) else "关闭"
-        daily_push = "开启" if config.get("福利推送", False) else "关闭"
+        welfare_push = "开启" if config.get("福利推送", False) else "关闭"
+        ranking_push = "开启" if config.get("竞技排名推送", False) else "关闭"
 
         message = [
             f"绑定区服：{server}",
@@ -1286,7 +1422,8 @@ async def handle_list(event: GroupMessageEvent):
             f"新闻推送：{news_push}",
             f"技改推送：{records_push}",
             f"日常推送：{daily_push}",
-            f"活动码推送：{daily_push}"
+            f"福利推送：{welfare_push}",
+            f"竞技排名推送：{ranking_push}",
         ]
 
         await list_cmd.finish("\n".join(message))
@@ -1456,6 +1593,3 @@ async def init():
 async def _on_bot_connect(bot: Bot):
     global BOT_INITIALIZED
     BOT_INITIALIZED = True
-
-
-
