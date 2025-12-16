@@ -2833,6 +2833,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
             kungfu = kuangfu_info.get("kuangfu")
             kungfu_display = kungfu if kungfu else "-"
             ranking_kungfu_lines.append(f"第{i+1}名：{player_server} {player_name}（{kungfu_display}）({score})")
+            print(f"第{i+1}名处理完成：{player_server}_{player_name} 心法 {kungfu_display} 分数 {score}")
 
             # 记录未查询到心法的角色
             found = kuangfu_info.get("found", False)
