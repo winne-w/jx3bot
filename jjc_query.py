@@ -14,9 +14,12 @@ import os
 import time
 import random
 from typing import Optional
+from datetime import datetime
 
 # 导入配置文件
 from config import TOKEN, TICKET
+
+KUNGFU_CACHE_DURATION = 7 * 24 * 60 * 60  # 心法缓存有效期一周（秒）
 
 
 async def query_jjc_data(server: str, name: str, token: str = None, ticket: str = None) -> dict:
@@ -125,7 +128,18 @@ async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: st
             print(f"从缓存中读取 {server}_{name} 的kuangfu信息")
             with open(cache_file, 'r', encoding='utf-8') as f:
                 cached_data = json.load(f)
-            return cached_data
+            cache_time = cached_data.get("cache_time", 0)
+            kungfu_value = cached_data.get("kuangfu")
+
+            if kungfu_value not in [None, ""]:
+                current_time = time.time()
+                if cache_time and current_time - cache_time < KUNGFU_CACHE_DURATION:
+                    return cached_data
+
+                cache_dt = datetime.fromtimestamp(cache_time).strftime("%Y-%m-%d %H:%M:%S") if cache_time else "未知"
+                print(f"缓存心法数据已超过一周或缺少时间戳，重新请求: {server}_{name}（缓存时间: {cache_dt}）")
+            else:
+                print(f"缓存 kuangfu 为空，重新请求数据: {server}_{name}")
         except Exception as e:
             print(f"读取缓存文件失败: {e}")
     

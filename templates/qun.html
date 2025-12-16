@@ -328,6 +328,16 @@
                         <span class="status-name">日常推送</span>
                        <span class="status-value {{ 'status-on' if daily_push == '开启' else 'status-off' }}">{{ daily_push }}</span>
                     </div>
+                    <div class="status-item">
+                        <span class="status-icon">
+                            <!-- 竞技排名推送图标（奖杯） -->
+                            <svg viewBox="0 0 24 24">
+                                <path d="M17,3V5H19V9H17C16.35,11 14.62,12.5 12.5,12.91L12.5,15H15V17H9V15H11.5V12.91C9.38,12.5 7.65,11 7,9H5V5H7V3H17M7,7H5V9H7V7M19,7H17V9H19V7Z" />
+                            </svg>
+                        </span>
+                        <span class="status-name">竞技排名推送</span>
+                       <span class="status-value {{ 'status-on' if ranking_push == '开启' else 'status-off' }}">{{ ranking_push }}</span>
+                    </div>
                     <div class="status-item" style="background-color: rgba(248, 240, 255, 0.9); border: 1px dashed #9c71e0;">
                         <span class="status-icon">
                             <!-- 提示图标（信息） -->
