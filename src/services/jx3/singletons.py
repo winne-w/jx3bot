@@ -6,11 +6,13 @@ import config as cfg
 from jinja2 import Environment, FileSystemLoader
 
 from src.renderers.jx3.image import render_template_image
+from src.services.jx3.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking import JjcRankingService
 from src.utils.defget import get
 from src.utils.tuilan_request import tuilan_request
 
 env = Environment(loader=FileSystemLoader("templates"))
+group_config_repo = GroupConfigRepo(path="groups.json")
 
 KUNGFU_PINYIN_TO_CHINESE = {key: value["name"] for key, value in cfg.KUNGFU_META.items()}
 KUNGFU_HEALER_LIST = [
@@ -57,4 +59,3 @@ def calculate_season_week_info(default_week: int, cache_time: Optional[float] = 
 
 async def render_combined_ranking_image(stats: dict[str, Any], week_info: str) -> dict[str, Any]:
     return await jjc_ranking_service.render_combined_ranking_image(stats, week_info)
-

@@ -17,10 +17,10 @@ from src.plugins.jx3bot_handlers.mingpian import register as register_mingpian
 from src.plugins.jx3bot_handlers.queries import register as register_queries
 from src.plugins.jx3bot_handlers.trade import register as register_trade
 from src.plugins.jx3bot_handlers.zili import register as register_zili
-from src.services.jx3.group_binding import load_groups
 from src.services.jx3.singletons import (
     calculate_season_week_info,
     env,
+    group_config_repo,
     get_ranking_kuangfu_data,
     jjc_ranking_service,
     query_jjc_ranking,
@@ -100,7 +100,7 @@ register_help(
     env,
     group_config_file=GROUP_CONFIG_FILE,
     bot_status=BOT_STATUS,
-    load_groups=load_groups,
+    load_groups=group_config_repo.load,
     format_time_duration=format_time_duration,
 )
 
