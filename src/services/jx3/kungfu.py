@@ -51,75 +51,82 @@ def make_kungfu_resolver(
     生成一个心法查询函数: (game_role_id, zone, server) -> 心法中文名 | None
     """
 
-    def get_kungfu_by_role_info(game_role_id: str, zone: str, server: str) -> str | None:
-        print("\n🔍 开始查询心法信息...")
-        print(f"角色ID: {game_role_id}")
-        print(f"大区: {zone}")
-        print(f"服务器: {server}")
-
-        if game_role_id == "未知" or server == "未知" or zone == "未知":
-            print("❌ 参数无效，无法查询")
-            return None
-
-        role_detail = get_role_indicator(
-            game_role_id, zone, server, tuilan_request=tuilan_request
+    def _get_kungfu_by_role_info(game_role_id: str, zone: str, server: str) -> str | None:
+        return get_kungfu_by_role_info(
+            game_role_id,
+            zone,
+            server,
+            tuilan_request=tuilan_request,
+            kungfu_pinyin_to_chinese=kungfu_pinyin_to_chinese,
         )
-        if (
-            role_detail
-            and "data" in role_detail
-            and role_detail["data"]
-            and "indicator" in role_detail["data"]
-        ):
-            indicators = role_detail["data"]["indicator"]
 
-            for indicator in indicators:
-                if indicator.get("type") == "3c" or indicator.get("type") == "3d":
-                    metrics = indicator.get("metrics", [])
-                    if not metrics:
-                        continue
+    return _get_kungfu_by_role_info
 
-                    max_win_count = -1
-                    max_total_count = -1
-                    best_win_metric = None
-                    best_total_metric = None
 
-                    for metric in metrics:
-                        if metric and metric.get("items"):
-                            win_count = metric.get("win_count", 0) or 0
-                            total_count = metric.get("total_count", 0) or 0
+def get_kungfu_by_role_info(
+    game_role_id: str,
+    zone: str,
+    server: str,
+    *,
+    tuilan_request: Callable[[str, dict[str, Any]], Any],
+    kungfu_pinyin_to_chinese: dict[str, str],
+) -> str | None:
+    print("\n🔍 开始查询心法信息...")
+    print(f"角色ID: {game_role_id}")
+    print(f"大区: {zone}")
+    print(f"服务器: {server}")
 
-                            if win_count > max_win_count:
-                                max_win_count = win_count
-                                best_win_metric = metric
-                            if total_count > max_total_count:
-                                max_total_count = total_count
-                                best_total_metric = metric
-
-                    if best_win_metric:
-                        kungfu_pinyin = best_win_metric.get("kungfu")
-                        kungfu_name = kungfu_pinyin_to_chinese.get(kungfu_pinyin)
-
-                        if best_total_metric:
-                            total_kungfu = kungfu_pinyin_to_chinese.get(
-                                best_total_metric.get("kungfu")
-                            )
-                            if kungfu_name != total_kungfu:
-                                print(
-                                    f"⚠️ 胜场/场次心法不一致: role_id={game_role_id}, zone={zone}, "
-                                    f"server={server}, win_count={kungfu_name}({max_win_count}), "
-                                    f"total_count={total_kungfu}({max_total_count})"
-                                )
-
-                        print(f"\n🎯 最终选择心法: {kungfu_pinyin} -> {kungfu_name}")
-                        return kungfu_name
-
-                    print("❌ 未找到有效的心法数据")
-        else:
-            print("❌ 角色详情数据格式异常")
-            if role_detail:
-                print(f"响应结构: {list(role_detail.keys())}")
-
+    if game_role_id == "未知" or server == "未知" or zone == "未知":
+        print("❌ 参数无效，无法查询")
         return None
 
-    return get_kungfu_by_role_info
+    role_detail = get_role_indicator(game_role_id, zone, server, tuilan_request=tuilan_request)
+    if role_detail and "data" in role_detail and role_detail["data"] and "indicator" in role_detail["data"]:
+        indicators = role_detail["data"]["indicator"]
 
+        for indicator in indicators:
+            if indicator.get("type") == "3c" or indicator.get("type") == "3d":
+                metrics = indicator.get("metrics", [])
+                if not metrics:
+                    continue
+
+                max_win_count = -1
+                max_total_count = -1
+                best_win_metric = None
+                best_total_metric = None
+
+                for metric in metrics:
+                    if metric and metric.get("items"):
+                        win_count = metric.get("win_count", 0) or 0
+                        total_count = metric.get("total_count", 0) or 0
+
+                        if win_count > max_win_count:
+                            max_win_count = win_count
+                            best_win_metric = metric
+                        if total_count > max_total_count:
+                            max_total_count = total_count
+                            best_total_metric = metric
+
+                if best_win_metric:
+                    kungfu_pinyin = best_win_metric.get("kungfu")
+                    kungfu_name = kungfu_pinyin_to_chinese.get(kungfu_pinyin)
+
+                    if best_total_metric:
+                        total_kungfu = kungfu_pinyin_to_chinese.get(best_total_metric.get("kungfu"))
+                        if kungfu_name != total_kungfu:
+                            print(
+                                f"⚠️ 胜场/场次心法不一致: role_id={game_role_id}, zone={zone}, "
+                                f"server={server}, win_count={kungfu_name}({max_win_count}), "
+                                f"total_count={total_kungfu}({max_total_count})"
+                            )
+
+                    print(f"\n🎯 最终选择心法: {kungfu_pinyin} -> {kungfu_name}")
+                    return kungfu_name
+
+                print("❌ 未找到有效的心法数据")
+    else:
+        print("❌ 角色详情数据格式异常")
+        if role_detail:
+            print(f"响应结构: {list(role_detail.keys())}")
+
+    return None

@@ -11,6 +11,8 @@ from typing import Any, Awaitable, Callable
 
 from nonebot.adapters.onebot.v11 import Bot, Event, MessageSegment
 
+from src.services.jx3.kungfu import get_kungfu_by_role_info
+
 
 @dataclass(frozen=True)
 class JjcRankingService:
@@ -29,7 +31,6 @@ class JjcRankingService:
     kungfu_pinyin_to_chinese: dict[str, str]
     tuilan_request: Callable[[str, dict[str, Any]], Any]
     defget_get: Callable[..., Awaitable[dict[str, Any]]]
-    get_kungfu_by_role_info: Callable[[str, str, str], Any]
     env: Any
     render_template_image: Callable[..., Awaitable[bytes]]
 
@@ -206,7 +207,13 @@ class JjcRankingService:
                             print(
                                 f"在排行榜中找到角色: {server}_{name}, 角色ID: {game_role_id}, 大区: {zone}"
                             )
-                            kungfu_name = self.get_kungfu_by_role_info(game_role_id, zone, server)
+                            kungfu_name = get_kungfu_by_role_info(
+                                game_role_id,
+                                zone,
+                                server,
+                                tuilan_request=self.tuilan_request,
+                                kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
+                            )
                             if kungfu_name:
                                 print(f"心法查询成功: {kungfu_name}")
                                 kuangfu_info = kungfu_name
@@ -307,7 +314,13 @@ class JjcRankingService:
                                 f"在排行榜中找到角色: {server}_{name}, 角色ID: {game_role_id}, 大区: {zone}"
                             )
 
-                            kungfu_name = self.get_kungfu_by_role_info(game_role_id, zone, server)
+                            kungfu_name = get_kungfu_by_role_info(
+                                game_role_id,
+                                zone,
+                                server,
+                                tuilan_request=self.tuilan_request,
+                                kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
+                            )
                             if kungfu_name:
                                 print(f"心法查询成功: {kungfu_name}")
                                 result = {
