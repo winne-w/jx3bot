@@ -27,7 +27,7 @@ GROUP_CONFIG_FILE = "groups.json"
 driver = get_driver()
 require("nonebot_plugin_apscheduler")
 from nonebot_plugin_apscheduler import scheduler
-from src.plugins.jx3bot import (
+from src.services.jx3.singletons import (
     query_jjc_ranking,
     get_ranking_kuangfu_data,
     calculate_season_week_info,
