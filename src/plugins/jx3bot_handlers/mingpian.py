@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any, Annotated
 
+import aiofiles
 from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
 from nonebot.params import RegexGroup
 
@@ -25,37 +26,20 @@ def register(mingpian_matcher: Any) -> None:
         mingpian_files = await get_image(qufu, role_name, free="1")
 
         if mingpian_files:
-            await bot.send(event, MessageSegment.at(event.user_id) + Message("   查询结果:"))
-            for index, item in enumerate(mingpian_files, 1):
-                item_path = os.path.abspath(item).replace("\\", "/")
-                try:
-                    await bot.send(
-                        event,
-                        Message(f"{qufu} / {role_name} / 第 {index} 张 名片")
-                        + MessageSegment.image(f"file://{item_path}"),
-                    )
-                except Exception as e:
-                    await bot.send(
-                        event,
-                        MessageSegment.at(event.user_id) + Message(f"   发送图片失败: {str(e)}"),
-                    )
-
-            items = await fetch_jx3api_or_reply_error(
-                bot,
-                event,
-                url=API_URLS["名片查询"],
-                server=qufu,
-                name=role_name,
-                token=TOKEN,
-            )
-            if not items:
-                return
-
-            avatar_url, image_name = extract_avatar_meta(items, server=qufu, role_name=role_name)
-            img = await download_avatar_if_needed(avatar_url, image_name)
-            if img:
+            latest_file = mingpian_files[0]
+            try:
+                async with aiofiles.open(latest_file, "rb") as f:
+                    image_bytes = await f.read()
                 await bot.send(
-                    event, Message(f"{qufu} / {role_name} / 当前名片 已缓存") + MessageSegment.image(img)
+                    event,
+                    MessageSegment.at(event.user_id)
+                    + Message("   查询结果")
+                    + MessageSegment.image(image_bytes),
+                )
+            except Exception as e:
+                await bot.send(
+                    event,
+                    MessageSegment.at(event.user_id) + Message(f"   发送图片失败: {str(e)}"),
                 )
             return
 
@@ -72,4 +56,10 @@ def register(mingpian_matcher: Any) -> None:
 
         avatar_url, image_name = extract_avatar_meta(items, server=qufu, role_name=role_name)
         img = await download_avatar_if_needed(avatar_url, image_name)
-        await bot.send(event, MessageSegment.at(event.user_id) + Message("   查询结果") + MessageSegment.image(img))
+        if not img:
+            await bot.send(event, MessageSegment.at(event.user_id) + Message("   查询结果为空：未获取到名片图片"))
+            return
+        await bot.send(
+            event,
+            MessageSegment.at(event.user_id) + Message("   查询结果") + MessageSegment.image(img),
+        )
