@@ -103,7 +103,7 @@
 状态：未开始
 
 - [ ] 把纯函数/小工具迁到 `src/utils/`（保持依赖最小）
-- [ ] 把 IO/网络/截图相关迁到 `src/infra/`
+- [x] 把 IO/网络/截图相关迁到 `src/infra/`
 - [ ] 逐步减少 `from src.utils.defget import ...` 的导入面（目标：只剩少量兼容导出）
 - [ ] 确保 `services` 不直接依赖“截图/模板渲染/发送消息”等表现层能力（需要则经由 `plugins`/`renderers`）
 

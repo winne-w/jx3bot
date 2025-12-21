@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.utils.defget import mp_image
+from src.infra.image_fetch import mp_image
 
 
 def extract_avatar_meta(items: dict[str, Any], *, server: str, role_name: str) -> tuple[str | None, str | None]:
@@ -22,4 +22,3 @@ async def download_avatar_if_needed(avatar_url: str | None, image_name: str | No
     if not avatar_url or not image_name:
         return None
     return await mp_image(url=avatar_url, name=image_name)
-

@@ -1,4 +1,3 @@
-from playwright.async_api import async_playwright
 import aiohttp
 from typing import Optional
 from datetime import datetime, timedelta
@@ -12,6 +11,9 @@ import asyncio
 from config import IMAGE_CACHE_DIR,SESSION_data,texts
 
 from src.infra.http_client import HttpClient
+from src.infra.browser_storage import download_json_from_local_storage
+from src.infra.image_fetch import mp_image
+from src.infra.screenshot import jietu, jx3web
 
 
 # 全局变量
@@ -299,7 +301,12 @@ async def get_image(server, role_name,free=None):
 
 
         if free=="1":
-            valid_files = [f for f in matching_files if os.path.isfile(f) and os.access(f, os.R_OK) and os.path.getsize(f) > 0]
+            valid_files = [
+                f
+                for f in matching_files
+                if os.path.isfile(f) and os.access(f, os.R_OK) and os.path.getsize(f) > 0
+            ]
+            valid_files.sort(key=os.path.getmtime, reverse=True)
             return valid_files
         # 返回最新文件的文件名（不带目录）
         return os.path.basename(latest_file)
@@ -314,193 +321,6 @@ async def fetch_json(url: str) -> dict:
 
 async def jiaoyiget(url: str) -> dict:
     return await fetch_json(url)
-
-#名片get
-async def mp_image(url, name):
-    headers = {
-        'User-Agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-    }
-
-    file_path = f'{IMAGE_CACHE_DIR}/{name}.png'
-    # 检查文件是否存在
-    if os.path.exists(file_path):
-        print("名片已存在，直接跳过发送")
-        return None
-
-        # # 异步读取本地文件
-        # async with aiofiles.open(file_path, 'rb') as f:
-        #     image_content = await f.read()
-        # return image_content
-
-    # 如果文件不存在，则下载图片
-
-    file_path = os.path.join(IMAGE_CACHE_DIR, f"{name}.png")
-    async with aiohttp.ClientSession(headers=headers) as session:
-        if url:
-            async with session.get(url) as image_response:
-                if image_response.status == 200:
-                    image_content = await image_response.read()
-
-                    # 将图片保存到本地文件
-                    async with aiofiles.open(file_path, 'wb') as f:
-                        await f.write(image_content)
-                    print("图片已下载并保存")
-
-                    # 返回图片的二进制内容
-                    return image_content
-                else:
-                    print(f"无法下载图片，状态码：{image_response.status}")
-                    return None  # 或者你可以抛出一个异常
-        else:
-            print("未找到图片URL")
-            return None  # 或者你可以抛出一个异常
-
-
-
-async def jietu(html_content, width, height):
-    # 使用async_playwright来异步地启动Playwright
-    async with async_playwright() as p:
-        # 启动Chromium浏览器
-        browser = await p.chromium.launch(headless=True)  # headless=True表示在无头模式下运行，不会显示浏览器界面
-        page = await browser.new_page(
-            viewport={"width": 1920, "height": 1080},  # 更高分辨率
-            device_scale_factor=1,  # 关键参数：设置DPR为2.0实现高清效果
-        )
-
-        # 再用JavaScript确认所有图片已加载
-        await page.evaluate('''() => {
-                 return new Promise((resolve) => {
-                     const images = document.querySelectorAll('img');
-                     if (images.length === 0) return resolve(true);
-
-                     let loaded = 0;
-                     const checkLoaded = () => {
-                         loaded++;
-                         if (loaded === images.length) resolve(true);
-                     };
-
-                     images.forEach(img => {
-                         if (img.complete) checkLoaded();
-                         else {
-                             img.addEventListener('load', checkLoaded);
-                             img.addEventListener('error', checkLoaded);
-                         }
-                     });
-                 });
-             }''')
-
-        # 设置页面的内容为传入的HTML内容
-        await page.set_content(html_content)
-        # 设置视口大小（可选）
-        page_height = await page.evaluate('() => document.body.scrollHeight')
-        if height=="ck":
-            height=page_height
-        await page.set_viewport_size({"width": width, "height": height})
-        # 截取截图，并指定截图区域（可选，这里截取整个页面）
-        # 如果需要截取特定区域，可以传递clip参数，例如：clip={"x": 0, "y": 0, "width": 800, "height": 600}
-        # screenshot没有指定路径返回二进制
-        screenshot_path = await page.screenshot(full_page=True)
-        # 关闭浏览器
-        await browser.close()
-        # 返回截图路径（或者可以选择返回截图内容的二进制数据）
-        return screenshot_path
-
-
-async def jx3web(url, selector, adjust_top=None, save_path=None):
-    """
-    截取网页中特定元素的函数，并在底部添加签名，可以保存到本地
-
-    参数:
-        url: 要截取的网页URL
-        selector: 要截取的元素的CSS选择器
-        adjust_top: 可选，调整元素的top值
-        save_path: 可选，保存截图的路径，如果为None则只返回二进制数据
-
-    返回:
-        如果save_path为None，返回截图的二进制数据
-        如果save_path不为None，返回保存的文件路径
-    """
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-
-        # 访问URL
-        await page.goto(url, wait_until="networkidle")
-
-        # 等待选择器出现
-        await page.wait_for_selector(selector)
-
-        # 调整元素位置（如果需要）
-        if adjust_top is not None:
-            await page.evaluate("""(arg) => {
-                const element = document.querySelector(arg.selector);
-                if (element) {
-                    const currentPosition = window.getComputedStyle(element).position;
-                    if (currentPosition === 'static') {
-                        element.style.position = 'relative';
-                    }
-                    element.style.top = arg.topValue;
-                }
-            }""", {"selector": selector, "topValue": adjust_top})
-            await page.wait_for_timeout(300)
-
-        # 添加底部签名和创建包装元素
-        await page.evaluate("""(arg) => {
-            const element = document.querySelector(arg.selector);
-            if (!element) return;
-            
-            const wrapper = document.createElement('div');
-            wrapper.id = 'capture-wrapper';
-            wrapper.style.width = element.offsetWidth + 'px';
-            
-            element.parentNode.insertBefore(wrapper, element);
-            wrapper.appendChild(element);
-            
-            const footer = document.createElement('div');
-            footer.style.width = '100%';
-            footer.style.padding = '15px';
-            footer.style.marginTop = '10px';
-            footer.style.background = '#f8f9fa';
-            footer.style.borderTop = '1px solid #eaeaea';
-            footer.style.fontFamily = "'Microsoft YaHei', sans-serif";
-            footer.style.fontSize = '14px';
-            footer.style.color = '#555';
-            footer.style.textAlign = 'center';
-            
-            const line1 = document.createElement('div');
-            line1.textContent = '【夏鸥】bot:';
-            line1.style.fontWeight = 'bold';
-            line1.style.marginBottom = '5px';
-            footer.appendChild(line1);
-            
-            const line2 = document.createElement('div');
-            line2.textContent = '人间最美，不过鲸落，一念百草生，一念山河成。';
-            line2.style.fontStyle = 'italic';
-            footer.appendChild(line2);
-            
-            wrapper.appendChild(footer);
-        }""", {"selector": selector})
-
-        await page.wait_for_timeout(200)
-
-        # 截取包装容器
-        wrapper = await page.wait_for_selector('#capture-wrapper')
-        screenshot = await wrapper.screenshot()
-
-        await browser.close()
-
-        # 如果指定了保存路径，保存文件
-        if save_path:
-            # 确保目录存在
-            os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
-
-            # 写入文件
-            with open(save_path, "wb") as f:
-                f.write(screenshot)
-
-            return save_path
-        else:
-            return screenshot
 
 async def idget(server_name):
     """
@@ -540,60 +360,6 @@ async def idget(server_name):
 
 
 async def download_json(url="https://jx3.seasunwbl.com/buyer?t=skin", key_name="skin_appearance_cache_key", output_filename="waiguan.json"):
-    """
-    从指定网站的localStorage中异步下载特定键的JSON数据（使用Playwright）
-
-    参数:
-    url (str): 要访问的网站URL
-    key_name (str): localStorage中的键名
-    output_filename (str): 输出的JSON文件名
-    """
-    print(f"开始从 {url} 获取 {key_name} 数据...")
-
-    async with async_playwright() as p:
-        # 启动浏览器
-
-        browser = await p.chromium.launch(headless=True)  # 设置headless=True可在后台运行
-
-        try:
-            # 创建新页面
-            page = await browser.new_page()
-
-            # 访问网站
-            await page.goto(url, wait_until="networkidle")
-
-
-            # 等待确保数据加载到localStorage
-            await asyncio.sleep(3)
-
-            # 等待一些额外时间以确保数据加载完成
-            # await asyncio.sleep(3)
-
-            # 从localStorage获取数据
-            result = await page.evaluate(f"localStorage.getItem('{key_name}')")
-
-            if not result:
-                print(f"错误: localStorage中未找到键 '{key_name}'")
-                return False
-
-            # 解析JSON并保存
-            try:
-                data = json.loads(result)
-                with open(output_filename, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                print(f"✅ 数据已成功保存到 {os.path.abspath(output_filename)}")
-                return True
-            except json.JSONDecodeError:
-                print(f"错误: 无法解析JSON数据")
-                # 保存原始数据以便调试
-                with open(f"waiguan.json", 'w', encoding='utf-8') as f:
-                    f.write(result)
-                print(f"原始数据已保存到 waiguan.json")
-                return False
-
-        except Exception as e:
-            print(f"错误: {e}")
-            return False
-        finally:
-            # 关闭浏览器
-            await browser.close()
+    return await download_json_from_local_storage(
+        url=url, key_name=key_name, output_filename=output_filename
+    )
