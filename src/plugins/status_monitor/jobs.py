@@ -11,9 +11,10 @@ from nonebot.adapters.onebot.v11 import MessageSegment
 from nonebot_plugin_apscheduler import scheduler
 
 from src.services.jx3.singletons import jjc_ranking_service
+from src.services.jx3.singletons import group_config_repo
 
 from .notify import get_NapCat_data, send_email_via_163
-from .storage import CacheManager, load_groups, load_id_set, save_id_set
+from .storage import CacheManager, load_id_set, save_id_set
 
 try:
     from config import (
@@ -297,7 +298,7 @@ async def check_records():
 
                 if get_driver().bots:
                     bot = list(get_driver().bots.values())[0]
-                    groups_config = load_groups()
+                    groups_config = group_config_repo.load()
 
                     for gid, config in groups_config.items():
                         try:
@@ -368,7 +369,7 @@ async def check_news():
 
                 if get_driver().bots:
                     bot = list(get_driver().bots.values())[0]
-                    groups_config = load_groups()
+                    groups_config = group_config_repo.load()
 
                     for gid, config in groups_config.items():
                         try:
@@ -433,7 +434,7 @@ async def check_event_codes():
                 new_codes = [code for code in current_codes if code["ID"] in new_codes_ids]
 
                 if get_driver().bots:
-                    groups_config = load_groups()
+                    groups_config = group_config_repo.load()
                     bot = list(get_driver().bots.values())[0]
 
                     for code in new_codes:
@@ -526,7 +527,7 @@ async def check_status():
 
             if get_driver().bots:
                 bot = list(get_driver().bots.values())[0]
-                groups_config = load_groups()
+                groups_config = group_config_repo.load()
 
                 for gid, config in groups_config.items():
                     try:
@@ -597,7 +598,7 @@ async def push_daily_gte():
             if not get_driver().bots:
                 return
             bot = list(get_driver().bots.values())[0]
-            groups_config = load_groups()
+            groups_config = group_config_repo.load()
 
             for gid, config in groups_config.items():
                 try:
@@ -630,7 +631,7 @@ async def push_daily_jjc_ranking():
                 return
 
             bot = list(bots.values())[0]
-            groups_config = load_groups()
+            groups_config = group_config_repo.load()
 
             target_groups = [
                 gid
@@ -701,4 +702,3 @@ async def push_daily_jjc_ranking():
 
         except Exception as e:
             print(f"每日竞技排名推送任务出错: {e}")
-

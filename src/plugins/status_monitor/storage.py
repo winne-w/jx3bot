@@ -4,20 +4,17 @@ import json
 import os
 from typing import Any, Set
 
-GROUP_CONFIG_FILE = "groups.json"
+from src.services.jx3.singletons import group_config_repo
+
 CACHE_DIR = "data/cache"
 
 
 def load_groups() -> dict[str, Any]:
-    if not os.path.exists(GROUP_CONFIG_FILE):
-        return {}
-    with open(GROUP_CONFIG_FILE, "r", encoding="utf-8") as file_handle:
-        return json.load(file_handle)
+    return group_config_repo.load()
 
 
 def save_groups(cfg: dict[str, Any]) -> None:
-    with open(GROUP_CONFIG_FILE, "w", encoding="utf-8") as file_handle:
-        json.dump(cfg, file_handle, ensure_ascii=False)
+    group_config_repo.save(cfg)
 
 
 class CacheManager:
@@ -56,4 +53,3 @@ def save_id_set(ids: Set[str], cache_name: str) -> bool:
 def load_id_set(cache_name: str) -> Set[str]:
     data = CacheManager.load_cache(cache_name, {"ids": []})
     return set(data.get("ids", []))
-
