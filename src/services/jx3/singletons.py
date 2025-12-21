@@ -3,7 +3,6 @@ from __future__ import annotations
 import config as cfg
 from jinja2 import Environment, FileSystemLoader
 
-from src.renderers.jx3.image import render_template_image
 from src.services.jx3.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking import JjcRankingService
 from src.utils.defget import get
@@ -38,6 +37,4 @@ jjc_ranking_service = JjcRankingService(
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
     tuilan_request=tuilan_request,
     defget_get=get,
-    env=env,
-    render_template_image=render_template_image,
 )

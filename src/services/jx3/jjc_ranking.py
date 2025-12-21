@@ -31,8 +31,6 @@ class JjcRankingService:
     kungfu_pinyin_to_chinese: dict[str, str]
     tuilan_request: Callable[[str, dict[str, Any]], Any]
     defget_get: Callable[..., Awaitable[dict[str, Any]]]
-    env: Any
-    render_template_image: Callable[..., Awaitable[bytes]]
 
     def _api(self) -> JjcApiClient:
         return JjcApiClient(
