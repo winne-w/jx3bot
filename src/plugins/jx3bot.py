@@ -119,7 +119,7 @@ register_queries(
     zhuangfen_matcher=zhuangfen,
     jjc_matcher=jjc,
     fuben_matcher=fuben,
-    update_kuangfu_cache=jjc_ranking_service.update_kuangfu_cache,
+    update_kungfu_cache=jjc_ranking_service.update_kungfu_cache,
 )
 
 register_mingpian(mingpian)
@@ -130,7 +130,7 @@ register_jjc_ranking(
     zhanji_ranking,
     query_jjc_ranking=jjc_ranking_service.query_jjc_ranking,
     calculate_season_week_info=jjc_ranking_service.calculate_season_week_info,
-    get_ranking_kuangfu_data=jjc_ranking_service.get_ranking_kuangfu_data,
+    get_ranking_kungfu_data=jjc_ranking_service.get_ranking_kungfu_data,
     generate_split_ranking_images=lambda bot, event, stats, week_info: send_split_ranking_images(
         bot,
         event,

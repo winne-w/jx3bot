@@ -10,7 +10,7 @@ def register(
     *,
     query_jjc_ranking: Callable[[], Awaitable[dict]],
     calculate_season_week_info: Callable[[int, float | None], str],
-    get_ranking_kuangfu_data: Callable[[dict], Awaitable[dict]],
+    get_ranking_kungfu_data: Callable[[dict], Awaitable[dict]],
     generate_split_ranking_images: Callable[[Bot, Event, dict, str], Awaitable[None]],
     generate_combined_ranking_image: Callable[[Bot, Event, dict, str], Awaitable[None]],
 ) -> None:
@@ -54,7 +54,7 @@ def register(
                 else "第12周"
             )
 
-            result = await get_ranking_kuangfu_data(ranking_data=ranking_result)
+            result = await get_ranking_kungfu_data(ranking_data=ranking_result)
             if result is None:
                 await bot.send(event, "获取心法分布数据失败：返回数据为空")
                 return
@@ -66,7 +66,7 @@ def register(
                 )
                 return
 
-            stats = result.get("kuangfu_statistics", {})
+            stats = result.get("kungfu_statistics", {})
             if not stats:
                 await bot.send(event, "心法统计数据为空，无法生成统计图片")
                 return

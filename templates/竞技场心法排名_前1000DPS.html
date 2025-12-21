@@ -79,9 +79,9 @@
     <div class="chart-container">
         <div class="chart-title">前1000 DPS心法{% if top_1000_dps and top_1000_dps[0][3] is not none %} （{{ top_1000_dps[0][3] }}）{% endif %}</div>
         {% set max_count = top_1000_dps[0][1] if top_1000_dps else 1 %}
-        {% for kuangfu, count, percent, min_score in top_1000_dps %}
+        {% for kungfu, count, percent, min_score in top_1000_dps %}
         <div class="bar-row">
-            <div class="bar-label">{{ kuangfu }}</div>
+            <div class="bar-label">{{ kungfu }}</div>
             <div class="bar" style="width:{{ 500 * count / max_count }}px;"></div>
             <div class="bar-value">{{ count }}</div>
             <div class="bar-percent">{{ percent }}</div>

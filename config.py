@@ -19,6 +19,7 @@ API_URLS = {
     "资历查询": "https://www.jx3api.com/data/tuilan/achievement",
     "竞技场时间查询": "https://m.pvp.xoyo.com/3c/mine/arena/time-tag",
     "竞技场排行榜查询": "https://m.pvp.xoyo.com/3c/mine/arena/top200",
+    "竞技场战局历史": "https://m.pvp.xoyo.com/3c/mine/match/history",
 
 }
 
