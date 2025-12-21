@@ -17,6 +17,8 @@ from src.plugins.jx3bot_handlers.mingpian import register as register_mingpian
 from src.plugins.jx3bot_handlers.queries import register as register_queries
 from src.plugins.jx3bot_handlers.trade import register as register_trade
 from src.plugins.jx3bot_handlers.zili import register as register_zili
+from src.renderers.jx3.image import render_template_image
+from src.renderers.jx3.jjc_ranking import send_combined_ranking_image, send_split_ranking_images
 from src.services.jx3.singletons import (
     env,
     group_config_repo,
@@ -129,6 +131,22 @@ register_jjc_ranking(
     query_jjc_ranking=jjc_ranking_service.query_jjc_ranking,
     calculate_season_week_info=jjc_ranking_service.calculate_season_week_info,
     get_ranking_kuangfu_data=jjc_ranking_service.get_ranking_kuangfu_data,
-    generate_split_ranking_images=jjc_ranking_service.generate_split_ranking_images,
-    generate_combined_ranking_image=jjc_ranking_service.generate_combined_ranking_image,
+    generate_split_ranking_images=lambda bot, event, stats, week_info: send_split_ranking_images(
+        bot,
+        event,
+        env=env,
+        render_template_image=render_template_image,
+        current_season=cfg.CURRENT_SEASON,
+        stats=stats,
+        week_info=week_info,
+    ),
+    generate_combined_ranking_image=lambda bot, event, stats, week_info: send_combined_ranking_image(
+        bot,
+        event,
+        env=env,
+        render_template_image=render_template_image,
+        current_season=cfg.CURRENT_SEASON,
+        stats=stats,
+        week_info=week_info,
+    ),
 )
