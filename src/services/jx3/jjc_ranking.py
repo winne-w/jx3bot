@@ -48,6 +48,48 @@ class JjcRankingService:
             kungfu_cache_duration=self.kungfu_cache_duration,
         )
 
+    @staticmethod
+    def _coerce_score(value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+            try:
+                return int(float(value))
+            except ValueError:
+                return None
+        return None
+
+    @classmethod
+    def _extract_score(cls, player: dict[str, Any], person_info: dict[str, Any]) -> int | None:
+        candidates = [
+            person_info.get("score"),
+            player.get("score"),
+            person_info.get("rating"),
+            player.get("rating"),
+            person_info.get("pvpScore"),
+            player.get("pvpScore"),
+            person_info.get("totalScore"),
+            player.get("totalScore"),
+            person_info.get("avgGrade"),
+            player.get("avgGrade"),
+            person_info.get("grade"),
+            player.get("grade"),
+        ]
+        for item in candidates:
+            score = cls._coerce_score(item)
+            if score is not None:
+                return score
+        return None
+
     async def query_jjc_ranking(self) -> dict[str, Any]:
         cached = self._cache().load_ranking_cache()
         if cached:
@@ -303,7 +345,7 @@ class JjcRankingService:
                 person_info = player.get("personInfo", {})
                 server = person_info.get("server", "未知")
                 name = person_info.get("roleName", "未知")
-                score = person_info.get("score")
+                score = self._extract_score(player, person_info)
 
                 if name and "·" in name:
                     name = name.split("·")[0]
@@ -339,35 +381,35 @@ class JjcRankingService:
                 healer_first_rank: dict[str, int] = {}
                 dps_first_rank: dict[str, int] = {}
 
-                healer_min_score = None
-                dps_min_score = None
+                overall_min_score = None
 
                 for kuangfu in healer_kuangfu:
                     healer_count[kuangfu] = 0
                 for kuangfu in dps_kuangfu:
                     dps_count[kuangfu] = 0
 
+                for player_item in player_data[:max_rank]:
+                    score = self._coerce_score(player_item.get("score"))
+                    if score is not None and (overall_min_score is None or score < overall_min_score):
+                        overall_min_score = score
+                if overall_min_score is None:
+                    logger.warning(f"前{max_rank}名范围内未找到可用分数字段，最低分将无法展示")
+
                 for i, player_item in enumerate(player_data[:max_rank]):
                     if player_item.get("found") and player_item.get("kuangfu"):
                         kuangfu = player_item["kuangfu"]
-                        score = player_item.get("score")
+                        score = self._coerce_score(player_item.get("score"))
 
                         if kuangfu in healer_kuangfu:
                             healer_count[kuangfu] = healer_count.get(kuangfu, 0) + 1
                             healer_valid_count += 1
                             if kuangfu not in healer_first_rank:
                                 healer_first_rank[kuangfu] = i + 1
-                            if score is not None and (
-                                healer_min_score is None or score < healer_min_score
-                            ):
-                                healer_min_score = score
                         elif kuangfu in dps_kuangfu:
                             dps_count[kuangfu] = dps_count.get(kuangfu, 0) + 1
                             dps_valid_count += 1
                             if kuangfu not in dps_first_rank:
                                 dps_first_rank[kuangfu] = i + 1
-                            if score is not None and (dps_min_score is None or score < dps_min_score):
-                                dps_min_score = score
                         else:
                             logger.info(
                                 f"⚠️ 发现未分类心法：第{i+1}名 {player_item.get('server', '未知')} "
@@ -408,13 +450,13 @@ class JjcRankingService:
                         "valid_count": healer_valid_count,
                         "distribution": dict(sorted_healer),
                         "list": sorted_healer,
-                        "min_score": healer_min_score,
+                        "min_score": overall_min_score,
                     },
                     "dps": {
                         "valid_count": dps_valid_count,
                         "distribution": dict(sorted_dps),
                         "list": sorted_dps,
-                        "min_score": dps_min_score,
+                        "min_score": overall_min_score,
                     },
                     "total_valid_count": healer_valid_count + dps_valid_count,
                     "invalid_count": invalid_count,
