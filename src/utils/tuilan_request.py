@@ -2,10 +2,11 @@ import hashlib
 import hmac
 import json
 import datetime
-import requests
 import warnings
 from collections import OrderedDict
 from config import TICKET
+
+from src.infra.http_client import HttpClient
 
 # 忽略SSL警告
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -97,38 +98,24 @@ def tuilan_request(url, params=None):
     }
 
     # 发送请求
+    http_client = HttpClient(timeout=30.0, retries=2, backoff_seconds=0.5, verify=False)
     try:
         # 确保数据是UTF-8编码的字节串
         if isinstance(raw_json, str):
             data_bytes = raw_json.encode('utf-8')
         else:
             data_bytes = raw_json
-            
-        response = requests.post(
-            url,
-            headers=headers,
-            data=data_bytes,
-            verify=False
-        )
+
+        return http_client.request_json("POST", url, headers=headers, content=data_bytes, verify=False)
     except UnicodeEncodeError as e:
         print(f"编码错误: {e}")
         # 尝试使用不同的编码方式
         try:
             data_bytes = raw_json.encode('utf-8', errors='ignore')
-            response = requests.post(
-                url,
-                headers=headers,
-                data=data_bytes,
-                verify=False
-            )
+            return http_client.request_json("POST", url, headers=headers, content=data_bytes, verify=False)
         except Exception as e2:
             print(f"备用编码也失败: {e2}")
             return {"error": f"编码错误: {e}"}
-
-    try:
-        return response.json()
-    except:
-        return {"error": "无法解析响应", "text": response.text}
 
 
 # 导出组件

@@ -112,7 +112,7 @@ class JjcRankingService:
 
         try:
             print("第一步：获取竞技场时间标签...")
-            time_tag_result = self.get_arena_time_tag()
+            time_tag_result = await asyncio.to_thread(self.get_arena_time_tag)
 
             if time_tag_result.get("error"):
                 print(f"获取时间标签失败: {time_tag_result}")
@@ -142,7 +142,7 @@ class JjcRankingService:
 
             print(f"获取到 defaultWeek={default_week}, tag={tag}")
             print("第二步：获取竞技场排行榜...")
-            ranking_result = self.get_arena_ranking(tag)
+            ranking_result = await asyncio.to_thread(self.get_arena_ranking, tag)
 
             if ranking_result.get("error"):
                 return {"error": True, "message": f"获取竞技场排行榜失败: {ranking_result.get('error')}"}
@@ -207,7 +207,8 @@ class JjcRankingService:
                             print(
                                 f"在排行榜中找到角色: {server}_{name}, 角色ID: {game_role_id}, 大区: {zone}"
                             )
-                            kungfu_name = get_kungfu_by_role_info(
+                            kungfu_name = await asyncio.to_thread(
+                                get_kungfu_by_role_info,
                                 game_role_id,
                                 zone,
                                 server,
@@ -314,7 +315,8 @@ class JjcRankingService:
                                 f"在排行榜中找到角色: {server}_{name}, 角色ID: {game_role_id}, 大区: {zone}"
                             )
 
-                            kungfu_name = get_kungfu_by_role_info(
+                            kungfu_name = await asyncio.to_thread(
+                                get_kungfu_by_role_info,
                                 game_role_id,
                                 zone,
                                 server,
