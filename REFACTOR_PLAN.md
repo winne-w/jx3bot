@@ -66,7 +66,7 @@
 状态：未开始
 
 拆分目标（保持行为不变，先“搬家”后“优化”）：
-- [ ] 创建目录 `src/plugins/status_monitor/`
+- [x] 创建目录 `src/plugins/status_monitor/`
 - [ ] `src/plugins/status_monitor/__init__.py`：插件入口/注册（对外保持一致）
 - [ ] `src/plugins/status_monitor/jobs.py`：scheduler 定时任务定义（只负责调 service）
 - [ ] `src/plugins/status_monitor/commands.py`：管理员命令（只负责调 service）
