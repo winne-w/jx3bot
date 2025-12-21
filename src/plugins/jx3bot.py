@@ -34,11 +34,17 @@ GROUP_CONFIG_FILE = "groups.json"
 
 
 def _set_server_data_cache(value: Any) -> None:
-    driver.state.jx3_server_data_cache = value
+    if hasattr(driver, "state"):
+        driver.state.jx3_server_data_cache = value
+    else:
+        setattr(driver, "jx3_server_data_cache", value)
 
 
 def _set_token_data(value: Any) -> None:
-    driver.state.jx3_token_data = value
+    if hasattr(driver, "state"):
+        driver.state.jx3_token_data = value
+    else:
+        setattr(driver, "jx3_token_data", value)
 
 
 register_cache_init(
