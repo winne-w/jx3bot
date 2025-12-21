@@ -27,12 +27,7 @@ GROUP_CONFIG_FILE = "groups.json"
 driver = get_driver()
 require("nonebot_plugin_apscheduler")
 from nonebot_plugin_apscheduler import scheduler
-from src.services.jx3.singletons import (
-    query_jjc_ranking,
-    get_ranking_kuangfu_data,
-    calculate_season_week_info,
-    render_combined_ranking_image,
-)
+from src.services.jx3.singletons import jjc_ranking_service
 
 
 # 群组配置简化函数
@@ -878,7 +873,7 @@ async def daily_jjc_ranking_report():
             print("没有开启竞技排名推送的群组")
             return
 
-        ranking_result = await query_jjc_ranking()
+        ranking_result = await jjc_ranking_service.query_jjc_ranking()
         if not ranking_result:
             print("获取竞技场排行榜数据失败：返回为空")
             return
@@ -893,9 +888,13 @@ async def daily_jjc_ranking_report():
 
         default_week = ranking_result.get("defaultWeek")
         cache_time = ranking_result.get("cache_time")
-        week_info = calculate_season_week_info(default_week, cache_time) if default_week else "第12周"
+        week_info = (
+            jjc_ranking_service.calculate_season_week_info(default_week, cache_time)
+            if default_week
+            else "第12周"
+        )
 
-        ranking_data = await get_ranking_kuangfu_data(ranking_data=ranking_result)
+        ranking_data = await jjc_ranking_service.get_ranking_kuangfu_data(ranking_data=ranking_result)
         if not ranking_data:
             print("获取心法统计数据失败：返回为空")
             return
@@ -909,7 +908,7 @@ async def daily_jjc_ranking_report():
             print("心法统计数据为空")
             return
 
-        payload = await render_combined_ranking_image(stats, week_info)
+        payload = await jjc_ranking_service.render_combined_ranking_image(stats, week_info)
         if not payload:
             print("渲染竞技场统计图失败")
             return
