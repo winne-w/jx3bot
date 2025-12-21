@@ -17,7 +17,8 @@ from jinja2 import Environment, FileSystemLoader, Template
 from src.plugins.wanbaolou.api import api, JX3TradeAPI, search_jx3_appearances
 from src.plugins.wanbaolou.config import config
 from src.plugins.wanbaolou.utils import format_time_string, save_image_cache
-from src.utils.defget import jietu,suijitext
+from src.infra.screenshot import jietu
+from src.utils.random_text import suijitext
 from config import wanbaolou
 from src.utils.shared_data import SEARCH_RESULTS,user_sessions
 from .alias import setup_alias_refresh_job

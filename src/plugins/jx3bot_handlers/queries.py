@@ -16,14 +16,10 @@ from src.services.jx3.query_context import (
     build_yanhua_spec,
     build_zhuangfen_spec,
 )
-from src.utils.defget import (
-    get_image,
-    jjcdaxiaoxie,
-    suijitext,
-    time_ago_filter,
-    time_ago_fenzhong,
-    timestamp_jjc,
-)
+from src.utils.defget import get_image
+from src.utils.jjc_text import jjcdaxiaoxie
+from src.utils.random_text import suijitext
+from src.utils.time_utils import time_ago_filter, time_ago_fenzhong, timestamp_jjc
 
 
 def register(

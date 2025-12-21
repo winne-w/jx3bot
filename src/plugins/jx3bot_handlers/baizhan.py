@@ -16,7 +16,8 @@ from src.services.jx3.baizhan import (
 )
 from src.services.jx3.command_context import api_error_text
 from src.services.jx3.query_context import build_baizhan_spec
-from src.utils.defget import get, suijitext
+from src.utils.defget import get
+from src.utils.random_text import suijitext
 
 
 def register(baizhan_matcher: Any, env: Environment) -> None:
