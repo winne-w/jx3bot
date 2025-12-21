@@ -163,7 +163,15 @@ async def _():
     logger.info("外观搜索插件初始化完成")
 
     # 启动超时检查任务
-    scheduler.add_job(check_timeouts, "interval", seconds=5)
+    scheduler.add_job(
+        check_timeouts,
+        "interval",
+        seconds=5,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=30,
+        replace_existing=True,
+    )
 
     # 初始化并定时刷新别名缓存，仅用于物价/外观查询时本地解析别名
     await setup_alias_refresh_job(scheduler)
