@@ -5,11 +5,12 @@ from nonebot.params import CommandArg
 from nonebot.plugin import require
 from datetime import datetime
 from typing import Any, Set, List, Dict, Optional, Union
-import smtplib
-from email.message import EmailMessage
 from functools import wraps
 import time
 import re
+
+from .notify import get_NapCat_data, send_email_via_163
+from .storage import load_groups, load_id_set, save_groups, save_id_set
 
 # 导入配置并设置默认值
 try: 
@@ -30,13 +31,6 @@ from nonebot_plugin_apscheduler import scheduler
 from src.services.jx3.singletons import jjc_ranking_service
 
 
-# 群组配置简化函数
-def load_groups(): 
-    return json.load(open(GROUP_CONFIG_FILE, 'r', encoding='utf-8')) if os.path.exists(GROUP_CONFIG_FILE) else {}
-def save_groups(cfg): 
-    json.dump(cfg, open(GROUP_CONFIG_FILE, 'w', encoding='utf-8'), ensure_ascii=False)
-
-
 def prevent_duplicate_runs(timeout_seconds=60):
     def decorator(func):
         last_run = 0
@@ -55,75 +49,6 @@ def prevent_duplicate_runs(timeout_seconds=60):
         return wrapper
 
     return decorator
-# 缓存基础目录
-CACHE_DIR = "data/cache"
-
-#缓存管理器
-class CacheManager:
-    """通用缓存管理器，可用于多种数据的缓存"""
-
-    @staticmethod
-    def ensure_cache_dir() -> None:
-        """确保缓存目录存在"""
-        os.makedirs(CACHE_DIR, exist_ok=True)
-
-    @staticmethod
-    def save_cache(data: Any, cache_name: str) -> bool:
-        """
-        保存数据到指定的缓存文件
-
-        参数:
-            data: 要缓存的数据(支持JSON序列化的任何数据)
-            cache_name: 缓存文件名(不含路径和扩展名)
-
-        返回:
-            bool: 保存是否成功
-        """
-        try:
-            CacheManager.ensure_cache_dir()
-            cache_file = os.path.join(CACHE_DIR, f"{cache_name}.json")
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(data, f)
-            return True
-        except Exception as e:
-            print(f"保存缓存失败({cache_name}): {str(e)}")
-            return False
-
-    @staticmethod
-    def load_cache(cache_name: str, default: Any = None) -> Any:
-        """
-        从指定的缓存文件加载数据
-
-        参数:
-            cache_name: 缓存文件名(不含路径和扩展名)
-            default: 如果缓存不存在或加载失败时返回的默认值
-
-        返回:
-            缓存的数据，或者默认值(如果缓存不存在或加载失败)
-        """
-        try:
-            cache_file = os.path.join(CACHE_DIR, f"{cache_name}.json")
-            if os.path.exists(cache_file):
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-        except Exception as e:
-            print(f"读取缓存失败({cache_name}): {str(e)}")
-        return default
-
-
-# 特定类型缓存的辅助函数
-def save_id_set(ids: Set[str], cache_name: str) -> bool:
-    """保存ID集合到缓存"""
-    return CacheManager.save_cache({"ids": list(ids)}, cache_name)
-
-
-def load_id_set(cache_name: str) -> Set[str]:
-    """从缓存加载ID集合"""
-    data = CacheManager.load_cache(cache_name, {"ids": []})
-    return set(data.get("ids", []))
-
-
-
 # 全局变量
 previous_status = {}  # 上次检查的服务器状态
 server_maintenance_times = {}  # 服务器进入维护的时间
@@ -306,47 +231,6 @@ async def get_jx3box_data():
 
 # 全局状态跟踪
 last_status_ok = True
-
-
-
-async def get_NapCat_data():
-    try:
-        async with httpx.AsyncClient(verify=False) as client:
-            response = await client.get("http://192.168.100.1:3000/get_status")
-            if response.status_code != 200:
-                print(f"技改API返回错误: {response.status_code}")
-                return None
-            return response.json()
-    except Exception as e:
-        print(f"请求技改API出错: {e}")
-        return None
-
-
-def send_email_via_163(content):
-    # 创建邮件对象
-    msg = EmailMessage()
-    msg['Subject'] = '服务器状态提醒'
-    msg['From'] = '17665092013@163.com'
-    msg['To'] = '11010783@qq.com'
-    msg.set_content(content)
-
-    # 163邮箱SMTP服务器设置
-    smtp_server = 'smtp.163.com'
-    port = 465  # SSL加密端口
-
-    # 连接到SMTP服务器并发送邮件
-    try:
-        with smtplib.SMTP_SSL(smtp_server, port) as server:
-            # 登录邮箱账号
-            server.login('17665092013@163.com', mail)
-            # 发送邮件
-            server.send_message(msg)
-            print('邮件发送成功！')
-            return True
-    except Exception as e:
-        print(f'发送邮件时出错: {e}')
-        return False
-
 
 # 离线邮件通知
 @scheduler.scheduled_job("interval", seconds=60)  # 每3秒检查一次
