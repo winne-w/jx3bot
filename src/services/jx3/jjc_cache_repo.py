@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from nonebot import logger
+
 
 @dataclass(frozen=True)
 class JjcCacheRepo:
@@ -21,15 +23,15 @@ class JjcCacheRepo:
             with open(self.jjc_ranking_cache_file, "r", encoding="utf-8") as file_handle:
                 cached_data = json.load(file_handle)
         except Exception as exc:
-            print(f"读取文件缓存失败: {exc}")
+            logger.warning(f"读取竞技场排行榜缓存失败: file={self.jjc_ranking_cache_file} error={exc}")
             return None
 
         current_time = time.time()
         cache_time = cached_data.get("cache_time", 0)
         if current_time - cache_time < self.jjc_ranking_cache_duration:
-            print("使用文件缓存的竞技场排行榜数据")
+            logger.info("使用文件缓存的竞技场排行榜数据")
             return cached_data.get("data")
-        print("文件缓存已过期")
+        logger.info("竞技场排行榜文件缓存已过期")
         return None
 
     def save_ranking_cache(self, ranking_result: dict[str, Any]) -> None:
@@ -46,9 +48,9 @@ class JjcCacheRepo:
                     ensure_ascii=False,
                     indent=2,
                 )
-            print(f"竞技场排行榜数据已保存到文件缓存: {self.jjc_ranking_cache_file}")
+            logger.info(f"竞技场排行榜数据已保存到文件缓存: {self.jjc_ranking_cache_file}")
         except Exception as exc:
-            print(f"保存文件缓存失败: {exc}")
+            logger.warning(f"保存竞技场排行榜缓存失败: file={self.jjc_ranking_cache_file} error={exc}")
 
     def kuangfu_cache_path(self, server: str, name: str) -> str:
         cache_dir = "data/cache/kuangfu"
@@ -63,7 +65,7 @@ class JjcCacheRepo:
             with open(cache_file, "r", encoding="utf-8") as file_handle:
                 cached_data = json.load(file_handle)
         except Exception as exc:
-            print(f"读取缓存文件失败: {exc}")
+            logger.warning(f"读取心法缓存失败: file={cache_file} error={exc}")
             return None
 
         cache_time = cached_data.get("cache_time", 0)
@@ -75,9 +77,11 @@ class JjcCacheRepo:
                 return cached_data
 
             cache_dt = datetime.fromtimestamp(cache_time).strftime("%Y-%m-%d %H:%M:%S") if cache_time else "未知"
-            print(f"心法缓存已超过一周或缺少时间标记，重新请求数据: {server}_{name}（缓存时间: {cache_dt}）")
+            logger.info(
+                f"心法缓存过期，重新请求: server={server} name={name} cache_time={cache_dt}"
+            )
         else:
-            print(f"缓存 kuangfu 为空，重新请求数据: {server}_{name}")
+            logger.info(f"心法缓存为空，重新请求: server={server} name={name}")
 
         return None
 
@@ -86,7 +90,6 @@ class JjcCacheRepo:
         try:
             with open(cache_file, "w", encoding="utf-8") as file_handle:
                 json.dump(result, file_handle, ensure_ascii=False, indent=2)
-            print(f"心法信息已更新缓存到: {cache_file}")
+            logger.info(f"心法信息已更新缓存到: {cache_file}")
         except Exception as exc:
-            print(f"更新缓存失败: {exc}")
-
+            logger.warning(f"保存心法缓存失败: file={cache_file} error={exc}")
