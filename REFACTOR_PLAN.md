@@ -30,12 +30,12 @@
 ## 进度总览
 
 - [~] 1. 稳定 `services` 共享依赖（singletons 边界清晰）
-- [ ] 2. 拆分 `src/plugins/status_monitor.py` 为模块包
-- [ ] 3. 统一 `groups.json` 的读写链路（全项目只走 `GroupConfigRepo`）
-- [ ] 4. 抽取共享 HTTP Client（新增 infra 层）
-- [ ] 5. 瘦身 `src/utils/defget.py`（按职责拆分）
-- [ ] 6. 降低 `src/services/jx3/jjc_ranking.py` 职责（client/repo/service/renderer）
-- [ ] 7. 补齐“手工回归清单”（不引入新测试框架）
+- [x] 2. 拆分 `src/plugins/status_monitor.py` 为模块包
+- [x] 3. 统一 `groups.json` 的读写链路（全项目只走 `GroupConfigRepo`）
+- [x] 4. 抽取共享 HTTP Client（新增 infra 层）
+- [x] 5. 瘦身 `src/utils/defget.py`（按职责拆分）
+- [~] 6. 降低 `src/services/jx3/jjc_ranking.py` 职责（client/repo/service/renderer）
+- [~] 7. 补齐“手工回归清单”（不引入新测试框架）
 
 标记说明：
 - `[ ]` 未开始
