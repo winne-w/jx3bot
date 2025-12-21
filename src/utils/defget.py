@@ -11,6 +11,8 @@ import json
 import asyncio
 from config import IMAGE_CACHE_DIR,SESSION_data,texts
 
+from src.infra.http_client import HttpClient
+
 
 # 全局变量
 SERVER_DATA_FILE = "server_data.json"  # 文件路径
@@ -305,16 +307,13 @@ async def get_image(server, role_name,free=None):
         print(f"获取名片图片时出错: {str(e)}")
         return None
 #交易行get
-async def jiaoyiget(url):
+async def fetch_json(url: str) -> dict:
+    http_client = HttpClient(timeout=30.0, retries=2, backoff_seconds=0.5, verify=False)
+    return await http_client.arequest_json("GET", url, verify=False)
 
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            data = await response.json()
-
-
-
-    return data
+async def jiaoyiget(url: str) -> dict:
+    return await fetch_json(url)
 
 #名片get
 async def mp_image(url, name):
