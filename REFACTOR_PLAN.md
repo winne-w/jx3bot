@@ -68,8 +68,8 @@
 拆分目标（保持行为不变，先“搬家”后“优化”）：
 - [x] 创建目录 `src/plugins/status_monitor/`
 - [x] `src/plugins/status_monitor/__init__.py`：插件入口/注册（对外保持一致）
-- [ ] `src/plugins/status_monitor/jobs.py`：scheduler 定时任务定义（只负责调 service）
-- [ ] `src/plugins/status_monitor/commands.py`：管理员命令（只负责调 service）
+- [x] `src/plugins/status_monitor/jobs.py`：scheduler 定时任务定义（只负责调 service）
+- [x] `src/plugins/status_monitor/commands.py`：管理员命令（只负责调 service）
 - [x] `src/plugins/status_monitor/notify.py`：邮件/告警通道封装（后续可迁移到 infra）
 - [x] `src/plugins/status_monitor/storage.py`：缓存/落盘（后续与统一缓存合并）
 - [ ] 保持旧 import 路径可用（如需要，提供兼容 re-export）
