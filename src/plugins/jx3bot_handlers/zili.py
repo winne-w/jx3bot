@@ -10,7 +10,8 @@ from nonebot.params import RegexGroup
 from config import SESSION_TIMEOUT, TICKET, TOKEN, API_URLS
 from src.renderers.jx3.image import render_template_image, send_image, send_text
 from src.services.jx3.command_context import fetch_jx3api_or_reply_error, resolve_server_and_name
-from src.utils.defget import sum_specified_keys, suijitext
+from src.utils.data_sum import sum_specified_keys
+from src.utils.random_text import suijitext
 from src.utils.shared_data import SEARCH_RESULTS, user_sessions
 
 

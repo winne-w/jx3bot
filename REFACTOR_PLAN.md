@@ -107,6 +107,9 @@
 - [ ] 逐步减少 `from src.utils.defget import ...` 的导入面（目标：只剩少量兼容导出）
 - [ ] 确保 `services` 不直接依赖“截图/模板渲染/发送消息”等表现层能力（需要则经由 `plugins`/`renderers`）
 
+本阶段已完成：
+- [x] 提取时间/随机文案/金额/统计等纯函数到 `src/utils/*`，并更新内部引用（减少对 `defget` 的依赖）
+
 ---
 
 ## 6. 降低 `src/services/jx3/jjc_ranking.py` 职责

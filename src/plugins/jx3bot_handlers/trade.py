@@ -8,7 +8,10 @@ from nonebot.params import RegexGroup
 
 from src.renderers.jx3.image import apply_filters, render_and_send_template_image
 from src.services.jx3.command_context import resolve_server_and_name
-from src.utils.defget import convert_number, fetch_json, suijitext, time_ago_fenzhong
+from src.utils.defget import fetch_json
+from src.utils.money_format import convert_number
+from src.utils.random_text import suijitext
+from src.utils.time_utils import time_ago_fenzhong
 
 
 def register(jiayi_matcher: Any, env: Environment) -> None:

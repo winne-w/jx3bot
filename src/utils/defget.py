@@ -1,6 +1,5 @@
 import aiohttp
 from typing import Optional
-from datetime import datetime, timedelta
 from cacheout import Cache
 import aiofiles
 import time
@@ -8,167 +7,23 @@ import os
 import glob
 import json
 import asyncio
-from config import IMAGE_CACHE_DIR,SESSION_data,texts
+from config import IMAGE_CACHE_DIR, SESSION_data
 
 from src.infra.http_client import HttpClient
 from src.infra.browser_storage import download_json_from_local_storage
 from src.infra.image_fetch import mp_image
 from src.infra.screenshot import jietu, jx3web
+from src.utils.data_sum import sum_specified_keys
+from src.utils.jjc_text import jjcdaxiaoxie
+from src.utils.money_format import convert_number
+from src.utils.random_text import suijitext
+from src.utils.time_utils import time_ago_filter, time_ago_fenzhong, timestamp_jjc
 
 
 # 全局变量
 SERVER_DATA_FILE = "server_data.json"  # 文件路径
 server_data_cache = None  # 缓存
 cache = Cache(maxsize=256, ttl=SESSION_data, timer=time.time, default=None)
-def jjcdaxiaoxie(timestamp):
-    if timestamp == 0:
-        return "零"
-    if timestamp == 1:
-        return "一"
-    if timestamp == 2:
-        return "二"
-    if timestamp == 3:
-        return "三"
-    if timestamp == 4:
-        return "四"
-    if timestamp == 5:
-        return "五"
-    if timestamp == 6:
-        return "六"
-    if timestamp == 7:
-        return "七"
-    if timestamp == 8:
-        return "八"
-    if timestamp == 9:
-        return "九"
-    if timestamp == 10:
-        return "十"
-    if timestamp == 11:
-        return "十一"
-    if timestamp == 12:
-        return "十二"
-    if timestamp == 13:
-        return "十三"
-    if timestamp == 14:
-        return "十四"
-    if timestamp == 15:
-        return "十五"
-def convert_number(amount):
-    thousands = amount // 100000000
-    thousands = "" if thousands == 0 else f" {thousands}<img src='http://192.168.100.1:5244/img/qiyu/img/zhuan.png' alt='砖'>"
-    remainder = (amount % 100000000) // 10000
-    remainder = "" if remainder == 0 else f" {remainder}<img src='http://192.168.100.1:5244/img/qiyu/img/jin.png' alt='金'>"
-    billions = (amount % 10000) // 100
-    billions = "" if billions == 0 else f" {billions}<img src='http://192.168.100.1:5244/img/qiyu/img/yin.png' alt='银'>"
-    return f"{thousands}{remainder}{billions}"
-def suijitext():
-
-    # 获取当前时间戳的毫秒部分
-    microseconds = int(time.time() * 1000000) % len(texts)
-
-
-    # 使用毫秒部分作为索引来选择列表中的一个元素
-    selected_text = texts[microseconds]
-    return selected_text
-def timestamp_jjc(timestamp, format="%Y-%m-%d %H:%M:%S"):
-    dt_object = datetime.fromtimestamp(timestamp)
-    return dt_object.strftime(format)
-
-
-def time_ago_fenzhong(timestamp):
-    if timestamp == 0:
-        return "被遗忘的时间"
-
-    now = datetime.now()
-    then = datetime.fromtimestamp(timestamp)
-
-    # 计算总时间差（单位：秒）
-    total_seconds = int((now - then).total_seconds())
-
-    # 处理未来时间
-    if total_seconds < 0:
-        return "未来时间"
-
-    # 如果差异小于60秒
-    if total_seconds < 60:
-        return "刚刚"
-
-    # 计算天、小时、分钟
-    days = total_seconds // 86400
-    hours = (total_seconds % 86400) // 3600
-    minutes = (total_seconds % 3600) // 60
-
-    # 格式化相对时间字符串
-    relative_time = []
-    if days > 0:
-        relative_time.append(f"{days}天")
-    if hours > 0:
-        relative_time.append(f"{hours:02d}小时")
-    if minutes > 0:
-        relative_time.append(f"{minutes:02d}分钟")
-
-    # 连接字符串并返回结果
-    return "".join(relative_time) + "前"
-def time_ago_filter(timestamp):
-    now = datetime.now()
-    then = datetime.fromtimestamp(timestamp)
-    time_difference = now - then
-    # 提取年、月、日、小时等时间差信息（简化计算）
-    years = time_difference.days // 365
-    months = (time_difference.days % 365) // 30
-    days = time_difference.days % 30
-    hours = time_difference.seconds // 3600
-    # 格式化相对时间字符串
-    relative_time = []
-    if years > 0:
-        relative_time.append(f"{years}年")
-    if months > 0:
-        relative_time.append(f"{months}月")
-    if days > 0:
-        relative_time.append(f"{days}天")
-    if hours > 0:
-        relative_time.append(f"{hours}小时")
-    return "".join(relative_time) + "前"
-def sum_specified_keys(data, keys_to_sum, keys_to_sum2):
-    """
-    遍历数据结构，对两组指定键的'total'和'speed'进行累加。
-
-    :param data: 要遍历的数据结构（字典或列表）
-    :param keys_to_sum: 第一个包含需要累加的键名的列表
-    :param keys_to_sum2: 第二个包含需要累加的键名的列表
-    :return: 一个包含四个累加结果的元组，顺序为(keys_to_sum中键的total累加和, keys_to_sum中键的speed累加和, keys_to_sum2中键的total累加和, keys_to_sum2中键的speed累加和)
-    """
-    # 初始化累加结果
-    total_sum1 = 0
-    speed_sum1 = 0
-    total_sum2 = 0
-    speed_sum2 = 0
-
-    def recurse(data):
-        nonlocal total_sum1, speed_sum1, total_sum2, speed_sum2
-
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if key in keys_to_sum and isinstance(value, dict):
-                    if 'total' in value and isinstance(value['total'], (int, float)):
-                        total_sum1 += value['total']
-                    if 'speed' in value and isinstance(value['speed'], (int, float)):
-                        speed_sum1 += value['speed']
-                elif key in keys_to_sum2 and isinstance(value, dict):
-                    if 'total' in value and isinstance(value['total'], (int, float)):
-                        total_sum2 += value['total']
-                    if 'speed' in value and isinstance(value['speed'], (int, float)):
-                        speed_sum2 += value['speed']
-                recurse(value)
-        elif isinstance(data, list):
-            for item in data:
-                recurse(item)
-
-    # 开始递归处理
-    recurse(data)
-
-    # 返回累加结果
-    return speed_sum1,total_sum1, speed_sum2,total_sum2
 # get请求函数
 
 async def get(url: str, server: Optional[str] = None, name: Optional[str] = None,

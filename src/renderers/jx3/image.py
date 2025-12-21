@@ -6,7 +6,7 @@ from jinja2 import Environment
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
 from nonebot import logger
 
-from src.utils.defget import jietu
+from src.infra.screenshot import jietu
 
 
 def apply_filters(env: Environment, filters: dict[str, Any] | None) -> None:
