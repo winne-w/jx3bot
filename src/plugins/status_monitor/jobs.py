@@ -12,6 +12,9 @@ from nonebot_plugin_apscheduler import scheduler
 
 from src.services.jx3.singletons import jjc_ranking_service
 from src.services.jx3.singletons import group_config_repo
+from src.services.jx3.singletons import env
+from src.renderers.jx3.image import render_template_image
+from src.renderers.jx3.jjc_ranking import render_combined_ranking_image
 
 from .notify import get_NapCat_data, send_email_via_163
 from .storage import CacheManager, load_id_set, save_id_set
@@ -678,7 +681,13 @@ async def push_daily_jjc_ranking():
                 print("心法统计数据为空")
                 return
 
-            payload = await jjc_ranking_service.render_combined_ranking_image(stats, week_info)
+            payload = await render_combined_ranking_image(
+                env=env,
+                render_template_image=render_template_image,
+                current_season=cfg.CURRENT_SEASON,
+                stats=stats,
+                week_info=week_info,
+            )
             if not payload:
                 print("渲染竞技场统计图失败")
                 return

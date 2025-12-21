@@ -102,4 +102,3 @@ def register(
             error_traceback = traceback.format_exc()
             print(f"战绩排名统计详细错误：{error_traceback}")
             await bot.send(event, f"战绩排名统计失败：{str(exc)}")
-
