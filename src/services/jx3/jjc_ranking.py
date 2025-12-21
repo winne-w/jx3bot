@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable
 
+from nonebot import logger
+
 from src.services.jx3.kungfu import get_kungfu_by_role_info
 from src.services.jx3.jjc_api_client import JjcApiClient
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
@@ -51,21 +53,21 @@ class JjcRankingService:
         if cached:
             return cached
 
-        print("正在查询竞技场排行榜数据...")
+        logger.info("开始查询竞技场排行榜数据")
 
         try:
-            print("第一步：获取竞技场时间标签...")
+            logger.info("获取竞技场时间标签")
             time_tag_result = await asyncio.to_thread(self._api().get_arena_time_tag)
 
             if time_tag_result.get("error"):
-                print(f"获取时间标签失败: {time_tag_result}")
+                logger.warning(f"获取竞技场时间标签失败: {time_tag_result}")
                 return {
                     "error": True,
                     "message": f"获取时间标签失败: {time_tag_result.get('error', '未知错误')}",
                 }
 
             if time_tag_result.get("code") != 0:
-                print(f"获取时间标签失败: {time_tag_result}")
+                logger.warning(f"获取竞技场时间标签失败: {time_tag_result}")
                 return {
                     "error": True,
                     "message": f"获取时间标签失败: {time_tag_result.get('msg', '未知错误')}",
@@ -83,8 +85,8 @@ class JjcRankingService:
 
             tag = default_week
 
-            print(f"获取到 defaultWeek={default_week}, tag={tag}")
-            print("第二步：获取竞技场排行榜...")
+            logger.info(f"获取竞技场时间标签成功: defaultWeek={default_week} tag={tag}")
+            logger.info("获取竞技场排行榜")
             ranking_result = await asyncio.to_thread(self._api().get_arena_ranking, tag)
 
             if ranking_result.get("error"):
@@ -103,10 +105,7 @@ class JjcRankingService:
 
             return ranking_result
         except Exception as exc:
-            import traceback
-
-            error_traceback = traceback.format_exc()
-            print(f"查询竞技场排行榜失败: {error_traceback}")
+            logger.exception(f"查询竞技场排行榜失败: {exc}")
             return {"error": True, "message": f"查询竞技场排行榜失败: {exc}"}
 
     async def update_kuangfu_cache(self, server: str, name: str, jjc_data: dict[str, Any]) -> None:
@@ -114,7 +113,7 @@ class JjcRankingService:
         cache_file = os.path.join(cache_dir, f"{server}_{name}.json")
         os.makedirs(cache_dir, exist_ok=True)
 
-        print(f"优先使用心法查询接口更新 {server}_{name} 的心法信息")
+        logger.info(f"优先使用心法查询接口更新心法信息: server={server} name={name}")
 
         kuangfu_info = None
         try:
@@ -134,8 +133,8 @@ class JjcRankingService:
                         zone = person_info.get("zone")
 
                         if game_role_id and zone:
-                            print(
-                                f"在排行榜中找到角色: {server}_{name}, 角色ID: {game_role_id}, 大区: {zone}"
+                            logger.info(
+                                f"在排行榜中找到角色: server={server} name={name} role_id={game_role_id} zone={zone}"
                             )
                             kungfu_name = await asyncio.to_thread(
                                 get_kungfu_by_role_info,
@@ -146,21 +145,21 @@ class JjcRankingService:
                                 kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
                             )
                             if kungfu_name:
-                                print(f"心法查询成功: {kungfu_name}")
+                                logger.info(f"心法查询成功: server={server} name={name} kungfu={kungfu_name}")
                                 kuangfu_info = kungfu_name
                                 break
-                            print("心法查询失败: 未找到心法信息")
+                            logger.info("心法查询失败: 未找到心法信息")
                             break
 
                 if not kuangfu_info:
-                    print(f"在排行榜中未找到匹配的角色: {server}_{name}")
+                    logger.info(f"在排行榜中未找到匹配的角色: server={server} name={name}")
             else:
-                print("获取排行榜数据失败，无法进行心法查询")
+                logger.warning("获取排行榜数据失败，无法进行心法查询")
         except Exception as exc:
-            print(f"心法查询过程中出错: {exc}")
+            logger.warning(f"心法查询过程中出错: {exc}")
 
         if not kuangfu_info:
-            print("心法查询失败，从竞技场数据中提取心法信息作为备选方案...")
+            logger.info("心法查询失败，从竞技场数据中提取心法信息作为备选方案")
             history_data = jjc_data.get("data", {}).get("history", [])
             if history_data:
                 for match in history_data:
@@ -177,15 +176,14 @@ class JjcRankingService:
         }
 
         if kuangfu_info:
-            print(f"更新kuangfu缓存到文件: {cache_file}")
             try:
                 with open(cache_file, "w", encoding="utf-8") as file_handle:
                     json.dump(result, file_handle, ensure_ascii=False, indent=2)
-                print(f"kuangfu信息已更新缓存到: {cache_file}")
+                logger.info(f"kuangfu信息已更新缓存到: {cache_file}")
             except Exception as exc:
-                print(f"更新缓存失败: {exc}")
+                logger.warning(f"更新kuangfu缓存失败: file={cache_file} error={exc}")
         else:
-            print(f"未找到心法信息，不保存缓存: {server}_{name}")
+            logger.info(f"未找到心法信息，不保存缓存: server={server} name={name}")
 
     async def get_user_kuangfu(self, server: str, name: str) -> dict[str, Any]:
         cache_dir = "data/cache/kuangfu"
@@ -195,10 +193,10 @@ class JjcRankingService:
             return cached
 
         delay = random.uniform(3, 5)
-        print(f"等待 {delay:.2f} 秒后发起请求...")
+        logger.info(f"等待 {delay:.2f} 秒后发起请求")
         await asyncio.sleep(delay)
 
-        print(f"优先使用心法查询接口查询 {server}_{name} 的心法信息")
+        logger.info(f"优先使用心法查询接口查询心法信息: server={server} name={name}")
 
         try:
             ranking_result = await self.query_jjc_ranking()
@@ -218,8 +216,8 @@ class JjcRankingService:
                         zone = person_info.get("zone")
 
                         if game_role_id and zone:
-                            print(
-                                f"在排行榜中找到角色: {server}_{name}, 角色ID: {game_role_id}, 大区: {zone}"
+                            logger.info(
+                                f"在排行榜中找到角色: server={server} name={name} role_id={game_role_id} zone={zone}"
                             )
 
                             kungfu_name = await asyncio.to_thread(
@@ -231,7 +229,7 @@ class JjcRankingService:
                                 kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
                             )
                             if kungfu_name:
-                                print(f"心法查询成功: {kungfu_name}")
+                                logger.info(f"心法查询成功: server={server} name={name} kungfu={kungfu_name}")
                                 result = {
                                     "server": server,
                                     "name": name,
@@ -242,17 +240,17 @@ class JjcRankingService:
                                 self._cache().save_kuangfu_cache(server, name, result)
                                 return result
 
-                            print("心法查询失败: 未找到心法信息")
+                            logger.info("心法查询失败: 未找到心法信息")
                             break
 
-                print(f"在排行榜中未找到匹配的角色: {server}_{name}")
+                logger.info(f"在排行榜中未找到匹配的角色: server={server} name={name}")
             else:
-                print("获取排行榜数据失败，无法进行心法查询")
+                logger.warning("获取排行榜数据失败，无法进行心法查询")
         except Exception as exc:
-            print(f"心法查询过程中出错: {exc}")
+            logger.warning(f"心法查询过程中出错: {exc}")
 
-        print("心法查询失败，使用竞技场数据查询作为备选方案...")
-        print(f"正在查询 {server}_{name} 的竞技场数据")
+        logger.info("心法查询失败，使用竞技场数据查询作为备选方案")
+        logger.info(f"正在查询竞技场数据: server={server} name={name}")
         jjc_data = await self.defget_get(
             url=self.jjc_query_url,
             server=server,
@@ -262,7 +260,7 @@ class JjcRankingService:
         )
 
         if jjc_data.get("error") or jjc_data.get("msg") != "success":
-            print(f"获取竞技场数据失败: {jjc_data}")
+            logger.warning(f"获取竞技场数据失败: {jjc_data}")
             return {
                 "error": True,
                 "message": f"获取竞技场数据失败: {jjc_data.get('message', '未知错误')}",
@@ -299,7 +297,7 @@ class JjcRankingService:
             missing_kungfu_lines: list[str] = []
 
             total_players = len(data_list)
-            print(f"竞技场排行榜总人数: {total_players}")
+            logger.info(f"竞技场排行榜总人数: {total_players}")
 
             for i, player in enumerate(data_list):
                 person_info = player.get("personInfo", {})
@@ -371,7 +369,7 @@ class JjcRankingService:
                             if score is not None and (dps_min_score is None or score < dps_min_score):
                                 dps_min_score = score
                         else:
-                            print(
+                            logger.info(
                                 f"⚠️ 发现未分类心法：第{i+1}名 {player_item.get('server', '未知')} "
                                 f"{player_item.get('name', '未知')} - {kuangfu}"
                             )
@@ -400,9 +398,9 @@ class JjcRankingService:
                 )
 
                 if invalid_details:
-                    print(f"\n⚠️ 前{max_rank}名中无效数据角色（共{len(invalid_details)}个）：")
+                    logger.info(f"前{max_rank}名中无效数据角色（共{len(invalid_details)}个）")
                     for detail in invalid_details:
-                        print(f"  {detail}")
+                        logger.info(f"invalid: {detail}")
 
                 return {
                     "total_players": max_rank,
@@ -424,10 +422,10 @@ class JjcRankingService:
                     "unclassified_count": max_rank - (healer_valid_count + dps_valid_count + invalid_count),
                 }
 
-            print("正在统计kuangfu分布...")
+            logger.info("正在统计kuangfu分布")
             kuangfu_stats: dict[str, Any] = {}
             if total_players >= 1000:
-                print("检测到排行榜包含1000条数据，开始统计前1000心法分布...")
+                logger.info("检测到排行榜包含1000条数据，开始统计前1000心法分布")
                 kuangfu_stats["top_1000"] = count_kuangfu_by_rank(kuangfu_results, 1000)
             kuangfu_stats["top_200"] = count_kuangfu_by_rank(kuangfu_results, 200)
             kuangfu_stats["top_100"] = count_kuangfu_by_rank(kuangfu_results, 100)
@@ -439,19 +437,19 @@ class JjcRankingService:
                 "missing_kungfu_lines": missing_kungfu_lines,
             }
 
-            print("\n" + "=" * 80)
-            print("KUANGFU统计结果 (奶妈/DPS分类)")
-            print("=" * 80)
+            logger.info("=" * 80)
+            logger.info("KUANGFU统计结果 (奶妈/DPS分类)")
+            logger.info("=" * 80)
 
             for rank_range, stats in kuangfu_stats.items():
-                print(
+                logger.info(
                     f"\n{rank_range.upper()} ({stats['total_players']}人，有效数据{stats['total_valid_count']}人，"
                     f"无效数据{stats['invalid_count']}人):"
                 )
-                print("=" * 60)
+                logger.info("=" * 60)
 
-                print(f"\n【奶妈排名】({stats['healer']['valid_count']}人):")
-                print("-" * 40)
+                logger.info(f"奶妈排名（{stats['healer']['valid_count']}人）")
+                logger.info("-" * 40)
                 if stats["healer"]["list"]:
                     for kuangfu, count in stats["healer"]["list"]:
                         percentage = (
@@ -459,12 +457,12 @@ class JjcRankingService:
                             if stats["healer"]["valid_count"] > 0
                             else 0
                         )
-                        print(f"  {kuangfu}: {count}人 ({percentage:.1f}%)")
+                        logger.info(f"{kuangfu}: {count}人 ({percentage:.1f}%)")
                 else:
-                    print("  无奶妈数据")
+                    logger.info("无奶妈数据")
 
-                print(f"\n【DPS排名】({stats['dps']['valid_count']}人):")
-                print("-" * 40)
+                logger.info(f"DPS排名（{stats['dps']['valid_count']}人）")
+                logger.info("-" * 40)
                 if stats["dps"]["list"]:
                     for kuangfu, count in stats["dps"]["list"]:
                         percentage = (
@@ -472,18 +470,15 @@ class JjcRankingService:
                             if stats["dps"]["valid_count"] > 0
                             else 0
                         )
-                        print(f"  {kuangfu}: {count}人 ({percentage:.1f}%)")
+                        logger.info(f"{kuangfu}: {count}人 ({percentage:.1f}%)")
                 else:
-                    print("  无DPS数据")
+                    logger.info("无DPS数据")
 
-            print("=" * 80)
+            logger.info("=" * 80)
 
             return result
         except Exception as exc:
-            import traceback
-
-            error_traceback = traceback.format_exc()
-            print(f"获取心法分布数据失败: {error_traceback}")
+            logger.exception(f"获取心法分布数据失败: {exc}")
             return {"error": True, "message": f"获取心法分布数据失败: {exc}"}
 
     def calculate_season_week_info(self, default_week: int, cache_time: float | None = None) -> str:
@@ -511,9 +506,7 @@ class JjcRankingService:
             try:
                 target_monday = datetime.fromisocalendar(api_year, api_week, 1)
             except ValueError:
-                print(
-                    f"calculate_season_week_info: defaultWeek={default_week} 生成ISO日期失败，使用当前周"
-                )
+                logger.info(f"calculate_season_week_info: defaultWeek={default_week} 生成ISO日期失败，使用当前周")
                 target_monday = current_monday
 
             season_week_from_api = max(
@@ -523,7 +516,7 @@ class JjcRankingService:
             weekday_str = weekday_names[now.weekday()]
             time_str = now.strftime("%H:%M")
 
-            print(
+            logger.info(
                 f"defaultWeek={default_week} season_anchor_monday={season_anchor_monday} current_monday={current_monday} "
                 f"season_week_now={season_week_now} api_week={api_week} target_monday={target_monday} "
                 f"weekday_str={weekday_str} time_str={time_str}"
@@ -534,11 +527,9 @@ class JjcRankingService:
             if target_monday == current_monday:
                 return f"第{season_week_now}周 {weekday_str} {time_str}"
 
-            print(
-                f"calculate_season_week_info: defaultWeek={api_week} 指向未来周，锚定赛季周 {season_week_from_api}"
-            )
+            logger.info(f"calculate_season_week_info: defaultWeek={api_week} 指向未来周，锚定赛季周 {season_week_from_api}")
             return f"第{season_week_from_api}周 {weekday_str} {time_str}"
 
         except Exception as exc:
-            print(f"计算赛季周信息失败: {exc}")
+            logger.warning(f"计算赛季周信息失败: {exc}")
             return f"第{default_week}周"

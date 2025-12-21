@@ -118,7 +118,7 @@
 - [x] `JjcCacheRepo`：仅负责文件缓存读写（ranking/kuangfu）
 - [x] `JjcRankingService`：仅负责流程编排（缓存策略、降级策略）
 - [x] 渲染保持在 `src/renderers/`（service 只产出结构化数据）
-- [ ] 将 `print()` 全面替换为 `nonebot.logger`/`loguru`（带 request_id/server/name 等上下文）
+- [x] 将 `print()` 全面替换为 `nonebot.logger`/`loguru`（带 request_id/server/name 等上下文）
 - [x] 从 service 移除 `Bot/Event/MessageSegment` 相关逻辑（发送图片/文本留在 handler/renderer）
 
 ---
