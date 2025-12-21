@@ -83,7 +83,7 @@
 
 - [x] 删除/替换 `src/plugins/status_monitor.py` 内部的 `load_groups/save_groups`
 - [x] 所有读写群配置统一改为 `src/services/jx3/singletons.py` 导出的 `group_config_repo.load/save`
-- [ ] 禁止新增 `open('groups.json')` 直接读写的实现
+- [x] 禁止新增 `open('groups.json')` 直接读写的实现
 
 ---
 
