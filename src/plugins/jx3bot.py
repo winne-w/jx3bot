@@ -18,13 +18,9 @@ from src.plugins.jx3bot_handlers.queries import register as register_queries
 from src.plugins.jx3bot_handlers.trade import register as register_trade
 from src.plugins.jx3bot_handlers.zili import register as register_zili
 from src.services.jx3.singletons import (
-    calculate_season_week_info,
     env,
     group_config_repo,
-    get_ranking_kuangfu_data,
     jjc_ranking_service,
-    query_jjc_ranking,
-    render_combined_ranking_image,
 )
 from src.utils.defget import download_json, get, jiaoyiget
 from src.utils.time_format import format_time_duration

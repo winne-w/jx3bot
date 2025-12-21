@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any, Optional
-
 import config as cfg
 from jinja2 import Environment, FileSystemLoader
 
@@ -43,19 +41,3 @@ jjc_ranking_service = JjcRankingService(
     env=env,
     render_template_image=render_template_image,
 )
-
-
-async def query_jjc_ranking() -> dict[str, Any]:
-    return await jjc_ranking_service.query_jjc_ranking()
-
-
-async def get_ranking_kuangfu_data(*, ranking_data: dict[str, Any]) -> dict[str, Any]:
-    return await jjc_ranking_service.get_ranking_kuangfu_data(ranking_data)
-
-
-def calculate_season_week_info(default_week: int, cache_time: Optional[float] = None) -> str:
-    return jjc_ranking_service.calculate_season_week_info(default_week, cache_time)
-
-
-async def render_combined_ranking_image(stats: dict[str, Any], week_info: str) -> dict[str, Any]:
-    return await jjc_ranking_service.render_combined_ranking_image(stats, week_info)
