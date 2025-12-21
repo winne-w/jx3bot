@@ -8,7 +8,7 @@ from nonebot.params import RegexGroup
 
 from src.renderers.jx3.image import apply_filters, render_and_send_template_image
 from src.services.jx3.command_context import resolve_server_and_name
-from src.utils.defget import convert_number, jiaoyiget, suijitext, time_ago_fenzhong
+from src.utils.defget import convert_number, fetch_json, suijitext, time_ago_fenzhong
 
 
 def register(jiayi_matcher: Any, env: Environment) -> None:
@@ -30,7 +30,7 @@ def register(jiayi_matcher: Any, env: Environment) -> None:
             .replace(" ", "")
         )
 
-        jsonid = await jiaoyiget(url=f"http://node.jx3box.com/item_merged/name/{query_name}")
+        jsonid = await fetch_json(url=f"http://node.jx3box.com/item_merged/name/{query_name}")
         if jsonid.get("total") == 0:
             await bot.send(
                 event,
@@ -54,7 +54,7 @@ def register(jiayi_matcher: Any, env: Environment) -> None:
                 .replace(" ", "")
             )
 
-        newpm = await jiaoyiget(url=f"http://next2.jx3box.com/api/item-price/{item_id}/detail?server={server}")
+        newpm = await fetch_json(url=f"http://next2.jx3box.com/api/item-price/{item_id}/detail?server={server}")
         newpm = (newpm or {}).get("data", {}).get("prices", None)
         if newpm is not None:
             newpm = sorted(newpm, key=lambda item: item["n_count"], reverse=True)
@@ -67,7 +67,7 @@ def register(jiayi_matcher: Any, env: Environment) -> None:
             )
             return
 
-        newxs = await jiaoyiget(url=f"http://next2.jx3box.com/api/item-price/{item_id}/logs?server={server}")
+        newxs = await fetch_json(url=f"http://next2.jx3box.com/api/item-price/{item_id}/logs?server={server}")
         if (
             newxs is not None
             and "data" in newxs

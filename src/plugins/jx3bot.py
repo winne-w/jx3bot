@@ -22,7 +22,7 @@ from src.services.jx3.singletons import (
     group_config_repo,
     jjc_ranking_service,
 )
-from src.utils.defget import download_json, get, jiaoyiget
+from src.utils.defget import download_json, fetch_json, get
 from src.utils.time_format import format_time_duration
 
 MAX_DEPTH = 2  # 0是顶层，1是第一层子项目，2是第二层子项目，最多显示3层
@@ -50,7 +50,7 @@ def _set_token_data(value: Any) -> None:
 register_cache_init(
     driver,
     download_json=download_json,
-    jiaoyiget=jiaoyiget,
+    jiaoyiget=fetch_json,
     token=cfg.TOKEN,
     server_data_file=SERVER_DATA_FILE,
     jjc_ranking_cache_file=jjc_ranking_service.jjc_ranking_cache_file,
@@ -92,7 +92,7 @@ register_announcements(
     huodong,
     gengxin,
     jigai,
-    jiaoyiget=jiaoyiget,
+    jiaoyiget=fetch_json,
     skill_records_url=cfg.SKILL_records_URL,
 )
 
@@ -106,7 +106,7 @@ register_help(
     format_time_duration=format_time_duration,
 )
 
-register_exam(keju, jiaoyiget=jiaoyiget)
+register_exam(keju, jiaoyiget=fetch_json)
 register_fraud(pianzi, get=get, token=cfg.TOKEN)
 register_baizhan(baizhan, env)
 

@@ -94,7 +94,7 @@
 - [x] 新增 `src/infra/http_client.py`：统一超时、重试、UA、错误包装、日志上下文
 - [x] 明确 async 语义：在 async 调用链内禁止使用阻塞 HTTP（例如 `requests`），必要时改为 `httpx.AsyncClient`
 - [x] 让 `tuilan_request` 逐步复用该 client（先做兼容封装，避免一次性重写）
-- [ ] 让 `jiaoyiget`/其他请求逐步复用该 client
+- [x] 让 `jiaoyiget`/其他请求逐步复用该 client
 
 ---
 
