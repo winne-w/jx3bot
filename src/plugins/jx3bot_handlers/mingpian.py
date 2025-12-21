@@ -8,7 +8,11 @@ from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
 from nonebot.params import RegexGroup
 
 from config import TOKEN, API_URLS
-from src.services.jx3.command_context import fetch_jx3api_or_reply_error, resolve_server_and_name
+from src.services.jx3.command_context import (
+    CommandContextError,
+    fetch_jx3api_or_raise,
+    resolve_server_and_name,
+)
 from src.services.jx3.mingpian import download_avatar_if_needed, extract_avatar_meta
 from src.utils.defget import get_image
 
@@ -18,10 +22,14 @@ def register(mingpian_matcher: Any) -> None:
     async def mingpianxiu_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        resolved = await resolve_server_and_name(bot, event, foo)
-        if not resolved:
+        try:
+            qufu, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
+        except CommandContextError as exc:
+            if exc.at_user:
+                await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
+            else:
+                await bot.send(event, Message(exc.message))
             return
-        qufu, role_name = resolved
 
         mingpian_files = await get_image(qufu, role_name, free="1")
 
@@ -43,15 +51,15 @@ def register(mingpian_matcher: Any) -> None:
                 )
             return
 
-        items = await fetch_jx3api_or_reply_error(
-            bot,
-            event,
-            url=API_URLS["名片查询"],
-            server=qufu,
-            name=role_name,
-            token=TOKEN,
-        )
-        if not items:
+        try:
+            items = await fetch_jx3api_or_raise(
+                url=API_URLS["名片查询"],
+                server=qufu,
+                name=role_name,
+                token=TOKEN,
+            )
+        except CommandContextError as exc:
+            await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
             return
 
         avatar_url, image_name = extract_avatar_meta(items, server=qufu, role_name=role_name)

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 
-from playwright.async_api import async_playwright
-
-
 async def jietu(html_content, width, height):
+    try:
+        from playwright.async_api import async_playwright  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("缺少依赖 playwright：请安装 playwright 并执行 playwright install") from exc
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page(
@@ -47,6 +49,11 @@ async def jietu(html_content, width, height):
 
 
 async def jx3web(url, selector, adjust_top=None, save_path=None):
+    try:
+        from playwright.async_api import async_playwright  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("缺少依赖 playwright：请安装 playwright 并执行 playwright install") from exc
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
@@ -120,4 +127,3 @@ async def jx3web(url, selector, adjust_top=None, save_path=None):
                 f.write(screenshot)
             return save_path
         return screenshot
-

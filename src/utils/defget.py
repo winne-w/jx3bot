@@ -1,116 +1,21 @@
-import aiohttp
 from typing import Optional
-from cacheout import Cache
 import aiofiles
-import time
 import os
 import glob
 import json
 import asyncio
-from config import IMAGE_CACHE_DIR, SESSION_data
+from config import IMAGE_CACHE_DIR
 
 from src.infra.http_client import HttpClient
 from src.infra.browser_storage import download_json_from_local_storage
 from src.infra.image_fetch import mp_image
 from src.infra.screenshot import jietu, jx3web
+from src.infra.jx3api_get import get, idget
 from src.utils.data_sum import sum_specified_keys
 from src.utils.jjc_text import jjcdaxiaoxie
 from src.utils.money_format import convert_number
 from src.utils.random_text import suijitext
 from src.utils.time_utils import time_ago_filter, time_ago_fenzhong, timestamp_jjc
-
-
-# 全局变量
-SERVER_DATA_FILE = "server_data.json"  # 文件路径
-server_data_cache = None  # 缓存
-cache = Cache(maxsize=256, ttl=SESSION_data, timer=time.time, default=None)
-# get请求函数
-
-async def get(url: str, server: Optional[str] = None, name: Optional[str] = None,
-              token: Optional[str] = None, ticket: Optional[str] = None, zili: Optional[str] = None) -> dict:
-    """
-    异步GET请求方法
-
-    Args:
-        url: 请求URL（必填）
-        server: 服务器名称（可选）
-        name: 角色名称（可选）
-        token: 认证令牌（可选）
-        ticket: 票据（可选）
-        zili: 资历分布（可选）
-
-    Returns:
-        dict: 响应数据
-    """
-    if name is not None:
-        name = name.replace('[', '').replace(']', '').replace('&#91;', '').replace('&#93;', '').replace(" ", "")
-
-    params = {}
-    if server:
-        params['server'] = server
-    if name:
-         params['name'] = name
-    if token:
-        params['token'] = token
-    if ticket:
-        params['ticket'] = ticket
-    if zili:
-        params['class'] = zili
-    if name is not None:
-        if 'name' in params:
-            params['name'] = name
-
-
-
-
-
-    cache_data = cache.get(f'{url}{server}{name}')
-    if cache_data:
-        print("从缓存中获取数据")
-        data=cache_data
-
-    else:
-        print("获取NEW数据")
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as response:
-                
-                # 检查响应状态码
-                if response.status != 200:
-                    print(f"HTTP请求失败，状态码: {response.status}")
-                    return {"error": True, "message": f"HTTP请求失败，状态码: {response.status}"}
-                
-                # 检查响应内容类型
-                content_type = response.headers.get('content-type', '')
-                if 'application/json' not in content_type and 'text/plain' not in content_type:
-                    print(f"响应内容类型不支持: {content_type}")
-                    return {"error": True, "message": f"响应内容类型不支持: {content_type}"}
-                
-                try:
-                    # 获取响应文本
-                    response_text = await response.text()
-                    
-                    # 检查响应是否为空
-                    if not response_text.strip():
-                        print("响应内容为空")
-                        return {"error": True, "message": "响应内容为空"}
-                    
-                    # 尝试解析JSON
-                    data = json.loads(response_text)
-                    
-                    # 缓存成功的结果
-                    cache.set(f'{url}{server}{name}', data)
-                    
-                except json.JSONDecodeError as e:
-                    print(f"JSON解析失败: {e}")
-                    print(f"响应内容: {response_text[:200]}...")  # 只打印前200个字符
-                    return {"error": True, "message": f"JSON解析失败: {e}"}
-                except Exception as e:
-                    print(f"处理响应时出错: {e}")
-                    return {"error": True, "message": f"处理响应时出错: {e}"}
-
-    return data
-
 
 # 检查并获取最新的名片图片
 async def get_image(server, role_name,free=None):
@@ -176,42 +81,6 @@ async def fetch_json(url: str) -> dict:
 
 async def jiaoyiget(url: str) -> dict:
     return await fetch_json(url)
-
-async def idget(server_name):
-    """
-    检查服务器名称是否存在于服务器数据中
-
-    参数:
-        server_name: 要检查的服务器名称
-
-    返回:
-        bool: 服务器是否存在
-    """
-    global server_data_cache, SERVER_DATA_FILE
-
-    # 如果缓存为空，从文件加载数据
-    if server_data_cache is None:
-        try:
-            if os.path.exists(SERVER_DATA_FILE):
-                with open(SERVER_DATA_FILE, 'r', encoding='utf-8') as f:
-                    server_data_cache = json.load(f)
-                print(f"已从{SERVER_DATA_FILE}加载服务器数据")
-            else:
-                print(f"错误：{SERVER_DATA_FILE}文件不存在")
-                return False
-        except Exception as e:
-            print(f"读取服务器数据文件失败: {e}")
-            return False
-
-    # 检查服务器是否存在
-    try:
-        for server in server_data_cache.get("data", []):
-            if server.get("server") == server_name:
-                return True
-        return False
-    except Exception as e:
-        print(f"解析服务器数据时出错: {e}")
-        return False
 
 
 async def download_json(url="https://jx3.seasunwbl.com/buyer?t=skin", key_name="skin_appearance_cache_key", output_filename="waiguan.json"):

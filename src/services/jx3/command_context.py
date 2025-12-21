@@ -2,17 +2,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from nonebot.adapters.onebot.v11 import Message, MessageSegment
-
 from src.services.jx3.group_binding import get_server_by_group
-from src.utils.defget import get, idget
+from src.infra.jx3api_get import get, idget
+
+
+class CommandContextError(RuntimeError):
+    def __init__(self, message: str, *, at_user: bool = False):
+        super().__init__(message)
+        self.message = message
+        self.at_user = at_user
 
 
 async def resolve_server_and_name(
-    bot: Any,
-    event: Any,
     foo: tuple[Any, ...],
     *,
+    group_id: str | int | None,
     require_group_binding: bool = True,
     group_binding_tip: str = "本群未绑定服务器，请先绑定服务器或指定服务器名称",
 ) -> tuple[str, str] | None:
@@ -33,14 +37,12 @@ async def resolve_server_and_name(
         name = foo[2]
     else:
         name = foo[0]
-        server = await get_server_by_group(getattr(event, "group_id", ""))
+        server = await get_server_by_group(group_id or "")
         if not server and require_group_binding:
-            await bot.send(event, group_binding_tip)
-            return None
+            raise CommandContextError(group_binding_tip, at_user=False)
 
     if not await idget(server):
-        await bot.send(event, MessageSegment.at(event.user_id) + Message("请输入正确的服务器！"))
-        return None
+        raise CommandContextError("请输入正确的服务器！", at_user=True)
 
     return server, name
 
@@ -55,9 +57,7 @@ def api_error_text(items: Any) -> str:
     return "   查询结果:未知错误"
 
 
-async def fetch_jx3api_or_reply_error(
-    bot: Any,
-    event: Any,
+async def fetch_jx3api_or_raise(
     *,
     url: str,
     server: str,
@@ -67,11 +67,10 @@ async def fetch_jx3api_or_reply_error(
     zili: int | None = None,
 ) -> dict[str, Any] | None:
     """
-    调用 defget.get 并统一处理失败回复；成功时返回响应 dict。
+    调用 infra.get 并统一处理失败；成功时返回响应 dict，否则抛出 CommandContextError。
     """
     items = await get(url=url, server=server, name=name, token=token, ticket=ticket, zili=zili)
     if isinstance(items, dict) and items.get("msg") == "success":
         return items
 
-    await bot.send(event, MessageSegment.at(event.user_id) + Message(api_error_text(items)))
-    return None
+    raise CommandContextError(api_error_text(items), at_user=True)
