@@ -5,18 +5,22 @@ import smtplib
 import config as cfg
 import httpx
 from email.message import EmailMessage
+from nonebot import logger
 
 
 async def get_NapCat_data() -> dict | None:
+    napcat_status_url = getattr(cfg, "STATUS_MONITOR_NAPCAT_STATUS_URL", "") or "http://192.168.100.1:3000/get_status"
     try:
         async with httpx.AsyncClient(verify=False) as client:
-            response = await client.get("http://192.168.100.1:3000/get_status")
+            response = await client.get(napcat_status_url)
             if response.status_code != 200:
-                print(f"技改API返回错误: {response.status_code}")
+                logger.warning(
+                    f"status_monitor NapCat status 返回错误: url={napcat_status_url}, status_code={response.status_code}"
+                )
                 return None
             return response.json()
     except Exception as exc:
-        print(f"请求技改API出错: {exc}")
+        logger.warning(f"status_monitor NapCat status 请求失败: url={napcat_status_url}, exc={exc!r}")
         return None
 
 
@@ -30,7 +34,7 @@ def send_email_via_163(content: str) -> bool:
     port = int(getattr(cfg, "STATUS_MONITOR_SMTP_PORT", 465))
 
     if not smtp_username or not smtp_password or not email_from or not email_to:
-        print("邮件配置不完整，跳过发送（需要配置 STATUS_MONITOR_SMTP_USERNAME/SMTP_PASSWORD/EMAIL_FROM/EMAIL_TO）")
+        logger.warning("status_monitor 邮件配置不完整，跳过发送")
         return False
 
     msg = EmailMessage()
@@ -46,8 +50,8 @@ def send_email_via_163(content: str) -> bool:
         with smtplib.SMTP_SSL(smtp_server, port) as server:
             server.login(smtp_username, smtp_password)
             server.send_message(msg)
-            print("邮件发送成功！")
+            logger.info("status_monitor 邮件发送成功")
             return True
     except Exception as exc:
-        print(f"发送邮件时出错: {exc}")
+        logger.warning("status_monitor 发送邮件失败: {}", exc)
         return False

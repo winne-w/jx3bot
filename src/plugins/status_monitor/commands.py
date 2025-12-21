@@ -2,7 +2,9 @@ import time
 
 import httpx
 from nonebot import on_command, on_regex
+from nonebot import logger
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
+from nonebot.exception import FinishedException
 from nonebot.params import CommandArg
 
 from src.services.jx3.singletons import group_config_repo
@@ -16,15 +18,28 @@ from .jobs import (
     get_server_banben,
     get_server_status,
 )
+from .storage import CacheManager
 try:
     from config import calendar_URL
 except Exception:
     calendar_URL = ""
 
+try:
+    import config as cfg
+except Exception:  # pragma: no cover
+    cfg = None  # type: ignore
 
-BASE_URL = "https://music.xxxxx.cn:88"
-ADMIN_USERNAME = "useradmin"
-ADMIN_PASSWORD = "useradmin"
+BASE_URL = getattr(cfg, "STATUS_MONITOR_BASE_URL", "") if cfg else ""
+BASE_URL = BASE_URL or "https://music.xxxxx.cn:88"
+
+ADMIN_USERNAME = getattr(cfg, "STATUS_MONITOR_ADMIN_USERNAME", "") if cfg else ""
+ADMIN_USERNAME = ADMIN_USERNAME or "useradmin"
+
+ADMIN_PASSWORD = getattr(cfg, "STATUS_MONITOR_ADMIN_PASSWORD", "") if cfg else ""
+ADMIN_PASSWORD = ADMIN_PASSWORD or "useradmin"
+
+CLOUD_MUSIC_SERVER = getattr(cfg, "STATUS_MONITOR_CLOUD_MUSIC_SERVER", "") if cfg else ""
+CLOUD_MUSIC_SERVER = CLOUD_MUSIC_SERVER or "ipv4.xohome.cn:88[https连接方式]"
 
 
 # 查魔盒奖励
@@ -52,8 +67,10 @@ async def handle_codes(event: GroupMessageEvent):
             reply_msg += f"{i + 1}. 奖励: {desc}\n   兑换码: {title}\n   创建时间: {created_at}\n\n"
 
         await gte_cmd.finish(reply_msg)
+    except FinishedException:
+        raise
     except Exception as e:
-        print(e)
+        logger.exception("status_monitor 奖励查询异常: {}", e)
 
 
 # 查询日常
@@ -84,8 +101,10 @@ async def handle_daily(event: GroupMessageEvent):
 
         message = format_gte_message(gte_data)
         await gte_cmd.finish(message)
+    except FinishedException:
+        raise
     except Exception as e:
-        print(f"查询出错: {e}")
+        logger.exception("status_monitor 日常查询异常: {}", e)
 
 
 # 主动查询开服
@@ -140,7 +159,7 @@ async def handle_kf_query(event: GroupMessageEvent):
             banben = await get_server_banben()
             banben = extract_version(banben)
         except Exception as e:
-            print(f"获取版本号出错: {e}")
+            logger.warning("status_monitor 获取版本号失败: {}", e)
             banben = "未知"
 
         if real_time_status != "维护":
@@ -163,7 +182,7 @@ async def handle_kf_query(event: GroupMessageEvent):
         await gtekf_cmd.send(message)
 
     except Exception as e:
-        print(f"查询开服信息出错: {e}")
+        logger.exception("status_monitor 查询开服信息异常: {}", e)
         await gtekf_cmd.send("查询服务器状态时出错，请联系管理员")
 
 
@@ -509,15 +528,16 @@ async def handle_register(bot: Bot, event: GroupMessageEvent):
                     f"用户名: {result.get('username')}\n"
                     f"密码: {result.get('password')}\n"
                     f"网站: {BASE_URL}\n"
-                    "云音乐服务器: ipv4.xohome.cn:88[https连接方式]\n"
+                    f"云音乐服务器: {CLOUD_MUSIC_SERVER}\n"
                     "若需使用自建云音乐，可从设置开启，建议b站找一找Navidrome的使用教程，连接上服务器在进行推送音乐！"
                 ),
             )
 
             await reg_cmd.finish("注册成功！账号信息已通过私聊发送。")
 
-        except Exception:
-            print("注册成功")
+        except Exception as e:
+            logger.warning("status_monitor 注册成功但私聊发送失败: {}", e)
+            await reg_cmd.finish("注册成功，但私聊发送失败，请联系管理员")
 
     else:
         await reg_cmd.finish(result)

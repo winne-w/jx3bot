@@ -8,6 +8,11 @@ from . import jobs as _jobs  # noqa: F401
 
 driver = get_driver()
 
+log_startup = _jobs.log_startup
+set_bot_initialized = _jobs.set_bot_initialized
+
+__all__ = ["driver", "init", "log_startup", "set_bot_initialized"]
+
 
 @driver.on_startup
 async def init() -> None:

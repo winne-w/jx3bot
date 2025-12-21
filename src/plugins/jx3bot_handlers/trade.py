@@ -7,7 +7,7 @@ from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
 from nonebot.params import RegexGroup
 
 from src.renderers.jx3.image import apply_filters, render_and_send_template_image
-from src.services.jx3.command_context import resolve_server_and_name
+from src.services.jx3.command_context import CommandContextError, resolve_server_and_name
 from src.utils.defget import fetch_json
 from src.utils.money_format import convert_number
 from src.utils.random_text import suijitext
@@ -19,10 +19,14 @@ def register(jiayi_matcher: Any, env: Environment) -> None:
     async def jiayi_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        resolved = await resolve_server_and_name(bot, event, foo)
-        if not resolved:
+        try:
+            server, query_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
+        except CommandContextError as exc:
+            if exc.at_user:
+                await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
+            else:
+                await bot.send(event, Message(exc.message))
             return
-        server, query_name = resolved
 
         query_name = (
             str(query_name)

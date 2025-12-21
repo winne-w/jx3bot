@@ -3,9 +3,9 @@ from __future__ import annotations
 import config as cfg
 from jinja2 import Environment, FileSystemLoader
 
+from src.infra.jx3api_get import get
 from src.services.jx3.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking import JjcRankingService
-from src.utils.defget import get
 from src.utils.tuilan_request import tuilan_request
 
 env = Environment(loader=FileSystemLoader("templates"))

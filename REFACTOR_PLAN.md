@@ -29,7 +29,7 @@
 
 ## 进度总览
 
-- [~] 1. 稳定 `services` 共享依赖（singletons 边界清晰）
+- [x] 1. 稳定 `services` 共享依赖（singletons 边界清晰）
 - [x] 2. 拆分 `src/plugins/status_monitor.py` 为模块包
 - [x] 3. 统一 `groups.json` 的读写链路（全项目只走 `GroupConfigRepo`）
 - [x] 4. 抽取共享 HTTP Client（新增 infra 层）
@@ -56,14 +56,18 @@
 
 ### 待完成（约束/规范）
 - [x] `src/services/jx3/singletons.py` 只保留“对象实例（repo/client/service/env）”，不继续新增业务逻辑函数
-- [ ] 如需保留兼容门面函数：命名与注释明确“compat/facade”，并限制数量（不在 singletons 继续膨胀）
-- [ ] 为后续新增的共享对象制定规则：优先放到 `src/infra/*`，再由 singletons 组装
+- [x] 如需保留兼容门面函数：命名与注释明确“compat/facade”，并限制数量（不在 singletons 继续膨胀）
+- [x] 为后续新增的共享对象制定规则：优先放到 `src/infra/*`，再由 singletons 组装
+
+补充规范（落地）：
+- compat/facade：优先放在原模块或独立 `compat.py`，函数名建议 `compat_*` 或带 `compat` 注释；只做参数/返回结构适配，不引入新逻辑
+- singletons：只做实例组装/导出；新增共享对象时先实现 `infra` 适配器（HTTP/文件/截图/邮件等），再由 singletons 组合成 service
 
 ---
 
 ## 2. 拆分 `src/plugins/status_monitor.py` 为模块包
 
-状态：未开始
+状态：进行中（拆分已完成，继续收尾）
 
 拆分目标（保持行为不变，先“搬家”后“优化”）：
 - [x] 创建目录 `src/plugins/status_monitor/`
@@ -72,8 +76,8 @@
 - [x] `src/plugins/status_monitor/commands.py`：管理员命令（只负责调 service）
 - [x] `src/plugins/status_monitor/notify.py`：邮件/告警通道封装（后续可迁移到 infra）
 - [x] `src/plugins/status_monitor/storage.py`：缓存/落盘（后续与统一缓存合并）
-- [ ] 保持旧 import 路径可用（如需要，提供兼容 re-export）
-- [ ] 顺手清理明显硬编码敏感信息：邮箱账号/收件人、内网地址、Cookie、用户名密码等（改为从 `config.py`/环境变量读取）
+- [x] 保持旧 import 路径可用（如需要，提供兼容 re-export）
+- [x] 顺手清理明显硬编码敏感信息：邮箱账号/收件人、内网地址、Cookie、用户名密码等（改为从 `config.py`/环境变量读取）
 
 ---
 
@@ -105,7 +109,7 @@
 - [x] 把纯函数/小工具迁到 `src/utils/`（保持依赖最小）
 - [x] 把 IO/网络/截图相关迁到 `src/infra/`
 - [x] 逐步减少 `from src.utils.defget import ...` 的导入面（目标：只剩少量兼容导出）
-- [ ] 确保 `services` 不直接依赖“截图/模板渲染/发送消息”等表现层能力（需要则经由 `plugins`/`renderers`）
+- [x] 确保 `services` 不直接依赖“截图/模板渲染/发送消息”等表现层能力（需要则经由 `plugins`/`renderers`）
 
 本阶段已完成：
 - [x] 提取时间/随机文案/金额/统计等纯函数到 `src/utils/*`，并更新内部引用（减少对 `defget` 的依赖）

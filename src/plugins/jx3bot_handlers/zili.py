@@ -9,7 +9,11 @@ from nonebot.params import RegexGroup
 
 from config import SESSION_TIMEOUT, TICKET, TOKEN, API_URLS
 from src.renderers.jx3.image import render_template_image, send_image, send_text
-from src.services.jx3.command_context import fetch_jx3api_or_reply_error, resolve_server_and_name
+from src.services.jx3.command_context import (
+    CommandContextError,
+    fetch_jx3api_or_raise,
+    resolve_server_and_name,
+)
 from src.utils.data_sum import sum_specified_keys
 from src.utils.random_text import suijitext
 from src.utils.shared_data import SEARCH_RESULTS, user_sessions
@@ -260,22 +264,21 @@ def register(zili_matcher: Any, zili_choice_matcher: Any, env: Environment, *, m
         if user_id in SEARCH_RESULTS:
             del SEARCH_RESULTS[user_id]
 
-        resolved = await resolve_server_and_name(bot, event, foo)
-        if not resolved:
-            return
-        server, role_name = resolved
-
-        items = await fetch_jx3api_or_reply_error(
-            bot,
-            event,
-            url=API_URLS["资历查询"],
-            server=server,
-            name=role_name,
-            token=TOKEN,
-            ticket=TICKET,
-            zili=3,
-        )
-        if not items:
+        try:
+            server, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
+            items = await fetch_jx3api_or_raise(
+                url=API_URLS["资历查询"],
+                server=server,
+                name=role_name,
+                token=TOKEN,
+                ticket=TICKET,
+                zili=3,
+            )
+        except CommandContextError as exc:
+            if exc.at_user:
+                await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
+            else:
+                await bot.send(event, Message(exc.message))
             return
 
         if not items.get("data"):

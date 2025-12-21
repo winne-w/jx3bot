@@ -5,8 +5,9 @@ import time
 from datetime import datetime
 from functools import wraps
 
+import config as cfg
 import httpx
-from nonebot import get_driver
+from nonebot import get_driver, logger
 from nonebot.adapters.onebot.v11 import MessageSegment
 from nonebot_plugin_apscheduler import scheduler
 
@@ -55,10 +56,10 @@ def set_bot_initialized(value: bool) -> None:
 
 
 def log_startup() -> None:
-    print(f"开服监控已启动，API: {STATUS_check_API} 延时{STATUS_check_time}分钟")
-    print(f"新闻监控已启动，API: {NEWS_API_URL} 延时{NEWS_records_time}分钟")
-    print(f"技改监控已启动，API: {SKILL_records_URL} 延时{NEWS_records_time}分钟")
-    print(f"日常监控已启动，API: 每天{calendar_time}点推送")
+    logger.info("status_monitor 开服监控已启动，API: {} 延时{}分钟", STATUS_check_API, STATUS_check_time)
+    logger.info("status_monitor 新闻监控已启动，API: {} 延时{}分钟", NEWS_API_URL, NEWS_records_time)
+    logger.info("status_monitor 技改监控已启动，API: {} 延时{}分钟", SKILL_records_URL, NEWS_records_time)
+    logger.info("status_monitor 日常监控已启动，每天{}点推送", calendar_time)
 
 
 def prevent_duplicate_runs(timeout_seconds=60):
@@ -74,7 +75,7 @@ def prevent_duplicate_runs(timeout_seconds=60):
                 last_run = current_time
                 return await func(*args, **kwargs)
             else:
-                print(f"Skipping duplicate run of {func.__name__}")
+                logger.debug("status_monitor skip duplicate run: {}", func.__name__)
 
         return wrapper
 
@@ -108,7 +109,7 @@ def extract_version(json_data):
 
         return "未知"
     except Exception as e:
-        print(f"提取版本号出错: {e}")
+        logger.warning("status_monitor 提取版本号失败: {}", e)
         return "未知"
 
 
@@ -161,15 +162,15 @@ def format_gte_message(gte_data):
 async def get_gte_data(url, server):
     try:
         url = f"{url}?server={server}"
-        print(url)
+        logger.debug("status_monitor 请求日常: {}", url)
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.get(url)
             if response.status_code != 200:
-                print(f"GTE API返回错误: {response.status_code}")
+                logger.warning("status_monitor 日常API返回错误: {}", response.status_code)
                 return None
             return response.json()
     except Exception as e:
-        print(f"请求GTE API出错: {e}")
+        logger.warning("status_monitor 请求日常API失败: {}", e)
         return None
 
 
@@ -178,11 +179,11 @@ async def get_server_status():
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.get(STATUS_check_API)
             if response.status_code != 200:
-                print(f"开服监测API返回错误: {response.status_code}")
+                logger.warning("status_monitor 开服监测API返回错误: {}", response.status_code)
                 return None
             return response.json()
     except Exception as e:
-        print(f"开服监测请求API出错: {e}")
+        logger.warning("status_monitor 开服监测请求失败: {}", e)
         return None
 
 
@@ -191,11 +192,11 @@ async def get_server_banben():
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.get("https://www.jx3api.com/data/news/announce")
             if response.status_code != 200:
-                print(f"开服监测API返回错误: {response.status_code}")
+                logger.warning("status_monitor 公告API返回错误: {}", response.status_code)
                 return None
             return response.json()
     except Exception as e:
-        print(f"开服监测请求API出错: {e}")
+        logger.warning("status_monitor 公告请求失败: {}", e)
         return None
 
 
@@ -204,11 +205,11 @@ async def get_news_data():
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.get(NEWS_API_URL)
             if response.status_code != 200:
-                print(f"新闻API返回错误: {response.status_code}")
+                logger.warning("status_monitor 新闻API返回错误: {}", response.status_code)
                 return None
             return response.json()
     except Exception as e:
-        print(f"请求新闻API出错: {e}")
+        logger.warning("status_monitor 请求新闻API失败: {}", e)
         return None
 
 
@@ -217,11 +218,11 @@ async def get_records_data():
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.get(SKILL_records_URL)
             if response.status_code != 200:
-                print(f"技改API返回错误: {response.status_code}")
+                logger.warning("status_monitor 技改API返回错误: {}", response.status_code)
                 return None
             return response.json()
     except Exception as e:
-        print(f"请求技改API出错: {e}")
+        logger.warning("status_monitor 请求技改API失败: {}", e)
         return None
 
 
@@ -230,11 +231,11 @@ async def get_jx3box_data():
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.get(jx3box_URL)
             if response.status_code != 200:
-                print(f"技改API返回错误: {response.status_code}")
+                logger.warning("status_monitor 福利API返回错误: {}", response.status_code)
                 return None
             return response.json()
     except Exception as e:
-        print(f"请求技改API出错: {e}")
+        logger.warning("status_monitor 请求福利API失败: {}", e)
         return None
 
 
@@ -252,13 +253,13 @@ async def mail_records():
         status_info = json.dumps(data, ensure_ascii=False)
 
     if last_status_ok and not current_status_ok:
-        print("检测到状态异常，发送邮件通知...")
+        logger.warning("status_monitor 检测到状态异常，发送邮件通知")
         email_content = f"服务器状态异常！\n\n当前状态信息：\n{status_info}"
         send_result = send_email_via_163(email_content)
         if send_result:
-            print("邮件发送成功")
+            logger.info("status_monitor 邮件发送成功")
         else:
-            print("邮件发送失败")
+            logger.warning("status_monitor 邮件发送失败")
 
     elif not last_status_ok and current_status_ok:
         recovery_content = "服务器状态已恢复正常！"
@@ -275,13 +276,13 @@ async def check_records():
             if not previous_records_ids:
                 previous_records_ids = load_id_set("records_ids")
                 if not previous_records_ids:
-                    print("没有发现技改缓存或缓存为空")
+                    logger.info("status_monitor 没有发现技改缓存或缓存为空")
                 else:
-                    print(f"从缓存加载了{len(previous_records_ids)}条技改ID")
+                    logger.info("status_monitor 从缓存加载了{}条技改ID", len(previous_records_ids))
 
             data = await get_records_data()
             if not data or "data" not in data:
-                print("获取技改数据失败")
+                logger.warning("status_monitor 获取技改数据失败")
                 return
 
             current_records = data["data"]
@@ -290,12 +291,12 @@ async def check_records():
             if not previous_records_ids:
                 previous_records_ids = current_records_ids
                 save_id_set(previous_records_ids, "records_ids")
-                print(f"首次运行，已记录{len(current_records_ids)}条技改ID")
+                logger.info("status_monitor 首次运行，已记录{}条技改ID", len(current_records_ids))
                 return
 
             new_records_ids = current_records_ids - previous_records_ids
             if new_records_ids:
-                print(f"检测到{len(new_records_ids)}条新增技改")
+                logger.info("status_monitor 检测到{}条新增技改", len(new_records_ids))
 
                 new_records = [record for record in current_records if record["id"] in new_records_ids]
 
@@ -322,14 +323,14 @@ async def check_records():
                                 )
 
                                 await bot.send_group_msg(group_id=int(gid), message=message)
-                                print(f"向群{gid}推送了技改: {title}")
+                                logger.info("status_monitor 向群{}推送技改: {}", gid, title)
                         except Exception as e:
-                            print(f"向群{gid}推送技改时出错: {e}")
+                            logger.warning("status_monitor 向群{}推送技改失败: {}", gid, e)
 
             previous_records_ids = current_records_ids
             save_id_set(previous_records_ids, "records_ids")
         except Exception as e:
-            print(f"检查技改出错: {e}")
+            logger.warning("status_monitor 检查技改出错: {}", e)
 
 
 @scheduler.scheduled_job("interval", minutes=NEWS_records_time)
@@ -340,13 +341,13 @@ async def check_news():
             if not previous_news_ids:
                 previous_news_ids = load_id_set("news_ids")
                 if not previous_news_ids:
-                    print("没有发现缓存或缓存为空")
+                    logger.info("status_monitor 没有发现新闻缓存或缓存为空")
                 else:
-                    print(f"从缓存加载了{len(previous_news_ids)}条新闻ID")
+                    logger.info("status_monitor 从缓存加载了{}条新闻ID", len(previous_news_ids))
 
             data = await get_news_data()
             if not data or "data" not in data:
-                print("获取新闻数据失败")
+                logger.warning("status_monitor 获取新闻数据失败")
                 return
 
             current_news = data["data"]
@@ -362,12 +363,12 @@ async def check_news():
             if not previous_news_ids:
                 previous_news_ids = current_news_ids
                 save_id_set(previous_news_ids, "news_ids")
-                print(f"首次运行，已记录{len(current_news_ids)}条新闻ID")
+                logger.info("status_monitor 首次运行，已记录{}条新闻ID", len(current_news_ids))
                 return
 
             new_news_ids = current_news_ids - previous_news_ids
             if new_news_ids:
-                print(f"检测到{len(new_news_ids)}条新增新闻")
+                logger.info("status_monitor 检测到{}条新增新闻", len(new_news_ids))
                 new_news = [news for news in current_news if news["id"] in new_news_ids]
 
                 if get_driver().bots:
@@ -393,14 +394,14 @@ async def check_news():
                                 )
 
                                 await bot.send_group_msg(group_id=int(gid), message=message)
-                                print(f"向群{gid}推送了新闻: {title}")
+                                logger.info("status_monitor 向群{}推送新闻: {}", gid, title)
                         except Exception as e:
-                            print(f"向群{gid}推送新闻时出错: {e}")
+                            logger.warning("status_monitor 向群{}推送新闻失败: {}", gid, e)
 
             previous_news_ids = current_news_ids
             save_id_set(previous_news_ids, "news_ids")
         except Exception as e:
-            print(f"检查新闻出错: {e}")
+            logger.warning("status_monitor 检查新闻出错: {}", e)
 
 
 @scheduler.scheduled_job("interval", minutes=200)
@@ -413,13 +414,13 @@ async def check_event_codes():
             if not previous_codes_ids:
                 previous_codes_ids = load_id_set("event_codes_ids")
                 if not previous_codes_ids:
-                    print("没有发现活动码缓存或缓存为空")
+                    logger.info("status_monitor 没有发现活动码缓存或缓存为空")
                 else:
-                    print(f"从缓存加载了{len(previous_codes_ids)}条活动码ID")
+                    logger.info("status_monitor 从缓存加载了{}条活动码ID", len(previous_codes_ids))
 
             response = await get_jx3box_data()
             if not response or "data" not in response or "list" not in response["data"]:
-                print("获取活动码数据失败")
+                logger.warning("status_monitor 获取活动码数据失败")
                 return
 
             current_codes = response["data"]["list"]
@@ -428,12 +429,12 @@ async def check_event_codes():
             if not previous_codes_ids:
                 previous_codes_ids = current_codes_ids
                 save_id_set(previous_codes_ids, "event_codes_ids")
-                print(f"首次运行，已记录{len(current_codes_ids)}条活动码ID")
+                logger.info("status_monitor 首次运行，已记录{}条活动码ID", len(current_codes_ids))
                 return
 
             new_codes_ids = current_codes_ids - previous_codes_ids
             if new_codes_ids:
-                print(f"检测到{len(new_codes_ids)}条新增活动码")
+                logger.info("status_monitor 检测到{}条新增活动码", len(new_codes_ids))
                 new_codes = [code for code in current_codes if code["ID"] in new_codes_ids]
 
                 if get_driver().bots:
@@ -457,15 +458,15 @@ async def check_event_codes():
                                     continue
 
                                 await bot.send_group_msg(group_id=int(gid), message=message)
-                                print(f"向群{gid}推送了活动码: {title}")
+                                logger.info("status_monitor 向群{}推送活动码: {}", gid, title)
                             except Exception as e:
-                                print(f"向群{gid}推送活动码时出错: {e}")
+                                logger.warning("status_monitor 向群{}推送活动码失败: {}", gid, e)
 
             if current_codes_ids:
                 previous_codes_ids = current_codes_ids
                 save_id_set(previous_codes_ids, "event_codes_ids")
         except Exception as e:
-            print(f"检查活动码出错: {e}")
+            logger.warning("status_monitor 检查活动码出错: {}", e)
 
 
 @scheduler.scheduled_job("interval", minutes=STATUS_check_time)
@@ -476,14 +477,14 @@ async def check_status():
         if not previous_status:
             previous_status = CacheManager.load_cache("server_status", {})
             if not previous_status:
-                print("没有发现服务器状态缓存或缓存为空")
+                logger.info("status_monitor 没有发现服务器状态缓存或缓存为空")
                 previous_status = {}
             else:
-                print(f"从缓存加载了{len(previous_status)}条服务器状态数据")
+                logger.info("status_monitor 从缓存加载了{}条服务器状态数据", len(previous_status))
 
         data = await get_server_status()
         if not data:
-            print("获取服务器状态失败")
+            logger.warning("status_monitor 获取服务器状态失败")
             return
 
         current_details = {s["server"]: s for s in data.get("data", [])}
@@ -503,7 +504,7 @@ async def check_status():
                 else:
                     status_history[server]["last_open"] = api_time
 
-            print(f"首次运行，已记录{len(current)}条服务器数据")
+            logger.info("status_monitor 首次运行，已记录{}条服务器数据", len(current))
             previous_status = current
 
             CacheManager.save_cache(previous_status, "server_status")
@@ -525,8 +526,8 @@ async def check_status():
                     status_history[server]["last_maintenance"] = api_time
 
         if changed_servers:
-            print(f"检测到{len(changed_servers)}个服务器状态变化")
-            time.sleep(5)
+            logger.info("status_monitor 检测到{}个服务器状态变化", len(changed_servers))
+            await asyncio.sleep(5)
 
             if get_driver().bots:
                 bot = list(get_driver().bots.values())[0]
@@ -545,7 +546,7 @@ async def check_status():
                             banben = await get_server_banben()
                             banben = extract_version(banben)
                         except Exception as e:
-                            print(f"获取版本号出错: {e}")
+                            logger.warning("status_monitor 获取版本号失败: {}", e)
                             banben = "未知"
 
                         server_info = current_details[bound_server]
@@ -582,16 +583,16 @@ async def check_status():
                             message += f"\n最新版本：{banben}"
 
                         await bot.send_group_msg(group_id=int(gid), message=message)
-                        print(f"向群{gid}推送了服务器 {bound_server} 状态变化")
+                        logger.info("status_monitor 向群{}推送服务器状态变化: {}", gid, bound_server)
                         await asyncio.sleep(0.5)
                     except Exception as e:
-                        print(f"向群{gid}推送服务器状态时出错: {e}")
+                        logger.warning("status_monitor 向群{}推送服务器状态失败: {}", gid, e)
 
         previous_status = current
         CacheManager.save_cache(previous_status, "server_status")
         CacheManager.save_cache(status_history, "status_history")
     except Exception as e:
-        print(f"开服检查出错: {e}")
+        logger.warning("status_monitor 开服检查出错: {}", e)
 
 
 @scheduler.scheduled_job("cron", hour=9, minute=0)
@@ -619,9 +620,9 @@ async def push_daily_gte():
                     await bot.send_group_msg(group_id=int(gid), message=message)
                     await asyncio.sleep(0.5)
                 except Exception as e:
-                    print(f"向群{gid}推送日常时出错: {e}")
+                    logger.warning("status_monitor 向群{}推送日常失败: {}", gid, e)
         except Exception as e:
-            print(f"推送日常出错: {e}")
+            logger.warning("status_monitor 推送日常出错: {}", e)
 
 
 @scheduler.scheduled_job("cron", hour=8, minute=30)
@@ -630,7 +631,7 @@ async def push_daily_jjc_ranking():
         try:
             bots = get_driver().bots
             if not bots:
-                print("没有可用的机器人")
+                logger.warning("status_monitor 没有可用的机器人")
                 return
 
             bot = list(bots.values())[0]
@@ -643,20 +644,26 @@ async def push_daily_jjc_ranking():
             ]
 
             if not target_groups:
-                print("没有开启竞技排名推送的群组")
+                logger.info("status_monitor 没有开启竞技排名推送的群组")
                 return
 
             ranking_result = await jjc_ranking_service.query_jjc_ranking()
             if not ranking_result:
-                print("获取竞技场排行榜数据失败：返回为空")
+                logger.warning("status_monitor 获取竞技场排行榜数据失败：返回为空")
                 return
 
             if ranking_result.get("error"):
-                print(f"获取竞技场排行榜数据失败：{ranking_result.get('message', '未知错误')}")
+                logger.warning(
+                    "status_monitor 获取竞技场排行榜数据失败：{}",
+                    ranking_result.get("message", "未知错误"),
+                )
                 return
 
             if ranking_result.get("code") != 0:
-                print(f"获取竞技场排行榜数据失败：API返回错误码 {ranking_result.get('code')}")
+                logger.warning(
+                    "status_monitor 获取竞技场排行榜数据失败：API返回错误码 {}",
+                    ranking_result.get("code"),
+                )
                 return
 
             default_week = ranking_result.get("defaultWeek")
@@ -669,16 +676,19 @@ async def push_daily_jjc_ranking():
 
             ranking_data = await jjc_ranking_service.get_ranking_kuangfu_data(ranking_data=ranking_result)
             if not ranking_data:
-                print("获取心法统计数据失败：返回为空")
+                logger.warning("status_monitor 获取心法统计数据失败：返回为空")
                 return
 
             if ranking_data.get("error"):
-                print(f"获取心法统计数据失败：{ranking_data.get('message', '未知错误')}")
+                logger.warning(
+                    "status_monitor 获取心法统计数据失败：{}",
+                    ranking_data.get("message", "未知错误"),
+                )
                 return
 
             stats = ranking_data.get("kuangfu_statistics", {})
             if not stats:
-                print("心法统计数据为空")
+                logger.warning("status_monitor 心法统计数据为空")
                 return
 
             payload = await render_combined_ranking_image(
@@ -689,7 +699,7 @@ async def push_daily_jjc_ranking():
                 week_info=week_info,
             )
             if not payload:
-                print("渲染竞技场统计图失败")
+                logger.warning("status_monitor 渲染竞技场统计图失败")
                 return
 
             summary_text = (
@@ -704,10 +714,10 @@ async def push_daily_jjc_ranking():
                         group_id=int(gid), message=MessageSegment.image(payload["image_bytes"])
                     )
                     await bot.send_group_msg(group_id=int(gid), message=summary_text)
-                    print(f"向群 {gid} 推送了每日竞技排名统计")
+                    logger.info("status_monitor 向群{}推送每日竞技排名统计", gid)
                     await asyncio.sleep(0.5)
                 except Exception as e:
-                    print(f"向群 {gid} 推送竞技排名统计时出错: {e}")
+                    logger.warning("status_monitor 向群{}推送竞技排名统计失败: {}", gid, e)
 
         except Exception as e:
-            print(f"每日竞技排名推送任务出错: {e}")
+            logger.warning("status_monitor 每日竞技排名推送任务出错: {}", e)

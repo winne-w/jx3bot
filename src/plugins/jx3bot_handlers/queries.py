@@ -8,7 +8,11 @@ from nonebot.params import RegexGroup
 
 from config import API_URLS, TICKET, TOKEN
 from src.renderers.jx3.image import apply_filters, render_and_send_template_image, send_text
-from src.services.jx3.command_context import fetch_jx3api_or_reply_error, resolve_server_and_name
+from src.services.jx3.command_context import (
+    CommandContextError,
+    fetch_jx3api_or_raise,
+    resolve_server_and_name,
+)
 from src.services.jx3.query_context import (
     build_fuben_spec,
     build_jjc_spec_or_text,
@@ -36,15 +40,14 @@ def register(
     async def yanhua_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        resolved = await resolve_server_and_name(bot, event, foo)
-        if not resolved:
-            return
-        server, role_name = resolved
-
-        items = await fetch_jx3api_or_reply_error(
-            bot, event, url=API_URLS["烟花查询"], server=server, name=role_name, token=TOKEN
-        )
-        if not items:
+        try:
+            server, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
+            items = await fetch_jx3api_or_raise(url=API_URLS["烟花查询"], server=server, name=role_name, token=TOKEN)
+        except CommandContextError as exc:
+            if exc.at_user:
+                await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
+            else:
+                await bot.send(event, Message(exc.message))
             return
 
         spec = build_yanhua_spec(
@@ -71,21 +74,20 @@ def register(
     async def qiyu_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        resolved = await resolve_server_and_name(bot, event, foo)
-        if not resolved:
-            return
-        server, role_name = resolved
-
-        items = await fetch_jx3api_or_reply_error(
-            bot,
-            event,
-            url=API_URLS["奇遇查询"],
-            server=server,
-            name=role_name,
-            token=TOKEN,
-            ticket=TICKET,
-        )
-        if not items:
+        try:
+            server, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
+            items = await fetch_jx3api_or_raise(
+                url=API_URLS["奇遇查询"],
+                server=server,
+                name=role_name,
+                token=TOKEN,
+                ticket=TICKET,
+            )
+        except CommandContextError as exc:
+            if exc.at_user:
+                await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
+            else:
+                await bot.send(event, Message(exc.message))
             return
 
         spec = build_qiyu_spec(
@@ -113,21 +115,20 @@ def register(
     async def zhuangfen_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        resolved = await resolve_server_and_name(bot, event, foo)
-        if not resolved:
-            return
-        server, role_name = resolved
-
-        items = await fetch_jx3api_or_reply_error(
-            bot,
-            event,
-            url=API_URLS["装备查询"],
-            server=server,
-            name=role_name,
-            token=TOKEN,
-            ticket=TICKET,
-        )
-        if not items:
+        try:
+            server, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
+            items = await fetch_jx3api_or_raise(
+                url=API_URLS["装备查询"],
+                server=server,
+                name=role_name,
+                token=TOKEN,
+                ticket=TICKET,
+            )
+        except CommandContextError as exc:
+            if exc.at_user:
+                await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
+            else:
+                await bot.send(event, Message(exc.message))
             return
 
         mpimg = await get_image(server, role_name)
@@ -154,21 +155,20 @@ def register(
     async def jjc_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        resolved = await resolve_server_and_name(bot, event, foo)
-        if not resolved:
-            return
-        server, role_name = resolved
-
-        items = await fetch_jx3api_or_reply_error(
-            bot,
-            event,
-            url=API_URLS["竞技查询"],
-            server=server,
-            name=role_name,
-            token=TOKEN,
-            ticket=TICKET,
-        )
-        if not items:
+        try:
+            server, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
+            items = await fetch_jx3api_or_raise(
+                url=API_URLS["竞技查询"],
+                server=server,
+                name=role_name,
+                token=TOKEN,
+                ticket=TICKET,
+            )
+        except CommandContextError as exc:
+            if exc.at_user:
+                await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
+            else:
+                await bot.send(event, Message(exc.message))
             return
 
         await update_kuangfu_cache(server, role_name, items)
@@ -203,21 +203,20 @@ def register(
     async def fuben_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        resolved = await resolve_server_and_name(bot, event, foo)
-        if not resolved:
-            return
-        server, role_name = resolved
-
-        items = await fetch_jx3api_or_reply_error(
-            bot,
-            event,
-            url=API_URLS["副本查询"],
-            server=server,
-            name=role_name,
-            token=TOKEN,
-            ticket=TICKET,
-        )
-        if not items:
+        try:
+            server, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
+            items = await fetch_jx3api_or_raise(
+                url=API_URLS["副本查询"],
+                server=server,
+                name=role_name,
+                token=TOKEN,
+                ticket=TICKET,
+            )
+        except CommandContextError as exc:
+            if exc.at_user:
+                await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
+            else:
+                await bot.send(event, Message(exc.message))
             return
 
         spec = build_fuben_spec(
