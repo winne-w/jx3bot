@@ -82,6 +82,16 @@ SKILL_records_URL = "https://www.jx3api.com/data/skills/records"  # 技改API地
 calendar_URL = "https://www.jx3api.com/data/active/calendar"   #活动日常
 jx3box_URL = "https://cms.jx3box.com/api/cms/config/banner?client=std&type=code"   #福利
 
+# status_monitor 邮件通知配置（避免在代码中硬编码）
+# 说明：默认沿用 mail 作为 SMTP 授权码/密码；如需更清晰可填写 STATUS_MONITOR_SMTP_PASSWORD
+STATUS_MONITOR_SMTP_SERVER = "smtp.163.com"
+STATUS_MONITOR_SMTP_PORT = 465
+STATUS_MONITOR_SMTP_USERNAME = ""
+STATUS_MONITOR_SMTP_PASSWORD = ""
+STATUS_MONITOR_EMAIL_FROM = ""
+STATUS_MONITOR_EMAIL_TO = ""
+STATUS_MONITOR_EMAIL_SUBJECT = "服务器状态提醒"
+
 # 赛季时间定义
 CURRENT_SEASON = "山海源流"
 CURRENT_SEASON_START = "2025-10-30"
