@@ -97,7 +97,7 @@
         {% if has_top_1000 %}
         <!-- 前1000奶妈 -->
         <div class="chart-block">
-            <div class="chart-title">前1000 奶妈心法{% if top_1000_healer and top_1000_healer[0][3] %} （{{ top_1000_healer[0][3] }}）{% endif %}</div>
+            <div class="chart-title">前1000 奶妈心法{% if top_1000_healer and top_1000_healer[0][3] is not none %} （{{ top_1000_healer[0][3] }}）{% endif %}</div>
             {% set max_count = top_1000_healer[0][1] if top_1000_healer else 1 %}
             {% for kuangfu, count, percent, min_score in top_1000_healer %}
             <div class="bar-row">
@@ -110,7 +110,7 @@
         </div>
         <!-- 前1000DPS -->
         <div class="chart-block">
-            <div class="chart-title">前1000 DPS心法{% if top_1000_dps and top_1000_dps[0][3] %} （{{ top_1000_dps[0][3] }}）{% endif %}</div>
+            <div class="chart-title">前1000 DPS心法{% if top_1000_dps and top_1000_dps[0][3] is not none %} （{{ top_1000_dps[0][3] }}）{% endif %}</div>
             {% set max_count = top_1000_dps[0][1] if top_1000_dps else 1 %}
             {% for kuangfu, count, percent, min_score in top_1000_dps %}
             <div class="bar-row">
@@ -124,7 +124,7 @@
         {% endif %}
         <!-- 前200奶妈 -->
         <div class="chart-block">
-            <div class="chart-title">前200 奶妈心法{% if top_200_healer and top_200_healer[0][3] %} （{{ top_200_healer[0][3] }}）{% endif %}</div>
+            <div class="chart-title">前200 奶妈心法{% if top_200_healer and top_200_healer[0][3] is not none %} （{{ top_200_healer[0][3] }}）{% endif %}</div>
             {% set max_count = top_200_healer[0][1] if top_200_healer else 1 %}
             {% for kuangfu, count, percent, min_score in top_200_healer %}
             <div class="bar-row">
@@ -137,7 +137,7 @@
         </div>
         <!-- 前200DPS -->
         <div class="chart-block">
-            <div class="chart-title">前200 DPS心法{% if top_200_dps and top_200_dps[0][3] %} （{{ top_200_dps[0][3] }}）{% endif %}</div>
+            <div class="chart-title">前200 DPS心法{% if top_200_dps and top_200_dps[0][3] is not none %} （{{ top_200_dps[0][3] }}）{% endif %}</div>
             {% set max_count = top_200_dps[0][1] if top_200_dps else 1 %}
             {% for kuangfu, count, percent, min_score in top_200_dps %}
             <div class="bar-row">
@@ -150,7 +150,7 @@
         </div>
         <!-- 前100奶妈 -->
         <div class="chart-block">
-            <div class="chart-title">前100 奶妈心法{% if top_100_healer and top_100_healer[0][3] %} （{{ top_100_healer[0][3] }}）{% endif %}</div>
+            <div class="chart-title">前100 奶妈心法{% if top_100_healer and top_100_healer[0][3] is not none %} （{{ top_100_healer[0][3] }}）{% endif %}</div>
             {% set max_count = top_100_healer[0][1] if top_100_healer else 1 %}
             {% for kuangfu, count, percent, min_score in top_100_healer %}
             <div class="bar-row">
@@ -163,7 +163,7 @@
         </div>
         <!-- 前100DPS -->
         <div class="chart-block">
-            <div class="chart-title">前100 DPS心法{% if top_100_dps and top_100_dps[0][3] %} （{{ top_100_dps[0][3] }}）{% endif %}</div>
+            <div class="chart-title">前100 DPS心法{% if top_100_dps and top_100_dps[0][3] is not none %} （{{ top_100_dps[0][3] }}）{% endif %}</div>
             {% set max_count = top_100_dps[0][1] if top_100_dps else 1 %}
             {% for kuangfu, count, percent, min_score in top_100_dps %}
             <div class="bar-row">
@@ -176,7 +176,7 @@
         </div>
         <!-- 前50奶妈 -->
         <div class="chart-block">
-            <div class="chart-title">前50 奶妈心法{% if top_50_healer and top_50_healer[0][3] %} （{{ top_50_healer[0][3] }}）{% endif %}</div>
+            <div class="chart-title">前50 奶妈心法{% if top_50_healer and top_50_healer[0][3] is not none %} （{{ top_50_healer[0][3] }}）{% endif %}</div>
             {% set max_count = top_50_healer[0][1] if top_50_healer else 1 %}
             {% for kuangfu, count, percent, min_score in top_50_healer %}
             <div class="bar-row">
@@ -189,7 +189,7 @@
         </div>
         <!-- 前50DPS -->
         <div class="chart-block">
-            <div class="chart-title">前50 DPS心法{% if top_50_dps and top_50_dps[0][3] %} （{{ top_50_dps[0][3] }}）{% endif %}</div>
+            <div class="chart-title">前50 DPS心法{% if top_50_dps and top_50_dps[0][3] is not none %} （{{ top_50_dps[0][3] }}）{% endif %}</div>
             {% set max_count = top_50_dps[0][1] if top_50_dps else 1 %}
             {% for kuangfu, count, percent, min_score in top_50_dps %}
             <div class="bar-row">
