@@ -34,7 +34,7 @@ def register(
     zhuangfen_matcher: Any,
     jjc_matcher: Any,
     fuben_matcher: Any,
-    update_kuangfu_cache: Callable[[str, str, dict[str, Any]], Awaitable[None]],
+    update_kungfu_cache: Callable[[str, str, dict[str, Any]], Awaitable[None]],
 ) -> None:
     @yanhua_matcher.handle()
     async def yanhua_to_image(
@@ -171,7 +171,7 @@ def register(
                 await bot.send(event, Message(exc.message))
             return
 
-        await update_kuangfu_cache(server, role_name, items)
+        await update_kungfu_cache(server, role_name, items)
         spec, error_text = build_jjc_spec_or_text(
             data=items,
             role_name=role_name,

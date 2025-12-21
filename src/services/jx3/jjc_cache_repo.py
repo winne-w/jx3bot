@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from nonebot import logger
+try:
+    from nonebot import logger  # type: ignore
+except Exception:  # pragma: no cover
+    import logging
+
+    logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -52,13 +57,13 @@ class JjcCacheRepo:
         except Exception as exc:
             logger.warning(f"保存竞技场排行榜缓存失败: file={self.jjc_ranking_cache_file} error={exc}")
 
-    def kuangfu_cache_path(self, server: str, name: str) -> str:
-        cache_dir = "data/cache/kuangfu"
+    def kungfu_cache_path(self, server: str, name: str) -> str:
+        cache_dir = "data/cache/kungfu"
         os.makedirs(cache_dir, exist_ok=True)
         return os.path.join(cache_dir, f"{server}_{name}.json")
 
-    def load_kuangfu_cache(self, server: str, name: str) -> dict[str, Any] | None:
-        cache_file = self.kuangfu_cache_path(server, name)
+    def load_kungfu_cache(self, server: str, name: str) -> dict[str, Any] | None:
+        cache_file = self.kungfu_cache_path(server, name)
         if not os.path.exists(cache_file):
             return None
         try:
@@ -69,7 +74,7 @@ class JjcCacheRepo:
             return None
 
         cache_time = cached_data.get("cache_time", 0)
-        kungfu_value = cached_data.get("kuangfu")
+        kungfu_value = cached_data.get("kungfu")
 
         if kungfu_value not in [None, ""]:
             current_time = time.time()
@@ -85,8 +90,8 @@ class JjcCacheRepo:
 
         return None
 
-    def save_kuangfu_cache(self, server: str, name: str, result: dict[str, Any]) -> None:
-        cache_file = self.kuangfu_cache_path(server, name)
+    def save_kungfu_cache(self, server: str, name: str, result: dict[str, Any]) -> None:
+        cache_file = self.kungfu_cache_path(server, name)
         try:
             with open(cache_file, "w", encoding="utf-8") as file_handle:
                 json.dump(result, file_handle, ensure_ascii=False, indent=2)

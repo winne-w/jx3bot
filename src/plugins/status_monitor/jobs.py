@@ -674,7 +674,7 @@ async def push_daily_jjc_ranking():
                 else "第12周"
             )
 
-            ranking_data = await jjc_ranking_service.get_ranking_kuangfu_data(ranking_data=ranking_result)
+            ranking_data = await jjc_ranking_service.get_ranking_kungfu_data(ranking_data=ranking_result)
             if not ranking_data:
                 logger.warning("status_monitor 获取心法统计数据失败：返回为空")
                 return
@@ -686,7 +686,7 @@ async def push_daily_jjc_ranking():
                 )
                 return
 
-            stats = ranking_data.get("kuangfu_statistics", {})
+            stats = ranking_data.get("kungfu_statistics", {})
             if not stats:
                 logger.warning("status_monitor 心法统计数据为空")
                 return
