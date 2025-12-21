@@ -12,6 +12,8 @@ from typing import Any, Awaitable, Callable
 from nonebot.adapters.onebot.v11 import Bot, Event, MessageSegment
 
 from src.services.jx3.kungfu import get_kungfu_by_role_info
+from src.services.jx3.jjc_api_client import JjcApiClient
+from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 
 
 @dataclass(frozen=True)
@@ -34,85 +36,30 @@ class JjcRankingService:
     env: Any
     render_template_image: Callable[..., Awaitable[bytes]]
 
-    def get_arena_time_tag(self, type_param: str = "role") -> dict[str, Any]:
-        url = self.arena_time_tag_url
-        params = {"type": type_param}
+    def _api(self) -> JjcApiClient:
+        return JjcApiClient(
+            arena_time_tag_url=self.arena_time_tag_url,
+            arena_ranking_url=self.arena_ranking_url,
+            tuilan_request=self.tuilan_request,
+        )
 
-        print("正在请求竞技场时间标签...")
-        print(f"请求地址: {url}")
-        print(f"请求参数: {json.dumps(params, ensure_ascii=False, indent=2)}")
-
-        try:
-            result = self.tuilan_request(url, params)
-
-            if result is None:
-                print("❌ 竞技场时间标签请求失败: 返回None")
-                return {"error": "请求返回None"}
-
-            if "error" in result:
-                print(f"❌ 竞技场时间标签请求失败: {result['error']}")
-                return result
-
-            print("✅ 竞技场时间标签请求成功")
-            return result
-        except Exception as exc:
-            print(f"❌ 竞技场时间标签请求异常: {exc}")
-            import traceback
-
-            traceback.print_exc()
-            return {"error": f"请求异常: {exc}"}
-
-    def get_arena_ranking(self, tag: int) -> dict[str, Any]:
-        url = self.arena_ranking_url
-        params = {"typeName": "week", "heiMaBang": False, "tag": tag}
-
-        print("正在请求竞技场排行榜...")
-        print(f"请求地址: {url}")
-        print(f"请求参数: {json.dumps(params, ensure_ascii=False, indent=2)}")
-
-        try:
-            result = self.tuilan_request(url, params)
-
-            if result is None:
-                print("❌ 竞技场排行榜请求失败: 返回None")
-                return {"error": "请求返回None"}
-
-            if "error" in result:
-                print(f"❌ 竞技场排行榜请求失败: {result['error']}")
-                return result
-
-            print("✅ 竞技场排行榜请求成功")
-            return result
-        except Exception as exc:
-            print(f"❌ 竞技场排行榜请求异常: {exc}")
-            import traceback
-
-            traceback.print_exc()
-            return {"error": f"请求异常: {exc}"}
+    def _cache(self) -> JjcCacheRepo:
+        return JjcCacheRepo(
+            jjc_ranking_cache_file=self.jjc_ranking_cache_file,
+            jjc_ranking_cache_duration=self.jjc_ranking_cache_duration,
+            kungfu_cache_duration=self.kungfu_cache_duration,
+        )
 
     async def query_jjc_ranking(self) -> dict[str, Any]:
-        cache_dir = os.path.dirname(self.jjc_ranking_cache_file)
-        os.makedirs(cache_dir, exist_ok=True)
-
-        current_time = time.time()
-        if os.path.exists(self.jjc_ranking_cache_file):
-            try:
-                with open(self.jjc_ranking_cache_file, "r", encoding="utf-8") as file_handle:
-                    cached_data = json.load(file_handle)
-
-                cache_time = cached_data.get("cache_time", 0)
-                if current_time - cache_time < self.jjc_ranking_cache_duration:
-                    print("使用文件缓存的竞技场排行榜数据")
-                    return cached_data.get("data")
-                print("文件缓存已过期")
-            except Exception as exc:
-                print(f"读取文件缓存失败: {exc}")
+        cached = self._cache().load_ranking_cache()
+        if cached:
+            return cached
 
         print("正在查询竞技场排行榜数据...")
 
         try:
             print("第一步：获取竞技场时间标签...")
-            time_tag_result = await asyncio.to_thread(self.get_arena_time_tag)
+            time_tag_result = await asyncio.to_thread(self._api().get_arena_time_tag)
 
             if time_tag_result.get("error"):
                 print(f"获取时间标签失败: {time_tag_result}")
@@ -142,7 +89,7 @@ class JjcRankingService:
 
             print(f"获取到 defaultWeek={default_week}, tag={tag}")
             print("第二步：获取竞技场排行榜...")
-            ranking_result = await asyncio.to_thread(self.get_arena_ranking, tag)
+            ranking_result = await asyncio.to_thread(self._api().get_arena_ranking, tag)
 
             if ranking_result.get("error"):
                 return {"error": True, "message": f"获取竞技场排行榜失败: {ranking_result.get('error')}"}
@@ -156,20 +103,7 @@ class JjcRankingService:
             ranking_result["defaultWeek"] = default_week
             ranking_result["cache_time"] = time.time()
 
-            try:
-                with open(self.jjc_ranking_cache_file, "w", encoding="utf-8") as file_handle:
-                    json.dump(
-                        {
-                            "cache_time": ranking_result["cache_time"],
-                            "data": ranking_result,
-                        },
-                        file_handle,
-                        ensure_ascii=False,
-                        indent=2,
-                    )
-                print(f"竞技场排行榜数据已保存到文件缓存: {self.jjc_ranking_cache_file}")
-            except Exception as exc:
-                print(f"保存文件缓存失败: {exc}")
+            self._cache().save_ranking_cache(ranking_result)
 
             return ranking_result
         except Exception as exc:
@@ -260,32 +194,9 @@ class JjcRankingService:
     async def get_user_kuangfu(self, server: str, name: str) -> dict[str, Any]:
         cache_dir = "data/cache/kuangfu"
         cache_file = os.path.join(cache_dir, f"{server}_{name}.json")
-        os.makedirs(cache_dir, exist_ok=True)
-
-        if os.path.exists(cache_file):
-            try:
-                with open(cache_file, "r", encoding="utf-8") as file_handle:
-                    cached_data = json.load(file_handle)
-                cache_time = cached_data.get("cache_time", 0)
-                kungfu_value = cached_data.get("kuangfu")
-
-                if kungfu_value not in [None, ""]:
-                    current_time = time.time()
-                    if cache_time and current_time - cache_time < self.kungfu_cache_duration:
-                        return cached_data
-
-                    cache_dt = (
-                        datetime.fromtimestamp(cache_time).strftime("%Y-%m-%d %H:%M:%S")
-                        if cache_time
-                        else "未知"
-                    )
-                    print(
-                        f"心法缓存已超过一周或缺少时间标记，重新请求数据: {server}_{name}（缓存时间: {cache_dt}）"
-                    )
-                else:
-                    print(f"缓存 kuangfu 为空，重新请求数据: {server}_{name}")
-            except Exception as exc:
-                print(f"读取缓存文件失败: {exc}")
+        cached = self._cache().load_kuangfu_cache(server, name)
+        if cached:
+            return cached
 
         delay = random.uniform(3, 5)
         print(f"等待 {delay:.2f} 秒后发起请求...")
@@ -332,12 +243,7 @@ class JjcRankingService:
                                     "found": True,
                                     "cache_time": time.time(),
                                 }
-                                try:
-                                    with open(cache_file, "w", encoding="utf-8") as file_handle:
-                                        json.dump(result, file_handle, ensure_ascii=False, indent=2)
-                                    print(f"心法信息已更新缓存到: {cache_file}")
-                                except Exception as exc:
-                                    print(f"更新缓存失败: {exc}")
+                                self._cache().save_kuangfu_cache(server, name, result)
                                 return result
 
                             print("心法查询失败: 未找到心法信息")
