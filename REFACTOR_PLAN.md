@@ -114,8 +114,8 @@
 状态：未开始
 
 建议拆分（分阶段落地）：
-- [ ] `JjcApiClient`：仅负责请求、校验、错误归一化
-- [ ] `JjcCacheRepo`：仅负责文件缓存读写（ranking/kuangfu）
+- [x] `JjcApiClient`：仅负责请求、校验、错误归一化
+- [x] `JjcCacheRepo`：仅负责文件缓存读写（ranking/kuangfu）
 - [ ] `JjcRankingService`：仅负责流程编排（缓存策略、降级策略）
 - [ ] 渲染保持在 `src/renderers/`（service 只产出结构化数据）
 - [ ] 将 `print()` 全面替换为 `nonebot.logger`/`loguru`（带 request_id/server/name 等上下文）
