@@ -94,7 +94,9 @@ STATUS_MONITOR_EMAIL_TO = ""
 STATUS_MONITOR_EMAIL_SUBJECT = "服务器状态提醒"
 
 # status_monitor 其他配置（可用环境变量覆盖）
-STATUS_MONITOR_NAPCAT_STATUS_URL = ""
+# NapCat 地址（必须包含 http/https，容器内访问宿主机端口映射的常见写法）：
+# - http://172.17.0.1:3001
+STATUS_MONITOR_NAPCAT_ADDR = "http://172.17.0.1:3001"
 STATUS_MONITOR_BASE_URL = ""
 STATUS_MONITOR_ADMIN_USERNAME = ""
 STATUS_MONITOR_ADMIN_PASSWORD = ""
