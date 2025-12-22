@@ -96,9 +96,9 @@ async def query_jjc_data(server: str, name: str, token: str = None, ticket: str 
         }
 
 
-async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: str = None) -> dict:
+async def get_user_kungfu(server: str, name: str, token: str = None, ticket: str = None) -> dict:
     """
-    获取用户的kuangfu信息
+    获取用户的kungfu信息
     
     Args:
         server: 服务器名称
@@ -107,7 +107,7 @@ async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: st
         ticket: 推栏cookie（可选，默认从config文件获取）
     
     Returns:
-        dict: 包含kuangfu信息的结果
+        dict: 包含kungfu信息的结果
     """
     # 使用配置文件中的默认值
     if token is None:
@@ -116,7 +116,7 @@ async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: st
         ticket = TICKET
     
     # 缓存配置
-    cache_dir = "data/cache/kuangfu"
+    cache_dir = "data/cache/kungfu"
     cache_file = os.path.join(cache_dir, f"{server}_{name}.json")
     
     # 创建缓存目录
@@ -125,11 +125,11 @@ async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: st
     # 检查缓存是否存在
     if os.path.exists(cache_file):
         try:
-            print(f"从缓存中读取 {server}_{name} 的kuangfu信息")
+            print(f"从缓存中读取 {server}_{name} 的kungfu信息")
             with open(cache_file, 'r', encoding='utf-8') as f:
                 cached_data = json.load(f)
             cache_time = cached_data.get("cache_time", 0)
-            kungfu_value = cached_data.get("kuangfu")
+            kungfu_value = cached_data.get("kungfu")
 
             if kungfu_value not in [None, ""]:
                 current_time = time.time()
@@ -139,7 +139,7 @@ async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: st
                 cache_dt = datetime.fromtimestamp(cache_time).strftime("%Y-%m-%d %H:%M:%S") if cache_time else "未知"
                 print(f"缓存心法数据已超过一周或缺少时间戳，重新请求: {server}_{name}（缓存时间: {cache_dt}）")
             else:
-                print(f"缓存 kuangfu 为空，重新请求数据: {server}_{name}")
+                print(f"缓存 kungfu 为空，重新请求数据: {server}_{name}")
         except Exception as e:
             print(f"读取缓存文件失败: {e}")
     
@@ -149,7 +149,7 @@ async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: st
     await asyncio.sleep(delay)
     
     # 查询用户的竞技场数据
-    print(f"正在查询 {server}_{name} 的kuangfu信息")
+    print(f"正在查询 {server}_{name} 的kungfu信息")
     jjc_data = await query_jjc_data(server, name, token, ticket)
     
     if jjc_data.get("error") or jjc_data.get("msg") != "success":
@@ -161,23 +161,23 @@ async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: st
             "name": name
         }
     
-    # 从竞技场数据中提取kuangfu信息
-    kuangfu_info = None
+    # 从竞技场数据中提取kungfu信息
+    kungfu_info = None
     
-    # 从history数组中获取kuangfu信息
+    # 从history数组中获取kungfu信息
     history_data = jjc_data.get("data", {}).get("history", [])
     if history_data:
         # 查找最近一次获胜的记录
         for match in history_data:
             if match.get("won") == True:
-                kuangfu_info = match.get("kungfu")
+                kungfu_info = match.get("kungfu")
                 break
     
     result = {
         "server": server,
         "name": name,
-        "kuangfu": kuangfu_info,
-        "found": kuangfu_info is not None,
+        "kungfu": kungfu_info,
+        "found": kungfu_info is not None,
         "cache_time": time.time()
     }
 
@@ -186,7 +186,7 @@ async def get_user_kuangfu(server: str, name: str, token: str = None, ticket: st
     try:
         with open(cache_file, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
-        print(f"kuangfu信息已缓存到: {cache_file}")
+        print(f"kungfu信息已缓存到: {cache_file}")
     except Exception as e:
         print(f"保存缓存失败: {e}")
     
@@ -325,9 +325,9 @@ async def query_jjc_ranking(token: str = None, ticket: str = None) -> dict:
         }
 
 
-async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket: str = None) -> dict:
+async def get_ranking_kungfu_data(ranking_data: dict, token: str = None, ticket: str = None) -> dict:
     """
-    获取排行榜数据的kuangfu信息
+    获取排行榜数据的kungfu信息
     
     Args:
         ranking_data: 排行榜数据（query_jjc_ranking的返回值）
@@ -335,7 +335,7 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         ticket: 推栏cookie（可选，默认从config文件获取）
     
     Returns:
-        dict: 包含kuangfu信息的排行榜数据
+        dict: 包含kungfu信息的排行榜数据
     """
     # 使用配置文件中的默认值
     if token is None:
@@ -345,10 +345,10 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     
     # 检查排行榜数据是否有效
     if ranking_data.get("error") or ranking_data.get("code") != 200:
-        print(f"排行榜数据无效，无法获取kuangfu信息: {ranking_data}");
+        print(f"排行榜数据无效，无法获取kungfu信息: {ranking_data}");
         return {
             "error": True,
-            "message": "排行榜数据无效，无法获取kuangfu信息",
+            "message": "排行榜数据无效，无法获取kungfu信息",
             "ranking_data": ranking_data
         }
     
@@ -359,13 +359,13 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
     if not all_data:
         return {
             "error": True,
-            "message": "排行榜数据为空，无法获取kuangfu信息",
+            "message": "排行榜数据为空，无法获取kungfu信息",
             "ranking_data": ranking_data
         }
     
-    # 获取排行榜中用户的kuangfu信息
-    print("正在获取排行榜用户的kuangfu信息...")
-    kuangfu_results = []
+    # 获取排行榜中用户的kungfu信息
+    print("正在获取排行榜用户的kungfu信息...")
+    kungfu_results = []
     
     for i, player in enumerate(all_data):  # 遍历整个排行榜数据
 
@@ -381,67 +381,67 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         
         if player_server and player_name:
             print(f"处理第{i+1}名: {player_server}_{player_name}")
-            kuangfu_info = await get_user_kuangfu(player_server, player_name, token, ticket)
-            kuangfu_results.append(kuangfu_info)
+            kungfu_info = await get_user_kungfu(player_server, player_name, token, ticket)
+            kungfu_results.append(kungfu_info)
 
-    # 将kuangfu信息添加到排行榜数据中
+    # 将kungfu信息添加到排行榜数据中
     result = ranking_data.copy()
-    result["kuangfu_data"] = kuangfu_results
-    print(f"kuangfu信息获取完成，共处理 {len(kuangfu_results)} 个用户")
+    result["kungfu_data"] = kungfu_results
+    print(f"kungfu信息获取完成，共处理 {len(kungfu_results)} 个用户")
     
     # 定义奶妈心法列表
-    healer_kuangfu = ["离经易道", "补天诀", "云裳心经", "灵素", "相知"]
+    healer_kungfu = ["离经易道", "补天诀", "云裳心经", "灵素", "相知"]
     
     # 定义所有DPS心法列表
-    dps_kuangfu = [
+    dps_kungfu = [
         "紫霞功", "周天功", "冰心诀", "花间游", "太虚剑意", "傲血战意", "凌海诀", 
         "北傲诀", "莫问", "惊羽诀", "笑尘诀", "隐龙诀", "焚影圣诀", "太玄经", 
         "分山劲", "山居剑意", "毒经", "无方", "山海心诀", "孤锋诀", "易筋经", "天罗诡道"
     ]
     
-    # 统计各个排名段的kuangfu数量
-    def count_kuangfu_by_rank(kuangfu_data, max_rank):
-        """统计指定排名范围内的kuangfu数量，区分奶妈和DPS"""
+    # 统计各个排名段的kungfu数量
+    def count_kungfu_by_rank(kungfu_data, max_rank):
+        """统计指定排名范围内的kungfu数量，区分奶妈和DPS"""
         healer_count = {}
         dps_count = {}
         healer_valid_count = 0
         dps_valid_count = 0
         
-        # 记录每个kuangfu第一次出现的排名
+        # 记录每个kungfu第一次出现的排名
         healer_first_rank = {}
         dps_first_rank = {}
         
         # 初始化所有心法计数为0
-        for kuangfu in healer_kuangfu:
-            healer_count[kuangfu] = 0
-        for kuangfu in dps_kuangfu:
-            dps_count[kuangfu] = 0
+        for kungfu in healer_kungfu:
+            healer_count[kungfu] = 0
+        for kungfu in dps_kungfu:
+            dps_count[kungfu] = 0
         
-        for i, player_data in enumerate(kuangfu_data[:max_rank]):
-            if player_data.get("found") and player_data.get("kuangfu"):
-                kuangfu = player_data["kuangfu"]
+        for i, player_data in enumerate(kungfu_data[:max_rank]):
+            if player_data.get("found") and player_data.get("kungfu"):
+                kungfu = player_data["kungfu"]
                 
                 # 判断是否为奶妈心法
-                if kuangfu in healer_kuangfu:
-                    healer_count[kuangfu] = healer_count.get(kuangfu, 0) + 1
+                if kungfu in healer_kungfu:
+                    healer_count[kungfu] = healer_count.get(kungfu, 0) + 1
                     healer_valid_count += 1
                     # 记录第一次出现的排名
-                    if kuangfu not in healer_first_rank:
-                        healer_first_rank[kuangfu] = i + 1
-                elif kuangfu in dps_kuangfu:
-                    dps_count[kuangfu] = dps_count.get(kuangfu, 0) + 1
+                    if kungfu not in healer_first_rank:
+                        healer_first_rank[kungfu] = i + 1
+                elif kungfu in dps_kungfu:
+                    dps_count[kungfu] = dps_count.get(kungfu, 0) + 1
                     dps_valid_count += 1
                     # 记录第一次出现的排名
-                    if kuangfu not in dps_first_rank:
-                        dps_first_rank[kuangfu] = i + 1
+                    if kungfu not in dps_first_rank:
+                        dps_first_rank[kungfu] = i + 1
         
         # 为没有出现的心法设置默认首次排名（按心法列表顺序）
-        for i, kuangfu in enumerate(healer_kuangfu):
-            if kuangfu not in healer_first_rank:
-                healer_first_rank[kuangfu] = 9999 + i  # 使用很大的数字确保排在后面
-        for i, kuangfu in enumerate(dps_kuangfu):
-            if kuangfu not in dps_first_rank:
-                dps_first_rank[kuangfu] = 9999 + i  # 使用很大的数字确保排在后面
+        for i, kungfu in enumerate(healer_kungfu):
+            if kungfu not in healer_first_rank:
+                healer_first_rank[kungfu] = 9999 + i  # 使用很大的数字确保排在后面
+        for i, kungfu in enumerate(dps_kungfu):
+            if kungfu not in dps_first_rank:
+                dps_first_rank[kungfu] = 9999 + i  # 使用很大的数字确保排在后面
         
         # 按数量降序排序，数量相同时按首次出现排名升序排序
         sorted_healer = sorted(healer_count.items(), key=lambda x: (x[1], -healer_first_rank[x[0]]), reverse=True)
@@ -462,22 +462,22 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
             "total_valid_count": healer_valid_count + dps_valid_count
         }
     
-    # 统计前200、前100、前50的kuangfu分布
-    print("正在统计kuangfu分布...")
-    kuangfu_stats = {
-        "top_200": count_kuangfu_by_rank(kuangfu_results, 200),
-        "top_100": count_kuangfu_by_rank(kuangfu_results, 100),
-        "top_50": count_kuangfu_by_rank(kuangfu_results, 50)
+    # 统计前200、前100、前50的kungfu分布
+    print("正在统计kungfu分布...")
+    kungfu_stats = {
+        "top_200": count_kungfu_by_rank(kungfu_results, 200),
+        "top_100": count_kungfu_by_rank(kungfu_results, 100),
+        "top_50": count_kungfu_by_rank(kungfu_results, 50)
     }
     
-    result["kuangfu_statistics"] = kuangfu_stats
+    result["kungfu_statistics"] = kungfu_stats
     
     # 打印统计结果
     print("\n" + "="*80)
-    print("KUANGFU统计结果 (奶妈/DPS分类)")
+    print("KUNGFU统计结果 (奶妈/DPS分类)")
     print("="*80)
     
-    for rank_range, stats in kuangfu_stats.items():
+    for rank_range, stats in kungfu_stats.items():
         print(f"\n{rank_range.upper()} ({stats['total_players']}人，有效数据{stats['total_valid_count']}人):")
         print("=" * 60)
         
@@ -485,9 +485,9 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         print(f"\n【奶妈排名】({stats['healer']['valid_count']}人):")
         print("-" * 40)
         if stats['healer']['list']:
-            for kuangfu, count in stats['healer']['list']:
+            for kungfu, count in stats['healer']['list']:
                 percentage = (count / stats['healer']['valid_count'] * 100) if stats['healer']['valid_count'] > 0 else 0
-                print(f"  {kuangfu}: {count}人 ({percentage:.1f}%)")
+                print(f"  {kungfu}: {count}人 ({percentage:.1f}%)")
         else:
             print("  无奶妈数据")
         
@@ -495,25 +495,25 @@ async def get_ranking_kuangfu_data(ranking_data: dict, token: str = None, ticket
         print(f"\n【DPS排名】({stats['dps']['valid_count']}人):")
         print("-" * 40)
         if stats['dps']['list']:
-            for kuangfu, count in stats['dps']['list']:
+            for kungfu, count in stats['dps']['list']:
                 percentage = (count / stats['dps']['valid_count'] * 100) if stats['dps']['valid_count'] > 0 else 0
-                print(f"  {kuangfu}: {count}人 ({percentage:.1f}%)")
+                print(f"  {kungfu}: {count}人 ({percentage:.1f}%)")
         else:
             print("  无DPS数据")
     
     print("="*80)
     
-    # 打印具体排名和kuangfu信息
+    # 打印具体排名和kungfu信息
     print("\n" + "="*80)
-    print("具体排名和KUANGFU信息")
+    print("具体排名和KUNGFU信息")
     print("="*80)
     
-    for i, player_data in enumerate(kuangfu_results):
+    for i, player_data in enumerate(kungfu_results):
         rank = i + 1
         
-        if player_data.get("found") and player_data.get("kuangfu"):
-            kuangfu = player_data["kuangfu"]
-            print(f"第{rank:3d}名: {kuangfu}")
+        if player_data.get("found") and player_data.get("kungfu"):
+            kungfu = player_data["kungfu"]
+            print(f"第{rank:3d}名: {kungfu}")
         else:
             print(f"第{rank:3d}名: 未知心法")
     
@@ -542,8 +542,8 @@ def main():
             token=args.token,
             ticket=args.ticket
         ))
-        # 获取排行榜数据的kuangfu信息
-        result = asyncio.run(get_ranking_kuangfu_data(
+        # 获取排行榜数据的kungfu信息
+        result = asyncio.run(get_ranking_kungfu_data(
             ranking_data=ranking_result,
             token=args.token,
             ticket=args.ticket
