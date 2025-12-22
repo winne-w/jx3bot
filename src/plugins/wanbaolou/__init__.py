@@ -17,7 +17,8 @@ from jinja2 import Environment, FileSystemLoader, Template
 from src.plugins.wanbaolou.api import api, JX3TradeAPI, search_jx3_appearances
 from src.plugins.wanbaolou.config import config
 from src.plugins.wanbaolou.utils import format_time_string, save_image_cache
-from src.utils.defget import jietu,suijitext
+from src.infra.screenshot import jietu
+from src.utils.random_text import suijitext
 from config import wanbaolou
 from src.utils.shared_data import SEARCH_RESULTS,user_sessions
 from .alias import setup_alias_refresh_job
@@ -163,7 +164,15 @@ async def _():
     logger.info("外观搜索插件初始化完成")
 
     # 启动超时检查任务
-    scheduler.add_job(check_timeouts, "interval", seconds=5)
+    scheduler.add_job(
+        check_timeouts,
+        "interval",
+        seconds=5,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=30,
+        replace_existing=True,
+    )
 
     # 初始化并定时刷新别名缓存，仅用于物价/外观查询时本地解析别名
     await setup_alias_refresh_job(scheduler)

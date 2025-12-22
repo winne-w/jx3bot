@@ -2,13 +2,21 @@ import hashlib
 import hmac
 import json
 import datetime
-import requests
 import warnings
 from collections import OrderedDict
-from config import TICKET
+import config as cfg
+
+from src.infra.http_client import HttpClient
 
 # 忽略SSL警告
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+
+try:
+    from nonebot import logger  # type: ignore
+except Exception:  # pragma: no cover
+    import logging
+
+    logger = logging.getLogger(__name__)
 
 
 def calculate_xsk(data):
@@ -21,7 +29,9 @@ def calculate_xsk(data):
     Returns:
         tuple: (签名, JSON字符串)
     """
-    secret_key = "MaYoaMQ3zpWJFWtN9mqJqKpHrkdFwLd9DDlFWk2NnVR1mChVRI6THVe6KsCnhpoR"
+    secret_key = getattr(cfg, "TUILAN_SECRET_KEY", "") or ""
+    if not secret_key:
+        raise ValueError("缺少推栏签名密钥：请在 config.py 配置 TUILAN_SECRET_KEY")
 
     # 按字母顺序排序参数
     ordered_data = OrderedDict()
@@ -32,7 +42,7 @@ def calculate_xsk(data):
     try:
         json_str = json.dumps(ordered_data, separators=(',', ':'), ensure_ascii=False)
     except UnicodeEncodeError as e:
-        print(f"JSON编码错误: {e}")
+        logger.warning(f"tuilan_request JSON 编码错误: {e}")
         # 如果包含无法编码的字符，使用ensure_ascii=True
         json_str = json.dumps(ordered_data, separators=(',', ':'), ensure_ascii=True)
     
@@ -76,9 +86,13 @@ def tuilan_request(url, params=None):
     x_sk, raw_json = calculate_xsk(data)
     
     # 构造请求头 - 推栏API标准请求头
+    tuilan_cookie = getattr(cfg, "TUILAN_COOKIE", "") or ""
+    tuilan_device_id = getattr(cfg, "TUILAN_DEVICE_ID", "") or "lWrrIG5QpALPiSZ7txB//A=="
+    tuilan_user_agent = getattr(cfg, "TUILAN_USER_AGENT", "") or "okhttp/3.12.2"
+
     headers = {
         "accept": "application/json",
-        "deviceid": "lWrrIG5QpALPiSZ7txB//A==",
+        "deviceid": tuilan_device_id,
         "platform": "android",
         "gamename": "jx3",
         "fromsys": "APP",
@@ -86,49 +100,36 @@ def tuilan_request(url, params=None):
         "cache-control": "no-cache",
         "apiversion": "3",
         "sign": "true",
-        "token": TICKET,
+        "token": cfg.TICKET,
         "Content-Type": "application/json",
         "Host": "m.pvp.xoyo.com",
         "Connection": "Keep-Alive",
         "Accept-Encoding": "gzip",
-        "Cookie": "_wsi1=b71125f3741e4eca8746f6c6761f3da931c210a9; __wsi1=b71125f3741e4eca8746f6c6761f3da931c210a9; _wsi2=4ff0e5984f8e972e07ec7b417c122691a47b8044; __wsi2=4ff0e5984f8e972e07ec7b417c122691a47b8044; _wsi3=8cc04958f51e41c511d345eddbb3e7909fce07db; __wsi3=8cc04958f51e41c511d345eddbb3e7909fce07db",
-        "User-Agent": "okhttp/3.12.2",
+        "User-Agent": tuilan_user_agent,
         "X-Sk": x_sk
     }
+    if tuilan_cookie:
+        headers["Cookie"] = tuilan_cookie
 
     # 发送请求
+    http_client = HttpClient(timeout=30.0, retries=2, backoff_seconds=0.5, verify=False)
     try:
         # 确保数据是UTF-8编码的字节串
         if isinstance(raw_json, str):
             data_bytes = raw_json.encode('utf-8')
         else:
             data_bytes = raw_json
-            
-        response = requests.post(
-            url,
-            headers=headers,
-            data=data_bytes,
-            verify=False
-        )
+
+        return http_client.request_json("POST", url, headers=headers, content=data_bytes, verify=False)
     except UnicodeEncodeError as e:
-        print(f"编码错误: {e}")
+        logger.warning(f"tuilan_request 编码错误: {e}")
         # 尝试使用不同的编码方式
         try:
             data_bytes = raw_json.encode('utf-8', errors='ignore')
-            response = requests.post(
-                url,
-                headers=headers,
-                data=data_bytes,
-                verify=False
-            )
+            return http_client.request_json("POST", url, headers=headers, content=data_bytes, verify=False)
         except Exception as e2:
-            print(f"备用编码也失败: {e2}")
+            logger.warning(f"tuilan_request 备用编码也失败: {e2}")
             return {"error": f"编码错误: {e}"}
-
-    try:
-        return response.json()
-    except:
-        return {"error": "无法解析响应", "text": response.text}
 
 
 # 导出组件

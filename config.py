@@ -19,6 +19,7 @@ API_URLS = {
     "资历查询": "https://www.jx3api.com/data/tuilan/achievement",
     "竞技场时间查询": "https://m.pvp.xoyo.com/3c/mine/arena/time-tag",
     "竞技场排行榜查询": "https://m.pvp.xoyo.com/3c/mine/arena/top200",
+    "竞技场战局历史": "https://m.pvp.xoyo.com/3c/mine/match/history",
 
 }
 
@@ -81,6 +82,31 @@ NEWS_API_URL = "https://www.jx3api.com/data/news/allnews?limit=3"  # 新闻API�
 SKILL_records_URL = "https://www.jx3api.com/data/skills/records"  # 技改API地址
 calendar_URL = "https://www.jx3api.com/data/active/calendar"   #活动日常
 jx3box_URL = "https://cms.jx3box.com/api/cms/config/banner?client=std&type=code"   #福利
+
+# status_monitor 邮件通知配置（避免在代码中硬编码）
+# 说明：默认沿用 mail 作为 SMTP 授权码/密码；如需更清晰可填写 STATUS_MONITOR_SMTP_PASSWORD
+STATUS_MONITOR_SMTP_SERVER = "smtp.163.com"
+STATUS_MONITOR_SMTP_PORT = 465
+STATUS_MONITOR_SMTP_USERNAME = ""
+STATUS_MONITOR_SMTP_PASSWORD = ""
+STATUS_MONITOR_EMAIL_FROM = ""
+STATUS_MONITOR_EMAIL_TO = ""
+STATUS_MONITOR_EMAIL_SUBJECT = "服务器状态提醒"
+
+# status_monitor 其他配置（可用环境变量覆盖）
+# NapCat 地址（必须包含 http/https，容器内访问宿主机端口映射的常见写法）：
+# - http://172.17.0.1:3001
+STATUS_MONITOR_NAPCAT_ADDR = "http://172.17.0.1:3001"
+STATUS_MONITOR_BASE_URL = ""
+STATUS_MONITOR_ADMIN_USERNAME = ""
+STATUS_MONITOR_ADMIN_PASSWORD = ""
+STATUS_MONITOR_CLOUD_MUSIC_SERVER = ""
+
+# 推栏（资历查询等）接口配置：签名密钥/请求头（避免在代码中硬编码）
+TUILAN_SECRET_KEY = "MaYoaMQ3zpWJFWtN9mqJqKpHrkdFwLd9DDlFWk2NnVR1mChVRI6THVe6KsCnhpoR"
+TUILAN_COOKIE = "_wsi1=b71125f3741e4eca8746f6c6761f3da931c210a9; __wsi1=b71125f3741e4eca8746f6c6761f3da931c210a9; _wsi2=4ff0e5984f8e972e07ec7b417c122691a47b8044; __wsi2=4ff0e5984f8e972e07ec7b417c122691a47b8044; _wsi3=8cc04958f51e41c511d345eddbb3e7909fce07db; __wsi3=8cc04958f51e41c511d345eddbb3e7909fce07db"
+TUILAN_DEVICE_ID = "lWrrIG5QpALPiSZ7txB//A=="
+TUILAN_USER_AGENT = "okhttp/3.12.2"
 
 # 赛季时间定义
 CURRENT_SEASON = "山海源流"
