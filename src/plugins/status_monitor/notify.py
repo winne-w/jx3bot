@@ -9,7 +9,13 @@ from nonebot import logger
 
 
 async def get_NapCat_data() -> dict | None:
-    napcat_status_url = getattr(cfg, "STATUS_MONITOR_NAPCAT_STATUS_URL", "") or "http://192.168.100.1:3000/get_status"
+    napcat_addr = getattr(cfg, "STATUS_MONITOR_NAPCAT_ADDR", "") or ""
+    if not napcat_addr:
+        raise RuntimeError("未配置 STATUS_MONITOR_NAPCAT_ADDR（示例：http://172.17.0.1:3001）")
+
+    napcat_base_url = str(napcat_addr).strip().rstrip("/")
+
+    napcat_status_url = f"{napcat_base_url}/get_status"
     try:
         async with httpx.AsyncClient(verify=False) as client:
             response = await client.get(napcat_status_url)
