@@ -91,10 +91,6 @@ class JjcRankingService:
         return None
 
     async def query_jjc_ranking(self) -> dict[str, Any]:
-        cached = self._cache().load_ranking_cache()
-        if cached:
-            return cached
-
         logger.info("开始查询竞技场排行榜数据")
 
         try:
@@ -142,8 +138,6 @@ class JjcRankingService:
 
             ranking_result["defaultWeek"] = default_week
             ranking_result["cache_time"] = time.time()
-
-            self._cache().save_ranking_cache(ranking_result)
 
             return ranking_result
         except Exception as exc:
