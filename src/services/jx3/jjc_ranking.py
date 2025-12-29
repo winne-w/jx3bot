@@ -239,7 +239,12 @@ class JjcRankingService:
         except Exception as exc:
             logger.warning("保存竞技场统计结果失败: {}", exc)
 
-    async def get_user_kungfu(self, server: str, name: str) -> dict[str, Any]:
+    async def get_user_kungfu(
+        self,
+        server: str,
+        name: str,
+        ranking_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         cached = self._cache().load_kungfu_cache(server, name)
         if cached:
             return cached
@@ -251,11 +256,13 @@ class JjcRankingService:
         logger.info(f"优先使用心法查询接口查询心法信息: server={server} name={name}")
 
         try:
-            ranking_result = await self.query_jjc_ranking()
+            ranking_result = ranking_data
+            if not ranking_result:
+                ranking_result = await self.query_jjc_ranking()
             if ranking_result and not ranking_result.get("error") and ranking_result.get("code") == 0:
-                ranking_data = ranking_result.get("data", [])
+                ranking_list = ranking_result.get("data", [])
 
-                for player in ranking_data:
+                for player in ranking_list:
                     person_info = player.get("personInfo", {})
                     player_server = person_info.get("server")
                     player_name = person_info.get("roleName")
@@ -371,7 +378,7 @@ class JjcRankingService:
                 if name and "·" in name:
                     name = name.split("·")[0]
 
-                kungfu_info = await self.get_user_kungfu(server, name)
+                kungfu_info = await self.get_user_kungfu(server, name, ranking_data=ranking_data)
                 indicator_kungfu = kungfu_info.get("kungfu_indicator")
                 match_history_kungfu = kungfu_info.get("kungfu_match_history")
                 if (
@@ -380,8 +387,8 @@ class JjcRankingService:
                     and indicator_kungfu != match_history_kungfu
                 ):
                     logger.warning(
-                        "心法不一致(排名): rank=%s score=%s server=%s name=%s role_id=%s global_role_id=%s "
-                        "indicator=%s match_history=%s selected=%s source=%s checked=%s win_samples=%s",
+                        "心法不一致(排名): rank={} score={} server={} name={} role_id={} global_role_id={} "
+                        "indicator={} match_history={} selected={} source={} checked={} win_samples={}",
                         i + 1,
                         score,
                         server,
