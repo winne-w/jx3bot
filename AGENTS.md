@@ -3,7 +3,7 @@
 ## 项目结构与模块分工
 - `bot.py` 负责启动 NoneBot、注册插件并连接 NapCat 的反向 WebSocket。
 - 核心命令集中在 `src/plugins/jx3bot.py`，`wanbaolou/`、`config_manager.py` 与 `status_monitor.py` 提供物价别名、调度与健康检查能力。
-- 通用工具位于 `src/utils/`，可复用的模板与素材保存在 `templates/`、`mpimg/`、`data/`。
+- 通用工具位于 `src/utils/`，可复用的模板与素材保存在 `templates/`、`mpimg/`、`data/`；对外提供的 PHP/HTML 页面统一放在 `public/`。
 - 根目录下的 `test_*.py`、`example_*.py`、`debug_kungfu_by_role.py` 用于手动排查；`Dockerfile`、`docker-compose.yml`、`start.sh` 需随部署流程同步更新，并在 README 系列文档中同步说明。
 - `README.md`、`README-Docker.md` 及 PlantUML 图 (`*.puml`) 提供架构参考，流程更新时请同时修订这些文档。
 - `requirements.txt` 与 `pyproject.toml` 记录依赖与元数据，调整版本时务必双向更新并通知运维。

@@ -213,8 +213,31 @@ class JjcRankingService:
 
         self._cache().save_kungfu_cache(server, name, result)
 
-        if not kungfu_info:
-            logger.info(f"未找到心法信息，缓存标记为未命中: server={server} name={name}")
+    def save_ranking_stats(
+        self,
+        ranking_result: dict[str, Any],
+        stats: dict[str, Any],
+        week_info: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        stats_dir = os.path.join("data", "jjc_ranking_stats")
+        ranking_timestamp = int(ranking_result.get("cache_time") or time.time())
+        stats_path = os.path.join(stats_dir, f"{ranking_timestamp}.json")
+        try:
+            os.makedirs(stats_dir, exist_ok=True)
+            stats_payload = {
+                "generated_at": time.time(),
+                "ranking_cache_time": ranking_result.get("cache_time"),
+                "default_week": ranking_result.get("defaultWeek"),
+                "current_season": self.current_season,
+                "week_info": week_info,
+                "kungfu_statistics": stats,
+            }
+            with open(stats_path, "w", encoding="utf-8") as file_handle:
+                json.dump(stats_payload, file_handle, ensure_ascii=False, indent=2)
+            logger.info("保存竞技场统计结果: {}", stats_path)
+        except Exception as exc:
+            logger.warning("保存竞技场统计结果失败: {}", exc)
 
     async def get_user_kungfu(self, server: str, name: str) -> dict[str, Any]:
         cached = self._cache().load_kungfu_cache(server, name)
