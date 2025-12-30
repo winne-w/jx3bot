@@ -131,6 +131,7 @@ register_jjc_ranking(
     query_jjc_ranking=jjc_ranking_service.query_jjc_ranking,
     calculate_season_week_info=jjc_ranking_service.calculate_season_week_info,
     get_ranking_kungfu_data=jjc_ranking_service.get_ranking_kungfu_data,
+    save_ranking_stats=jjc_ranking_service.save_ranking_stats,
     generate_split_ranking_images=lambda bot, event, stats, week_info: send_split_ranking_images(
         bot,
         event,

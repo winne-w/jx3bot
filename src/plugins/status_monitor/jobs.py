@@ -702,6 +702,13 @@ async def push_daily_jjc_ranking():
                 logger.warning("status_monitor 渲染竞技场统计图失败")
                 return
 
+            jjc_ranking_service.save_ranking_stats(
+                ranking_result=ranking_result,
+                stats=stats,
+                week_info=week_info,
+                payload=payload,
+            )
+
             summary_text = (
                 f"⏰ 每日08:30竞技排名推送（{week_info}）\n"
                 f"统计范围：{payload['scope_desc']}\n"
