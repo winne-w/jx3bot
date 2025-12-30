@@ -91,10 +91,6 @@ class JjcRankingService:
         return None
 
     async def query_jjc_ranking(self) -> dict[str, Any]:
-        cached = self._cache().load_ranking_cache()
-        if cached:
-            return cached
-
         logger.info("开始查询竞技场排行榜数据")
 
         try:
@@ -142,8 +138,6 @@ class JjcRankingService:
 
             ranking_result["defaultWeek"] = default_week
             ranking_result["cache_time"] = time.time()
-
-            self._cache().save_ranking_cache(ranking_result)
 
             return ranking_result
         except Exception as exc:
@@ -219,10 +213,38 @@ class JjcRankingService:
 
         self._cache().save_kungfu_cache(server, name, result)
 
-        if not kungfu_info:
-            logger.info(f"未找到心法信息，缓存标记为未命中: server={server} name={name}")
+    def save_ranking_stats(
+        self,
+        ranking_result: dict[str, Any],
+        stats: dict[str, Any],
+        week_info: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        stats_dir = os.path.join("data", "jjc_ranking_stats")
+        ranking_timestamp = int(ranking_result.get("cache_time") or time.time())
+        stats_path = os.path.join(stats_dir, f"{ranking_timestamp}.json")
+        try:
+            os.makedirs(stats_dir, exist_ok=True)
+            stats_payload = {
+                "generated_at": time.time(),
+                "ranking_cache_time": ranking_result.get("cache_time"),
+                "default_week": ranking_result.get("defaultWeek"),
+                "current_season": self.current_season,
+                "week_info": week_info,
+                "kungfu_statistics": stats,
+            }
+            with open(stats_path, "w", encoding="utf-8") as file_handle:
+                json.dump(stats_payload, file_handle, ensure_ascii=False, indent=2)
+            logger.info("保存竞技场统计结果: {}", stats_path)
+        except Exception as exc:
+            logger.warning("保存竞技场统计结果失败: {}", exc)
 
-    async def get_user_kungfu(self, server: str, name: str) -> dict[str, Any]:
+    async def get_user_kungfu(
+        self,
+        server: str,
+        name: str,
+        ranking_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         cached = self._cache().load_kungfu_cache(server, name)
         if cached:
             return cached
@@ -234,11 +256,13 @@ class JjcRankingService:
         logger.info(f"优先使用心法查询接口查询心法信息: server={server} name={name}")
 
         try:
-            ranking_result = await self.query_jjc_ranking()
+            ranking_result = ranking_data
+            if not ranking_result:
+                ranking_result = await self.query_jjc_ranking()
             if ranking_result and not ranking_result.get("error") and ranking_result.get("code") == 0:
-                ranking_data = ranking_result.get("data", [])
+                ranking_list = ranking_result.get("data", [])
 
-                for player in ranking_data:
+                for player in ranking_list:
                     person_info = player.get("personInfo", {})
                     player_server = person_info.get("server")
                     player_name = person_info.get("roleName")
@@ -354,7 +378,7 @@ class JjcRankingService:
                 if name and "·" in name:
                     name = name.split("·")[0]
 
-                kungfu_info = await self.get_user_kungfu(server, name)
+                kungfu_info = await self.get_user_kungfu(server, name, ranking_data=ranking_data)
                 indicator_kungfu = kungfu_info.get("kungfu_indicator")
                 match_history_kungfu = kungfu_info.get("kungfu_match_history")
                 if (
@@ -363,8 +387,8 @@ class JjcRankingService:
                     and indicator_kungfu != match_history_kungfu
                 ):
                     logger.warning(
-                        "心法不一致(排名): rank=%s score=%s server=%s name=%s role_id=%s global_role_id=%s "
-                        "indicator=%s match_history=%s selected=%s source=%s checked=%s win_samples=%s",
+                        "心法不一致(排名): rank={} score={} server={} name={} role_id={} global_role_id={} "
+                        "indicator={} match_history={} selected={} source={} checked={} win_samples={}",
                         i + 1,
                         score,
                         server,

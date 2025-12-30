@@ -11,6 +11,7 @@ def register(
     query_jjc_ranking: Callable[[], Awaitable[dict]],
     calculate_season_week_info: Callable[[int, float | None], str],
     get_ranking_kungfu_data: Callable[[dict], Awaitable[dict]],
+    save_ranking_stats: Callable[[dict, dict, str], None],
     generate_split_ranking_images: Callable[[Bot, Event, dict, str], Awaitable[None]],
     generate_combined_ranking_image: Callable[[Bot, Event, dict, str], Awaitable[None]],
 ) -> None:
@@ -70,6 +71,8 @@ def register(
             if not stats:
                 await bot.send(event, "心法统计数据为空，无法生成统计图片")
                 return
+
+            save_ranking_stats(ranking_result, stats, week_info)
 
             if is_split_mode:
                 await generate_split_ranking_images(bot, event, stats, week_info)
