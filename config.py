@@ -2,6 +2,8 @@
 剑三机器人配置文件
 包含API Token、URL等
 """
+import json
+import os
 ADMIN_QQ = [595910443]
 # API认证凭证
 TOKEN = ""
@@ -143,3 +145,26 @@ KUNGFU_META = {
     "shanhai": {"name": "山海心诀", "category": "dps"},
     "youluo": {"name": "幽罗引", "category": "dps"},
 }
+
+# 运行时可覆盖配置（由 /修改配置 写入）
+RUNTIME_CONFIG_FILE = "runtime_config.json"
+RUNTIME_CONFIG_KEYS = {
+    "TOKEN": str,
+    "TICKET": str,
+    "SESSION_data": int,
+    "calendar_time": int,
+    "STATUS_check_time": int,
+}
+
+if os.path.exists(RUNTIME_CONFIG_FILE):
+    try:
+        with open(RUNTIME_CONFIG_FILE, "r", encoding="utf-8") as f:
+            _runtime_config = json.load(f)
+        for _key, _type in RUNTIME_CONFIG_KEYS.items():
+            if _key in _runtime_config:
+                try:
+                    globals()[_key] = _type(_runtime_config[_key])
+                except (TypeError, ValueError):
+                    pass
+    except Exception:
+        pass
