@@ -1,4 +1,3 @@
-import re
 import os
 import sys
 import json
@@ -12,28 +11,28 @@ from nonebot.params import CommandArg
 import src.utils.shared_data
 
 
-# 配置文件路径
-CONFIG_FILE = "config.py"
+# 运行时配置文件路径
+CONFIG_FILE = "runtime_config.json"
 RESTART_FLAG_FILE = "restart_info.json"
 
 # 存储待发送的重启通知
 pending_restart_info = None
 
-# 读取配置文件
+# 读取运行时配置文件
 def read_config_file():
     if not os.path.exists(CONFIG_FILE):
-        return "配置文件不存在"
+        return {}
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return f.read()
+            return json.load(f)
     except Exception as e:
         return f"读取配置文件失败: {e}"
 
-# 写入配置文件
-def write_config_file(content):
+# 写入运行时配置文件
+def write_config_file(content: dict):
     try:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            f.write(content)
+            json.dump(content, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
         return f"写入配置文件失败: {e}"
@@ -166,12 +165,15 @@ async def handle_view_config(event):
     
     # 解析配置内容，提取关键配置项
     config_info = ""
-    allowed_keys = [ "TICKET", "SESSION_data", "calendar_time", "STATUS_check_time"]
-    
-    for line in config_content.splitlines():
-        for key in allowed_keys:
-            if re.match(rf"{key}\s*=", line):
-                config_info += line.strip() + "\n"
+    allowed_keys = ["TICKET", "SESSION_data", "calendar_time", "STATUS_check_time"]
+
+    for key in allowed_keys:
+        if key in config_content:
+            value = config_content[key]
+            if isinstance(value, str):
+                config_info += f'{key} = "{value}"\n'
+            else:
+                config_info += f"{key} = {value}\n"
     
     await view_config_cmd.finish(f"当前配置:\n token剩余:{src.utils.shared_data.tokendata}\n{config_info}")
 
@@ -207,34 +209,19 @@ async def handle_config(event, args=CommandArg()):
         await config_cmd.finish(config_content)
     
     # 修改配置
-    new_content = ""
-    key_found = False
-    
-    for line in config_content.splitlines():
-        # 查找并替换配置行
-        if re.match(rf"{key}\s*=", line):
-            # 根据配置项类型调整格式化方式
-            if key in ["TOKEN", "TICKET", "SESSION_data"]:
-                # 字符串类型的配置
-                new_line = f'{key} = "{value}"'
-            else:
-                # 数值类型的配置
-                new_line = f"{key} = {value}"
-            
-            new_content += new_line + "\n"
-            key_found = True
-        else:
-            new_content += line + "\n"
-    
-    # 如果配置项不存在，添加到文件末尾
-    if not key_found:
-        if key in ["TOKEN", "TICKET", "SESSION_data"]:
-            new_content += f'\n{key} = "{value}"\n'
-        else:
-            new_content += f"\n{key} = {value}\n"
+    if not isinstance(config_content, dict):
+        await config_cmd.finish("配置文件内容异常，无法修改")
+
+    if key in ["TOKEN", "TICKET"]:
+        config_content[key] = value
+    else:
+        try:
+            config_content[key] = int(value)
+        except ValueError:
+            await config_cmd.finish("数值类型配置项需要整数")
     
     # 写入配置文件
-    result = write_config_file(new_content)
+    result = write_config_file(config_content)
     if result is not True:
         await config_cmd.finish(result)
     
