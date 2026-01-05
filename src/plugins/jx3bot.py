@@ -119,7 +119,6 @@ register_queries(
     zhuangfen_matcher=zhuangfen,
     jjc_matcher=jjc,
     fuben_matcher=fuben,
-    update_kungfu_cache=jjc_ranking_service.update_kungfu_cache,
 )
 
 register_mingpian(mingpian)
