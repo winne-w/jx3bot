@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Awaitable, Annotated
+from typing import Any, Annotated
 
 from jinja2 import Environment
 from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
@@ -34,7 +34,6 @@ def register(
     zhuangfen_matcher: Any,
     jjc_matcher: Any,
     fuben_matcher: Any,
-    update_kungfu_cache: Callable[[str, str, dict[str, Any]], Awaitable[None]],
 ) -> None:
     @yanhua_matcher.handle()
     async def yanhua_to_image(
@@ -171,7 +170,6 @@ def register(
                 await bot.send(event, Message(exc.message))
             return
 
-        await update_kungfu_cache(server, role_name, items)
         spec, error_text = build_jjc_spec_or_text(
             data=items,
             role_name=role_name,
