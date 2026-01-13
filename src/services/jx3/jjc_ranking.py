@@ -431,13 +431,17 @@ class JjcRankingService:
 
                 healer_first_rank: dict[str, int] = {}
                 dps_first_rank: dict[str, int] = {}
+                healer_members: dict[str, list[dict[str, Any]]] = {}
+                dps_members: dict[str, list[dict[str, Any]]] = {}
 
                 overall_min_score = None
 
                 for kungfu in healer_kungfu:
                     healer_count[kungfu] = 0
+                    healer_members[kungfu] = []
                 for kungfu in dps_kungfu:
                     dps_count[kungfu] = 0
+                    dps_members[kungfu] = []
 
                 for player_item in player_data[:max_rank]:
                     score = self._coerce_score(player_item.get("score"))
@@ -456,11 +460,27 @@ class JjcRankingService:
                             healer_valid_count += 1
                             if kungfu not in healer_first_rank:
                                 healer_first_rank[kungfu] = i + 1
+                            healer_members[kungfu].append(
+                                {
+                                    "rank": i + 1,
+                                    "server": player_item.get("server", "未知"),
+                                    "name": player_item.get("name", "未知"),
+                                    "score": score,
+                                }
+                            )
                         elif kungfu in dps_kungfu:
                             dps_count[kungfu] = dps_count.get(kungfu, 0) + 1
                             dps_valid_count += 1
                             if kungfu not in dps_first_rank:
                                 dps_first_rank[kungfu] = i + 1
+                            dps_members[kungfu].append(
+                                {
+                                    "rank": i + 1,
+                                    "server": player_item.get("server", "未知"),
+                                    "name": player_item.get("name", "未知"),
+                                    "score": score,
+                                }
+                            )
                         else:
                             logger.info(
                                 f"⚠️ 发现未分类心法：第{i+1}名 {player_item.get('server', '未知')} "
@@ -502,12 +522,14 @@ class JjcRankingService:
                         "distribution": dict(sorted_healer),
                         "list": sorted_healer,
                         "min_score": overall_min_score,
+                        "members": healer_members,
                     },
                     "dps": {
                         "valid_count": dps_valid_count,
                         "distribution": dict(sorted_dps),
                         "list": sorted_dps,
                         "min_score": overall_min_score,
+                        "members": dps_members,
                     },
                     "total_valid_count": healer_valid_count + dps_valid_count,
                     "invalid_count": invalid_count,
