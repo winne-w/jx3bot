@@ -625,7 +625,7 @@ async def push_daily_gte():
             logger.warning("status_monitor 推送日常出错: {}", e)
 
 
-@scheduler.scheduled_job("cron", hour=8, minute=30)
+@scheduler.scheduled_job("cron", hour=2, minute=0)
 async def push_daily_jjc_ranking():
     if BOT_INITIALIZED:
         try:
@@ -710,7 +710,7 @@ async def push_daily_jjc_ranking():
             )
 
             summary_text = (
-                f"⏰ 每日08:30竞技排名推送（{week_info}）\n"
+                f"⏰ 每日02:00竞技排名推送（{week_info}）\n"
                 f"统计范围：{payload['scope_desc']}\n"
                 f"统计完成！共处理 {payload['total_valid_data']} 条有效数据（{payload['processed_label']}）"
             )
