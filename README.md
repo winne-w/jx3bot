@@ -7,6 +7,7 @@
 
 - 使用 NoneBot 作为 QQ 登录框架
 - WebSocket 反向代理（ws://192.168.100.1:5288/onebot/v11/ws）
+- 提供 HTTP API（FastAPI/ASGI），统一响应格式
 - 多群绑定支持
 - 完整支持 jx3api 的大部分功能
 - 交易行物价查询
@@ -43,6 +44,14 @@
 ws://192.168.100.1:5288/onebot/v11/ws
 ```
 
+### HTTP API
+- 默认监听地址由 `HOST`/`PORT` 环境变量控制（docker-compose 默认 `PORT=5288`）
+- 统一响应结构：`{"status_code":0,"status_msg":"success","data":{...}}`
+- 目前提供：
+  - `/api/arena/recent?server=梦江南&name=角色名`
+  - `/api/jjc/ranking-stats?action=list`
+  - `/api/jjc/ranking-stats?action=read&timestamp=...`
+
 ## 环境要求
 
 - Python 3.9+
@@ -65,4 +74,3 @@ pip install -r requirements.txt
 ```bash
 python bot.py
 ```
-

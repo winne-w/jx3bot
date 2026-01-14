@@ -369,7 +369,7 @@
     </div>
 
     <script>
-        const BASE_API = "jjc_ranking_stats.php";
+        const BASE_API = "/jx3bot/api/jjc/ranking-stats";
         const DEFAULT_LIST_API = `${BASE_API}?action=list`;
         const DEFAULT_READ_API = `${BASE_API}?action=read`;
         const params = new URLSearchParams(window.location.search);
@@ -546,6 +546,19 @@
             return `${readApiBase}${joiner}timestamp=${encodeURIComponent(timestamp)}`;
         }
 
+        function unwrapResponse(payload) {
+            if (!payload || typeof payload !== "object") {
+                throw new Error("响应格式异常");
+            }
+            if (Object.prototype.hasOwnProperty.call(payload, "status_code")) {
+                if (payload.status_code !== 0) {
+                    throw new Error(payload.status_msg || "接口返回错误");
+                }
+                return payload.data;
+            }
+            return payload;
+        }
+
         async function loadStats(timestamp) {
             if (!timestamp) {
                 setStatus("缺少 timestamp 参数，无法读取统计数据", "error");
@@ -558,7 +571,8 @@
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
-                const data = await response.json();
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
                 render(data);
                 setStatus("数据加载完成");
             } catch (error) {
@@ -572,7 +586,8 @@
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
-                const data = await response.json();
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
                 renderDateList(data);
                 if (dateSelect && dateSelect.value) {
                     loadStats(dateSelect.value);
