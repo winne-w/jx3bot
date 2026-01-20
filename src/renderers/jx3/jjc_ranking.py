@@ -43,6 +43,7 @@ async def render_combined_ranking_image(
     current_season: Any,
     stats: dict[str, Any],
     week_info: str,
+    show_legendary: bool,
 ) -> dict[str, Any]:
     has_top_1000 = "top_1000" in stats
     scope_desc = "前200、前100、前50"
@@ -65,6 +66,7 @@ async def render_combined_ranking_image(
             "top_50_healer": _prepare_template_data(stats.get("top_50", {}), "healer"),
             "top_50_dps": _prepare_template_data(stats.get("top_50", {}), "dps"),
             "has_top_1000": has_top_1000,
+            "show_legendary": show_legendary,
         },
         width=1120,
         height="ck",
@@ -92,6 +94,7 @@ async def send_combined_ranking_image(
     current_season: Any,
     stats: dict[str, Any],
     week_info: str,
+    show_legendary: bool,
 ) -> None:
     payload = await render_combined_ranking_image(
         env=env,
@@ -99,6 +102,7 @@ async def send_combined_ranking_image(
         current_season=current_season,
         stats=stats,
         week_info=week_info,
+        show_legendary=show_legendary,
     )
     await bot.send(event, MessageSegment.image(payload["image_bytes"]))
     await bot.send(
@@ -116,6 +120,7 @@ async def send_split_ranking_images(
     current_season: Any,
     stats: dict[str, Any],
     week_info: str,
+    show_legendary: bool,
 ) -> None:
     has_top_1000 = "top_1000" in stats
     ranking_configs = []
@@ -187,6 +192,7 @@ async def send_split_ranking_images(
                     "current_season": current_season,
                     "week_info": week_info,
                     config["data_key"]: config["data"],
+                    "show_legendary": show_legendary,
                 },
                 width=800,
                 height="ck",
