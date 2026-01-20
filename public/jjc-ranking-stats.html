@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>竞技场心法排名统计（实时）</title>
+    <title>竞技场心法排名统计</title>
     <style>
         :root {
             --bg: #f7fafd;
@@ -155,6 +155,65 @@
             box-shadow: 0 8px 20px rgba(91, 124, 250, 0.25);
         }
 
+        .toggle-wrap {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: var(--shadow);
+            width: fit-content;
+        }
+
+        .toggle-wrap.hidden {
+            display: none;
+        }
+
+        .toggle-wrap label {
+            font-size: 0.88rem;
+            color: var(--muted);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+
+        .toggle-wrap input[type="checkbox"] {
+            width: 36px;
+            height: 20px;
+            appearance: none;
+            background: rgba(91, 124, 250, 0.2);
+            border-radius: 999px;
+            position: relative;
+            outline: none;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .toggle-wrap input[type="checkbox"]::after {
+            content: "";
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ffffff;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+            transition: transform 0.2s ease;
+        }
+
+        .toggle-wrap input[type="checkbox"]:checked {
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+        }
+
+        .toggle-wrap input[type="checkbox"]:checked::after {
+            transform: translateX(16px);
+        }
+
         .grid {
             margin-top: 28px;
             display: grid;
@@ -196,6 +255,12 @@
         .range-title span {
             color: var(--muted);
             font-size: 0.85rem;
+        }
+
+        .range-meta {
+            margin: 6px 0 4px;
+            font-size: 0.86rem;
+            color: var(--muted);
         }
 
         .export-btn {
@@ -448,6 +513,7 @@
         const statusNode = document.getElementById("status");
         let currentStats = null;
         let currentMode = "all";
+        let showLegendaryOverlay = true;
 
         const listContainer = document.createElement("div");
         listContainer.className = "status";
@@ -467,6 +533,17 @@
         `;
         listContainer.insertAdjacentElement("afterend", tabContainer);
 
+        const toggleContainer = document.createElement("div");
+        toggleContainer.className = "toggle-wrap";
+        toggleContainer.innerHTML = `
+            <label>
+                <input type="checkbox" id="legendary-toggle" checked>
+                <span>橙武占比覆盖</span>
+            </label>
+        `;
+        tabContainer.insertAdjacentElement("afterend", toggleContainer);
+        const legendaryToggle = toggleContainer.querySelector("#legendary-toggle");
+
         tabContainer.addEventListener("click", (event) => {
             const button = event.target.closest(".tab-btn");
             if (!button) return;
@@ -475,10 +552,20 @@
             tabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
                 btn.classList.toggle("active", btn === button);
             });
+            toggleContainer.classList.toggle("hidden", currentMode !== "all");
             if (currentStats) {
                 renderStats(currentStats, mode);
             }
         });
+
+        if (legendaryToggle) {
+            legendaryToggle.addEventListener("change", (event) => {
+                showLegendaryOverlay = event.target.checked;
+                if (currentStats) {
+                    renderStats(currentStats, currentMode);
+                }
+            });
+        }
 
         function formatTime(timestamp) {
             if (!timestamp) {
@@ -541,6 +628,7 @@
                 const members = (membersMap && membersMap[kungfu]) || [];
                 const legendaryCount = members.filter((member) => String(member.weapon_quality) === "5").length;
                 const legendaryPercent = members.length ? (legendaryCount / members.length) * 100 : 0;
+                const overlayPercent = showLegendaryOverlay ? legendaryPercent : 0;
                 const detailContent = members.length
                     ? members.map((member) => `
                         <div class="detail-item">
@@ -560,7 +648,7 @@
                             <div class="bar-kungfu"><span class="arrow">›</span>${kungfu}</div>
                             <div class="bar">
                                 <div class="bar-fill" style="width:${(count / maxCount) * 100}%">
-                                    <div class="bar-legendary" style="width:${legendaryPercent}%"></div>
+                                    <div class="bar-legendary" style="width:${overlayPercent}%"></div>
                                 </div>
                             </div>
                             <div class="bar-value">${count}</div>
@@ -584,6 +672,8 @@
             const healerMembers = healer.members || {};
             const dpsMembers = dps.members || {};
             const titleSuffix = mode === "purple" && rangeLabel === "前1000" ? "（紫武）" : "";
+            const showMeta = ["前1000", "前200", "前100", "前50"].includes(rangeLabel);
+            const seasonText = window.currentSeasonLabel || "-";
 
             return `
                 <div class="range-card">
@@ -599,6 +689,7 @@
                             </svg>
                         </button>
                     </div>
+                    ${showMeta ? `<div class="range-meta">赛季：${seasonText}</div>` : ""}
                     <div class="lane">
                         <div class="lane-title">奶妈（${healer.valid_count ?? 0}）</div>
                         ${healerList.length ? renderList(healerList, healer.valid_count || 0, healerMembers) : "<div class='muted'>暂无奶妈数据</div>"}
@@ -670,6 +761,7 @@
         function render(data) {
             const seasonLabel = data.current_season ? `${data.current_season}${data.week_info || ""}` : (data.week_info || "-");
             window.currentSeasonLabel = seasonLabel || "-";
+            window.currentRankingTimeLabel = formatTime(data.ranking_cache_time || data.generated_at);
             subtitle.innerHTML = `
                 <span>赛季：${seasonLabel || "-"}</span>
                 <span>榜单时间：${formatTime(data.ranking_cache_time || data.generated_at)}</span>
@@ -765,13 +857,9 @@
             const modeSuffix = currentMode === "purple" ? "_紫武" : "";
             const fileName = `${safeLabel}_${seasonLabel}_心法分布${modeSuffix}.png`;
             const openDetails = Array.from(card.querySelectorAll("details[open]"));
-            const exportMeta = document.createElement("div");
-            exportMeta.className = "export-meta";
-            exportMeta.textContent = `赛季：${window.currentSeasonLabel || "-"}`;
             try {
                 card.classList.add("is-exporting");
                 openDetails.forEach((detail) => detail.removeAttribute("open"));
-                card.insertBefore(exportMeta, card.firstChild);
                 const canvas = await window.html2canvas(card, {
                     backgroundColor: "#ffffff",
                     scale: 2,
@@ -784,7 +872,6 @@
             } catch (error) {
                 setStatus(`生成图片失败：${error.message || error}`, "error");
             } finally {
-                exportMeta.remove();
                 openDetails.forEach((detail) => detail.setAttribute("open", ""));
                 card.classList.remove("is-exporting");
             }

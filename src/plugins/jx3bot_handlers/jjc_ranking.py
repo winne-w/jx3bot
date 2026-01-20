@@ -12,8 +12,8 @@ def register(
     calculate_season_week_info: Callable[[int, float | None], str],
     get_ranking_kungfu_data: Callable[[dict], Awaitable[dict]],
     save_ranking_stats: Callable[[dict, dict, str], None],
-    generate_split_ranking_images: Callable[[Bot, Event, dict, str], Awaitable[None]],
-    generate_combined_ranking_image: Callable[[Bot, Event, dict, str], Awaitable[None]],
+    generate_split_ranking_images: Callable[[Bot, Event, dict, str, bool], Awaitable[None]],
+    generate_combined_ranking_image: Callable[[Bot, Event, dict, str, bool], Awaitable[None]],
 ) -> None:
     @zhanji_ranking_matcher.handle()
     async def zhanji_ranking_to_image(bot: Bot, event: Event) -> None:
@@ -22,6 +22,7 @@ def register(
             message_text_lower = message_text.lower()
             is_split_mode = "拆分" in message_text
             is_debug_mode = "debug" in message_text_lower
+            show_legendary = "橙武占比" in message_text
 
             if is_split_mode:
                 await bot.send(event, "正在统计竞技场心法排名（拆分模式），请稍候...")
@@ -75,9 +76,9 @@ def register(
             save_ranking_stats(ranking_result, stats, week_info)
 
             if is_split_mode:
-                await generate_split_ranking_images(bot, event, stats, week_info)
+                await generate_split_ranking_images(bot, event, stats, week_info, show_legendary)
             else:
-                await generate_combined_ranking_image(bot, event, stats, week_info)
+                await generate_combined_ranking_image(bot, event, stats, week_info, show_legendary)
 
             ranking_kungfu_lines = result.get("ranking_kungfu_lines", [])
             missing_kungfu_lines = result.get("missing_kungfu_lines", [])
