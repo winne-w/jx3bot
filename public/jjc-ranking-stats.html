@@ -126,6 +126,35 @@
             display: none;
         }
 
+        .tabs {
+            margin-top: 18px;
+            display: inline-flex;
+            gap: 8px;
+            padding: 6px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: var(--shadow);
+        }
+
+        .tab-btn {
+            border: none;
+            padding: 6px 16px;
+            border-radius: 999px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            color: var(--muted);
+            background: transparent;
+            transition: all 0.2s ease;
+        }
+
+        .tab-btn.active {
+            color: #ffffff;
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+            box-shadow: 0 8px 20px rgba(91, 124, 250, 0.25);
+        }
+
         .grid {
             margin-top: 28px;
             display: grid;
@@ -243,6 +272,8 @@
             border-radius: inherit;
             background: linear-gradient(90deg, var(--accent), var(--accent-2));
             transition: width 0.4s ease;
+            position: relative;
+            overflow: hidden;
         }
 
         .bar-value {
@@ -255,6 +286,14 @@
             color: var(--muted);
             text-align: right;
             font-size: 0.84rem;
+        }
+
+        .bar-legendary {
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: linear-gradient(90deg, rgba(245, 197, 66, 0.9), rgba(245, 168, 66, 0.9));
+            opacity: 0.85;
         }
 
         .bar-kungfu {
@@ -318,6 +357,26 @@
             gap: 8px;
             align-items: center;
             color: var(--muted);
+        }
+
+        .detail-name {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .detail-weapon {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex: 0 0 auto;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+        }
+
+        .detail-weapon.is-legendary {
+            border: 2px solid #f5c542;
+            box-shadow: 0 2px 8px rgba(245, 197, 66, 0.45);
         }
 
         .detail-rank {
@@ -387,6 +446,8 @@
         const subtitle = document.getElementById("subtitle");
         const grid = document.getElementById("grid");
         const statusNode = document.getElementById("status");
+        let currentStats = null;
+        let currentMode = "all";
 
         const listContainer = document.createElement("div");
         listContainer.className = "status";
@@ -397,6 +458,27 @@
         `;
         statusNode.insertAdjacentElement("afterend", listContainer);
         const dateSelect = listContainer.querySelector("#date-select");
+
+        const tabContainer = document.createElement("div");
+        tabContainer.className = "tabs";
+        tabContainer.innerHTML = `
+            <button class="tab-btn active" data-mode="all" type="button">全部排名</button>
+            <button class="tab-btn" data-mode="purple" type="button">紫武排名</button>
+        `;
+        listContainer.insertAdjacentElement("afterend", tabContainer);
+
+        tabContainer.addEventListener("click", (event) => {
+            const button = event.target.closest(".tab-btn");
+            if (!button) return;
+            const mode = button.dataset.mode || "all";
+            currentMode = mode;
+            tabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
+                btn.classList.toggle("active", btn === button);
+            });
+            if (currentStats) {
+                renderStats(currentStats, mode);
+            }
+        });
 
         function formatTime(timestamp) {
             if (!timestamp) {
@@ -457,11 +539,16 @@
             return list.map(([kungfu, count]) => {
                 const percent = validCount > 0 ? (count / validCount) * 100 : 0;
                 const members = (membersMap && membersMap[kungfu]) || [];
+                const legendaryCount = members.filter((member) => String(member.weapon_quality) === "5").length;
+                const legendaryPercent = members.length ? (legendaryCount / members.length) * 100 : 0;
                 const detailContent = members.length
                     ? members.map((member) => `
                         <div class="detail-item">
                             <div class="detail-rank">#${member.rank ?? "-"}</div>
-                            <div>${member.name ?? "未知"}·${member.server ?? "未知"}</div>
+                            <div class="detail-name">
+                                ${member.weapon_icon ? `<img class="detail-weapon${String(member.weapon_quality) === "5" ? " is-legendary" : ""}" src="${member.weapon_icon}" alt="weapon">` : ""}
+                                <span>${member.name ?? "未知"}·${member.server ?? "未知"}</span>
+                            </div>
                             <div class="detail-score">${member.score ?? "-"}</div>
                         </div>
                     `).join("")
@@ -470,23 +557,25 @@
                     <details class="detail">
                         <summary>
                             <div class="bar-row">
-                                <div class="bar-kungfu"><span class="arrow">›</span>${kungfu}</div>
-                                <div class="bar">
-                                    <div class="bar-fill" style="width:${(count / maxCount) * 100}%"></div>
+                            <div class="bar-kungfu"><span class="arrow">›</span>${kungfu}</div>
+                            <div class="bar">
+                                <div class="bar-fill" style="width:${(count / maxCount) * 100}%">
+                                    <div class="bar-legendary" style="width:${legendaryPercent}%"></div>
                                 </div>
-                                <div class="bar-value">${count}</div>
-                                <div class="bar-percent">${percent.toFixed(1)}%</div>
                             </div>
-                        </summary>
-                        <div class="detail-list">
-                            ${detailContent}
+                            <div class="bar-value">${count}</div>
+                            <div class="bar-percent">${percent.toFixed(1)}%</div>
+                        </div>
+                    </summary>
+                    <div class="detail-list">
+                        ${detailContent}
                         </div>
                     </details>
                 `;
             }).join("");
         }
 
-        function renderRangeCard(rangeLabel, stats) {
+        function renderRangeCard(rangeLabel, stats, mode) {
             const healer = stats.healer || {};
             const dps = stats.dps || {};
             const minScore = healer.min_score ?? dps.min_score ?? "-";
@@ -494,12 +583,13 @@
             const dpsList = dps.list || [];
             const healerMembers = healer.members || {};
             const dpsMembers = dps.members || {};
+            const titleSuffix = mode === "purple" && rangeLabel === "前1000" ? "（紫武）" : "";
 
             return `
                 <div class="range-card">
                     <div class="range-title">
                         <div class="range-heading">
-                            <h3>${rangeLabel} 心法分布</h3>
+                            <h3>${rangeLabel} 心法分布${titleSuffix}</h3>
                             <span>最低分数：${minScore}</span>
                         </div>
                         <button class="export-btn" type="button" data-range="${rangeLabel}" aria-label="分享统计图片">
@@ -521,6 +611,62 @@
             `;
         }
 
+        function buildFilteredLane(lane, mode) {
+            const membersMap = lane.members || {};
+            const filteredMembersMap = {};
+            const listItems = [];
+            let validCount = 0;
+
+            Object.keys(membersMap).forEach((kungfu) => {
+                const members = membersMap[kungfu] || [];
+                const filtered = mode === "purple"
+                    ? members.filter((member) => String(member.weapon_quality) !== "5")
+                    : members.slice();
+                if (filtered.length > 0) {
+                    filteredMembersMap[kungfu] = filtered;
+                }
+                validCount += filtered.length;
+                listItems.push([kungfu, filtered.length]);
+            });
+
+            listItems.sort((a, b) => b[1] - a[1]);
+
+            return {
+                valid_count: validCount,
+                list: listItems.filter((item) => item[1] > 0),
+                min_score: lane.min_score,
+                members: filteredMembersMap,
+            };
+        }
+
+        function buildFilteredStats(stats, mode) {
+            const result = {};
+            Object.keys(stats || {}).forEach((rangeKey) => {
+                const rangeStats = stats[rangeKey] || {};
+                if (!rangeStats.healer || !rangeStats.dps) {
+                    result[rangeKey] = rangeStats;
+                    return;
+                }
+                result[rangeKey] = {
+                    ...rangeStats,
+                    healer: buildFilteredLane(rangeStats.healer, mode),
+                    dps: buildFilteredLane(rangeStats.dps, mode),
+                };
+            });
+            return result;
+        }
+
+        function renderStats(statsPayload, mode) {
+            const stats = mode === "purple"
+                ? buildFilteredStats(statsPayload.kungfu_statistics || {}, "purple")
+                : (statsPayload.kungfu_statistics || {});
+
+            grid.innerHTML = rangeConfigs
+                .filter((config) => stats[config.key])
+                .map((config) => renderRangeCard(config.label, stats[config.key], mode))
+                .join("");
+        }
+
         function render(data) {
             const seasonLabel = data.current_season ? `${data.current_season}${data.week_info || ""}` : (data.week_info || "-");
             window.currentSeasonLabel = seasonLabel || "-";
@@ -529,11 +675,8 @@
                 <span>榜单时间：${formatTime(data.ranking_cache_time || data.generated_at)}</span>
             `;
 
-            const stats = data.kungfu_statistics || {};
-            grid.innerHTML = rangeConfigs
-                .filter((item) => stats[item.key])
-                .map((item) => renderRangeCard(item.label, stats[item.key]))
-                .join("");
+            currentStats = data;
+            renderStats(data, "all");
 
             if (!grid.innerHTML) {
                 grid.innerHTML = "<div class='range-card'>暂无统计数据</div>";
@@ -619,7 +762,8 @@
             }
             const safeLabel = (label || "心法统计").replace(/\s+/g, "");
             const seasonLabel = (window.currentSeasonLabel || "").replace(/\s+/g, "") || "赛季";
-            const fileName = `${safeLabel}_${seasonLabel}_心法分布.png`;
+            const modeSuffix = currentMode === "purple" ? "_紫武" : "";
+            const fileName = `${safeLabel}_${seasonLabel}_心法分布${modeSuffix}.png`;
             const openDetails = Array.from(card.querySelectorAll("details[open]"));
             const exportMeta = document.createElement("div");
             exportMeta.className = "export-meta";

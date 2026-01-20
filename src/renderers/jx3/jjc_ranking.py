@@ -8,7 +8,7 @@ from nonebot.adapters.onebot.v11 import Bot, Event, MessageSegment
 
 def _prepare_template_data(
     rank_data: dict[str, Any], rank_type: str
-) -> list[tuple[Any, Any, str, Any]]:
+) -> list[tuple[Any, Any, str, Any, float]]:
     if not rank_data or rank_type not in rank_data:
         return []
     sorted_list = rank_data[rank_type].get("list", [])
@@ -16,10 +16,24 @@ def _prepare_template_data(
         return []
     valid_count = rank_data[rank_type].get("valid_count", 0)
     min_score = rank_data[rank_type].get("min_score")
+    members_map = rank_data[rank_type].get("members", {}) or {}
     return [
-        (k, v, f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%", min_score)
+        (
+            k,
+            v,
+            f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%",
+            min_score,
+            _calculate_legendary_percent(members_map.get(k, [])),
+        )
         for k, v in sorted_list
     ]
+
+
+def _calculate_legendary_percent(members: list[dict[str, Any]]) -> float:
+    if not members:
+        return 0.0
+    legendary_count = sum(1 for item in members if str(item.get("weapon_quality")) == "5")
+    return legendary_count / len(members) * 100
 
 
 async def render_combined_ranking_image(

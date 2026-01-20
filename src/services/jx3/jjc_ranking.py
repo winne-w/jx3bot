@@ -23,6 +23,7 @@ class JjcRankingService:
     jjc_query_url: str
     arena_time_tag_url: str
     arena_ranking_url: str
+    match_detail_url: str
     jjc_ranking_cache_file: str
     jjc_ranking_cache_duration: int
     kungfu_cache_duration: int
@@ -176,6 +177,8 @@ class JjcRankingService:
                                 server,
                                 tuilan_request=self.tuilan_request,
                                 kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
+                                match_detail_url=self.match_detail_url,
+                                role_name=name,
                             )
                             kungfu_name = (kungfu_detail or {}).get("kungfu")
                             if kungfu_name:
@@ -210,6 +213,7 @@ class JjcRankingService:
         }
         if kungfu_detail:
             result.update(kungfu_detail)
+        result.setdefault("weapon_checked", True)
 
         self._cache().save_kungfu_cache(server, name, result)
 
@@ -286,6 +290,8 @@ class JjcRankingService:
                                 server,
                                 tuilan_request=self.tuilan_request,
                                 kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
+                                match_detail_url=self.match_detail_url,
+                                role_name=name,
                             )
                             kungfu_name = (kungfu_detail or {}).get("kungfu")
 
@@ -349,6 +355,7 @@ class JjcRankingService:
             "found": kungfu_info is not None,
             "cache_time": time.time(),
         }
+        result.setdefault("weapon_checked", True)
         cached = self._cache().load_kungfu_cache(server, name)
         if cached:
             cached.update(result)
@@ -409,6 +416,8 @@ class JjcRankingService:
                         "score": score,
                         "kungfu": kungfu_info.get("kungfu"),
                         "found": kungfu_info.get("found", False),
+                        "weapon_icon": kungfu_info.get("weapon_icon"),
+                        "weapon_quality": kungfu_info.get("weapon_quality"),
                     }
                 )
 
@@ -466,6 +475,8 @@ class JjcRankingService:
                                     "server": player_item.get("server", "未知"),
                                     "name": player_item.get("name", "未知"),
                                     "score": score,
+                                    "weapon_icon": player_item.get("weapon_icon"),
+                                    "weapon_quality": player_item.get("weapon_quality"),
                                 }
                             )
                         elif kungfu in dps_kungfu:
@@ -479,6 +490,8 @@ class JjcRankingService:
                                     "server": player_item.get("server", "未知"),
                                     "name": player_item.get("name", "未知"),
                                     "score": score,
+                                    "weapon_icon": player_item.get("weapon_icon"),
+                                    "weapon_quality": player_item.get("weapon_quality"),
                                 }
                             )
                         else:
