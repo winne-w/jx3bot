@@ -75,10 +75,15 @@ class JjcCacheRepo:
 
         cache_time = cached_data.get("cache_time", 0)
         kungfu_value = cached_data.get("kungfu")
+        weapon_checked = cached_data.get("weapon_checked", False)
 
         if kungfu_value not in [None, ""]:
             current_time = time.time()
-            if cache_time and current_time - cache_time < self.kungfu_cache_duration:
+            if (
+                cache_time
+                and current_time - cache_time < self.kungfu_cache_duration
+                and weapon_checked
+            ):
                 return cached_data
 
             cache_dt = datetime.fromtimestamp(cache_time).strftime("%Y-%m-%d %H:%M:%S") if cache_time else "未知"

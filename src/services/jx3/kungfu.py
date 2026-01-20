@@ -86,6 +86,75 @@ def get_match_history(
         return None
 
 
+def _extract_match_id(match: dict[str, Any]) -> int | None:
+    for key in ("match_id", "matchId", "matchID", "id"):
+        value = match.get(key)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _find_latest_win_match_id(matches: list[dict[str, Any]]) -> int | None:
+    for match in matches:
+        if match.get("won") is True:
+            match_id = _extract_match_id(match)
+            if match_id is not None:
+                return match_id
+    return None
+
+
+def _match_player_weapon(
+    match_detail: dict[str, Any],
+    *,
+    role_id: str | None,
+    global_role_id: str | None,
+    role_name: str | None,
+    server: str | None,
+) -> dict[str, Any] | None:
+    data = match_detail.get("data") if isinstance(match_detail, dict) else None
+    if not isinstance(data, dict):
+        return None
+
+    def _match_name(role_text: str | None) -> bool:
+        if not role_name:
+            return False
+        if not role_text:
+            return False
+        if role_text == role_name:
+            return True
+        return role_text.split("·")[0] == role_name
+
+    for team_key in ("team1", "team2"):
+        team = data.get(team_key)
+        if not isinstance(team, dict):
+            continue
+        players = team.get("players_info") or []
+        if not isinstance(players, list):
+            continue
+        for player in players:
+            if not isinstance(player, dict):
+                continue
+            if role_id and player.get("role_id") == role_id:
+                weapon = (player.get("armors") or [None])[0]
+            elif global_role_id and player.get("global_role_id") == global_role_id:
+                weapon = (player.get("armors") or [None])[0]
+            elif _match_name(player.get("person_name")) or _match_name(player.get("role_name")):
+                if server and player.get("server") not in (None, "", server):
+                    continue
+                weapon = (player.get("armors") or [None])[0]
+            else:
+                continue
+
+            if isinstance(weapon, dict):
+                return weapon
+            return None
+    return None
+
+
 def get_kungfu_detail_by_role_info(
     game_role_id: str,
     zone: str,
@@ -93,6 +162,8 @@ def get_kungfu_detail_by_role_info(
     *,
     tuilan_request: Callable[[str, dict[str, Any]], Any],
     kungfu_pinyin_to_chinese: dict[str, str],
+    match_detail_url: str | None = None,
+    role_name: str | None = None,
 ) -> dict[str, Any] | None:
     """
     心法判定（用于缓存落盘）：
@@ -167,6 +238,9 @@ def get_kungfu_detail_by_role_info(
     match_history_win_kungfu_samples: list[str] = []
     match_history_checked = 0
 
+    weapon_info: dict[str, Any] | None = None
+    weapon_checked = False
+
     if global_role_id:
         matches: list[dict[str, Any]] = []
         for cursor in (0, 20):
@@ -194,6 +268,23 @@ def get_kungfu_detail_by_role_info(
                 won_kungfus.append(match["kungfu"])
                 if len(won_kungfus) >= 10:
                     break
+
+        latest_win_match_id = _find_latest_win_match_id(matches)
+        if match_detail_url:
+            weapon_checked = True
+        if latest_win_match_id and match_detail_url:
+            try:
+                detail_resp = tuilan_request(match_detail_url, {"match_id": latest_win_match_id})
+                if isinstance(detail_resp, dict) and detail_resp.get("code") == 0:
+                    weapon_info = _match_player_weapon(
+                        detail_resp,
+                        role_id=role_id,
+                        global_role_id=global_role_id,
+                        role_name=role_name,
+                        server=server,
+                    )
+            except Exception as exc:
+                print(f"\n❌ 获取战局详情失败: {exc}")
 
         if len(won_kungfus) >= 10:
             sample = won_kungfus[:10]
@@ -225,7 +316,7 @@ def get_kungfu_detail_by_role_info(
             chosen_kungfu_pinyin = match_history_kungfu_pinyin
             chosen_kungfu_name = match_history_kungfu_name
 
-    return {
+    result = {
         "role_id": role_id,
         "global_role_id": global_role_id,
         "kungfu": chosen_kungfu_name,
@@ -238,6 +329,12 @@ def get_kungfu_detail_by_role_info(
         "match_history_checked": match_history_checked,
         "match_history_win_samples": match_history_win_kungfu_samples,
     }
+    if weapon_info:
+        result["weapon"] = weapon_info
+        result["weapon_icon"] = weapon_info.get("icon")
+        result["weapon_quality"] = weapon_info.get("quality")
+    result["weapon_checked"] = weapon_checked
+    return result
 
 
 def get_kungfu_by_role_info(

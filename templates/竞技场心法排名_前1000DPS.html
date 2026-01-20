@@ -59,6 +59,20 @@
             position: relative;
             transition: width 0.3s;
         }
+        .bar-fill {
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #89C4F4 0%, #FF79B0 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .bar-legendary {
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: linear-gradient(90deg, rgba(245, 197, 66, 0.9), rgba(245, 168, 66, 0.9));
+            opacity: 0.85;
+        }
         .bar-value {
             margin-left: 15px;
             font-size: 1.1rem;
@@ -79,10 +93,14 @@
     <div class="chart-container">
         <div class="chart-title">前1000 DPS心法{% if top_1000_dps and top_1000_dps[0][3] is not none %} （{{ top_1000_dps[0][3] }}）{% endif %}</div>
         {% set max_count = top_1000_dps[0][1] if top_1000_dps else 1 %}
-        {% for kungfu, count, percent, min_score in top_1000_dps %}
+        {% for kungfu, count, percent, min_score, legendary_percent in top_1000_dps %}
         <div class="bar-row">
             <div class="bar-label">{{ kungfu }}</div>
-            <div class="bar" style="width:{{ 500 * count / max_count }}px;"></div>
+            <div class="bar" style="width:{{ 500 * count / max_count }}px;">
+                <div class="bar-fill">
+                    <div class="bar-legendary" style="width:{{ legendary_percent }}%;"></div>
+                </div>
+            </div>
             <div class="bar-value">{{ count }}</div>
             <div class="bar-percent">{{ percent }}</div>
         </div>
