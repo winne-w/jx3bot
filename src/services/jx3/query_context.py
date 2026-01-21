@@ -130,6 +130,7 @@ def build_jjc_spec_or_text(
     server: str,
     time_filter: Callable[..., Any],
     jjc_time_filter: Callable[..., Any],
+    duration_filter: Callable[..., Any],
     random_text: str,
 ) -> tuple[RenderSpec | None, str | None]:
     payload = data["data"]
@@ -147,7 +148,7 @@ def build_jjc_spec_or_text(
             context={"items": payload, "id": role_name, "qufu": server, "text": random_text},
             width=955,
             height="ck",
-            filters={"time": time_filter, "jjctime": jjc_time_filter},
+            filters={"time": time_filter, "jjctime": jjc_time_filter, "duration": duration_filter},
         ),
         None,
     )

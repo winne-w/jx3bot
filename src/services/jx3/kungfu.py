@@ -30,7 +30,7 @@ def get_role_indicator(
     params = {"role_id": role_id, "zone": zone, "server": server}
 
     logger.info(
-        "正在获取角色信息: url=%s params=%s",
+        "正在获取角色信息: url={} params={}",
         url,
         json.dumps(params, ensure_ascii=False),
     )
@@ -48,7 +48,7 @@ def get_role_indicator(
         rank_text = f"#{rank}" if rank is not None else "#-"
         name_text = name or "未知"
         server_text = server or "未知"
-        logger.info("角色信息获取成功: %s %s %s", rank_text, server_text, name_text)
+        logger.info("角色信息获取成功: {} {} {}", rank_text, server_text, name_text)
         return result
     except Exception as exc:
         logger.exception("获取角色信息异常: %s", exc)
