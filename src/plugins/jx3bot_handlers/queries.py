@@ -23,6 +23,7 @@ from src.services.jx3.query_context import (
 from src.utils.defget import get_image
 from src.utils.jjc_text import jjcdaxiaoxie
 from src.utils.random_text import suijitext
+from src.utils.time_format import format_minutes_seconds
 from src.utils.time_utils import time_ago_filter, time_ago_fenzhong, timestamp_jjc
 
 
@@ -176,6 +177,7 @@ def register(
             server=server,
             time_filter=time_ago_fenzhong,
             jjc_time_filter=jjcdaxiaoxie,
+            duration_filter=format_minutes_seconds,
             random_text=suijitext(),
         )
         if error_text:

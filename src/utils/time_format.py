@@ -20,3 +20,9 @@ def format_time_duration(seconds: float) -> str:
         parts.append(f"{seconds}秒")
 
     return "".join(parts)
+
+
+def format_minutes_seconds(seconds: float) -> str:
+    total_seconds = int(max(seconds, 0))
+    minutes, remaining_seconds = divmod(total_seconds, 60)
+    return f"{minutes}分钟{remaining_seconds}秒"
