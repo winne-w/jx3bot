@@ -671,7 +671,7 @@
             const dpsList = dps.list || [];
             const healerMembers = healer.members || {};
             const dpsMembers = dps.members || {};
-            const titleSuffix = mode === "purple" && rangeLabel === "前1000" ? "（紫武）" : "";
+            const titleSuffix = mode === "purple" ? "（紫武）" : "";
             const showMeta = ["前1000", "前200", "前100", "前50"].includes(rangeLabel);
             const seasonText = window.currentSeasonLabel || "-";
 
