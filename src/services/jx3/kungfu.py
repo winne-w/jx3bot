@@ -4,6 +4,15 @@ import json
 from collections import Counter
 from typing import Any, Callable
 
+try:
+    from nonebot import logger  # type: ignore
+except Exception:  # pragma: no cover
+    import logging
+
+    logger = logging.getLogger(__name__)
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO)
+
 
 def get_role_indicator(
     role_id: str,
@@ -11,6 +20,8 @@ def get_role_indicator(
     server: str,
     *,
     tuilan_request: Callable[[str, dict[str, Any]], Any],
+    rank: int | None = None,
+    name: str | None = None,
 ) -> dict[str, Any] | None:
     """
     获取角色详细信息
@@ -18,28 +29,29 @@ def get_role_indicator(
     url = "https://m.pvp.xoyo.com/role/indicator"
     params = {"role_id": role_id, "zone": zone, "server": server}
 
-    print("正在获取角色信息...")
-    print(f"请求地址: {url}")
-    print(f"请求参数: {json.dumps(params, ensure_ascii=False, indent=2)}")
+    logger.info(
+        "正在获取角色信息: url=%s params=%s",
+        url,
+        json.dumps(params, ensure_ascii=False),
+    )
 
     try:
         result = tuilan_request(url, params)
         if result is None:
-            print("\n❌ 获取角色信息失败: 请求返回None")
+            logger.warning("获取角色信息失败: 返回None")
             return None
 
         if "error" in result:
-            print(f"\n❌ 获取角色信息失败: {result['error']}")
+            logger.warning("获取角色信息失败: %s", result.get("error"))
             return None
 
-        print("\n✅ 角色信息获取成功")
-        print(f"响应数据: {json.dumps(result, ensure_ascii=False, indent=2)}")
+        rank_text = f"#{rank}" if rank is not None else "#-"
+        name_text = name or "未知"
+        server_text = server or "未知"
+        logger.info("角色信息获取成功: %s %s %s", rank_text, server_text, name_text)
         return result
     except Exception as exc:
-        print(f"\n❌ 获取角色信息时发生异常: {exc}")
-        import traceback
-
-        traceback.print_exc()
+        logger.exception("获取角色信息异常: %s", exc)
         return None
 
 
@@ -164,6 +176,7 @@ def get_kungfu_detail_by_role_info(
     kungfu_pinyin_to_chinese: dict[str, str],
     match_detail_url: str | None = None,
     role_name: str | None = None,
+    rank: int | None = None,
 ) -> dict[str, Any] | None:
     """
     心法判定（用于缓存落盘）：
@@ -174,7 +187,14 @@ def get_kungfu_detail_by_role_info(
     if game_role_id == "未知" or server == "未知" or zone == "未知":
         return None
 
-    role_detail = get_role_indicator(game_role_id, zone, server, tuilan_request=tuilan_request)
+    role_detail = get_role_indicator(
+        game_role_id,
+        zone,
+        server,
+        tuilan_request=tuilan_request,
+        rank=rank,
+        name=role_name,
+    )
     if not role_detail or "data" not in role_detail or not role_detail["data"]:
         return None
 
@@ -226,10 +246,16 @@ def get_kungfu_detail_by_role_info(
                         best_total_metric.get("kungfu"), best_total_metric.get("kungfu")
                     )
                     if indicator_kungfu_name != total_kungfu:
-                        print(
-                            f"⚠️ 胜场/场次心法不一致: role_id={game_role_id}, zone={zone}, "
-                            f"server={server}, win_count={indicator_kungfu_name}({max_win_count}), "
-                            f"total_count={total_kungfu}({max_total_count})"
+                        logger.info(
+                            "⚠️ 胜场/场次心法不一致: role_id={} zone={} server={} "
+                            "win_count={}({}) total_count={}({})",
+                            game_role_id,
+                            zone,
+                            server,
+                            indicator_kungfu_name,
+                            max_win_count,
+                            total_kungfu,
+                            max_total_count,
                         )
                 break
 
@@ -243,23 +269,16 @@ def get_kungfu_detail_by_role_info(
 
     if global_role_id:
         matches: list[dict[str, Any]] = []
-        for cursor in (0, 20):
-            resp = get_match_history(
-                global_role_id,
-                size=20,
-                cursor=cursor,
-                tuilan_request=tuilan_request,
-            )
-            if not resp or not isinstance(resp, dict):
-                break
-            if resp.get("code") != 0 or resp.get("msg") != "success":
-                break
+        resp = get_match_history(
+            global_role_id,
+            size=40,
+            cursor=0,
+            tuilan_request=tuilan_request,
+        )
+        if resp and isinstance(resp, dict) and resp.get("code") == 0 and resp.get("msg") == "success":
             page_data = resp.get("data") or []
-            if not isinstance(page_data, list):
-                break
-            matches.extend([m for m in page_data if isinstance(m, dict)])
-            if len(page_data) < 20:
-                break
+            if isinstance(page_data, list):
+                matches.extend([m for m in page_data if isinstance(m, dict)])
 
         match_history_checked = min(40, len(matches))
         won_kungfus: list[str] = []
@@ -284,7 +303,7 @@ def get_kungfu_detail_by_role_info(
                         server=server,
                     )
             except Exception as exc:
-                print(f"\n❌ 获取战局详情失败: {exc}")
+                logger.exception("获取战局详情失败: %s", exc)
 
         if len(won_kungfus) >= 10:
             sample = won_kungfus[:10]

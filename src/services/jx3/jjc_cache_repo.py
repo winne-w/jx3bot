@@ -65,6 +65,7 @@ class JjcCacheRepo:
     def load_kungfu_cache(self, server: str, name: str) -> dict[str, Any] | None:
         cache_file = self.kungfu_cache_path(server, name)
         if not os.path.exists(cache_file):
+            logger.info(f"心法缓存未命中: server={server} name={name} reason=cache_file_missing")
             return None
         try:
             with open(cache_file, "r", encoding="utf-8") as file_handle:
@@ -79,19 +80,31 @@ class JjcCacheRepo:
 
         if kungfu_value not in [None, ""]:
             current_time = time.time()
-            if (
+            cache_age = current_time - cache_time if cache_time else None
+            cache_fresh = (
                 cache_time
-                and current_time - cache_time < self.kungfu_cache_duration
+                and cache_age is not None
+                and cache_age < self.kungfu_cache_duration
                 and weapon_checked
-            ):
+            )
+            if cache_fresh:
+                logger.info(f"使用心法缓存: server={server} name={name} cache_time={cache_time}")
                 return cached_data
 
+            reasons = []
+            if not cache_time:
+                reasons.append("missing_cache_time")
+            elif cache_age is not None and cache_age >= self.kungfu_cache_duration:
+                reasons.append("cache_time_expired")
+            if not weapon_checked:
+                reasons.append("weapon_not_checked")
             cache_dt = datetime.fromtimestamp(cache_time).strftime("%Y-%m-%d %H:%M:%S") if cache_time else "未知"
+            reason_text = ",".join(reasons) if reasons else "unknown"
             logger.info(
-                f"心法缓存过期，重新请求: server={server} name={name} cache_time={cache_dt}"
+                f"心法缓存不命中: server={server} name={name} cache_time={cache_dt} reason={reason_text}"
             )
         else:
-            logger.info(f"心法缓存为空，重新请求: server={server} name={name}")
+            logger.info(f"心法缓存不命中: server={server} name={name} reason=kungfu_empty")
 
         return None
 

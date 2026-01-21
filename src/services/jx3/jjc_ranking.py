@@ -179,6 +179,7 @@ class JjcRankingService:
                                 kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
                                 match_detail_url=self.match_detail_url,
                                 role_name=name,
+                                rank=None,
                             )
                             kungfu_name = (kungfu_detail or {}).get("kungfu")
                             if kungfu_name:
@@ -239,15 +240,16 @@ class JjcRankingService:
             }
             with open(stats_path, "w", encoding="utf-8") as file_handle:
                 json.dump(stats_payload, file_handle, ensure_ascii=False, indent=2)
-            logger.info("保存竞技场统计结果: {}", stats_path)
+            logger.info("保存竞技场统计结果: %s", stats_path)
         except Exception as exc:
-            logger.warning("保存竞技场统计结果失败: {}", exc)
+            logger.warning("保存竞技场统计结果失败: %s", exc)
 
     async def get_user_kungfu(
         self,
         server: str,
         name: str,
         ranking_data: dict[str, Any] | None = None,
+        rank: int | None = None,
     ) -> dict[str, Any]:
         cached = self._cache().load_kungfu_cache(server, name)
         if cached:
@@ -292,6 +294,7 @@ class JjcRankingService:
                                 kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
                                 match_detail_url=self.match_detail_url,
                                 role_name=name,
+                                rank=rank,
                             )
                             kungfu_name = (kungfu_detail or {}).get("kungfu")
 
@@ -385,7 +388,12 @@ class JjcRankingService:
                 if name and "·" in name:
                     name = name.split("·")[0]
 
-                kungfu_info = await self.get_user_kungfu(server, name, ranking_data=ranking_data)
+                kungfu_info = await self.get_user_kungfu(
+                    server,
+                    name,
+                    ranking_data=ranking_data,
+                    rank=i + 1,
+                )
                 indicator_kungfu = kungfu_info.get("kungfu_indicator")
                 match_history_kungfu = kungfu_info.get("kungfu_match_history")
                 if (
