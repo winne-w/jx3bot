@@ -432,7 +432,14 @@ class JjcRankingService:
                 if kungfu_info.get("found") and kungfu_info.get("kungfu"):
                     ranking_kungfu_lines.append(f"{i + 1}. {server} {name} - {kungfu_info['kungfu']}")
                 else:
-                    missing_kungfu_lines.append(f"{i + 1}. {server} {name}")
+                    role_id = (
+                        person_info.get("gameRoleId")
+                        or person_info.get("globalRoleId")
+                        or kungfu_info.get("role_id")
+                        or kungfu_info.get("global_role_id")
+                        or "未知"
+                    )
+                    missing_kungfu_lines.append(f"{i + 1}. {server} {name} - id:{role_id}")
 
             def count_kungfu_by_rank(player_data: list[dict[str, Any]], max_rank: int) -> dict[str, Any]:
                 healer_kungfu = self.kungfu_healer_list
