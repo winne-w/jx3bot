@@ -627,7 +627,7 @@
                 const percent = validCount > 0 ? (count / validCount) * 100 : 0;
                 const members = (membersMap && membersMap[kungfu]) || [];
                 const legendaryCount = members.filter((member) => String(member.weapon_quality) === "5").length;
-                const legendaryPercent = members.length ? (legendaryCount / members.length) * 100 : 0;
+                const legendaryPercent = maxCount > 0 ? (legendaryCount / maxCount) * 100 : 0;
                 const overlayPercent = showLegendaryOverlay ? legendaryPercent : 0;
                 const detailContent = members.length
                     ? members.map((member) => `
