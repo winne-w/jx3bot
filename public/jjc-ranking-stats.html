@@ -444,6 +444,27 @@
             box-shadow: 0 2px 8px rgba(245, 197, 66, 0.45);
         }
 
+        .detail-kungfu-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 4px;
+        }
+
+        .detail-kungfu {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            object-fit: cover;
+            background: #fff;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        .detail-kungfu.is-legendary {
+            border: 2px solid #f5c542;
+            box-shadow: 0 2px 8px rgba(245, 197, 66, 0.45);
+        }
+
         .detail-rank {
             font-weight: 700;
             color: var(--ink);
@@ -630,16 +651,40 @@
                 const legendaryPercent = members.length ? (legendaryCount / members.length) * 100 : 0;
                 const overlayPercent = showLegendaryOverlay ? legendaryPercent : 0;
                 const detailContent = members.length
-                    ? members.map((member) => `
+                    ? members.map((member) => {
+                        const kungfuIcons = [];
+                        if (member.kungfu_id) {
+                            const isLegendary = String(member.weapon_quality) === "5";
+                            kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${member.kungfu_id}.png" alt="kungfu">`);
+                        }
+                        if (Array.isArray(member.teammates)) {
+                            member.teammates.forEach((teammate) => {
+                                if (teammate && teammate.kungfu_id) {
+                                    const displayName = teammate.role_name || teammate.person_name || "未知";
+                                    const displayServer = teammate.server || "未知";
+                                    const tooltip = `${displayName}·${displayServer}`;
+                                    const isLegendary = String(teammate.weapon_quality) === "5";
+                                    kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate" title="${tooltip}">`);
+                                }
+                            });
+                        }
+                        const kungfuRow = kungfuIcons.length
+                            ? `<div class="detail-kungfu-row">${kungfuIcons.join("")}</div>`
+                            : "";
+                        return `
                         <div class="detail-item">
                             <div class="detail-rank">#${member.rank ?? "-"}</div>
                             <div class="detail-name">
                                 ${member.weapon_icon ? `<img class="detail-weapon${String(member.weapon_quality) === "5" ? " is-legendary" : ""}" src="${member.weapon_icon}" alt="weapon">` : ""}
-                                <span>${member.name ?? "未知"}·${member.server ?? "未知"}</span>
+                                <div>
+                                    <div>${member.name ?? "未知"}·${member.server ?? "未知"}</div>
+                                    ${kungfuRow}
+                                </div>
                             </div>
                             <div class="detail-score">${member.score ?? "-"}</div>
                         </div>
-                    `).join("")
+                    `;
+                    }).join("")
                     : "<div class='muted'>暂无明细</div>";
                 return `
                     <details class="detail">

@@ -119,17 +119,17 @@ def _find_latest_win_match_id(matches: list[dict[str, Any]]) -> int | None:
     return None
 
 
-def _match_player_weapon(
+def _match_player_and_teammates(
     match_detail: dict[str, Any],
     *,
     role_id: str | None,
     global_role_id: str | None,
     role_name: str | None,
     server: str | None,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, int | str | None, list[dict[str, Any]]]:
     data = match_detail.get("data") if isinstance(match_detail, dict) else None
     if not isinstance(data, dict):
-        return None
+        return None, None, []
 
     def _match_name(role_text: str | None) -> bool:
         if not role_name:
@@ -139,6 +139,20 @@ def _match_player_weapon(
         if role_text == role_name:
             return True
         return role_text.split("·")[0] == role_name
+
+    def _is_target(player: dict[str, Any]) -> bool:
+        if role_id and player.get("role_id") == role_id:
+            return True
+        if global_role_id and player.get("global_role_id") == global_role_id:
+            return True
+        if _match_name(player.get("person_name")) or _match_name(player.get("role_name")):
+            if server and player.get("server") not in (None, "", server):
+                return False
+            return True
+        return False
+
+    target_player: dict[str, Any] | None = None
+    target_team_players: list[dict[str, Any]] = []
 
     for team_key in ("team1", "team2"):
         team = data.get(team_key)
@@ -150,21 +164,44 @@ def _match_player_weapon(
         for player in players:
             if not isinstance(player, dict):
                 continue
-            if role_id and player.get("role_id") == role_id:
-                weapon = (player.get("armors") or [None])[0]
-            elif global_role_id and player.get("global_role_id") == global_role_id:
-                weapon = (player.get("armors") or [None])[0]
-            elif _match_name(player.get("person_name")) or _match_name(player.get("role_name")):
-                if server and player.get("server") not in (None, "", server):
-                    continue
-                weapon = (player.get("armors") or [None])[0]
-            else:
-                continue
+            if _is_target(player):
+                target_player = player
+                target_team_players = [p for p in players if isinstance(p, dict)]
+                break
+        if target_player:
+            break
 
-            if isinstance(weapon, dict):
-                return weapon
-            return None
-    return None
+    if not target_player:
+        return None, None, []
+
+    weapon_info = (target_player.get("armors") or [None])[0]
+    if not isinstance(weapon_info, dict):
+        weapon_info = None
+    target_kungfu_id = target_player.get("kungfu_id")
+
+    teammates: list[dict[str, Any]] = []
+    for player in target_team_players:
+        if not isinstance(player, dict):
+            continue
+        if _is_target(player):
+            continue
+        teammate: dict[str, Any] = {
+            "role_name": player.get("role_name") or player.get("person_name"),
+            "person_name": player.get("person_name"),
+            "person_id": player.get("person_id"),
+            "server": player.get("server"),
+            "role_id": player.get("role_id"),
+            "global_role_id": player.get("global_role_id"),
+            "kungfu_id": player.get("kungfu_id"),
+        }
+        teammate_weapon = (player.get("armors") or [None])[0]
+        if isinstance(teammate_weapon, dict):
+            teammate["weapon"] = teammate_weapon
+            teammate["weapon_icon"] = teammate_weapon.get("icon")
+            teammate["weapon_quality"] = teammate_weapon.get("quality")
+        teammates.append(teammate)
+
+    return weapon_info, target_kungfu_id, teammates
 
 
 def get_kungfu_detail_by_role_info(
@@ -265,6 +302,8 @@ def get_kungfu_detail_by_role_info(
     match_history_checked = 0
 
     weapon_info: dict[str, Any] | None = None
+    kungfu_id: int | str | None = None
+    teammates: list[dict[str, Any]] = []
     weapon_checked = False
 
     if global_role_id:
@@ -295,7 +334,7 @@ def get_kungfu_detail_by_role_info(
             try:
                 detail_resp = tuilan_request(match_detail_url, {"match_id": latest_win_match_id})
                 if isinstance(detail_resp, dict) and detail_resp.get("code") == 0:
-                    weapon_info = _match_player_weapon(
+                    weapon_info, kungfu_id, teammates = _match_player_and_teammates(
                         detail_resp,
                         role_id=role_id,
                         global_role_id=global_role_id,
@@ -352,7 +391,12 @@ def get_kungfu_detail_by_role_info(
         result["weapon"] = weapon_info
         result["weapon_icon"] = weapon_info.get("icon")
         result["weapon_quality"] = weapon_info.get("quality")
+    if kungfu_id is not None:
+        result["kungfu_id"] = kungfu_id
+    if teammates:
+        result["teammates"] = teammates
     result["weapon_checked"] = weapon_checked
+    result["teammates_checked"] = weapon_checked
     return result
 
 
