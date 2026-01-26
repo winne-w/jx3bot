@@ -660,11 +660,8 @@
                         if (Array.isArray(member.teammates)) {
                             member.teammates.forEach((teammate) => {
                                 if (teammate && teammate.kungfu_id) {
-                                    const displayName = teammate.role_name || teammate.person_name || "未知";
-                                    const displayServer = teammate.server || "未知";
-                                    const tooltip = `${displayName}·${displayServer}`;
                                     const isLegendary = String(teammate.weapon_quality) === "5";
-                                    kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate" title="${tooltip}">`);
+                                    kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate">`);
                                 }
                             });
                         }
