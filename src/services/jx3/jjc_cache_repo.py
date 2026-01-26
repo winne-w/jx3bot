@@ -62,6 +62,17 @@ class JjcCacheRepo:
         os.makedirs(cache_dir, exist_ok=True)
         return os.path.join(cache_dir, f"{server}_{name}.json")
 
+    def load_kungfu_cache_raw(self, server: str, name: str) -> dict[str, Any] | None:
+        cache_file = self.kungfu_cache_path(server, name)
+        if not os.path.exists(cache_file):
+            return None
+        try:
+            with open(cache_file, "r", encoding="utf-8") as file_handle:
+                return json.load(file_handle)
+        except Exception as exc:
+            logger.warning(f"读取心法缓存失败(原始): file={cache_file} error={exc}")
+            return None
+
     def load_kungfu_cache(self, server: str, name: str) -> dict[str, Any] | None:
         cache_file = self.kungfu_cache_path(server, name)
         if not os.path.exists(cache_file):
