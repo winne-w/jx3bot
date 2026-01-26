@@ -88,6 +88,13 @@ class JjcCacheRepo:
         cache_time = cached_data.get("cache_time", 0)
         kungfu_value = cached_data.get("kungfu")
         weapon_checked = cached_data.get("weapon_checked", False)
+        teammates_checked = cached_data.get("teammates_checked", False)
+        teammates = cached_data.get("teammates")
+        teammates_ok = (
+            isinstance(teammates, list)
+            and len(teammates) > 0
+            and all(isinstance(item, dict) and item.get("kungfu_id") not in (None, "") for item in teammates)
+        )
 
         if kungfu_value not in [None, ""]:
             current_time = time.time()
@@ -97,6 +104,8 @@ class JjcCacheRepo:
                 and cache_age is not None
                 and cache_age < self.kungfu_cache_duration
                 and weapon_checked
+                and teammates_checked
+                and teammates_ok
             )
             if cache_fresh:
                 logger.info(f"使用心法缓存: server={server} name={name} cache_time={cache_time}")
@@ -109,6 +118,10 @@ class JjcCacheRepo:
                 reasons.append("cache_time_expired")
             if not weapon_checked:
                 reasons.append("weapon_not_checked")
+            if not teammates_checked:
+                reasons.append("teammates_not_checked")
+            if not teammates_ok:
+                reasons.append("teammates_kungfu_id_missing")
             cache_dt = datetime.fromtimestamp(cache_time).strftime("%Y-%m-%d %H:%M:%S") if cache_time else "未知"
             reason_text = ",".join(reasons) if reasons else "unknown"
             logger.info(

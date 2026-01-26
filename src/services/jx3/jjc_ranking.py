@@ -56,12 +56,18 @@ class JjcRankingService:
         cached_weapon = cached.get("weapon")
         cached_icon = cached.get("weapon_icon")
         cached_quality = cached.get("weapon_quality")
+        cached_teammates = cached.get("teammates")
+        cached_teammates_checked = cached.get("teammates_checked")
         if cached_weapon and not result.get("weapon"):
             result["weapon"] = cached_weapon
         if cached_icon and not result.get("weapon_icon"):
             result["weapon_icon"] = cached_icon
         if cached_quality and not result.get("weapon_quality"):
             result["weapon_quality"] = cached_quality
+        if cached_teammates and not result.get("teammates"):
+            result["teammates"] = cached_teammates
+        if cached_teammates_checked and not result.get("teammates_checked"):
+            result["teammates_checked"] = cached_teammates_checked
 
     @staticmethod
     def _coerce_score(value: Any) -> int | None:
@@ -441,6 +447,8 @@ class JjcRankingService:
                         "score": score,
                         "kungfu": kungfu_info.get("kungfu"),
                         "found": kungfu_info.get("found", False),
+                        "kungfu_id": kungfu_info.get("kungfu_id"),
+                        "teammates": kungfu_info.get("teammates"),
                         "weapon_icon": kungfu_info.get("weapon_icon"),
                         "weapon_quality": kungfu_info.get("weapon_quality"),
                     }
@@ -507,6 +515,8 @@ class JjcRankingService:
                                     "server": player_item.get("server", "未知"),
                                     "name": player_item.get("name", "未知"),
                                     "score": score,
+                                    "kungfu_id": player_item.get("kungfu_id"),
+                                    "teammates": player_item.get("teammates"),
                                     "weapon_icon": player_item.get("weapon_icon"),
                                     "weapon_quality": player_item.get("weapon_quality"),
                                 }
@@ -522,6 +532,8 @@ class JjcRankingService:
                                     "server": player_item.get("server", "未知"),
                                     "name": player_item.get("name", "未知"),
                                     "score": score,
+                                    "kungfu_id": player_item.get("kungfu_id"),
+                                    "teammates": player_item.get("teammates"),
                                     "weapon_icon": player_item.get("weapon_icon"),
                                     "weapon_quality": player_item.get("weapon_quality"),
                                 }
