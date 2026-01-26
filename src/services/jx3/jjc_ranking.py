@@ -49,6 +49,20 @@ class JjcRankingService:
             kungfu_cache_duration=self.kungfu_cache_duration,
         )
 
+    def _merge_cached_weapon(self, server: str, name: str, result: dict[str, Any]) -> None:
+        cached = self._cache().load_kungfu_cache_raw(server, name)
+        if not cached:
+            return
+        cached_weapon = cached.get("weapon")
+        cached_icon = cached.get("weapon_icon")
+        cached_quality = cached.get("weapon_quality")
+        if cached_weapon and not result.get("weapon"):
+            result["weapon"] = cached_weapon
+        if cached_icon and not result.get("weapon_icon"):
+            result["weapon_icon"] = cached_icon
+        if cached_quality and not result.get("weapon_quality"):
+            result["weapon_quality"] = cached_quality
+
     @staticmethod
     def _coerce_score(value: Any) -> int | None:
         if value is None:
@@ -215,6 +229,7 @@ class JjcRankingService:
         if kungfu_detail:
             result.update(kungfu_detail)
         result.setdefault("weapon_checked", True)
+        self._merge_cached_weapon(server, name, result)
 
         self._cache().save_kungfu_cache(server, name, result)
 
@@ -308,6 +323,7 @@ class JjcRankingService:
                                 **(kungfu_detail or {}),
                             }
                             result["found"] = result.get("kungfu") is not None
+                            self._merge_cached_weapon(server, name, result)
 
                             self._cache().save_kungfu_cache(server, name, result)
                             if result["found"]:
@@ -359,6 +375,7 @@ class JjcRankingService:
             "cache_time": time.time(),
         }
         result.setdefault("weapon_checked", True)
+        self._merge_cached_weapon(server, name, result)
         cached = self._cache().load_kungfu_cache(server, name)
         if cached:
             cached.update(result)
