@@ -451,6 +451,41 @@
             margin-top: 4px;
         }
 
+        .detail-kungfu-wrap {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .detail-kungfu-wrap::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translate(-50%, -4px);
+            background: rgba(30, 40, 55, 0.92);
+            color: #ffffff;
+            font-size: 0.78rem;
+            padding: 4px 8px;
+            border-radius: 8px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+        }
+
+        .detail-kungfu-wrap[data-tooltip=""]::after {
+            display: none;
+        }
+
+        .detail-kungfu-wrap:hover::after {
+            opacity: 1;
+            transform: translate(-50%, -10px);
+        }
+
         .detail-kungfu {
             width: 18px;
             height: 18px;
@@ -661,7 +696,9 @@
                             member.teammates.forEach((teammate) => {
                                 if (teammate && teammate.kungfu_id) {
                                     const isLegendary = String(teammate.weapon_quality) === "5";
-                                    kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate">`);
+                                    const teammateName = teammate.role_name ?? "未知";
+                                    const tooltip = `${teammateName}`;
+                                    kungfuIcons.push(`<span class="detail-kungfu-wrap" data-tooltip="${tooltip}"><img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate"></span>`);
                                 }
                             });
                         }
