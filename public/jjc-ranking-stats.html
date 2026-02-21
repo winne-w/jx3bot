@@ -623,7 +623,7 @@
             });
         }
 
-        function formatTime(timestamp) {
+        function formatTime(timestamp, includeWeekday = false) {
             if (!timestamp) {
                 return "未知时间";
             }
@@ -631,7 +631,7 @@
             if (Number.isNaN(date.getTime())) {
                 return "未知时间";
             }
-            return date.toLocaleString("zh-CN", {
+            const options = {
                 hour12: false,
                 year: "numeric",
                 month: "2-digit",
@@ -639,7 +639,11 @@
                 hour: "2-digit",
                 minute: "2-digit",
                 second: "2-digit",
-            });
+            };
+            if (includeWeekday) {
+                options.weekday = "short";
+            }
+            return date.toLocaleString("zh-CN", options);
         }
 
         function setStatus(message, type) {
@@ -659,7 +663,7 @@
                 .sort((a, b) => Number(b) - Number(a))
                 .map((value) => ({
                     value: String(value),
-                    label: formatTime(Number(value)),
+                    label: formatTime(Number(value), true),
                 }));
             if (!items.length) {
                 listContainer.textContent = "暂无可用日期数据";
@@ -860,6 +864,15 @@
             return `${readApiBase}${joiner}timestamp=${encodeURIComponent(timestamp)}`;
         }
 
+        function updateUrlTimestamp(timestamp) {
+            if (!timestamp) {
+                return;
+            }
+            const url = new URL(window.location.href);
+            url.searchParams.set("timestamp", String(timestamp));
+            window.history.replaceState({}, "", url.toString());
+        }
+
         function unwrapResponse(payload) {
             if (!payload || typeof payload !== "object") {
                 throw new Error("响应格式异常");
@@ -878,6 +891,7 @@
                 setStatus("缺少 timestamp 参数，无法读取统计数据", "error");
                 return;
             }
+            updateUrlTimestamp(timestamp);
             const apiUrl = buildReadUrl(timestamp);
             setStatus(`请求接口：${apiUrl}`);
             try {
