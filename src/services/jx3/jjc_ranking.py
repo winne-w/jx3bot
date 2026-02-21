@@ -23,6 +23,7 @@ class JjcRankingService:
     jjc_query_url: str
     arena_time_tag_url: str
     arena_ranking_url: str
+    match_detail_url: str
     jjc_ranking_cache_file: str
     jjc_ranking_cache_duration: int
     kungfu_cache_duration: int
@@ -47,6 +48,26 @@ class JjcRankingService:
             jjc_ranking_cache_duration=self.jjc_ranking_cache_duration,
             kungfu_cache_duration=self.kungfu_cache_duration,
         )
+
+    def _merge_cached_weapon(self, server: str, name: str, result: dict[str, Any]) -> None:
+        cached = self._cache().load_kungfu_cache_raw(server, name)
+        if not cached:
+            return
+        cached_weapon = cached.get("weapon")
+        cached_icon = cached.get("weapon_icon")
+        cached_quality = cached.get("weapon_quality")
+        cached_teammates = cached.get("teammates")
+        cached_teammates_checked = cached.get("teammates_checked")
+        if cached_weapon and not result.get("weapon"):
+            result["weapon"] = cached_weapon
+        if cached_icon and not result.get("weapon_icon"):
+            result["weapon_icon"] = cached_icon
+        if cached_quality and not result.get("weapon_quality"):
+            result["weapon_quality"] = cached_quality
+        if cached_teammates and not result.get("teammates"):
+            result["teammates"] = cached_teammates
+        if cached_teammates_checked and not result.get("teammates_checked"):
+            result["teammates_checked"] = cached_teammates_checked
 
     @staticmethod
     def _coerce_score(value: Any) -> int | None:
@@ -176,6 +197,9 @@ class JjcRankingService:
                                 server,
                                 tuilan_request=self.tuilan_request,
                                 kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
+                                match_detail_url=self.match_detail_url,
+                                role_name=name,
+                                rank=None,
                             )
                             kungfu_name = (kungfu_detail or {}).get("kungfu")
                             if kungfu_name:
@@ -210,6 +234,8 @@ class JjcRankingService:
         }
         if kungfu_detail:
             result.update(kungfu_detail)
+        result.setdefault("weapon_checked", True)
+        self._merge_cached_weapon(server, name, result)
 
         self._cache().save_kungfu_cache(server, name, result)
 
@@ -235,15 +261,16 @@ class JjcRankingService:
             }
             with open(stats_path, "w", encoding="utf-8") as file_handle:
                 json.dump(stats_payload, file_handle, ensure_ascii=False, indent=2)
-            logger.info("保存竞技场统计结果: {}", stats_path)
+            logger.info("保存竞技场统计结果: %s", stats_path)
         except Exception as exc:
-            logger.warning("保存竞技场统计结果失败: {}", exc)
+            logger.warning("保存竞技场统计结果失败: %s", exc)
 
     async def get_user_kungfu(
         self,
         server: str,
         name: str,
         ranking_data: dict[str, Any] | None = None,
+        rank: int | None = None,
     ) -> dict[str, Any]:
         cached = self._cache().load_kungfu_cache(server, name)
         if cached:
@@ -286,6 +313,9 @@ class JjcRankingService:
                                 server,
                                 tuilan_request=self.tuilan_request,
                                 kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
+                                match_detail_url=self.match_detail_url,
+                                role_name=name,
+                                rank=rank,
                             )
                             kungfu_name = (kungfu_detail or {}).get("kungfu")
 
@@ -299,6 +329,7 @@ class JjcRankingService:
                                 **(kungfu_detail or {}),
                             }
                             result["found"] = result.get("kungfu") is not None
+                            self._merge_cached_weapon(server, name, result)
 
                             self._cache().save_kungfu_cache(server, name, result)
                             if result["found"]:
@@ -349,6 +380,8 @@ class JjcRankingService:
             "found": kungfu_info is not None,
             "cache_time": time.time(),
         }
+        result.setdefault("weapon_checked", True)
+        self._merge_cached_weapon(server, name, result)
         cached = self._cache().load_kungfu_cache(server, name)
         if cached:
             cached.update(result)
@@ -378,7 +411,12 @@ class JjcRankingService:
                 if name and "·" in name:
                     name = name.split("·")[0]
 
-                kungfu_info = await self.get_user_kungfu(server, name, ranking_data=ranking_data)
+                kungfu_info = await self.get_user_kungfu(
+                    server,
+                    name,
+                    ranking_data=ranking_data,
+                    rank=i + 1,
+                )
                 indicator_kungfu = kungfu_info.get("kungfu_indicator")
                 match_history_kungfu = kungfu_info.get("kungfu_match_history")
                 if (
@@ -409,13 +447,24 @@ class JjcRankingService:
                         "score": score,
                         "kungfu": kungfu_info.get("kungfu"),
                         "found": kungfu_info.get("found", False),
+                        "kungfu_id": kungfu_info.get("kungfu_id"),
+                        "teammates": kungfu_info.get("teammates"),
+                        "weapon_icon": kungfu_info.get("weapon_icon"),
+                        "weapon_quality": kungfu_info.get("weapon_quality"),
                     }
                 )
 
                 if kungfu_info.get("found") and kungfu_info.get("kungfu"):
                     ranking_kungfu_lines.append(f"{i + 1}. {server} {name} - {kungfu_info['kungfu']}")
                 else:
-                    missing_kungfu_lines.append(f"{i + 1}. {server} {name}")
+                    role_id = (
+                        person_info.get("gameRoleId")
+                        or person_info.get("globalRoleId")
+                        or kungfu_info.get("role_id")
+                        or kungfu_info.get("global_role_id")
+                        or "未知"
+                    )
+                    missing_kungfu_lines.append(f"{i + 1}. {server} {name} - id:{role_id}")
 
             def count_kungfu_by_rank(player_data: list[dict[str, Any]], max_rank: int) -> dict[str, Any]:
                 healer_kungfu = self.kungfu_healer_list
@@ -431,13 +480,17 @@ class JjcRankingService:
 
                 healer_first_rank: dict[str, int] = {}
                 dps_first_rank: dict[str, int] = {}
+                healer_members: dict[str, list[dict[str, Any]]] = {}
+                dps_members: dict[str, list[dict[str, Any]]] = {}
 
                 overall_min_score = None
 
                 for kungfu in healer_kungfu:
                     healer_count[kungfu] = 0
+                    healer_members[kungfu] = []
                 for kungfu in dps_kungfu:
                     dps_count[kungfu] = 0
+                    dps_members[kungfu] = []
 
                 for player_item in player_data[:max_rank]:
                     score = self._coerce_score(player_item.get("score"))
@@ -456,11 +509,35 @@ class JjcRankingService:
                             healer_valid_count += 1
                             if kungfu not in healer_first_rank:
                                 healer_first_rank[kungfu] = i + 1
+                            healer_members[kungfu].append(
+                                {
+                                    "rank": i + 1,
+                                    "server": player_item.get("server", "未知"),
+                                    "name": player_item.get("name", "未知"),
+                                    "score": score,
+                                    "kungfu_id": player_item.get("kungfu_id"),
+                                    "teammates": player_item.get("teammates"),
+                                    "weapon_icon": player_item.get("weapon_icon"),
+                                    "weapon_quality": player_item.get("weapon_quality"),
+                                }
+                            )
                         elif kungfu in dps_kungfu:
                             dps_count[kungfu] = dps_count.get(kungfu, 0) + 1
                             dps_valid_count += 1
                             if kungfu not in dps_first_rank:
                                 dps_first_rank[kungfu] = i + 1
+                            dps_members[kungfu].append(
+                                {
+                                    "rank": i + 1,
+                                    "server": player_item.get("server", "未知"),
+                                    "name": player_item.get("name", "未知"),
+                                    "score": score,
+                                    "kungfu_id": player_item.get("kungfu_id"),
+                                    "teammates": player_item.get("teammates"),
+                                    "weapon_icon": player_item.get("weapon_icon"),
+                                    "weapon_quality": player_item.get("weapon_quality"),
+                                }
+                            )
                         else:
                             logger.info(
                                 f"⚠️ 发现未分类心法：第{i+1}名 {player_item.get('server', '未知')} "
@@ -502,12 +579,14 @@ class JjcRankingService:
                         "distribution": dict(sorted_healer),
                         "list": sorted_healer,
                         "min_score": overall_min_score,
+                        "members": healer_members,
                     },
                     "dps": {
                         "valid_count": dps_valid_count,
                         "distribution": dict(sorted_dps),
                         "list": sorted_dps,
                         "min_score": overall_min_score,
+                        "members": dps_members,
                     },
                     "total_valid_count": healer_valid_count + dps_valid_count,
                     "invalid_count": invalid_count,

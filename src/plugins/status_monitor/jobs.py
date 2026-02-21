@@ -625,7 +625,7 @@ async def push_daily_gte():
             logger.warning("status_monitor 推送日常出错: {}", e)
 
 
-@scheduler.scheduled_job("cron", hour=8, minute=30)
+@scheduler.scheduled_job("cron", hour=8, minute=0)
 async def push_daily_jjc_ranking():
     if BOT_INITIALIZED:
         try:
@@ -697,6 +697,7 @@ async def push_daily_jjc_ranking():
                 current_season=cfg.CURRENT_SEASON,
                 stats=stats,
                 week_info=week_info,
+                show_legendary=False,
             )
             if not payload:
                 logger.warning("status_monitor 渲染竞技场统计图失败")
@@ -710,10 +711,11 @@ async def push_daily_jjc_ranking():
             )
 
             summary_text = (
-                f"⏰ 每日08:30竞技排名推送（{week_info}）\n"
+                f"⏰ 每日08:00竞技排名推送（{week_info}）\n"
                 f"统计范围：{payload['scope_desc']}\n"
                 f"统计完成！共处理 {payload['total_valid_data']} 条有效数据（{payload['processed_label']}）"
             )
+            missing_kungfu_lines = ranking_data.get("missing_kungfu_lines", [])
 
             for gid in target_groups:
                 try:
@@ -721,6 +723,18 @@ async def push_daily_jjc_ranking():
                         group_id=int(gid), message=MessageSegment.image(payload["image_bytes"])
                     )
                     await bot.send_group_msg(group_id=int(gid), message=summary_text)
+                    if missing_kungfu_lines:
+                        chunk_size = 100
+                        total_lines = len(missing_kungfu_lines)
+                        for start in range(0, total_lines, chunk_size):
+                            end = min(start + chunk_size, total_lines)
+                            chunk_header = f"未查询到心法的角色（共{total_lines}人，第{start + 1}-{end}名）"
+                            chunk_message = "\n".join(missing_kungfu_lines[start:end])
+                            await bot.send_group_msg(
+                                group_id=int(gid),
+                                message=f"{chunk_header}\n{chunk_message}",
+                            )
+                            await asyncio.sleep(0.5)
                     logger.info("status_monitor 向群{}推送每日竞技排名统计", gid)
                     await asyncio.sleep(0.5)
                 except Exception as e:

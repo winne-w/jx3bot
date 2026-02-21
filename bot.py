@@ -3,6 +3,8 @@
 import nonebot
 from nonebot.adapters.onebot.v11 import Adapter
 
+from src.api import register_api
+
 # Custom your logger
 # 
 # from nonebot.log import logger, default_format
@@ -17,6 +19,8 @@ nonebot.init()
 app = nonebot.get_asgi()
 driver = nonebot.get_driver()
 driver.register_adapter(Adapter)
+
+register_api(app)
 
 
 # Please DO NOT modify this file unless you know what you are doing!

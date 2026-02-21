@@ -6,6 +6,7 @@ from jinja2 import Environment, FileSystemLoader
 from src.infra.jx3api_get import get
 from src.services.jx3.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking import JjcRankingService
+from src.services.jx3.match_detail import MatchDetailClient
 from src.utils.tuilan_request import tuilan_request
 
 env = Environment(loader=FileSystemLoader("templates"))
@@ -27,6 +28,7 @@ jjc_ranking_service = JjcRankingService(
     jjc_query_url=cfg.API_URLS["竞技查询"],
     arena_time_tag_url=cfg.API_URLS["竞技场时间查询"],
     arena_ranking_url=cfg.API_URLS["竞技场排行榜查询"],
+    match_detail_url=cfg.API_URLS["竞技场战局详情"],
     jjc_ranking_cache_file=JJC_RANKING_CACHE_FILE,
     jjc_ranking_cache_duration=JJC_RANKING_CACHE_DURATION,
     kungfu_cache_duration=KUNGFU_CACHE_DURATION,
@@ -37,4 +39,9 @@ jjc_ranking_service = JjcRankingService(
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
     tuilan_request=tuilan_request,
     defget_get=get,
+)
+
+match_detail_client = MatchDetailClient(
+    match_detail_url=cfg.API_URLS["竞技场战局详情"],
+    tuilan_request=tuilan_request,
 )

@@ -2,6 +2,8 @@
 剑三机器人配置文件
 包含API Token、URL等
 """
+import json
+import os
 ADMIN_QQ = [595910443]
 # API认证凭证
 TOKEN = ""
@@ -20,6 +22,7 @@ API_URLS = {
     "竞技场时间查询": "https://m.pvp.xoyo.com/3c/mine/arena/time-tag",
     "竞技场排行榜查询": "https://m.pvp.xoyo.com/3c/mine/arena/top200",
     "竞技场战局历史": "https://m.pvp.xoyo.com/3c/mine/match/history",
+    "竞技场战局详情": "https://m.pvp.xoyo.com/3c/mine/match/detail",
 
 }
 
@@ -52,7 +55,7 @@ REGEX_PATTERNS = {
     "名片查询": r"^名片 (?P<value1>[\S]+)$|^名片 (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "资历查询": r"^(?:资历|资历分布) (?P<value1>[\S]+)$|^(?:资历|资历分布) (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "资历选择": r"^(\d+)$",  # 用于匹配用户回复的数字序号
-    "竞技排名": r"^\s*竞技排名(?:统计)?(?:\s+拆分)?(?:\s+(?i:debug))?\s*$"
+    "竞技排名": r"^\s*竞技排名(?:统计)?(?:\s+拆分)?(?:\s+橙武占比)?(?:\s+(?i:debug))?\s*$"
 }
 
 # 定义一个包含文本的列表
@@ -143,3 +146,26 @@ KUNGFU_META = {
     "shanhai": {"name": "山海心诀", "category": "dps"},
     "youluo": {"name": "幽罗引", "category": "dps"},
 }
+
+# 运行时可覆盖配置（由 /修改配置 写入）
+RUNTIME_CONFIG_FILE = "runtime_config.json"
+RUNTIME_CONFIG_KEYS = {
+    "TOKEN": str,
+    "TICKET": str,
+    "SESSION_data": int,
+    "calendar_time": int,
+    "STATUS_check_time": int,
+}
+
+if os.path.exists(RUNTIME_CONFIG_FILE):
+    try:
+        with open(RUNTIME_CONFIG_FILE, "r", encoding="utf-8") as f:
+            _runtime_config = json.load(f)
+        for _key, _type in RUNTIME_CONFIG_KEYS.items():
+            if _key in _runtime_config:
+                try:
+                    globals()[_key] = _type(_runtime_config[_key])
+                except (TypeError, ValueError):
+                    pass
+    except Exception:
+        pass
