@@ -8,7 +8,7 @@ from nonebot.adapters.onebot.v11 import Bot, Event, MessageSegment
 
 def _prepare_template_data(
     rank_data: dict[str, Any], rank_type: str
-) -> list[tuple[Any, Any, str, Any]]:
+) -> list[tuple[Any, Any, str, Any, float]]:
     if not rank_data or rank_type not in rank_data:
         return []
     sorted_list = rank_data[rank_type].get("list", [])
@@ -16,10 +16,24 @@ def _prepare_template_data(
         return []
     valid_count = rank_data[rank_type].get("valid_count", 0)
     min_score = rank_data[rank_type].get("min_score")
+    members_map = rank_data[rank_type].get("members", {}) or {}
     return [
-        (k, v, f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%", min_score)
+        (
+            k,
+            v,
+            f"{v / valid_count * 100:.1f}%" if valid_count > 0 else "0%",
+            min_score,
+            _calculate_legendary_percent(members_map.get(k, [])),
+        )
         for k, v in sorted_list
     ]
+
+
+def _calculate_legendary_percent(members: list[dict[str, Any]]) -> float:
+    if not members:
+        return 0.0
+    legendary_count = sum(1 for item in members if str(item.get("weapon_quality")) == "5")
+    return legendary_count / len(members) * 100
 
 
 async def render_combined_ranking_image(
@@ -29,6 +43,7 @@ async def render_combined_ranking_image(
     current_season: Any,
     stats: dict[str, Any],
     week_info: str,
+    show_legendary: bool,
 ) -> dict[str, Any]:
     has_top_1000 = "top_1000" in stats
     scope_desc = "前200、前100、前50"
@@ -51,6 +66,7 @@ async def render_combined_ranking_image(
             "top_50_healer": _prepare_template_data(stats.get("top_50", {}), "healer"),
             "top_50_dps": _prepare_template_data(stats.get("top_50", {}), "dps"),
             "has_top_1000": has_top_1000,
+            "show_legendary": show_legendary,
         },
         width=1120,
         height="ck",
@@ -78,6 +94,7 @@ async def send_combined_ranking_image(
     current_season: Any,
     stats: dict[str, Any],
     week_info: str,
+    show_legendary: bool,
 ) -> None:
     payload = await render_combined_ranking_image(
         env=env,
@@ -85,6 +102,7 @@ async def send_combined_ranking_image(
         current_season=current_season,
         stats=stats,
         week_info=week_info,
+        show_legendary=show_legendary,
     )
     await bot.send(event, MessageSegment.image(payload["image_bytes"]))
     await bot.send(
@@ -102,6 +120,7 @@ async def send_split_ranking_images(
     current_season: Any,
     stats: dict[str, Any],
     week_info: str,
+    show_legendary: bool,
 ) -> None:
     has_top_1000 = "top_1000" in stats
     ranking_configs = []
@@ -173,6 +192,7 @@ async def send_split_ranking_images(
                     "current_season": current_season,
                     "week_info": week_info,
                     config["data_key"]: config["data"],
+                    "show_legendary": show_legendary,
                 },
                 width=800,
                 height="ck",

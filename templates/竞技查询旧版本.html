@@ -253,7 +253,7 @@
                 <img class="avatar" src="http://192.168.100.1:5244/img/qiyu/img/{{  item['kungfu']  }}.png" alt="{{  item['kungfu']  }}">{% endif %}
                 <span>{{item['avgGrade'] | jjctime }}段局 ({{item['pvpType']}}v{{item['pvpType']}})</span>
                 <span>{{  item['totalMmr']   }}({% if item['won'] == True %}+{{item['mmr']}}{% else %}{{item['mmr']}}{% endif %})</span>
-                <span>{{ (item['endTime'] - item['startTime'])  }}秒</span>
+                <span>{{ (item['endTime'] - item['startTime']) | duration }}</span>
                 <span>{{  item['startTime'] | time  }}</span>
                 <span class="win">{% if item['won'] == True %}胜利{% else %}失败{% endif %}</span>
             </div>

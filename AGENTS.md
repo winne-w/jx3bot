@@ -3,7 +3,8 @@
 ## 项目结构与模块分工
 - `bot.py` 负责启动 NoneBot、注册插件并连接 NapCat 的反向 WebSocket。
 - 核心命令集中在 `src/plugins/jx3bot.py`，`wanbaolou/`、`config_manager.py` 与 `status_monitor.py` 提供物价别名、调度与健康检查能力。
-- 通用工具位于 `src/utils/`，可复用的模板与素材保存在 `templates/`、`mpimg/`、`data/`；对外提供的 PHP/HTML 页面统一放在 `public/`。
+- 通用工具位于 `src/utils/`，可复用的模板与素材保存在 `templates/`、`mpimg/`、`data/`；对外提供的 HTML 页面统一放在 `public/`。
+- HTTP API 路由位于 `src/api/routers/`，统一通过 `bot.py` 注册到 NoneBot 的 ASGI 应用。
 - 根目录下的 `test_*.py`、`example_*.py`、`debug_kungfu_by_role.py` 用于手动排查；`Dockerfile`、`docker-compose.yml`、`start.sh` 需随部署流程同步更新，并在 README 系列文档中同步说明。
 - `README.md`、`README-Docker.md` 及 PlantUML 图 (`*.puml`) 提供架构参考，流程更新时请同时修订这些文档。
 - `requirements.txt` 与 `pyproject.toml` 记录依赖与元数据，调整版本时务必双向更新并通知运维。
@@ -12,6 +13,7 @@
 - `python -m venv .venv && source .venv/bin/activate` —— 创建 Python 3.9+ 虚拟环境。
 - `pip install -r requirements.txt` —— 安装依赖，如遇编码报错请转存为 UTF-8。
 - `python bot.py` —— 本地运行机器人前需配置好 `config.py`、`groups.json` 以及反向 WebSocket。
+- HTTP API 统一响应格式为 `{"status_code":0,"status_msg":"success","data":{}}`，更新路由时注意同步 README 中的 API 说明。
 - `bash start.sh` —— 模拟容器入口并启用 `mpimg/` 静态资源，适用于容器外的快速演练。
 - `docker compose up --build` —— 重新构建并启动 docker-compose 定义的完整环境。
 - `python test_jx3bot_ranking.py` / `python test_tuilan_request.py` —— 手动验证竞技场与推栏接口。
@@ -33,6 +35,7 @@
 ## 提交与合并请求规范
 - 延续仓库现有格式（`feat: …`、`fix: …`），标题控制在 72 字符内，可使用中英双语简述。
 - 自动生成或手写的 commit 信息需使用中文描述，必要时可附带少量英文专有名词。
+- 生成 commit 信息时需明确区分代码作者：若主要为用户编写，需标注“用户编写”；若主要为 AI（Codex）编写，需标注“AI 编写”，并附所用模型名（如 `model: GPT-5`）。
 - PR 描述需阐明问题、方案、关联的 Issue/流程图，并列出执行过的手工测试。
 - 若改动 `mpimg/` 素材或模板渲染，请附截图，并明确写出部署或调度影响；牵涉接口兼容时提供回滚建议。
 - Review 时可附上 `git diff --stat` 或关键命令输出，帮助审核者快速了解影响范围。
