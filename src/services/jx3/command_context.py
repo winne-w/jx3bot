@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.services.jx3.group_binding import get_server_by_group
+from src.services.jx3.server_resolver import resolve_master_server_name
 from src.infra.jx3api_get import get, idget
 
 
@@ -40,6 +41,11 @@ async def resolve_server_and_name(
         server = await get_server_by_group(group_id or "")
         if not server and require_group_binding:
             raise CommandContextError(group_binding_tip, at_user=False)
+
+    if not await idget(server):
+        resolved_server = await resolve_master_server_name(server)
+        if resolved_server != server:
+            server = resolved_server
 
     if not await idget(server):
         raise CommandContextError("请输入正确的服务器！", at_user=True)
