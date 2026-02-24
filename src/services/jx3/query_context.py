@@ -184,6 +184,6 @@ def build_role_baizhan_spec(*, result: dict[str, Any], random_text: str) -> Rend
             "update_time": result["update_time"],
             "text": random_text,
         },
-        width=620,
+        width=640,
         height="ck",
     )
