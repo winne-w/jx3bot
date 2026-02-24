@@ -61,7 +61,10 @@ async def _restore_reminder_jobs() -> None:
 
 def _parse_remind_at(remind_at: str) -> datetime | None:
     try:
-        return datetime.strptime(remind_at, "%Y%m%d%H%M%S")
+        normalized = remind_at.strip()
+        if len(normalized) == 12:
+            normalized = f"{normalized}00"
+        return datetime.strptime(normalized, "%Y%m%d%H%M%S")
     except ValueError:
         return None
 
@@ -306,13 +309,13 @@ def register(
                 await matcher.finish(MessageSegment.at(event.user_id) + Message(" 提醒参数解析失败，请重试"))
                 return
 
-            remind_at = matched[0].strip()
+            remind_at = f"{matched[0].strip()}00"
             message_text = matched[1].strip()
 
             remind_at_dt = _parse_remind_at(remind_at)
             if remind_at_dt is None:
                 logger.warning(f"提醒命令时间格式错误: remind_at={remind_at!r}")
-                await matcher.finish(MessageSegment.at(event.user_id) + Message(" 时间格式错误，请使用 YYYYMMDDHHMMSS"))
+                await matcher.finish(MessageSegment.at(event.user_id) + Message(" 时间格式错误，请使用 YYYYMMDDHHMM"))
                 return
 
             if remind_at_dt.timestamp() <= time.time():
