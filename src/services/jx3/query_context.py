@@ -163,6 +163,6 @@ def build_baizhan_spec(*, result: dict[str, Any], random_text: str) -> RenderSpe
             "items": result["items"],
             "text": random_text,
         },
-        width=980,
+        width=1500,
         height="ck",
     )
