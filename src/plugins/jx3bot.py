@@ -15,6 +15,7 @@ from src.plugins.jx3bot_handlers.jjc_ranking import register as register_jjc_ran
 from src.plugins.jx3bot_handlers.lifecycle import register as register_lifecycle
 from src.plugins.jx3bot_handlers.mingpian import register as register_mingpian
 from src.plugins.jx3bot_handlers.queries import register as register_queries
+from src.plugins.jx3bot_handlers.reminder import register as register_reminder
 from src.plugins.jx3bot_handlers.trade import register as register_trade
 from src.plugins.jx3bot_handlers.zili import register as register_zili
 from src.renderers.jx3.image import render_template_image
@@ -78,6 +79,10 @@ baizhan = on_regex(cfg.REGEX_PATTERNS["百战查询"])
 zili = on_regex(cfg.REGEX_PATTERNS["资历查询"])
 zili_choice = on_regex(cfg.REGEX_PATTERNS["资历选择"])
 zhanji_ranking = on_regex(cfg.REGEX_PATTERNS["竞技排名"])
+reminder = on_regex(cfg.REGEX_PATTERNS["提醒"], priority=5, block=True)
+reminder_all = on_regex(cfg.REGEX_PATTERNS["提醒所有人"], priority=5, block=True)
+reminder_list = on_regex(cfg.REGEX_PATTERNS["提醒列表"], priority=5, block=True)
+cancel_reminder = on_regex(cfg.REGEX_PATTERNS["取消提醒"], priority=5, block=True)
 
 BOT_STATUS = {
     "startup_time": 0,
@@ -124,6 +129,7 @@ register_queries(
 register_mingpian(mingpian)
 register_trade(jiayi, env)
 register_zili(zili, zili_choice, env, max_depth=MAX_DEPTH)
+register_reminder(reminder, reminder_all, reminder_list, cancel_reminder)
 
 register_jjc_ranking(
     zhanji_ranking,
