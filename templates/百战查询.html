@@ -20,7 +20,7 @@
             background-color: #1c2130;
             padding: 20px;
             width: 100%;
-            min-width: 1000px;
+            min-width: 1450px;
             overflow-x: auto;
         }
 
@@ -56,8 +56,8 @@
 
         .canvas-container {
             position: relative;
-            width: 1000px;
-            margin-left: calc(50% - 475px + -23px);
+            width: 1450px;
+            margin: 0 auto;
             background-color: #232942;
             border-radius: 10px;
             padding: 30px 37px;
@@ -75,10 +75,10 @@
         }
 
         .container {
-            width: 910px;
+            width: 1360px;
             margin: 0 auto;
             display: grid;
-            grid-template-columns: repeat(7, 127px);
+            grid-template-columns: repeat(10, 127px);
             gap: 10px;
             justify-content: center;
             position: relative;
@@ -93,24 +93,20 @@
             gap: 10px;
         }
 
-        /* 每7个元素之后的元素方向反转 */
-        .item:nth-child(n+8):nth-child(-n+14),
-        .item:nth-child(n+22):nth-child(-n+28),
-        .item:nth-child(n+36):nth-child(-n+42),
-        .item:nth-child(n+50):nth-child(-n+56),
-        .item:nth-child(n+64):nth-child(-n+70),
-        .item:nth-child(n+78):nth-child(-n+84),
-        .item:nth-child(n+92):nth-child(-n+98) {
+        /* 每10个元素之后的元素方向反转 */
+        .item:nth-child(n+11):nth-child(-n+20),
+        .item:nth-child(n+31):nth-child(-n+40),
+        .item:nth-child(n+51):nth-child(-n+60),
+        .item:nth-child(n+71):nth-child(-n+80),
+        .item:nth-child(n+91):nth-child(-n+100) {
             direction: rtl;
         }
 
-        .item:nth-child(n+8):nth-child(-n+14) .item-content,
-        .item:nth-child(n+22):nth-child(-n+28) .item-content,
-        .item:nth-child(n+36):nth-child(-n+42) .item-content,
-        .item:nth-child(n+50):nth-child(-n+56) .item-content,
-        .item:nth-child(n+64):nth-child(-n+70) .item-content,
-        .item:nth-child(n+78):nth-child(-n+84) .item-content,
-        .item:nth-child(n+92):nth-child(-n+98) .item-content {
+        .item:nth-child(n+11):nth-child(-n+20) .item-content,
+        .item:nth-child(n+31):nth-child(-n+40) .item-content,
+        .item:nth-child(n+51):nth-child(-n+60) .item-content,
+        .item:nth-child(n+71):nth-child(-n+80) .item-content,
+        .item:nth-child(n+91):nth-child(-n+100) .item-content {
             direction: ltr;
         }
 
@@ -273,17 +269,17 @@
     <div class="canvas-container">
         <canvas id="connectCanvas"></canvas>
         <div class="container" id="itemContainer">
-      {# 计算总行数 - 改为每行7个 #}
-        {% set total_rows = (items|length / 7)|round(0, 'ceil')|int %}
+      {# 计算总行数 - 每行10个 #}
+        {% set total_rows = (items|length / 10)|round(0, 'ceil')|int %}
         {% set total_items = items|length %}
-        {% set last_row_items = total_items % 7 %}
+        {% set last_row_items = total_items % 10 %}
         {% set is_last_row_incomplete = last_row_items != 0 %}
 
         {# 遍历每一行 #}
         {% for row in range(total_rows) %}
-            {# 确定当前行的范围 - 每行7个 #}
-            {% set row_start = row * 7 %}
-            {% set row_end = row_start + 7 %}
+            {# 确定当前行的范围 - 每行10个 #}
+            {% set row_start = row * 10 %}
+            {% set row_end = row_start + 10 %}
             {% if row_end > items|length %}
                 {% set row_end = items|length %}
             {% endif %}
@@ -375,7 +371,7 @@
             const allItems = Array.from(container.querySelectorAll('.item'));
             
             // 定义每行的项目数量
-            const rowSize = 7;
+            const rowSize = 10;
             
             // 创建一个规则的行数组，每行恰好7个元素（除非最后一行）
             const rowsData = [];
