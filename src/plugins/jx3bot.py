@@ -28,6 +28,7 @@ from src.services.jx3.singletons import (
     group_config_repo,
     jjc_ranking_service,
 )
+from src.services.jx3.baizhan_skill_icons import ensure_baizhan_skill_icons
 from src.utils.defget import download_json, fetch_json, get
 from src.utils.shared_data import user_sessions
 from src.utils.time_format import format_time_duration
@@ -64,6 +65,7 @@ register_cache_init(
     jjc_ranking_cache_duration=jjc_ranking_service.jjc_ranking_cache_duration,
     set_server_data_cache=_set_server_data_cache,
     set_token_data=_set_token_data,
+    ensure_baizhan_skill_icons=ensure_baizhan_skill_icons,
 )
 
 

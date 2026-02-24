@@ -166,3 +166,24 @@ def build_baizhan_spec(*, result: dict[str, Any], random_text: str) -> RenderSpe
         width=1500,
         height="ck",
     )
+
+
+def build_role_baizhan_spec(*, result: dict[str, Any], random_text: str) -> RenderSpec:
+    return RenderSpec(
+        template_name="百战角色查询.html",
+        context={
+            "zone_name": result["zone_name"],
+            "server_name": result["server_name"],
+            "role_name": result["role_name"],
+            "role_id": result["role_id"],
+            "global_role_id": result["global_role_id"],
+            "game_energy": result["game_energy"],
+            "game_stamina": result["game_stamina"],
+            "skill_count": result["skill_count"],
+            "skills": result["skills"],
+            "update_time": result["update_time"],
+            "text": random_text,
+        },
+        width=620,
+        height="ck",
+    )
