@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import config as cfg
 from nonebot import get_driver, on_regex
+from nonebot.adapters.onebot.v11 import Event
+from nonebot.rule import Rule
 
 from src.plugins.jx3bot_handlers.announcements import register as register_announcements
 from src.plugins.jx3bot_handlers.baizhan import register as register_baizhan
@@ -26,6 +29,7 @@ from src.services.jx3.singletons import (
     jjc_ranking_service,
 )
 from src.utils.defget import download_json, fetch_json, get
+from src.utils.shared_data import user_sessions
 from src.utils.time_format import format_time_duration
 
 MAX_DEPTH = 2  # 0是顶层，1是第一层子项目，2是第二层子项目，最多显示3层
@@ -77,7 +81,23 @@ huodong = on_regex(cfg.REGEX_PATTERNS["活动"])
 mingpian = on_regex(cfg.REGEX_PATTERNS["名片查询"])
 baizhan = on_regex(cfg.REGEX_PATTERNS["百战查询"])
 zili = on_regex(cfg.REGEX_PATTERNS["资历查询"])
-zili_choice = on_regex(cfg.REGEX_PATTERNS["资历选择"])
+
+
+async def _in_zili_session(event: Event) -> bool:
+    user_id = str(getattr(event, "user_id", ""))
+    if not user_id:
+        return False
+    session = user_sessions.get(user_id)
+    if not session:
+        return False
+    expiry_time = session.get("expiry_time", 0)
+    if time.time() > expiry_time:
+        user_sessions.pop(user_id, None)
+        return False
+    return True
+
+
+zili_choice = on_regex(cfg.REGEX_PATTERNS["资历选择"], rule=Rule(_in_zili_session))
 zhanji_ranking = on_regex(cfg.REGEX_PATTERNS["竞技排名"])
 reminder = on_regex(cfg.REGEX_PATTERNS["提醒"], priority=5, block=True)
 reminder_all = on_regex(cfg.REGEX_PATTERNS["提醒所有人"], priority=5, block=True)

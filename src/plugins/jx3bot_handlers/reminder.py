@@ -6,16 +6,18 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Annotated
+from typing import Any
 
 from nonebot import get_driver, on_regex, require
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
+from nonebot.exception import FinishedException
 from nonebot.log import logger
+from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.rule import Rule
 
 REMINDER_FILE = Path("data/group_reminders.json")
-CANCEL_TIMEOUT_SECONDS = 10
+CANCEL_TIMEOUT_SECONDS = 45
 JOB_ID_PREFIX = "group_reminder:"
 
 FILE_LOCK = asyncio.Lock()
@@ -277,67 +279,94 @@ def register(
     reminder_list_matcher: Any,
     cancel_reminder_matcher: Any,
 ) -> None:
-    cancel_choice_matcher = on_regex(r"^\d+$", rule=Rule(_in_cancel_session), priority=4, block=True)
+    # 使用捕获分组，确保 RegexGroup() 能取到用户输入的序号
+    cancel_choice_matcher = on_regex(r"^(\d+)$", rule=Rule(_in_cancel_session), priority=4, block=True)
+    logger.warning("提醒模块已注册: reminder/reminder_all/reminder_list/cancel_reminder")
 
     async def _handle_create(
         event: Event,
         mention_type: str,
-        matcher: Any,
+        matcher: Matcher,
         matched: tuple[str, ...],
     ) -> None:
-        if not isinstance(event, GroupMessageEvent):
-            await matcher.finish("该命令仅支持群聊使用")
-            return
+        try:
+            plain_text = event.get_plaintext().strip()
+            logger.warning(
+                f"收到提醒命令: event_type={event.get_type()}, mention_type={mention_type}, "
+                f"matched={matched}, plain_text={plain_text!r}"
+            )
 
-        remind_at = matched[0].strip()
-        message_text = matched[1].strip()
+            if not isinstance(event, GroupMessageEvent):
+                logger.warning("提醒命令被拒绝: 非群消息")
+                await matcher.finish("该命令仅支持群聊使用")
+                return
 
-        remind_at_dt = _parse_remind_at(remind_at)
-        if remind_at_dt is None:
-            await matcher.finish(MessageSegment.at(event.user_id) + Message(" 时间格式错误，请使用 YYYYMMDDHHMMSS"))
-            return
+            if len(matched) < 2:
+                logger.error(f"提醒命令匹配参数异常: matched={matched}")
+                await matcher.finish(MessageSegment.at(event.user_id) + Message(" 提醒参数解析失败，请重试"))
+                return
 
-        if remind_at_dt.timestamp() <= time.time():
-            await matcher.finish(MessageSegment.at(event.user_id) + Message(" 提醒时间必须晚于当前时间"))
-            return
+            remind_at = matched[0].strip()
+            message_text = matched[1].strip()
 
-        reminder = await create_reminder(
-            group_id=event.group_id,
-            user_id=event.user_id,
-            remind_at=remind_at,
-            message=message_text,
-            mention_type=mention_type,
-        )
-        _schedule_reminder_job(reminder["id"], remind_at_dt)
+            remind_at_dt = _parse_remind_at(remind_at)
+            if remind_at_dt is None:
+                logger.warning(f"提醒命令时间格式错误: remind_at={remind_at!r}")
+                await matcher.finish(MessageSegment.at(event.user_id) + Message(" 时间格式错误，请使用 YYYYMMDDHHMMSS"))
+                return
 
-        logger.info(
-            "创建提醒成功: "
-            f"group_id={event.group_id}, user_id={event.user_id}, reminder_id={reminder['id']}, "
-            f"remind_at={remind_at}, mention_type={mention_type}"
-        )
-        await matcher.finish(
-            MessageSegment.at(event.user_id)
-            + Message(f" 提醒已创建：{_render_time(remind_at)} {message_text}")
-        )
+            if remind_at_dt.timestamp() <= time.time():
+                logger.warning(f"提醒命令时间过期: remind_at={remind_at!r}")
+                await matcher.finish(MessageSegment.at(event.user_id) + Message(" 提醒时间必须晚于当前时间"))
+                return
+
+            reminder = await create_reminder(
+                group_id=event.group_id,
+                user_id=event.user_id,
+                remind_at=remind_at,
+                message=message_text,
+                mention_type=mention_type,
+            )
+            _schedule_reminder_job(reminder["id"], remind_at_dt)
+
+            logger.info(
+                "创建提醒成功: "
+                f"group_id={event.group_id}, user_id={event.user_id}, reminder_id={reminder['id']}, "
+                f"remind_at={remind_at}, mention_type={mention_type}"
+            )
+            await matcher.finish(
+                MessageSegment.at(event.user_id)
+                + Message(f" 提醒已创建：{_render_time(remind_at)} {message_text}")
+            )
+        except FinishedException:
+            raise
+        except Exception as exc:
+            logger.exception(f"处理提醒命令异常: mention_type={mention_type}, matched={matched}, error={exc}")
+            if isinstance(event, GroupMessageEvent):
+                await matcher.finish(MessageSegment.at(event.user_id) + Message(" 提醒处理失败，请稍后重试"))
+            else:
+                await matcher.finish("提醒处理失败，请稍后重试")
 
     @reminder_matcher.handle()
     async def _handle_reminder(
         event: Event,
-        matcher: Any,
-        matched: Annotated[tuple[str, ...], RegexGroup()],
+        matcher: Matcher,
+        matched: tuple = RegexGroup(),
     ) -> None:
+        logger.warning(f"命中提醒 matcher: matched={matched}")
         await _handle_create(event, "user", matcher, matched)
 
     @reminder_all_matcher.handle()
     async def _handle_reminder_all(
         event: Event,
-        matcher: Any,
-        matched: Annotated[tuple[str, ...], RegexGroup()],
+        matcher: Matcher,
+        matched: tuple = RegexGroup(),
     ) -> None:
+        logger.warning(f"命中提醒所有人 matcher: matched={matched}")
         await _handle_create(event, "all", matcher, matched)
 
     @reminder_list_matcher.handle()
-    async def _handle_reminder_list(event: Event, matcher: Any) -> None:
+    async def _handle_reminder_list(event: Event, matcher: Matcher) -> None:
         if not isinstance(event, GroupMessageEvent):
             await matcher.finish("该命令仅支持群聊使用")
             return
@@ -350,7 +379,7 @@ def register(
         await matcher.finish(_build_list_message(reminders))
 
     @cancel_reminder_matcher.handle()
-    async def _handle_cancel_reminder(event: Event, matcher: Any) -> None:
+    async def _handle_cancel_reminder(event: Event, matcher: Matcher) -> None:
         if not isinstance(event, GroupMessageEvent):
             await matcher.finish("该命令仅支持群聊使用")
             return
@@ -368,7 +397,7 @@ def register(
             "expires_at": time.time() + CANCEL_TIMEOUT_SECONDS,
         }
 
-        lines = [f"{len(reminders)}条提醒可取消，请在10秒内回复序号："]
+        lines = [f"{len(reminders)}条提醒可取消，请在{CANCEL_TIMEOUT_SECONDS}秒内回复序号："]
         for i, reminder in enumerate(reminders, 1):
             lines.append(f"{i}. [{_render_time(reminder['remind_at'])}] {reminder['message']}")
         await matcher.finish(MessageSegment.at(event.user_id) + Message("\n" + "\n".join(lines)))
@@ -376,8 +405,8 @@ def register(
     @cancel_choice_matcher.handle()
     async def _handle_cancel_choice(
         event: Event,
-        matcher: Any,
-        matched: Annotated[tuple[str, ...], RegexGroup()],
+        matcher: Matcher,
+        matched: tuple = RegexGroup(),
     ) -> None:
         if not isinstance(event, GroupMessageEvent):
             return
@@ -390,6 +419,10 @@ def register(
         if time.time() > session["expires_at"]:
             CANCEL_SESSIONS.pop(key, None)
             await matcher.finish(MessageSegment.at(event.user_id) + Message(" 取消提醒会话已超时，请重新输入“取消提醒”"))
+            return
+
+        if not matched:
+            await matcher.finish(MessageSegment.at(event.user_id) + Message(" 序号无效，请重新输入"))
             return
 
         index = int(matched[0].strip())
