@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import config as cfg
 from nonebot import get_driver, on_regex
+from nonebot.adapters.onebot.v11 import Event
+from nonebot.rule import Rule
 
 from src.plugins.jx3bot_handlers.announcements import register as register_announcements
 from src.plugins.jx3bot_handlers.baizhan import register as register_baizhan
@@ -15,6 +18,7 @@ from src.plugins.jx3bot_handlers.jjc_ranking import register as register_jjc_ran
 from src.plugins.jx3bot_handlers.lifecycle import register as register_lifecycle
 from src.plugins.jx3bot_handlers.mingpian import register as register_mingpian
 from src.plugins.jx3bot_handlers.queries import register as register_queries
+from src.plugins.jx3bot_handlers.reminder import register as register_reminder
 from src.plugins.jx3bot_handlers.trade import register as register_trade
 from src.plugins.jx3bot_handlers.zili import register as register_zili
 from src.renderers.jx3.image import render_template_image
@@ -24,7 +28,9 @@ from src.services.jx3.singletons import (
     group_config_repo,
     jjc_ranking_service,
 )
+from src.services.jx3.baizhan_skill_icons import ensure_baizhan_skill_icons
 from src.utils.defget import download_json, fetch_json, get
+from src.utils.shared_data import user_sessions
 from src.utils.time_format import format_time_duration
 
 MAX_DEPTH = 2  # 0是顶层，1是第一层子项目，2是第二层子项目，最多显示3层
@@ -59,6 +65,7 @@ register_cache_init(
     jjc_ranking_cache_duration=jjc_ranking_service.jjc_ranking_cache_duration,
     set_server_data_cache=_set_server_data_cache,
     set_token_data=_set_token_data,
+    ensure_baizhan_skill_icons=ensure_baizhan_skill_icons,
 )
 
 
@@ -76,8 +83,28 @@ huodong = on_regex(cfg.REGEX_PATTERNS["活动"])
 mingpian = on_regex(cfg.REGEX_PATTERNS["名片查询"])
 baizhan = on_regex(cfg.REGEX_PATTERNS["百战查询"])
 zili = on_regex(cfg.REGEX_PATTERNS["资历查询"])
-zili_choice = on_regex(cfg.REGEX_PATTERNS["资历选择"])
+
+
+async def _in_zili_session(event: Event) -> bool:
+    user_id = str(getattr(event, "user_id", ""))
+    if not user_id:
+        return False
+    session = user_sessions.get(user_id)
+    if not session:
+        return False
+    expiry_time = session.get("expiry_time", 0)
+    if time.time() > expiry_time:
+        user_sessions.pop(user_id, None)
+        return False
+    return True
+
+
+zili_choice = on_regex(cfg.REGEX_PATTERNS["资历选择"], rule=Rule(_in_zili_session))
 zhanji_ranking = on_regex(cfg.REGEX_PATTERNS["竞技排名"])
+reminder = on_regex(cfg.REGEX_PATTERNS["提醒"], priority=5, block=True)
+reminder_all = on_regex(cfg.REGEX_PATTERNS["提醒所有人"], priority=5, block=True)
+reminder_list = on_regex(cfg.REGEX_PATTERNS["提醒列表"], priority=5, block=True)
+cancel_reminder = on_regex(cfg.REGEX_PATTERNS["取消提醒"], priority=5, block=True)
 
 BOT_STATUS = {
     "startup_time": 0,
@@ -124,6 +151,7 @@ register_queries(
 register_mingpian(mingpian)
 register_trade(jiayi, env)
 register_zili(zili, zili_choice, env, max_depth=MAX_DEPTH)
+register_reminder(reminder, reminder_all, reminder_list, cancel_reminder)
 
 register_jjc_ranking(
     zhanji_ranking,
