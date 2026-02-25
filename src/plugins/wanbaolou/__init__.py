@@ -6,6 +6,7 @@ from nonebot.plugin import PluginMetadata
 from nonebot.params import RegexGroup
 from nonebot.exception import FinishedException
 from nonebot.log import logger
+from nonebot.rule import Rule
 import json
 import os
 import time
@@ -361,7 +362,24 @@ async def handle_search(bot: Bot, event: Event, matcher: Matcher, matched: Annot
 
 # 数字选择正则匹配器
 # 数字选择正则匹配器
-number_choice = on_regex(r"^(\d+)$")
+async def _in_search_session(event: Event) -> bool:
+    user_id = str(getattr(event, "user_id", ""))
+    if not user_id:
+        return False
+
+    session = SEARCH_RESULTS.get(user_id)
+    if not session:
+        return False
+
+    expiry_time = session.get("expiry_time", 0)
+    if time.time() > expiry_time:
+        SEARCH_RESULTS.pop(user_id, None)
+        return False
+
+    return True
+
+
+number_choice = on_regex(r"^(\d+)$", rule=Rule(_in_search_session))
 
 
 @number_choice.handle()

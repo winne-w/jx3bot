@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -20,6 +21,7 @@ def register(
     jjc_ranking_cache_duration: int,
     set_server_data_cache: Callable[[Any], None],
     set_token_data: Callable[[Any], None],
+    ensure_baizhan_skill_icons: Callable[[], Any] | None = None,
 ) -> None:
     @driver.on_startup
     async def init_cache() -> None:
@@ -81,4 +83,16 @@ def register(
                 logger.info("竞技场排行榜缓存文件不存在")
         except Exception as exc:
             logger.warning(f"检查竞技场排行榜缓存失败: {exc}")
+
+        if ensure_baizhan_skill_icons is not None:
+            try:
+                result = await asyncio.to_thread(ensure_baizhan_skill_icons)
+                logger.info(
+                    "百战技能图标同步完成: "
+                    f"total={result.total}, downloaded={result.downloaded}, "
+                    f"skipped_exists={result.skipped_exists}, skipped_invalid={result.skipped_invalid}, "
+                    f"failed={result.failed}"
+                )
+            except Exception as exc:
+                logger.warning(f"百战技能图标同步失败: {exc}")
 

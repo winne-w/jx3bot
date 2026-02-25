@@ -12,7 +12,7 @@ async def jietu(html_content, width, height):
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page(
             viewport={"width": 1920, "height": 1080},
-            device_scale_factor=1,
+            device_scale_factor=2,
         )
 
         await page.evaluate(

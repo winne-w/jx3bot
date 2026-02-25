@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from src.services.jx3.baizhan_skill_icons import get_skill_icon_url
+from src.utils.jjc_text import jjcdaxiaoxie
+
 
 @dataclass(frozen=True)
 class BaizhanCachePaths:
@@ -99,5 +102,54 @@ def parse_baizhan_data(json_data: str | dict[str, Any]) -> dict[str, Any]:
         "end_timestamp": end_timestamp,
         "total_items": len(all_items),
         "items": all_items,
+    }
+
+
+def parse_role_baizhan_data(
+    json_data: dict[str, Any],
+    *,
+    skill_icon_index: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    payload = (json_data.get("data") or {})
+    skill_list = payload.get("skillList") or []
+
+    parsed_skills: list[dict[str, Any]] = []
+    for skill in skill_list:
+        skill_name = str(skill.get("szSkillName", "") or "").strip()
+        skill_level = int(skill.get("nLevel", 0) or 0)
+        level_cn = jjcdaxiaoxie(skill_level) or str(skill_level)
+        parsed_skills.append(
+            {
+                "name": skill_name or "未知技能",
+                "level": skill_level,
+                "level_text": f"{level_cn}重",
+                "boss_name": skill.get("szBossName") or "",
+                "color": int(skill.get("nColor", 0) or 0),
+                "icon_url": get_skill_icon_url(
+                    skill_name,
+                    skill_icon_index=skill_icon_index,
+                ),
+            }
+        )
+
+    parsed_skills.sort(key=lambda item: (-item["level"], item["name"]))
+
+    update_ts = int(payload.get("updateTime", 0) or 0)
+    update_time = datetime.fromtimestamp(update_ts).strftime("%Y-%m-%d %H:%M:%S") if update_ts else "未知"
+
+    game_energy = int(payload.get("gameEnergy", 0) or 0)
+    game_stamina = int(payload.get("gameStamina", 0) or 0)
+
+    return {
+        "zone_name": payload.get("zoneName") or "",
+        "server_name": payload.get("serverName") or "",
+        "role_name": payload.get("roleName") or "",
+        "role_id": payload.get("roleId") or "",
+        "global_role_id": payload.get("globalRoleId") or "",
+        "game_energy": game_energy,
+        "game_stamina": game_stamina,
+        "skill_count": int(payload.get("skillCount", len(parsed_skills)) or 0),
+        "skills": parsed_skills,
+        "update_time": update_time,
     }
 
