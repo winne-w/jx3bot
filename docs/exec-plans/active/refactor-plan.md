@@ -46,7 +46,7 @@
 - `src/plugins/jx3bot_handlers/` 已承担大部分消息命令的薄表现层逻辑
 - `src/services/jx3/` 已承接竞技、公告、名片、群配置等主要业务编排
 - `src/infra/http_client.py` 已引入，HTTP 能力开始收口
-- `src/storage/` 已支持 JSON / Mongo 双后端装配
+- `src/storage/` 已承担统一存储边界
 - `src/plugins/status_monitor.py` 已拆为模块包
 - 文档体系已拆分为 `AGENTS.md`、`project-architecture.md`、`project-roadmap.md`、`project-history.md`、`docs/design-docs/`、`docs/references/`、`docs/exec-plans/`、`docs/tasks/`
 
@@ -195,7 +195,7 @@
 ### P3
 
 - 为高频手工回归路径补自动化最小集
-- 视 Mongo 落地情况，决定是否继续扩大持久化覆盖面
+- 视后续需要再评估持久化能力扩展方向
 
 ## 决策原则
 

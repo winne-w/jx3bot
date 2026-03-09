@@ -72,7 +72,7 @@ docker compose up --build -d
 2. `config.py` 已准备完成
 3. `groups.json`、`server_data.json` 的读写权限正确
 4. OneBot 反向 WebSocket 已指向容器可访问地址
-5. 若使用 Mongo，已额外注入 `STORAGE_BACKEND`、`MONGO_URI`、`MONGO_DB`
+5. 容器环境变量只维护现有运行必需项
 
 ## 常见问题
 

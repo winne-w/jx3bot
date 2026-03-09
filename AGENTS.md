@@ -29,7 +29,7 @@
 - `src/services/jx3/`: 业务编排层，负责查询流程、缓存策略、仓储调用。
 - `src/infra/`: 外部系统适配层，如 HTTP、截图、jx3api 请求封装。
 - `src/renderers/`: 模板渲染、图片生成、消息输出辅助。
-- `src/storage/`: JSON/Mongo 存储适配与工厂。
+- `src/storage/`: 存储适配与工厂。
 - `src/api/routers/`: 对外 HTTP API。
 - `templates/`, `mpimg/`, `data/`: 模板、缓存图片、运行数据。
 

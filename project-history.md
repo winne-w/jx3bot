@@ -17,7 +17,7 @@
 - `src/plugins/jx3bot_handlers/` 被引入，用于承接消息命令的表现层逻辑
 - `src/services/jx3/` 被引入和扩充，用于承接业务编排和缓存策略
 - `src/infra/` 开始承担 HTTP、截图、第三方接口等外部适配
-- `src/storage/` 引入 JSON / Mongo 双后端装配
+- `src/storage/` 被引入，用于统一存储访问边界
 
 ### 状态监控拆包
 

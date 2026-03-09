@@ -48,13 +48,13 @@
 放置原则：
 
 - 存储抽象放 `src/storage/ports.py` 或对应 repo
-- JSON / Mongo 适配放 `src/storage/json_adapter/`、`src/storage/mongo_adapter/`
+- 具体适配实现放在 `src/storage/` 下的对应模块
 - 业务层只依赖 repo 接口或门面，不直接依赖底层细节
 
 不要做：
 
 - 直接在业务代码里新增裸 `open(...)`
-- 直接在 service 里拼 Mongo 查询细节
+- 直接在 service 里拼底层存储查询细节
 
 ## 推荐实现路径
 
