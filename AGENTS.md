@@ -1,47 +1,58 @@
-# Repository Guidelines
+# JX3Bot Agent Guide
 
-## 项目结构与模块分工
-- `bot.py` 负责启动 NoneBot、注册插件并连接 NapCat 的反向 WebSocket。
-- 核心命令集中在 `src/plugins/jx3bot.py`，`wanbaolou/`、`config_manager.py` 与 `status_monitor.py` 提供物价别名、调度与健康检查能力。
-- 通用工具位于 `src/utils/`，可复用的模板与素材保存在 `templates/`、`mpimg/`、`data/`；对外提供的 HTML 页面统一放在 `public/`。
-- HTTP API 路由位于 `src/api/routers/`，统一通过 `bot.py` 注册到 NoneBot 的 ASGI 应用。
-- 根目录下的 `test_*.py`、`example_*.py`、`debug_kungfu_by_role.py` 用于手动排查；`Dockerfile`、`docker-compose.yml`、`start.sh` 需随部署流程同步更新，并在 README 系列文档中同步说明。
-- `README.md`、`README-Docker.md` 及 PlantUML 图 (`*.puml`) 提供架构参考，流程更新时请同时修订这些文档。
-- `requirements.txt` 与 `pyproject.toml` 记录依赖与元数据，调整版本时务必双向更新并通知运维。
+本文件只提供 agent 的最小入口。详细规则、架构和运行步骤拆分到 `docs/`，避免单文件失真。
 
-## 构建、测试与开发命令
-- `python -m venv .venv && source .venv/bin/activate` —— 创建 Python 3.9+ 虚拟环境。
-- `pip install -r requirements.txt` —— 安装依赖，如遇编码报错请转存为 UTF-8。
-- `python bot.py` —— 本地运行机器人前需配置好 `config.py`、`groups.json` 以及反向 WebSocket。
-- HTTP API 统一响应格式为 `{"status_code":0,"status_msg":"success","data":{}}`，更新路由时注意同步 README 中的 API 说明。
-- `bash start.sh` —— 模拟容器入口并启用 `mpimg/` 静态资源，适用于容器外的快速演练。
-- `docker compose up --build` —— 重新构建并启动 docker-compose 定义的完整环境。
-- `python test_jx3bot_ranking.py` / `python test_tuilan_request.py` —— 手动验证竞技场与推栏接口。
-- `python example_tuilan_request.py` —— 处理复杂参数时可借助示例脚本观察请求体与响应。
+## 你在维护什么
 
-## 代码风格与命名约定
-- 统一使用四空格缩进与 `snake_case` 标识符，保持注释简洁。
-- 插件需返回结构化数据，通过 `templates/` 下的 Jinja 模板输出最终消息或图片；涉及截图时注意分辨率与字体兼容。
-- 推荐统一使用 `loguru` 与 `nonebot.logger` 进行输出，避免混用标准库 logging 导致格式漂移。
-- 配置常量集中放在 `config.py` 或模块级字典，避免在业务逻辑中硬编码服务器、令牌或 CDN。
-- 日志务必包含命令、服务器、接口等上下文，方便快速定位问题，必要时补充请求 ID。
+- 这是一个基于 NoneBot2 + OneBot V11 的剑网 3 QQ 机器人。
+- 入口是 `bot.py`，同时挂载消息插件和 HTTP API。
+- 当前代码已经从“单文件插件”演进为分层结构，新增功能应优先放入现有层次，而不是继续堆进 `src/plugins/jx3bot.py`。
 
-## 测试指引
-- 现有测试依赖在线服务，修改相关模块后请运行对应 `test_*.py` 并在调试时记录 `log.txt`。
-- 新增测试脚本遵循 `test_<feature>.py` 命名，在 `if __name__ == "__main__":` 中封装入口，同时说明放入 `data/` 的模拟数据。
-- 引入复杂解析、缓存或并发逻辑前，优先补充 pytest 或 CI 自动化，降低回归风险；如依赖外部服务，请在说明中给出 mock 策略。
-- 推送前建议运行 `pytest` 或 `nb plugin list --json` 等快速检查命令，确认插件加载与关键函数正常。
+## 开始之前先读
 
-## 提交与合并请求规范
-- 延续仓库现有格式（`feat: …`、`fix: …`），标题控制在 72 字符内，可使用中英双语简述。
-- 自动生成或手写的 commit 信息需使用中文描述，必要时可附带少量英文专有名词。
-- 生成 commit 信息时需明确区分代码作者：若主要为用户编写，需标注“用户编写”；若主要为 AI（Codex）编写，需标注“AI 编写”，并附所用模型名（如 `model: GPT-5`）。
-- PR 描述需阐明问题、方案、关联的 Issue/流程图，并列出执行过的手工测试。
-- 若改动 `mpimg/` 素材或模板渲染，请附截图，并明确写出部署或调度影响；牵涉接口兼容时提供回滚建议。
-- Review 时可附上 `git diff --stat` 或关键命令输出，帮助审核者快速了解影响范围。
+1. `README.md`
+2. `project-architecture.md`
+3. `project-roadmap.md`
+4. `project-history.md`
+5. `docs/design-docs/index.md`
+6. `docs/references/index.md`
+7. `docs/exec-plans/index.md`
+8. `docs/tasks/all-tasks.md`
 
-## 安全与配置提示
-- 秘钥放置在环境变量或平台密钥管理中，切勿写入 `config.py`；本地调试可借助 `.env` 文件，提交前务必忽略。
-- 调整 `config.py`、`groups.json`、别名数据或 `waiguan.json` 时要同步通知运维并说明是否需要重启，确保别名缓存按计划刷新。
-- 新增依赖需在 `requirements.txt`（可结合 `pip-tools`）中锁定，确保镜像可重现，同时确认 `start.sh` 的自检步骤仍然适用。
-- 更新 `docker-compose.yml` 或启动脚本后，在 PR 中列出需调整的环境变量、端口映射与 volume，便于同步到 CI/CD pipeline。
+如果任务只涉及部署，再补读 `README-Docker.md`。
+
+## 当前真实结构
+
+- `bot.py`: NoneBot 启动入口，注册 OneBot 适配器与 HTTP 路由。
+- `src/plugins/`: 消息入口层，只做命令匹配、参数提取、调用 service、发送消息。
+- `src/plugins/jx3bot_handlers/`: 各命令 handler 注册与薄逻辑。
+- `src/services/jx3/`: 业务编排层，负责查询流程、缓存策略、仓储调用。
+- `src/infra/`: 外部系统适配层，如 HTTP、截图、jx3api 请求封装。
+- `src/renderers/`: 模板渲染、图片生成、消息输出辅助。
+- `src/storage/`: 存储适配与工厂。
+- `src/api/routers/`: 对外 HTTP API。
+- `templates/`, `mpimg/`, `data/`: 模板、缓存图片、运行数据。
+
+## 强约束
+
+- 依赖方向固定为 `plugins -> services -> infra/storage`，`utils` 只能被依赖，不能反向引用上层。
+- `services` 不得直接依赖 NoneBot 事件对象、`MessageSegment` 或发送消息。
+- `renderers` 只负责渲染，不写业务决策。
+- 新增外部调用时，优先补到 `src/infra/`，不要在 handler 或 service 中直接散写请求。
+- 涉及 `groups.json`、订阅、服务器别名缓存时，统一走 `src/storage/` 和对应 repo，不新增裸 `open(...)` 写法。
+- 秘钥、票据、Cookie、邮箱、内网地址不得硬编码进代码和文档。
+
+## 文档更新规则
+
+- 改动启动方式、端口、环境变量时，同时更新 `README.md`、`README-Docker.md`、`docs/references/runbook.md`。
+- 改动模块边界、目录职责时，同时更新 `project-architecture.md` 和 `docs/exec-plans/active/refactor-plan.md`。
+- 改动 API 路由时，同时更新 `README.md` 中的接口说明。
+- 改动手工验证路径时，同时更新 `docs/references/runbook.md` 的回归清单。
+
+## 常用验证
+
+- 本地启动: `python bot.py`
+- 插件快速检查: `nb plugin list --json`
+- 手工脚本: `python test_tuilan_match_history.py`
+
+外部接口较多，很多验证依赖在线服务。无法离线证明正确时，至少补充手工回归路径。
