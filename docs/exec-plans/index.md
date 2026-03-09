@@ -5,6 +5,8 @@
 ## Active
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
+- `active/mongo-cache-migration-plan.md`: 文件缓存迁移 Mongo 的范围划分、集合设计与分阶段方案
+- `active/mongo-cache-migration-mapping.md`: 旧文件到 Mongo 的字段对照、索引清单与回填执行步骤
 
 ## Completed
 
