@@ -52,24 +52,7 @@ docker compose logs -f
 
 - `HOST`
 - `PORT`
-- `STORAGE_BACKEND`
-- `MONGO_URI`
-- `MONGO_DB`
 - `TZ`
-
-### 默认存储策略
-
-- 默认: `json`
-- 可选: `mongo`
-
-存储切换示例:
-
-```bash
-export STORAGE_BACKEND=mongo
-export MONGO_URI="mongodb://127.0.0.1:27017"
-export MONGO_DB="jx3bot"
-python bot.py
-```
 
 ## 最小验证集
 
@@ -190,13 +173,13 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list"
 - 截图依赖与浏览器环境是否完整
 - 相关字体或静态资源路径是否仍然存在
 
-### JSON / Mongo 表现不一致
+### 存储或缓存表现异常
 
 检查:
 
-- `STORAGE_BACKEND` 当前值
-- `src/storage/factory.py` 是否装配了正确后端
-- 迁移文档和索引初始化步骤是否执行过
+- 当前运行文件是否存在且可读写
+- `src/storage/` 的装配逻辑是否仍与代码实现一致
+- 最近是否改动了缓存路径、运行目录或部署挂载
 
 ## 文档联动规则
 

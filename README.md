@@ -29,7 +29,7 @@ src/plugins/status_monitor/  状态监控与定时任务
 src/plugins/wanbaolou/       万宝楼相关逻辑
 src/services/jx3/            业务编排与缓存策略
 src/infra/                   外部 API / HTTP / 截图适配
-src/storage/                 JSON / Mongo 存储适配
+src/storage/                 存储适配
 src/renderers/               模板渲染与图片生成
 src/api/routers/             HTTP API 路由
 templates/                   Jinja 模板
@@ -77,27 +77,9 @@ python bot.py
 bash start.sh
 ```
 
-## 存储后端
+## 存储说明
 
-默认后端是 `json`。如需切换到 Mongo:
-
-```bash
-export STORAGE_BACKEND=mongo
-export MONGO_URI="mongodb://127.0.0.1:27017"
-export MONGO_DB="jx3bot"
-python bot.py
-```
-
-存储装配逻辑在 `src/storage/factory.py`，目前覆盖:
-
-- 群绑定配置
-- 万宝楼订阅
-- 服务器别名缓存
-
-迁移方案与阶段说明见:
-
-- `docs/exec-plans/completed/mongo-migration-plan.md`
-- `docs/exec-plans/completed/mongo-migration-phase1.md`
+当前分支只记录现有文件型运行数据和存储边界。
 
 ## 手工验证
 
