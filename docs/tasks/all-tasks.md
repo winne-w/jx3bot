@@ -9,6 +9,11 @@
 - `in-progress/refactor-plan.md`
   - 主题：主线分层重构、日志口径收口、`defget` 兼容面缩减
   - 详细说明：`docs/exec-plans/active/refactor-plan.md`
+- `in-progress/mongo-cache-migration.md`
+  - 主题：文件缓存迁移 Mongo、存储边界收口、回填与过渡切换
+  - 详细说明：
+    `docs/exec-plans/active/mongo-cache-migration-plan.md`
+    `docs/exec-plans/active/mongo-cache-migration-mapping.md`
 
 ## Completed
 
