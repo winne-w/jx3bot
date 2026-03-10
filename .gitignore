@@ -3,5 +3,6 @@
 __pycache__/
 **/__pycache__/
 *.pyc
+.env
 data/cache/kungfu/
 data/jjc_ranking_stats/

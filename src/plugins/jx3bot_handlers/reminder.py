@@ -15,6 +15,7 @@ from nonebot.log import logger
 from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.rule import Rule
+from src.storage.singletons import reminder_storage
 
 REMINDER_FILE = Path("data/group_reminders.json")
 CANCEL_TIMEOUT_SECONDS = 45
@@ -85,12 +86,23 @@ def _render_time(remind_at: str) -> str:
 
 
 def _load_reminders_unlocked() -> dict[str, list[dict[str, Any]]]:
+    mongo_grouped = reminder_storage.load_grouped()
+    if mongo_grouped:
+        return mongo_grouped
     if not REMINDER_FILE.exists():
         return {}
     try:
         with REMINDER_FILE.open("r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
+            for group_id, reminders in data.items():
+                if not isinstance(reminders, list):
+                    continue
+                for reminder in reminders:
+                    if not isinstance(reminder, dict) or not reminder.get("id"):
+                        continue
+                    reminder.setdefault("group_id", str(group_id))
+                    reminder_storage.create(reminder)
             return data
     except Exception as exc:
         logger.error(f"读取提醒数据失败: {exc}")
@@ -132,12 +144,16 @@ async def create_reminder(
         group_key = str(group_id)
         group_reminders = all_data.setdefault(group_key, [])
         group_reminders.append(reminder)
+        reminder_storage.create(reminder)
         _save_reminders_unlocked(all_data)
 
     return reminder
 
 
 async def get_group_pending_reminders(group_id: int) -> list[dict[str, Any]]:
+    mongo_pending = reminder_storage.list_pending_by_group(str(group_id))
+    if mongo_pending:
+        return mongo_pending
     reminders_by_group = await load_reminders()
     group_reminders = reminders_by_group.get(str(group_id), [])
     pending = [item for item in group_reminders if item.get("status") == "pending"]
@@ -146,28 +162,34 @@ async def get_group_pending_reminders(group_id: int) -> list[dict[str, Any]]:
 
 
 async def get_user_pending_reminders(group_id: int, user_id: int) -> list[dict[str, Any]]:
+    mongo_pending = reminder_storage.list_pending_by_user(str(group_id), str(user_id))
+    if mongo_pending:
+        return mongo_pending
     pending = await get_group_pending_reminders(group_id)
     return [item for item in pending if item.get("creator_user_id") == str(user_id)]
 
 
 async def mark_reminder_done(reminder_id: str) -> bool:
     updated = False
+    done_at = int(time.time())
     async with FILE_LOCK:
         all_data = _load_reminders_unlocked()
         for reminders in all_data.values():
             for reminder in reminders:
                 if reminder.get("id") == reminder_id and reminder.get("status") == "pending":
                     reminder["status"] = "done"
-                    reminder["done_at"] = int(time.time())
+                    reminder["done_at"] = done_at
                     updated = True
                     break
         if updated:
+            reminder_storage.update_pending(reminder_id, {"status": "done", "done_at": done_at})
             _save_reminders_unlocked(all_data)
     return updated
 
 
 async def cancel_reminder(reminder_id: str, group_id: int, user_id: int) -> dict[str, Any] | None:
     canceled: dict[str, Any] | None = None
+    canceled_at = int(time.time())
     async with FILE_LOCK:
         all_data = _load_reminders_unlocked()
         group_key = str(group_id)
@@ -179,15 +201,22 @@ async def cancel_reminder(reminder_id: str, group_id: int, user_id: int) -> dict
             if reminder.get("status") != "pending":
                 return None
             reminder["status"] = "canceled"
-            reminder["canceled_at"] = int(time.time())
+            reminder["canceled_at"] = canceled_at
             canceled = reminder
             break
         if canceled is not None:
+            reminder_storage.update_pending(
+                reminder_id,
+                {"status": "canceled", "canceled_at": canceled_at},
+            )
             _save_reminders_unlocked(all_data)
     return canceled
 
 
 async def find_pending_reminder(reminder_id: str) -> dict[str, Any] | None:
+    mongo_reminder = reminder_storage.find_pending(reminder_id)
+    if mongo_reminder is not None:
+        return mongo_reminder
     reminders_by_group = await load_reminders()
     for reminders in reminders_by_group.values():
         for reminder in reminders:

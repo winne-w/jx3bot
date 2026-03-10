@@ -3,9 +3,11 @@ import aiohttp
 import json
 import os
 import asyncio
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple
 from nonebot.log import logger
 from .config import config
+from src.storage.singletons import cache_entry_storage
 
 # 排查期：直接使用 print 打印关键日志，不覆盖全局 logger
 
@@ -193,6 +195,15 @@ async def _load_items_from_remote(url: str, method: str = "POST") -> List[dict]:
 
 
 async def _load_cache_file(cache_path: str) -> List[dict]:
+    mongo_payload = cache_entry_storage.get_payload("wanbaolou", "alias_cache")
+    if isinstance(mongo_payload, dict):
+        print("[alias] loading cache from mongo")
+        alias_map = mongo_payload.get('alias_to_canonical') or {}
+        items: List[dict] = []
+        for alias, canonical in alias_map.items():
+            items.append({"name": alias, "showName": canonical})
+        if items:
+            return items
     try:
         async with aiofiles.open(cache_path, 'r', encoding='utf-8') as f:
             text = await f.read()
@@ -202,6 +213,13 @@ async def _load_cache_file(cache_path: str) -> List[dict]:
         items: List[dict] = []
         for alias, canonical in alias_map.items():
             items.append({"name": alias, "showName": canonical})
+        cache_entry_storage.upsert_payload(
+            "wanbaolou",
+            "alias_cache",
+            data,
+            expires_at=_alias_cache_expires_at(),
+            meta={"source_file": cache_path},
+        )
         return items
     except FileNotFoundError:
         print(f"[alias] cache file not found: {cache_path}")
@@ -218,11 +236,22 @@ async def _save_cache_file(cache_path: str) -> None:
             "alias_to_canonical": _alias_to_canonical,
             "canonical_to_aliases": _canonical_to_aliases,
         }
+        cache_entry_storage.upsert_payload(
+            "wanbaolou",
+            "alias_cache",
+            payload,
+            expires_at=_alias_cache_expires_at(),
+            meta={"source_file": cache_path},
+        )
         async with aiofiles.open(cache_path, 'w', encoding='utf-8') as f:
             await f.write(json.dumps(payload, ensure_ascii=False))
         print(f"[alias] cache file saved: {cache_path}")
     except Exception as e:
         print(f"[alias] write cache file failed: {e}")
+
+
+def _alias_cache_expires_at() -> datetime:
+    return datetime.now(timezone.utc) + timedelta(minutes=max(config.alias_refresh_minutes, 1) * 2)
 
 
 async def refresh_alias_cache() -> Tuple[int, int]:

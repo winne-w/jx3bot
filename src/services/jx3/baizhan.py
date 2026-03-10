@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from src.services.jx3.baizhan_skill_icons import get_skill_icon_url
+from src.storage.singletons import cache_entry_storage
 from src.utils.jjc_text import jjcdaxiaoxie
 
 
@@ -25,14 +26,30 @@ def baizhan_cache_paths(image_dir: str = "data/baizhan_images") -> BaizhanCacheP
 
 
 def load_cached_baizhan_image_bytes(paths: BaizhanCachePaths, *, now_ts: int) -> bytes | None:
-    if not (os.path.exists(paths.data_path) and os.path.exists(paths.image_path)):
+    local_data: dict[str, Any] | None = None
+    mongo_payload = cache_entry_storage.get_payload("baizhan", "latest_meta")
+    if isinstance(mongo_payload, dict):
+        local_data = mongo_payload
+    elif not os.path.exists(paths.data_path):
         return None
 
     try:
-        with open(paths.data_path, "r", encoding="utf-8") as f:
-            local_data = json.load(f)
+        if local_data is None:
+            if not os.path.exists(paths.data_path):
+                return None
+            with open(paths.data_path, "r", encoding="utf-8") as f:
+                local_data = json.load(f)
+            cache_entry_storage.upsert_payload(
+                "baizhan",
+                "latest_meta",
+                local_data,
+                expires_at=_baizhan_expires_at(local_data),
+                meta={"source_file": paths.data_path},
+            )
         end_timestamp = int(local_data.get("end_timestamp", 0) or 0)
         if end_timestamp <= now_ts:
+            return None
+        if not os.path.exists(paths.image_path):
             return None
         with open(paths.image_path, "rb") as img_file:
             return img_file.read()
@@ -41,18 +58,29 @@ def load_cached_baizhan_image_bytes(paths: BaizhanCachePaths, *, now_ts: int) ->
 
 
 def save_baizhan_cache(paths: BaizhanCachePaths, *, result: dict[str, Any], image_bytes: bytes) -> None:
+    payload = {
+        "start_timestamp": result.get("start_timestamp"),
+        "end_timestamp": result.get("end_timestamp"),
+        "result": result,
+    }
+    cache_entry_storage.upsert_payload(
+        "baizhan",
+        "latest_meta",
+        payload,
+        expires_at=_baizhan_expires_at(payload),
+        meta={"source_file": paths.data_path},
+    )
     with open(paths.data_path, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "start_timestamp": result.get("start_timestamp"),
-                "end_timestamp": result.get("end_timestamp"),
-                "result": result,
-            },
-            f,
-            ensure_ascii=False,
-        )
+        json.dump(payload, f, ensure_ascii=False)
     with open(paths.image_path, "wb") as f:
         f.write(image_bytes)
+
+
+def _baizhan_expires_at(payload: dict[str, Any]) -> datetime | None:
+    end_timestamp = int(payload.get("end_timestamp", 0) or 0)
+    if end_timestamp <= 0:
+        return None
+    return datetime.fromtimestamp(end_timestamp, tz=timezone.utc)
 
 
 def parse_baizhan_data(json_data: str | dict[str, Any]) -> dict[str, Any]:

@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from cacheout import Cache
 
 from src.infra.http_client import HttpClient
+from src.storage.singletons import cache_entry_storage
 
 try:
     from nonebot import logger  # type: ignore
@@ -76,9 +78,19 @@ async def idget(server_name: str) -> bool:
 
     if _server_data_cache is None:
         try:
-            if os.path.exists(_server_data_file):
+            mongo_payload = cache_entry_storage.get_payload("jx3", "server_data")
+            if isinstance(mongo_payload, dict):
+                _server_data_cache = mongo_payload
+            elif os.path.exists(_server_data_file):
                 with open(_server_data_file, "r", encoding="utf-8") as f:
                     _server_data_cache = json.load(f)
+                cache_entry_storage.upsert_payload(
+                    "jx3",
+                    "server_data",
+                    _server_data_cache,
+                    expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+                    meta={"source_file": _server_data_file},
+                )
             else:
                 logger.warning("jx3api_get server data 文件不存在: {}", _server_data_file)
                 return False

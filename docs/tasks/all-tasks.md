@@ -1,6 +1,6 @@
 # All Tasks
 
-更新时间：2026-03-09
+更新时间：2026-03-10
 
 这里维护当前任务索引，而不是把所有细节塞进一个大计划文档。
 
@@ -11,6 +11,7 @@
   - 详细说明：`docs/exec-plans/active/refactor-plan.md`
 - `in-progress/mongo-cache-migration.md`
   - 主题：文件缓存迁移 Mongo、存储边界收口、回填与过渡切换
+  - 当前进展：已完成首批主路径接入、索引初始化、回填/核对脚本与最小测试，仍待单写切换与旧路径清理
   - 详细说明：
     `docs/exec-plans/active/mongo-cache-migration-plan.md`
     `docs/exec-plans/active/mongo-cache-migration-mapping.md`

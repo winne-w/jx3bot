@@ -5,6 +5,7 @@ import os
 from typing import Any, Set
 
 from src.services.jx3.singletons import group_config_repo
+from src.storage.singletons import cache_entry_storage
 
 CACHE_DIR = "data/cache"
 
@@ -25,6 +26,12 @@ class CacheManager:
     @staticmethod
     def save_cache(data: Any, cache_name: str) -> bool:
         try:
+            cache_entry_storage.upsert_payload(
+                "status_monitor",
+                cache_name,
+                data,
+                meta={"source_file": os.path.join(CACHE_DIR, f"{cache_name}.json")},
+            )
             CacheManager.ensure_cache_dir()
             cache_file = os.path.join(CACHE_DIR, f"{cache_name}.json")
             with open(cache_file, "w", encoding="utf-8") as file_handle:
@@ -37,10 +44,20 @@ class CacheManager:
     @staticmethod
     def load_cache(cache_name: str, default: Any = None) -> Any:
         try:
+            mongo_payload = cache_entry_storage.get_payload("status_monitor", cache_name)
+            if mongo_payload is not None:
+                return mongo_payload
             cache_file = os.path.join(CACHE_DIR, f"{cache_name}.json")
             if os.path.exists(cache_file):
                 with open(cache_file, "r", encoding="utf-8") as file_handle:
-                    return json.load(file_handle)
+                    payload = json.load(file_handle)
+                cache_entry_storage.upsert_payload(
+                    "status_monitor",
+                    cache_name,
+                    payload,
+                    meta={"source_file": cache_file},
+                )
+                return payload
         except Exception as exc:
             print(f"读取缓存失败({cache_name}): {str(exc)}")
         return default

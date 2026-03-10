@@ -100,6 +100,7 @@
 - `group_binding_storage`
 - `subscription_storage`
 - `server_alias_cache_storage`
+- Mongo cache/repo 兼容适配（`cache_entries`、`jjc_*`、`group_reminders`、`wanbaolou_subscriptions`）
 
 ### `src/renderers/`
 
