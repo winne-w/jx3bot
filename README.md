@@ -50,6 +50,12 @@ docs/                        补充架构与运行文档
 
 默认运行时会同时启用消息插件和 HTTP API，监听地址由 `HOST`/`PORT` 控制。
 
+如需启用本轮 Mongo 迁移兼容路径，可额外提供:
+
+- `JX3BOT_MONGO_ENABLED=1`
+- `JX3BOT_MONGO_URI=mongodb://<user>:<pass>@<host>:<port>/`
+- `JX3BOT_MONGO_DB=jx3bot`
+
 ## 本地启动
 
 1. 创建虚拟环境
@@ -79,7 +85,16 @@ bash start.sh
 
 ## 存储说明
 
-当前分支只记录现有文件型运行数据和存储边界。
+当前分支默认保留文件缓存，同时支持对以下路径优先读 Mongo、未命中回退文件:
+
+- 竞技排行榜缓存
+- 竞技心法缓存
+- 区服简称缓存
+- `status_monitor` JSON 缓存
+- 提醒任务
+- 万宝楼订阅
+- 竞技统计快照
+- `server_data.json` 回退缓存
 
 ## 手工验证
 

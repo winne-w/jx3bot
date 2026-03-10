@@ -19,4 +19,7 @@ services:
       - ENVIRONMENT=prod
       - DRIVER=~fastapi+~websockets
       - HOST=0.0.0.0
-      - PORT=5288 
+      - PORT=5288
+      - JX3BOT_MONGO_ENABLED=${JX3BOT_MONGO_ENABLED:-}
+      - JX3BOT_MONGO_URI=${JX3BOT_MONGO_URI:-}
+      - JX3BOT_MONGO_DB=${JX3BOT_MONGO_DB:-jx3bot}

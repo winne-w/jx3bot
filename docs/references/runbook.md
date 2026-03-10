@@ -41,6 +41,35 @@ docker compose up --build -d
 docker compose logs -f
 ```
 
+### Mongo 回填
+
+启用 Mongo 后，可先跑一次旧文件回填:
+
+```bash
+JX3BOT_MONGO_ENABLED=1 \
+JX3BOT_MONGO_URI='mongodb://<user>:<pass>@<host>:<port>/admin' \
+JX3BOT_MONGO_DB='jx3bot' \
+python scripts/mongo_backfill.py
+```
+
+只看扫描结果、不写入 Mongo:
+
+```bash
+JX3BOT_MONGO_ENABLED=1 \
+JX3BOT_MONGO_URI='mongodb://<user>:<pass>@<host>:<port>/admin' \
+JX3BOT_MONGO_DB='jx3bot' \
+python scripts/mongo_backfill.py --dry-run
+```
+
+回填后核对文件侧与 Mongo 侧数量:
+
+```bash
+JX3BOT_MONGO_ENABLED=1 \
+JX3BOT_MONGO_URI='mongodb://<user>:<pass>@<host>:<port>/admin' \
+JX3BOT_MONGO_DB='jx3bot' \
+python scripts/mongo_verify.py
+```
+
 ## 关键配置
 
 ### 必备文件
@@ -53,6 +82,11 @@ docker compose logs -f
 - `HOST`
 - `PORT`
 - `TZ`
+- `JX3BOT_MONGO_ENABLED`
+- `JX3BOT_MONGO_URI`
+- `JX3BOT_MONGO_DB`
+
+如使用 `docker compose`，建议把 Mongo 相关变量写到仓库根目录 `.env`，示例见 `.env.example`。
 
 ## 最小验证集
 
@@ -120,6 +154,7 @@ python test_tuilan_match_history.py
 - service 能返回结构化数据
 - renderer 能生成图片
 - 统计文件写入 `data/jjc_ranking_stats/`
+- 如启用 Mongo，`/api/jjc/ranking-stats` 能从 Mongo 返回 `list/read`
 
 ### 6. 资历 / 百战 / 骗子查询
 
@@ -178,6 +213,8 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list"
 检查:
 
 - 当前运行文件是否存在且可读写
+- 如启用 Mongo，确认 `JX3BOT_MONGO_URI`、`JX3BOT_MONGO_DB` 配置正确且网络可达
+- 检查 Mongo 中 `cache_entries`、`jjc_ranking_cache`、`jjc_kungfu_cache`、`group_reminders`、`wanbaolou_subscriptions`、`jjc_ranking_stats` 是否有写入
 - `src/storage/` 的装配逻辑是否仍与代码实现一致
 - 最近是否改动了缓存路径、运行目录或部署挂载
 

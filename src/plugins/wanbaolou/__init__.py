@@ -19,6 +19,7 @@ from src.plugins.wanbaolou.api import api, JX3TradeAPI, search_jx3_appearances
 from src.plugins.wanbaolou.config import config
 from src.plugins.wanbaolou.utils import format_time_string, save_image_cache
 from src.infra.screenshot import jietu
+from src.storage.singletons import subscription_storage
 from src.utils.random_text import suijitext
 from config import wanbaolou
 from src.utils.shared_data import SEARCH_RESULTS,user_sessions
@@ -129,10 +130,16 @@ async def load_subscriptions() -> Dict[str, List[Dict[str, Any]]]:
     """从JSON文件加载订阅数据"""
     ensure_dir_exists()
     try:
+        mongo_grouped = subscription_storage.load_grouped_by_user()
+        if mongo_grouped:
+            return mongo_grouped
         if os.path.exists(SUBSCRIPTION_FILE):
             async with asyncio.Lock():
                 with open(SUBSCRIPTION_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    payload = json.load(f)
+            if isinstance(payload, dict):
+                subscription_storage.replace_grouped_by_user(payload)
+            return payload
         return {}
     except Exception as e:
         logger.error(f"加载订阅数据失败: {e}")
@@ -143,6 +150,7 @@ async def save_subscriptions(subscriptions: Dict[str, List[Dict[str, Any]]]):
     """保存订阅数据到JSON文件"""
     ensure_dir_exists()
     try:
+        subscription_storage.replace_grouped_by_user(subscriptions)
         async with asyncio.Lock():
             with open(SUBSCRIPTION_FILE, 'w', encoding='utf-8') as f:
                 json.dump(subscriptions, f, ensure_ascii=False, indent=2)
@@ -588,23 +596,21 @@ async def add_price_subscription(user_id: str, item_name: str, price_threshold: 
         bool: 是否成功添加订阅
     """
     try:
-        # 加载现有订阅
-        subscriptions = await load_subscriptions()
-
-        # 如果用户不存在，创建新的订阅列表
-        if user_id not in subscriptions:
-            subscriptions[user_id] = []
-
-        # 添加新的订阅
-        subscriptions[user_id].append({
+        subscription = {
             "item_name": item_name,
             "price_threshold": price_threshold,
             "group_id": group_id,
-            "created_at": time.time()
-        })
-
-        # 保存到文件
-        await save_subscriptions(subscriptions)
+            "created_at": time.time(),
+            "updated_at": time.time(),
+            "enabled": True,
+        }
+        mongo_item = subscription_storage.add(user_id, subscription)
+        if mongo_item is not None:
+            await save_subscriptions(subscription_storage.list_all_grouped_by_user())
+        else:
+            subscriptions = await load_subscriptions()
+            subscriptions.setdefault(user_id, []).append(subscription)
+            await save_subscriptions(subscriptions)
 
         logger.info(f"用户 {user_id} 订阅了 {item_name} 的价格提醒，阈值: {price_threshold}")
         return True
@@ -625,6 +631,9 @@ async def get_user_subscriptions(user_id: str) -> List[Dict[str, Any]]:
     Returns:
         List[Dict]: 订阅列表
     """
+    mongo_items = subscription_storage.list_by_user(user_id)
+    if mongo_items:
+        return mongo_items
     subscriptions = await load_subscriptions()
     return subscriptions.get(user_id, [])
 
@@ -642,28 +651,20 @@ async def remove_subscription(user_id: str, index: int) -> Optional[Dict[str, An
         Dict 或 None: 被删除的订阅信息，如果失败则返回None
     """
     try:
-        # 加载现有订阅
-        subscriptions = await load_subscriptions()
-
-        # 检查用户是否有订阅
-        if user_id not in subscriptions or not subscriptions[user_id]:
-            return None
-
-        user_subs = subscriptions[user_id]
-
-        # 检查索引是否有效
-        if index < 1 or index > len(user_subs):
-            return None
-
-        # 删除订阅
-        removed = user_subs.pop(index - 1)
-
-        # 如果用户没有订阅了，删除用户条目
-        if not user_subs:
-            del subscriptions[user_id]
-
-        # 保存到文件
-        await save_subscriptions(subscriptions)
+        removed = subscription_storage.remove_by_index(user_id, index)
+        if removed is None:
+            subscriptions = await load_subscriptions()
+            if user_id not in subscriptions or not subscriptions[user_id]:
+                return None
+            user_subs = subscriptions[user_id]
+            if index < 1 or index > len(user_subs):
+                return None
+            removed = user_subs.pop(index - 1)
+            if not user_subs:
+                del subscriptions[user_id]
+            await save_subscriptions(subscriptions)
+        else:
+            await save_subscriptions(subscription_storage.list_all_grouped_by_user())
 
         logger.info(f"用户 {user_id} 删除了对 {removed['item_name']} 的价格订阅")
         return removed
@@ -681,7 +682,7 @@ suoyou_config_cmd = on_command("所有订阅", priority=5)
 async def get_all_subscriptions(bot: Bot, event: Event):
     """显示所有用户的所有订阅"""
     # 加载所有订阅数据
-    all_subscriptions = await load_subscriptions()
+    all_subscriptions = subscription_storage.list_all_grouped_by_user() or await load_subscriptions()
 
     # 格式化输出
     if not all_subscriptions:
@@ -906,32 +907,14 @@ async def handle_cancel_subscription(bot: Bot, event: Event, matcher: Matcher,
         index = int(index_str)
 
         # 删除订阅并获取删除的订阅信息，但不立即保存
+        removed = await remove_subscription(user_id, index)
         subscriptions = await get_user_subscriptions(user_id)
 
-        if not subscriptions or index <= 0 or index > len(subscriptions):
+        if removed is None:
             await matcher.finish(MessageSegment.at(event.user_id) + Message("\n未找到指定的订阅或序号无效"))
             return
 
-        # 获取要删除的订阅信息
-        removed = subscriptions[index - 1]
         item_name = removed["item_name"]
-
-        # 删除指定订阅
-        subscriptions.pop(index - 1)
-
-        # 获取所有订阅数据
-        all_subscriptions = await load_subscriptions()
-
-        # 更新用户的订阅
-        if subscriptions:
-            all_subscriptions[user_id] = subscriptions
-        else:
-            # 如果用户没有订阅了，删除用户条目
-            if user_id in all_subscriptions:
-                del all_subscriptions[user_id]
-
-        # 保存更新后的数据
-        await save_subscriptions(all_subscriptions)
 
         # 获取剩余订阅数量
         remaining = len(subscriptions)

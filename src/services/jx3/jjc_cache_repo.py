@@ -14,6 +14,8 @@ except Exception:  # pragma: no cover
 
     logger = logging.getLogger(__name__)
 
+from src.storage.singletons import jjc_cache_storage
+
 
 @dataclass(frozen=True)
 class JjcCacheRepo:
@@ -22,6 +24,11 @@ class JjcCacheRepo:
     kungfu_cache_duration: int
 
     def load_ranking_cache(self) -> dict[str, Any] | None:
+        cached_from_mongo = jjc_cache_storage.load_ranking_cache()
+        if cached_from_mongo is not None:
+            logger.info("使用 Mongo 缓存的竞技场排行榜数据")
+            return cached_from_mongo
+
         if not os.path.exists(self.jjc_ranking_cache_file):
             return None
         try:
@@ -35,13 +42,19 @@ class JjcCacheRepo:
         cache_time = cached_data.get("cache_time", 0)
         if current_time - cache_time < self.jjc_ranking_cache_duration:
             logger.info("使用文件缓存的竞技场排行榜数据")
-            return cached_data.get("data")
+            ranking_result = cached_data.get("data")
+            if isinstance(ranking_result, dict):
+                if "cache_time" not in ranking_result and cache_time:
+                    ranking_result["cache_time"] = cache_time
+                jjc_cache_storage.save_ranking_cache(ranking_result, ttl_seconds=self.jjc_ranking_cache_duration)
+            return ranking_result
         logger.info("竞技场排行榜文件缓存已过期")
         return None
 
     def save_ranking_cache(self, ranking_result: dict[str, Any]) -> None:
         cache_dir = os.path.dirname(self.jjc_ranking_cache_file)
         os.makedirs(cache_dir, exist_ok=True)
+        jjc_cache_storage.save_ranking_cache(ranking_result, ttl_seconds=self.jjc_ranking_cache_duration)
         try:
             with open(self.jjc_ranking_cache_file, "w", encoding="utf-8") as file_handle:
                 json.dump(
@@ -63,6 +76,10 @@ class JjcCacheRepo:
         return os.path.join(cache_dir, f"{server}_{name}.json")
 
     def load_kungfu_cache_raw(self, server: str, name: str) -> dict[str, Any] | None:
+        cached_from_mongo = jjc_cache_storage.load_kungfu_cache(server, name, allow_expired=True)
+        if cached_from_mongo is not None:
+            return cached_from_mongo
+
         cache_file = self.kungfu_cache_path(server, name)
         if not os.path.exists(cache_file):
             return None
@@ -74,6 +91,12 @@ class JjcCacheRepo:
             return None
 
     def load_kungfu_cache(self, server: str, name: str) -> dict[str, Any] | None:
+        cached_data = jjc_cache_storage.load_kungfu_cache(server, name)
+        if cached_data is not None:
+            hit = self._validate_kungfu_cache(server, name, cached_data, source="mongo")
+            if hit is not None:
+                return hit
+
         cache_file = self.kungfu_cache_path(server, name)
         if not os.path.exists(cache_file):
             logger.info(f"心法缓存未命中: server={server} name={name} reason=cache_file_missing")
@@ -84,7 +107,17 @@ class JjcCacheRepo:
         except Exception as exc:
             logger.warning(f"读取心法缓存失败: file={cache_file} error={exc}")
             return None
+        jjc_cache_storage.save_kungfu_cache(server, name, cached_data, ttl_seconds=self.kungfu_cache_duration)
+        return self._validate_kungfu_cache(server, name, cached_data, source="file")
 
+    def _validate_kungfu_cache(
+        self,
+        server: str,
+        name: str,
+        cached_data: dict[str, Any],
+        *,
+        source: str,
+    ) -> dict[str, Any] | None:
         cache_time = cached_data.get("cache_time", 0)
         kungfu_value = cached_data.get("kungfu")
         weapon_checked = cached_data.get("weapon_checked", False)
@@ -108,7 +141,7 @@ class JjcCacheRepo:
                 and teammates_ok
             )
             if cache_fresh:
-                logger.info(f"使用心法缓存: server={server} name={name} cache_time={cache_time}")
+                logger.info(f"使用心法缓存: source={source} server={server} name={name} cache_time={cache_time}")
                 return cached_data
 
             reasons = []
@@ -134,6 +167,7 @@ class JjcCacheRepo:
 
     def save_kungfu_cache(self, server: str, name: str, result: dict[str, Any]) -> None:
         cache_file = self.kungfu_cache_path(server, name)
+        jjc_cache_storage.save_kungfu_cache(server, name, result, ttl_seconds=self.kungfu_cache_duration)
         try:
             with open(cache_file, "w", encoding="utf-8") as file_handle:
                 json.dump(result, file_handle, ensure_ascii=False, indent=2)

@@ -8,6 +8,7 @@ from typing import Any
 from nonebot import logger
 
 from src.infra.http_client import HttpClient
+from src.storage.singletons import cache_entry_storage
 
 SERVER_MASTER_API_URL = "https://www.jx3api.com/data/server/master"
 SERVER_MASTER_CACHE_FILE = "data/cache/server_master_cache.json"
@@ -27,6 +28,11 @@ def _load_cache() -> None:
         return
 
     _cache_loaded = True
+    mongo_payload = cache_entry_storage.get_payload("jx3", "server_master_aliases")
+    if isinstance(mongo_payload, dict):
+        _cache = mongo_payload
+        return
+
     if not os.path.exists(SERVER_MASTER_CACHE_FILE):
         return
 
@@ -35,12 +41,26 @@ def _load_cache() -> None:
             data = json.load(file_handle)
         if isinstance(data, dict):
             _cache = data
+            cache_entry_storage.upsert_payload(
+                "jx3",
+                "server_master_aliases",
+                _cache,
+                expires_at=_expires_in(SERVER_MASTER_CACHE_TTL),
+                meta={"source_file": SERVER_MASTER_CACHE_FILE},
+            )
     except Exception as exc:
         logger.warning("区服简称缓存读取失败: {}", exc)
         _cache = {}
 
 
 def _save_cache() -> None:
+    cache_entry_storage.upsert_payload(
+        "jx3",
+        "server_master_aliases",
+        _cache,
+        expires_at=_expires_in(SERVER_MASTER_CACHE_TTL),
+        meta={"source_file": SERVER_MASTER_CACHE_FILE},
+    )
     try:
         os.makedirs(os.path.dirname(SERVER_MASTER_CACHE_FILE), exist_ok=True)
         with open(SERVER_MASTER_CACHE_FILE, "w", encoding="utf-8") as file_handle:
@@ -134,3 +154,9 @@ async def resolve_master_server_name(server_name: str) -> str:
 
     _cache_master_result(query_name, data)
     return master_name
+
+
+def _expires_in(ttl_seconds: int):
+    from datetime import datetime, timedelta, timezone
+
+    return datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)

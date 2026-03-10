@@ -35,6 +35,11 @@ SESSION_TIMEOUT = 45  # 用户会话超时时间（秒）
 # GET请求缓存时间
 SESSION_data = 720
 
+# Mongo 可选配置，优先使用环境变量，避免把连接信息写死到仓库
+MONGO_ENABLED = os.getenv("JX3BOT_MONGO_ENABLED", "")
+MONGO_URI = os.getenv("JX3BOT_MONGO_URI", "")
+MONGO_DB = os.getenv("JX3BOT_MONGO_DB", "jx3bot")
+
 # 名片缓存目录
 IMAGE_CACHE_DIR = "mpimg"
 

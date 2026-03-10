@@ -1,6 +1,6 @@
 # Project History
 
-更新时间：2026-03-09
+更新时间：2026-03-10
 
 本文记录已经发生的重要演进，避免“为什么变成现在这样”只存在于提交记录和口头记忆中。
 
@@ -43,5 +43,22 @@
 - 仓库里仍有部分调试式输出和历史兼容层
 - 许多运行验证仍依赖在线接口和手工回归
 - 历史模块虽然已拆层，但尚未完全收口
+
+## 2026-03 Mongo 缓存迁移首轮落地
+
+- 为 `src/storage/` 补齐了 Mongo settings、provider、ports、singletons 和首批 adapter
+- 把首批计划范围内的缓存与运行态数据接到 Mongo 主路径：
+  - `status_monitor` JSON 缓存
+  - `server_data`
+  - `server_master_cache`
+  - `jjc_ranking_cache`
+  - `jjc_kungfu_cache`
+  - `group_reminders`
+  - `wanbaolou_subscriptions`
+  - `jjc_ranking_stats`
+- 把第二批中的 `wanbaolou_alias_cache` 和 `baizhan_data.json` 也接入 `cache_entries`
+- 增加了 `scripts/mongo_backfill.py` 与 `scripts/mongo_verify.py`，可执行真实回填与核对
+- 迁移策略当前停留在“Mongo 优先读取、文件回退、过渡期双写”，尚未进入单写清理阶段
+- 为迁移路径补了一组最小 `unittest`，覆盖 repo CRUD、API fallback、脚本映射和第二批缓存接入
 
 后续出现重要结构变化时，应在本文追加新阶段，而不是只修改现状描述文档。

@@ -39,6 +39,9 @@ docker compose up --build -d
   - `DRIVER=~fastapi+~websockets`
   - `HOST=0.0.0.0`
   - `PORT=5288`
+  - 可选: 通过 `.env` 提供 `JX3BOT_MONGO_ENABLED`
+  - 可选: 通过 `.env` 提供 `JX3BOT_MONGO_URI`
+  - 可选: 通过 `.env` 提供 `JX3BOT_MONGO_DB`
 - 端口映射:
   - `5288:5288`
   - `8000:8000`
@@ -73,6 +76,9 @@ docker compose up --build -d
 3. `groups.json`、`server_data.json` 的读写权限正确
 4. OneBot 反向 WebSocket 已指向容器可访问地址
 5. 容器环境变量只维护现有运行必需项
+6. 如启用 Mongo，需保证容器能访问 `JX3BOT_MONGO_URI` 对应实例
+
+Mongo 示例变量见仓库根目录的 `.env.example`。实际部署时请写入本地 `.env`，不要提交真实凭据。
 
 ## 常见问题
 

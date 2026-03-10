@@ -14,6 +14,7 @@ from nonebot import logger
 from src.services.jx3.kungfu import get_kungfu_detail_by_role_info
 from src.services.jx3.jjc_api_client import JjcApiClient
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
+from src.storage.singletons import jjc_ranking_stats_storage
 
 
 @dataclass(frozen=True)
@@ -261,6 +262,7 @@ class JjcRankingService:
             }
             with open(stats_path, "w", encoding="utf-8") as file_handle:
                 json.dump(stats_payload, file_handle, ensure_ascii=False, indent=2)
+            jjc_ranking_stats_storage.save(ranking_timestamp, stats_payload)
             logger.info("保存竞技场统计结果: %s", stats_path)
         except Exception as exc:
             logger.warning("保存竞技场统计结果失败: %s", exc)

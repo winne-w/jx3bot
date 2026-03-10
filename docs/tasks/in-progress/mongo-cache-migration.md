@@ -1,7 +1,7 @@
 # Task: Mongo Cache Migration
 
 状态：进行中
-更新时间：2026-03-09
+更新时间：2026-03-10
 
 ## 目标
 
@@ -14,6 +14,50 @@
 
 - `docs/exec-plans/active/mongo-cache-migration-plan.md`
 - `docs/exec-plans/active/mongo-cache-migration-mapping.md`
+
+## 当前进展
+
+### 已完成
+
+- 已新增 `src/storage/` 下的 Mongo settings / provider / ports / singletons / adapter 基础设施
+- 已落地集合与索引初始化：
+  - `cache_entries`
+  - `jjc_ranking_cache`
+  - `jjc_kungfu_cache`
+  - `group_reminders`
+  - `wanbaolou_subscriptions`
+  - `jjc_ranking_stats`
+- 已接入 Mongo 主路径并保留文件回退：
+  - `status_monitor` JSON 缓存
+  - `server_data.json`
+  - `server_master_cache.json`
+  - `jjc_ranking_cache.json`
+  - `data/cache/kungfu/*.json`
+  - `data/group_reminders.json`
+  - `data/wanbaolou_subscriptions.json`
+  - `data/jjc_ranking_stats/*.json`
+- 已完成第二批后置项的接入：
+  - `data/wanbaolou_alias_cache.json` 对应 `wanbaolou/alias_cache`
+  - `data/baizhan_images/baizhan_data.json` 对应 `baizhan/latest_meta`
+- 已补回填与核对脚本：
+  - `scripts/mongo_backfill.py`
+  - `scripts/mongo_verify.py`
+- 已跑通一次真实 Mongo 索引初始化、回填和核对
+- 已补最小自动化测试，覆盖 repo 行为、API fallback、脚本映射与第二批缓存接入
+
+### 当前观察结果
+
+- `cache_entries` 已写入首批与第二批可用缓存元数据
+- `jjc_kungfu_cache` 历史数据已导入过，但多数旧文档会因 TTL 与过期时间被自动清理
+- `wanbaolou_alias_cache` 代码已支持 Mongo；当前工作区没有旧缓存文件，需等待运行期刷新或后续生成后再落库
+- `jjc_ranking_cache`、`group_reminders` 当前工作区没有旧文件样本，因此未回填出历史文档
+
+### 未完成
+
+- 仍处于“双读优先 Mongo、双写保留文件”的过渡阶段，尚未切到 Mongo 单写
+- `wanbaolou_subscriptions` / `group_reminders` 已具备最小 CRUD，但插件层仍保留部分文件兼容逻辑
+- 缺真实 Mongo 集成测试与完整回归清单验证
+- 缺“切单写 / 回滚 / 删除旧路径”的明确执行步骤和验收记录
 
 ## 任务范围
 
@@ -79,6 +123,8 @@
 - 索引清单与执行文档一致
 - 有基础连接与索引初始化测试
 
+当前状态：已完成基础实现与真实库验证；真实实例已完成 `ping`、建索引和集合落地。
+
 ### T3. 通用缓存 repo 落地
 
 覆盖对象：
@@ -104,6 +150,8 @@
 - 通用缓存不再需要在插件/service 中拼文件路径
 - 有 repo 级 cache hit / miss / file fallback 测试
 
+当前状态：已完成主路径接入；仍保留插件层文件兼容代码，后续再做单写切换。
+
 ### T4. JJC 缓存 repo 落地
 
 覆盖对象：
@@ -128,6 +176,8 @@
 - 竞技场排行榜、心法缓存、统计快照都能通过 repo 访问
 - 有心法缓存完整性判定测试和 stats list/read 测试
 
+当前状态：已完成主路径接入、API 适配、文件回退回填与最小测试。
+
 ### T5. 运行态数据 repo 落地
 
 覆盖对象：
@@ -151,6 +201,8 @@
 - 提醒和订阅逻辑都不再直接读写 JSON 文件
 - 有提醒恢复、订阅增删改查和触发后删除测试
 
+当前状态：已完成 Mongo repo 和最小 CRUD；仍保留文件兼容层，尚未完全下线 JSON 主路径。
+
 ### T6. 数据回填脚本
 
 交付物：
@@ -170,6 +222,8 @@
 - 重复执行不会制造重复文档
 - 有样例导入、幂等和坏数据容错测试
 
+当前状态：已完成 `mongo_backfill.py`，并在真实实例执行过至少一轮回填。
+
 ### T7. 双读双写过渡
 
 交付物：
@@ -188,6 +242,8 @@
 - 在不清理旧文件的情况下可以稳定运行一个观察周期
 - 有双读双写行为测试
 
+当前状态：已落地“先读 Mongo、未命中回退文件、文件命中后回填 Mongo、写入双写”；尚未完成观察周期与切换结论。
+
 ### T8. 切单写与清理旧路径
 
 交付物：
@@ -205,6 +261,8 @@
 
 - 首批范围内不再依赖旧 JSON 文件作为主存储
 - 删除文件路径前已有 Mongo 主路径测试覆盖
+
+当前状态：未开始。
 
 ## 建议实施顺序
 

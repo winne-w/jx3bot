@@ -4,10 +4,13 @@ import asyncio
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
 from nonebot import logger
+from src.storage.singletons import cache_entry_storage
+
+SERVER_DATA_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 
 
 def register(
@@ -40,6 +43,13 @@ def register(
             with open(server_data_file, "w", encoding="utf-8") as file_handle:
                 json.dump(data_obj, file_handle, ensure_ascii=False, indent=2)
 
+            cache_entry_storage.upsert_payload(
+                "jx3",
+                "server_data",
+                data_obj,
+                expires_at=datetime.now(timezone.utc) + timedelta(seconds=SERVER_DATA_CACHE_TTL_SECONDS),
+                meta={"source_file": server_data_file},
+            )
             set_server_data_cache(data_obj)
             logger.info(f"服务器数据已获取并保存到: {server_data_file}")
 
@@ -55,7 +65,11 @@ def register(
         except Exception as exc:
             logger.warning(f"获取新数据失败: {exc}")
             try:
-                if os.path.exists(server_data_file):
+                mongo_payload = cache_entry_storage.get_payload("jx3", "server_data")
+                if isinstance(mongo_payload, dict):
+                    set_server_data_cache(mongo_payload)
+                    logger.info("已从 Mongo 加载服务器数据")
+                elif os.path.exists(server_data_file):
                     with open(server_data_file, "r", encoding="utf-8") as file_handle:
                         set_server_data_cache(json.load(file_handle))
                     logger.info("已从本地文件加载服务器数据")
