@@ -41,6 +41,8 @@ docker compose up --build -d
 docker compose logs -f
 ```
 
+如果刚改过 `requirements.txt`、`Dockerfile` 或 `start.sh`，不要直接复用旧容器，必须重新 build 镜像。
+
 ### Mongo 回填
 
 启用 Mongo 后，可先跑一次旧文件回填:
@@ -217,6 +219,14 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list"
 - 检查 Mongo 中 `cache_entries`、`jjc_ranking_cache`、`jjc_kungfu_cache`、`group_reminders`、`wanbaolou_subscriptions`、`jjc_ranking_stats` 是否有写入
 - `src/storage/` 的装配逻辑是否仍与代码实现一致
 - 最近是否改动了缓存路径、运行目录或部署挂载
+
+### 容器启动时报 `ModuleNotFoundError`
+
+检查:
+
+- 缺失模块是否已经写入 [`requirements.txt`](/home/songjingjing/codes/jx3bot/requirements.txt)
+- 是否使用了 `docker compose up --build -d` 重建镜像
+- 是否存在宿主机代码挂载覆盖 `/app`，但镜像层依赖没有同步重建的情况
 
 ## 文档联动规则
 
