@@ -37,7 +37,7 @@ def register(
         try:
             await download_json()
 
-            fresh_data = await jiaoyiget("https://www.jx3api.com/data/server/check")
+            fresh_data = await jiaoyiget("https://www.jx3api.com/data/status/check")
             token_data = await jiaoyiget(
                 f"https://www.jx3api.com/data/token/web-token?token={token}"
             )
