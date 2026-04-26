@@ -4,10 +4,11 @@ import time
 from typing import Any
 
 from jinja2 import Environment
+from nonebot import logger
 from nonebot.adapters.onebot.v11 import Bot, Event, Message
 
 from config import API_URLS, TOKEN
-from src.infra.jx3api_get import idget
+from src.infra.jx3api_get import has_server_catalog, idget
 from src.renderers.jx3.image import render_template_image, send_image, send_text
 from src.services.jx3.baizhan import (
     baizhan_cache_paths,
@@ -30,11 +31,29 @@ def register(baizhan_matcher: Any, env: Environment) -> None:
     async def baizhan_to_image(bot: Bot, event: Event) -> None:
         message_text = event.get_plaintext().strip()
         args = message_text.split()
+        logger.info(
+            "百战查询收到请求: user_id={} group_id={} message_text={} args={}",
+            getattr(event, "user_id", None),
+            getattr(event, "group_id", None),
+            message_text,
+            args,
+        )
         if len(args) in (2, 3):
             if len(args) == 2:
                 role_name = args[1]
                 server = await get_server_by_group(getattr(event, "group_id", None) or "")
+                logger.info(
+                    "百战查询使用群绑定区服: group_id={} bound_server={} role_name={}",
+                    getattr(event, "group_id", None),
+                    server,
+                    role_name,
+                )
                 if not server:
+                    logger.warning(
+                        "百战查询群未绑定区服: group_id={} role_name={}",
+                        getattr(event, "group_id", None),
+                        role_name,
+                    )
                     await send_text(
                         bot,
                         event,
@@ -44,12 +63,53 @@ def register(baizhan_matcher: Any, env: Environment) -> None:
                     return
             else:
                 server, role_name = args[1], args[2]
+                logger.info(
+                    "百战查询使用显式区服: group_id={} raw_server={} role_name={}",
+                    getattr(event, "group_id", None),
+                    server,
+                    role_name,
+                )
 
-            if not await idget(server):
+            if not await has_server_catalog():
+                logger.warning(
+                    "百战查询区服文件不可用，直接使用输入区服: group_id={} server={} role_name={}",
+                    getattr(event, "group_id", None),
+                    server,
+                    role_name,
+                )
+            elif not await idget(server):
+                logger.info(
+                    "百战查询区服首次校验失败，尝试主服解析: group_id={} raw_server={} role_name={}",
+                    getattr(event, "group_id", None),
+                    server,
+                    role_name,
+                )
                 resolved_server = await resolve_master_server_name(server)
                 if resolved_server != server:
+                    logger.info(
+                        "百战查询主服解析命中: group_id={} raw_server={} resolved_server={} role_name={}",
+                        getattr(event, "group_id", None),
+                        server,
+                        resolved_server,
+                        role_name,
+                    )
                     server = resolved_server
-            if not await idget(server):
+                else:
+                    logger.warning(
+                        "百战查询主服解析未命中: group_id={} raw_server={} role_name={}",
+                        getattr(event, "group_id", None),
+                        server,
+                        role_name,
+                    )
+
+            if await has_server_catalog() and not await idget(server):
+                logger.warning(
+                    "百战查询区服校验最终失败: group_id={} final_server={} role_name={} message_text={}",
+                    getattr(event, "group_id", None),
+                    server,
+                    role_name,
+                    message_text,
+                )
                 await send_text(bot, event, "   查询结果:请输入正确的服务器！", at_user=True)
                 return
 
