@@ -34,7 +34,8 @@
         }
 
         .page {
-            max-width: 1180px;
+            width: 100%;
+            max-width: none;
             margin: 0 auto;
             position: relative;
         }
@@ -129,12 +130,19 @@
         .tabs {
             margin-top: 18px;
             display: inline-flex;
-            gap: 8px;
+            gap: 10px;
             padding: 6px;
-            border-radius: 999px;
+            border-radius: 20px;
             background: rgba(255, 255, 255, 0.9);
             border: 1px solid rgba(137, 196, 244, 0.22);
             box-shadow: var(--shadow);
+            flex-wrap: wrap;
+        }
+
+        .tab-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .tab-btn {
@@ -153,6 +161,22 @@
             color: #ffffff;
             background: linear-gradient(120deg, var(--accent), var(--accent-2));
             box-shadow: 0 8px 20px rgba(91, 124, 250, 0.25);
+        }
+
+        .tab-export-btn {
+            border: none;
+            padding: 0;
+            font-size: 0.76rem;
+            font-weight: 600;
+            color: var(--accent);
+            background: transparent;
+            cursor: pointer;
+            line-height: 1;
+            transition: color 0.2s ease, opacity 0.2s ease;
+        }
+
+        .tab-export-btn:hover {
+            color: var(--accent-2);
         }
 
         .toggle-wrap {
@@ -218,10 +242,11 @@
             margin-top: 28px;
             display: grid;
             gap: 24px;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(1, minmax(0, 1fr));
         }
 
         .range-card {
+            min-width: 0;
             background: var(--card);
             border-radius: 20px;
             padding: 18px 18px 22px;
@@ -240,10 +265,9 @@
 
         .range-heading {
             display: flex;
-            flex-wrap: nowrap;
+            flex-wrap: wrap;
             align-items: baseline;
             gap: 10px;
-            white-space: nowrap;
         }
 
         .range-title h3 {
@@ -295,6 +319,16 @@
         }
 
         .range-card.is-exporting .detail-list {
+            display: none;
+        }
+
+        .page.is-exporting-full .tab-export-btn,
+        .page.is-exporting-full .export-btn {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .page.is-exporting-full .detail-list {
             display: none;
         }
 
@@ -510,6 +544,24 @@
             color: var(--ink);
         }
 
+        @media (min-width: 760px) {
+            .grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1120px) {
+            .grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1460px) {
+            .grid {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+        }
+
         .muted {
             color: var(--muted);
         }
@@ -538,7 +590,7 @@
     <div class="page">
         <header>
             <div class="title">竞技场心法排名统计</div>
-            <div class="announcement">现在点击心法名称可展开查看角色分数；右侧分享按钮可生成该统计卡片图片。</div>
+            <div class="announcement">现在点击心法名称可展开查看角色分数；右侧分享按钮可生成该统计卡片图片；页面有问题或数据不更新可以联系贴吧周报贴楼主。</div>
             <div class="subtitle" id="subtitle">
                 <span class="muted">正在加载实时数据...</span>
             </div>
@@ -567,6 +619,7 @@
         const subtitle = document.getElementById("subtitle");
         const grid = document.getElementById("grid");
         const statusNode = document.getElementById("status");
+        const pageNode = document.querySelector(".page");
         let currentStats = null;
         let currentMode = "all";
         let showLegendaryOverlay = true;
@@ -584,8 +637,14 @@
         const tabContainer = document.createElement("div");
         tabContainer.className = "tabs";
         tabContainer.innerHTML = `
-            <button class="tab-btn active" data-mode="all" type="button">全部排名</button>
-            <button class="tab-btn" data-mode="purple" type="button">紫武排名</button>
+            <div class="tab-group">
+                <button class="tab-btn active" data-mode="all" type="button">全部排名</button>
+                <button class="tab-export-btn" data-export-mode="all" type="button">导出</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-btn" data-mode="purple" type="button">紫武排名</button>
+                <button class="tab-export-btn" data-export-mode="purple" type="button">导出</button>
+            </div>
         `;
         listContainer.insertAdjacentElement("afterend", tabContainer);
 
@@ -599,20 +658,6 @@
         `;
         tabContainer.insertAdjacentElement("afterend", toggleContainer);
         const legendaryToggle = toggleContainer.querySelector("#legendary-toggle");
-
-        tabContainer.addEventListener("click", (event) => {
-            const button = event.target.closest(".tab-btn");
-            if (!button) return;
-            const mode = button.dataset.mode || "all";
-            currentMode = mode;
-            tabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
-                btn.classList.toggle("active", btn === button);
-            });
-            toggleContainer.classList.toggle("hidden", currentMode !== "all");
-            if (currentStats) {
-                renderStats(currentStats, mode);
-            }
-        });
 
         if (legendaryToggle) {
             legendaryToggle.addEventListener("change", (event) => {
@@ -851,7 +896,7 @@
             `;
 
             currentStats = data;
-            renderStats(data, "all");
+            setMode(currentMode);
 
             if (!grid.innerHTML) {
                 grid.innerHTML = "<div class='range-card'>暂无统计数据</div>";
@@ -970,6 +1015,66 @@
             }
         }
 
+        function setMode(mode) {
+            currentMode = mode;
+            tabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.mode === mode);
+            });
+            toggleContainer.classList.toggle("hidden", currentMode !== "all");
+            if (currentStats) {
+                renderStats(currentStats, mode);
+            }
+        }
+
+        async function exportFullPageImage(modeOverride) {
+            if (typeof window.html2canvas !== "function") {
+                setStatus("图片生成库未加载，请稍后重试", "error");
+                return;
+            }
+            if (!pageNode) {
+                setStatus("页面节点不存在，无法导出", "error");
+                return;
+            }
+            const previousMode = currentMode;
+            const exportMode = modeOverride || currentMode;
+            if (exportMode !== currentMode) {
+                setMode(exportMode);
+                await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+            }
+            const seasonLabel = (window.currentSeasonLabel || "").replace(/\s+/g, "") || "赛季";
+            const rankingTimeLabel = (window.currentRankingTimeLabel || "").replace(/[^\dA-Za-z\u4e00-\u9fa5]+/g, "_") || "榜单";
+            const modeSuffix = exportMode === "purple" ? "_紫武排名" : "_全部排名";
+            const fileName = `竞技场心法排名统计_${seasonLabel}_${rankingTimeLabel}${modeSuffix}.png`;
+            const openDetails = Array.from(pageNode.querySelectorAll("details[open]"));
+            try {
+                pageNode.classList.add("is-exporting-full");
+                openDetails.forEach((detail) => detail.removeAttribute("open"));
+                setStatus("正在生成整页图片，请稍候");
+                const canvas = await window.html2canvas(pageNode, {
+                    backgroundColor: "#f7fafd",
+                    scale: 2,
+                    useCORS: true,
+                    scrollX: 0,
+                    scrollY: -window.scrollY,
+                    windowWidth: document.documentElement.scrollWidth,
+                    windowHeight: document.documentElement.scrollHeight,
+                });
+                const link = document.createElement("a");
+                link.download = fileName;
+                link.href = canvas.toDataURL("image/png");
+                link.click();
+                setStatus("整页图片导出完成");
+            } catch (error) {
+                setStatus(`生成整页图片失败：${error.message || error}`, "error");
+            } finally {
+                openDetails.forEach((detail) => detail.setAttribute("open", ""));
+                pageNode.classList.remove("is-exporting-full");
+                if (previousMode !== exportMode) {
+                    setMode(previousMode);
+                }
+            }
+        }
+
         if (grid) {
             grid.addEventListener("click", (event) => {
                 const target = event.target;
@@ -987,6 +1092,24 @@
                 exportCardImage(card, button.getAttribute("data-range") || "心法统计");
             });
         }
+
+        tabContainer.addEventListener("click", (event) => {
+            const button = event.target.closest(".tab-btn");
+            if (!button) {
+                return;
+            }
+            const mode = button.dataset.mode || "all";
+            setMode(mode);
+        });
+
+        tabContainer.addEventListener("click", (event) => {
+            const button = event.target.closest(".tab-export-btn");
+            if (!button) {
+                return;
+            }
+            const mode = button.dataset.exportMode || currentMode;
+            exportFullPageImage(mode);
+        });
     </script>
 </body>
 </html>
