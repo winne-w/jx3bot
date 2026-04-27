@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Optional, Union
@@ -125,7 +126,18 @@ class JjcRankingInspectService:
     kungfu_pinyin_to_chinese: dict[str, str]
     role_recent_ttl_seconds: int = 600
     max_recent_matches: int = 20
-    tuilan_query_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _tuilan_query_locks: dict[int, asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
+    _tuilan_query_locks_guard: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+
+    def _get_tuilan_query_lock(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        loop_id = id(loop)
+        with self._tuilan_query_locks_guard:
+            lock = self._tuilan_query_locks.get(loop_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._tuilan_query_locks[loop_id] = lock
+        return lock
 
     def _translate_kungfu_name(self, value: Any) -> str:
         text = _pick_str(value) or ""
@@ -141,7 +153,7 @@ class JjcRankingInspectService:
         **kwargs: Any,
     ) -> Any:
         logger.info("等待推栏查询锁: label={}", label)
-        async with self.tuilan_query_lock:
+        async with self._get_tuilan_query_lock():
             logger.info("获取推栏查询锁: label={}", label)
             try:
                 return await asyncio.to_thread(func, *args, **kwargs)
@@ -154,39 +166,45 @@ class JjcRankingInspectService:
         server: str,
         name: str,
         identity_hints: Optional[dict[str, Any]] = None,
+        cursor: int = 0,
     ) -> dict[str, Any]:
-        cached = self.cache_repo.load_role_recent(
-            server,
-            name,
-            ttl_seconds=self.role_recent_ttl_seconds,
-        )
-        if cached:
-            data = dict(cached.get("data") or {})
-            recent_matches = data.get("recent_matches") or []
-            missing_match_id_count = sum(
-                1 for item in recent_matches if isinstance(item, dict) and not item.get("match_id")
-            )
-            logger.info(
-                "JJC 角色近期缓存命中: server={} name={} total_matches={} missing_match_id_count={}",
+        is_first_page = cursor <= 0
+        if is_first_page:
+            cached = self.cache_repo.load_role_recent(
                 server,
                 name,
-                len(recent_matches),
-                missing_match_id_count,
+                ttl_seconds=self.role_recent_ttl_seconds,
             )
-            data["cache"] = {"hit": True, "cached_at": cached.get("cached_at"), "ttl_seconds": self.role_recent_ttl_seconds}
-            return data
+            if cached:
+                data = dict(cached.get("data") or {})
+                recent_matches = data.get("recent_matches") or []
+                missing_match_id_count = sum(
+                    1 for item in recent_matches if isinstance(item, dict) and not item.get("match_id")
+                )
+                logger.info(
+                    "JJC 角色近期缓存命中: server={} name={} total_matches={} missing_match_id_count={}",
+                    server,
+                    name,
+                    len(recent_matches),
+                    missing_match_id_count,
+                )
+                data["cache"] = {"hit": True, "cached_at": cached.get("cached_at"), "ttl_seconds": self.role_recent_ttl_seconds}
+                return data
 
-        logger.info("加载 JJC 角色近期数据: server={} name={} hints={}", server, name, identity_hints or {})
+        logger.info("加载 JJC 角色近期数据: server={} name={} hints={} cursor={}", server, name, identity_hints or {}, cursor)
         identity = await self._resolve_role_identity(server=server, name=name, identity_hints=identity_hints or {})
         if identity.get("error"):
             return identity
 
-        payload = await self._build_role_recent_payload(server=server, name=name, identity=identity)
+        payload = await self._build_role_recent_payload(server=server, name=name, identity=identity, cursor=cursor)
         if payload.get("error"):
             return payload
-        cached_at = time.time()
-        self.cache_repo.save_role_recent(server, name, {"cached_at": cached_at, "data": payload})
-        payload["cache"] = {"hit": False, "cached_at": cached_at, "ttl_seconds": self.role_recent_ttl_seconds}
+        if is_first_page:
+            cached_at = time.time()
+            self.cache_repo.save_role_recent(server, name, {"cached_at": cached_at, "data": payload})
+            payload["cache"] = {"hit": False, "cached_at": cached_at, "ttl_seconds": self.role_recent_ttl_seconds}
+        else:
+            payload["cache"] = {"hit": False, "cached_at": time.time()}
         return payload
 
     async def _resolve_role_identity(
@@ -255,7 +273,7 @@ class JjcRankingInspectService:
                 return identity
 
         logger.info("等待推栏查询锁: label=live_ranking:{}:{}", server, name)
-        async with self.tuilan_query_lock:
+        async with self._get_tuilan_query_lock():
             logger.info("获取推栏查询锁: label=live_ranking:{}:{}", server, name)
             try:
                 ranking_result = await self.ranking_service.query_jjc_ranking()
@@ -350,7 +368,7 @@ class JjcRankingInspectService:
             "source": source,
         }
 
-    async def _build_role_recent_payload(self, *, server: str, name: str, identity: dict[str, Any]) -> dict[str, Any]:
+    async def _build_role_recent_payload(self, *, server: str, name: str, identity: dict[str, Any], cursor: int = 0) -> dict[str, Any]:
         global_role_id = _pick_str(identity.get("global_role_id"))
         if not global_role_id:
             return {"error": True, "message": "global_role_id_missing", "identity": identity}
@@ -360,7 +378,7 @@ class JjcRankingInspectService:
             self.match_history_client.get_mine_match_history,
             global_role_id=global_role_id,
             size=self.max_recent_matches,
-            cursor=0,
+            cursor=cursor,
         )
         if not isinstance(raw, dict):
             return {"error": True, "message": "invalid_response", "identity": identity}
@@ -472,9 +490,18 @@ class JjcRankingInspectService:
                 missing_match_id_samples,
             )
 
+        total_returned = len(history)
+        has_more = total_returned >= self.max_recent_matches
+        next_cursor = cursor + total_returned if has_more else None
+
         return {
             "player": {"server": server, "name": name},
             "identity": identity,
+            "pagination": {
+                "cursor": cursor,
+                "has_more": has_more,
+                "next_cursor": next_cursor,
+            },
             "summary": {
                 "total_matches": total,
                 "wins": wins,
