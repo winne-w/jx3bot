@@ -730,11 +730,12 @@ class RuntimeConfigRepo:
 
 **阶段一：基础设施**
 
-- [ ] 4.1.1 安装 `motor` 依赖
-- [ ] 4.1.2 新建 `src/infra/mongo.py`（连接管理 + 索引创建）
-- [ ] 4.1.3 修改 `bot.py`（启动时初始化 MongoDB）
-- [ ] 4.1.4 重构 `src/services/jx3/singletons.py`（注入 db 替代文件路径）
-- [ ] 4.1.5 `config.py` 添加 `MONGO_URI` 配置项（已通过 runtime_config.json 配置）
+- [x] 4.1.1 安装 `motor` 依赖（`requirements.txt` 已添加，Docker build 通过）
+- [x] 4.1.2 新建 `src/infra/mongo.py`（连接管理 + 索引创建，含容错处理）
+- [x] 4.1.3 修改 `bot.py`（启动时初始化 MongoDB）
+- [x] 4.1.4 ~~重构 `src/services/jx3/singletons.py`~~（延后至各集合迁移时随 repo 改造进行）
+- [x] 4.1.5 `config.py` 添加 `MONGO_URI` 配置项 + `runtime_config.json` 配置实际连接串
+- [x] **Demo 验证**: `GET /api/mongo/health` 返回 `connected: true`，ping 10ms，13 个集合已创建
 
 **阶段二：逐集合迁移**
 
