@@ -1711,8 +1711,8 @@
                                     </div>
                                     <div class="team-player-bottom player-meta">
                                         <span>推栏分数：${player.mmr ?? "-"}</span>
-                                        <span>游戏内分数：${player.total_score ?? "-"}</span>
-                                        <span>装分：${(player.equip_score ?? 0) + (player.equip_strength_score ?? 0) || "-"}</span>
+                                        <span>游戏分数：${player.total_score ?? "-"}</span>
+                                        <span>装分：${(player.equip_score ?? 0) + (player.equip_strength_score ?? 0) + (player.stone_score ?? 0) || "-"}</span>
                                         <span>血量：${player.max_hp ?? "-"}</span>
                                     </div>
                                     <div class="player-section">
