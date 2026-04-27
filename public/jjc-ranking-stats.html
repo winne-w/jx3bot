@@ -1710,10 +1710,9 @@
                                         ${player.mvp ? "<span class='match-tag win'>MVP</span>" : ""}
                                     </div>
                                     <div class="team-player-bottom player-meta">
-                                        <span>分数：${player.score ?? "-"}</span>
-                                        <span>总分：${player.total_score ?? "-"}</span>
-                                        <span>装分：${player.equip_score ?? "-"}</span>
-                                        <span>强化：${player.equip_strength_score ?? "-"}</span>
+                                        <span>推栏分数：${player.mmr ?? "-"}</span>
+                                        <span>游戏内分数：${player.total_score ?? "-"}</span>
+                                        <span>装分：${(player.equip_score ?? 0) + (player.equip_strength_score ?? 0) || "-"}</span>
                                         <span>血量：${player.max_hp ?? "-"}</span>
                                     </div>
                                     <div class="player-section">
