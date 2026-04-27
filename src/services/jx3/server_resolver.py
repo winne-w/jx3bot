@@ -9,7 +9,7 @@ from src.infra.http_client import HttpClient
 from src.infra.mongo import get_db
 from src.storage.mongo_repos.server_master_repo import ServerMasterCacheRepo
 
-SERVER_MASTER_API_URL = "https://www.jx3api.com/data/server/master"
+SERVER_MASTER_API_URL = "https://www.jx3api.com/data/master/search"
 SERVER_MASTER_CACHE_TTL = 7 * 24 * 60 * 60
 
 
@@ -53,12 +53,12 @@ async def _cache_master_result(query_name: str, result_data: dict[str, Any]) -> 
         "cached_at": now,
     }
 
-    # 收集所有别名 keys
+    # 收集所有可映射到主服的 key：查询名、主服名、alias 列表、slave 列表
     keys = {query_name, master_name}
-    abbr_list = result_data.get("abbreviation", []) or []
-    for alias in abbr_list:
-        if isinstance(alias, str) and alias.strip():
-            keys.add(alias.strip())
+    for field in ("alias", "slave"):
+        for item in (result_data.get(field) or []):
+            if isinstance(item, str) and item.strip():
+                keys.add(item.strip())
 
     repo = _repo()
     for alias_key in keys:
