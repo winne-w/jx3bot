@@ -70,58 +70,69 @@ async def health_check() -> dict:
 
 
 async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
-    """幂等创建所有集合的索引。"""
+    """幂等创建所有集合的索引。已存在的索引会被跳过，数据冲突仅警告不阻塞。"""
+    from pymongo.errors import DuplicateKeyError, OperationFailure
+
+    async def _safe_index(collection_name: str, keys, *, name: str, **kwargs):
+        col = db[collection_name]
+        try:
+            await col.create_index(keys, name=name, **kwargs)
+        except DuplicateKeyError:
+            logger.warning(
+                "索引创建跳过(数据冲突): collection={} index={}", collection_name, name
+            )
+        except OperationFailure as exc:
+            if "already exists" in str(exc).lower() or exc.code == 85:
+                return  # 索引已存在，正常
+            logger.warning(
+                "索引创建失败: collection={} index={} error={}", collection_name, name, exc
+            )
+
     # server_master_cache
-    await db.server_master_cache.create_index("key", unique=True, background=True)
-    await db.server_master_cache.create_index(
-        "cached_at", expireAfterSeconds=604800, background=True
-    )
+    await _safe_index("server_master_cache", "key", name="idx_key", unique=True)
+    await _safe_index("server_master_cache", "cached_at", name="idx_cached_at", expireAfterSeconds=604800)
 
     # status_cache
-    await db.status_cache.create_index("cache_name", unique=True, background=True)
+    await _safe_index("status_cache", "cache_name", name="idx_cache_name", unique=True)
 
     # kungfu_cache
-    await db.kungfu_cache.create_index(
-        [("server", 1), ("name", 1)], unique=True, background=True
+    await _safe_index(
+        "kungfu_cache", [("server", 1), ("name", 1)], name="idx_server_name", unique=True
     )
-    await db.kungfu_cache.create_index(
-        "cache_time", expireAfterSeconds=604800, background=True
-    )
+    await _safe_index("kungfu_cache", "cache_time", name="idx_cache_time", expireAfterSeconds=604800)
 
     # jjc_role_recent
-    await db.jjc_role_recent.create_index(
-        [("server", 1), ("name", 1)], unique=True, background=True
+    await _safe_index(
+        "jjc_role_recent", [("server", 1), ("name", 1)], name="idx_server_name", unique=True
     )
-    await db.jjc_role_recent.create_index(
-        "cached_at", expireAfterSeconds=600, background=True
-    )
+    await _safe_index("jjc_role_recent", "cached_at", name="idx_cached_at", expireAfterSeconds=600)
 
     # jjc_match_detail
-    await db.jjc_match_detail.create_index("match_id", unique=True, background=True)
+    await _safe_index("jjc_match_detail", "match_id", name="idx_match_id", unique=True)
 
     # jjc_ranking_cache
-    await db.jjc_ranking_cache.create_index("cache_key", unique=True, background=True)
-    await db.jjc_ranking_cache.create_index(
-        "created_at", expireAfterSeconds=7200, background=True
-    )
+    await _safe_index("jjc_ranking_cache", "cache_key", name="idx_cache_key", unique=True)
+    await _safe_index("jjc_ranking_cache", "created_at", name="idx_created_at", expireAfterSeconds=7200)
 
     # reminders
-    await db.reminders.create_index("reminder_id", unique=True, background=True)
-    await db.reminders.create_index(
-        [("group_id", 1), ("status", 1)], background=True
+    await _safe_index("reminders", "reminder_id", name="idx_reminder_id", unique=True)
+    await _safe_index(
+        "reminders", [("group_id", 1), ("status", 1)], name="idx_group_status"
     )
-    await db.reminders.create_index(
-        [("status", 1), ("remind_at", 1)], background=True
+    await _safe_index(
+        "reminders", [("status", 1), ("remind_at", 1)], name="idx_status_remind_at"
     )
 
     # wanbaolou_subscriptions
-    await db.wanbaolou_subscriptions.create_index("user_id", background=True)
-    await db.wanbaolou_subscriptions.create_index(
-        [("user_id", 1), ("item_name", 1)], unique=True, background=True
+    await _safe_index("wanbaolou_subscriptions", "user_id", name="idx_user_id")
+    await _safe_index(
+        "wanbaolou_subscriptions",
+        [("user_id", 1), ("item_name", 1)],
+        name="idx_user_item",
+        unique=True,
     )
 
     # group_configs
-    await db.group_configs.create_index("group_id", unique=True, background=True)
+    await _safe_index("group_configs", "group_id", name="idx_group_id", unique=True)
 
-    # runtime_config (单文档，无需额外索引)
-    logger.info("MongoDB 索引初始化完成 ({} 个集合)", 10)
+    logger.info("MongoDB 索引初始化完成")
