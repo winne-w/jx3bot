@@ -607,6 +607,7 @@
         const params = new URLSearchParams(window.location.search);
         const listApiUrl = params.get("list_api") || DEFAULT_LIST_API;
         const readApiBase = params.get("api") || DEFAULT_READ_API;
+        const detailsApiBase = params.get("details_api") || `${BASE_API}/details`;
         const initialTimestamp = params.get("timestamp");
 
         const rangeConfigs = [
@@ -621,8 +622,10 @@
         const statusNode = document.getElementById("status");
         const pageNode = document.querySelector(".page");
         let currentStats = null;
+        let currentStatsTimestamp = initialTimestamp || "";
         let currentMode = "all";
         let showLegendaryOverlay = false;
+        const detailCache = new Map();
 
         const listContainer = document.createElement("div");
         listContainer.className = "status";
@@ -726,51 +729,114 @@
             dateSelect.value = selected;
         }
 
-        function renderList(list, validCount, membersMap) {
+        function buildDetailsCacheKey(timestamp, rangeKey, lane, kungfu) {
+            return [timestamp, rangeKey, lane, kungfu].join("::");
+        }
+
+        function buildDetailsUrl(timestamp, rangeKey, lane, kungfu) {
+            const url = new URL(detailsApiBase, window.location.origin);
+            url.searchParams.set("timestamp", timestamp);
+            url.searchParams.set("range", rangeKey);
+            url.searchParams.set("lane", lane);
+            url.searchParams.set("kungfu", kungfu);
+            return url.toString();
+        }
+
+        function renderDetailContent(members) {
+            const filteredMembers = currentMode === "purple"
+                ? (members || []).filter((member) => String(member.weapon_quality) !== "5")
+                : (members || []);
+            if (!filteredMembers.length) {
+                return "<div class='muted'>暂无明细</div>";
+            }
+
+            return filteredMembers.map((member) => {
+                const kungfuIcons = [];
+                if (member.kungfu_id) {
+                    const isLegendary = String(member.weapon_quality) === "5";
+                    kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${member.kungfu_id}.png" alt="kungfu">`);
+                }
+                if (Array.isArray(member.teammates)) {
+                    member.teammates.forEach((teammate) => {
+                        if (teammate && teammate.kungfu_id) {
+                            const isLegendary = String(teammate.weapon_quality) === "5";
+                            const teammateName = teammate.role_name ?? "未知";
+                            const tooltip = `${teammateName}`;
+                            kungfuIcons.push(`<span class="detail-kungfu-wrap" data-tooltip="${tooltip}"><img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate"></span>`);
+                        }
+                    });
+                }
+                const kungfuRow = kungfuIcons.length
+                    ? `<div class="detail-kungfu-row">${kungfuIcons.join("")}</div>`
+                    : "";
+                return `
+                    <div class="detail-item">
+                        <div class="detail-rank">#${member.rank ?? "-"}</div>
+                        <div class="detail-name">
+                            ${member.weapon_icon ? `<img class="detail-weapon${String(member.weapon_quality) === "5" ? " is-legendary" : ""}" src="${member.weapon_icon}" alt="weapon">` : ""}
+                            <div>
+                                <div>${member.name ?? "未知"}·${member.server ?? "未知"}</div>
+                                ${kungfuRow}
+                            </div>
+                        </div>
+                        <div class="detail-score">${member.score ?? "-"}</div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        async function ensureDetailLoaded(detailsNode) {
+            if (!(detailsNode instanceof HTMLElement) || !detailsNode.open) {
+                return;
+            }
+            const detailListNode = detailsNode.querySelector(".detail-list");
+            if (!(detailListNode instanceof HTMLElement)) {
+                return;
+            }
+
+            const rangeKey = detailsNode.dataset.range || "";
+            const lane = detailsNode.dataset.lane || "";
+            const kungfu = decodeURIComponent(detailsNode.dataset.kungfu || "");
+            if (!currentStatsTimestamp || !rangeKey || !lane || !kungfu) {
+                detailListNode.innerHTML = "<div class='muted'>缺少详情参数</div>";
+                return;
+            }
+
+            const cacheKey = buildDetailsCacheKey(currentStatsTimestamp, rangeKey, lane, kungfu);
+            if (detailCache.has(cacheKey)) {
+                detailListNode.innerHTML = renderDetailContent(detailCache.get(cacheKey) || []);
+                detailListNode.dataset.loaded = "true";
+                return;
+            }
+
+            detailListNode.innerHTML = "<div class='muted'>正在加载明细...</div>";
+            const apiUrl = buildDetailsUrl(currentStatsTimestamp, rangeKey, lane, kungfu);
+            try {
+                const response = await fetch(apiUrl, { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                const members = Array.isArray(data.members) ? data.members : [];
+                detailCache.set(cacheKey, members);
+                detailListNode.innerHTML = renderDetailContent(members);
+                detailListNode.dataset.loaded = "true";
+            } catch (error) {
+                detailListNode.innerHTML = `<div class='muted error'>加载明细失败：${error.message || error}</div>`;
+                detailListNode.dataset.loaded = "false";
+            }
+        }
+
+        function renderList(rangeKey, laneName, list, validCount, legendaryCountMap) {
             const maxCount = list.reduce((maxValue, item) => Math.max(maxValue, item[1]), 1);
             return list.map(([kungfu, count]) => {
                 const percent = validCount > 0 ? (count / validCount) * 100 : 0;
-                const members = (membersMap && membersMap[kungfu]) || [];
-                const legendaryCount = members.filter((member) => String(member.weapon_quality) === "5").length;
-                const legendaryPercent = members.length ? (legendaryCount / members.length) * 100 : 0;
+                const legendaryCount = Number((legendaryCountMap || {})[kungfu] || 0);
+                const legendaryPercent = count > 0 ? (legendaryCount / count) * 100 : 0;
                 const overlayPercent = showLegendaryOverlay ? legendaryPercent : 0;
-                const detailContent = members.length
-                    ? members.map((member) => {
-                        const kungfuIcons = [];
-                        if (member.kungfu_id) {
-                            const isLegendary = String(member.weapon_quality) === "5";
-                            kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${member.kungfu_id}.png" alt="kungfu">`);
-                        }
-                        if (Array.isArray(member.teammates)) {
-                            member.teammates.forEach((teammate) => {
-                                if (teammate && teammate.kungfu_id) {
-                                    const isLegendary = String(teammate.weapon_quality) === "5";
-                                    const teammateName = teammate.role_name ?? "未知";
-                                    const tooltip = `${teammateName}`;
-                                    kungfuIcons.push(`<span class="detail-kungfu-wrap" data-tooltip="${tooltip}"><img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate"></span>`);
-                                }
-                            });
-                        }
-                        const kungfuRow = kungfuIcons.length
-                            ? `<div class="detail-kungfu-row">${kungfuIcons.join("")}</div>`
-                            : "";
-                        return `
-                        <div class="detail-item">
-                            <div class="detail-rank">#${member.rank ?? "-"}</div>
-                            <div class="detail-name">
-                                ${member.weapon_icon ? `<img class="detail-weapon${String(member.weapon_quality) === "5" ? " is-legendary" : ""}" src="${member.weapon_icon}" alt="weapon">` : ""}
-                                <div>
-                                    <div>${member.name ?? "未知"}·${member.server ?? "未知"}</div>
-                                    ${kungfuRow}
-                                </div>
-                            </div>
-                            <div class="detail-score">${member.score ?? "-"}</div>
-                        </div>
-                    `;
-                    }).join("")
-                    : "<div class='muted'>暂无明细</div>";
                 return `
-                    <details class="detail">
+                    <details class="detail" data-range="${rangeKey}" data-lane="${laneName}" data-kungfu="${encodeURIComponent(kungfu)}">
                         <summary>
                             <div class="bar-row">
                             <div class="bar-kungfu"><span class="arrow">›</span>${kungfu}</div>
@@ -783,22 +849,22 @@
                             <div class="bar-percent">${percent.toFixed(1)}%</div>
                         </div>
                     </summary>
-                    <div class="detail-list">
-                        ${detailContent}
-                        </div>
+                    <div class="detail-list" data-loaded="false">
+                        <div class='muted'>展开后加载明细</div>
+                    </div>
                     </details>
                 `;
             }).join("");
         }
 
-        function renderRangeCard(rangeLabel, stats, mode) {
+        function renderRangeCard(rangeKey, rangeLabel, stats, mode) {
             const healer = stats.healer || {};
             const dps = stats.dps || {};
             const minScore = healer.min_score ?? dps.min_score ?? "-";
             const healerList = healer.list || [];
             const dpsList = dps.list || [];
-            const healerMembers = healer.members || {};
-            const dpsMembers = dps.members || {};
+            const healerLegendaryCountMap = healer.legendary_count_map || {};
+            const dpsLegendaryCountMap = dps.legendary_count_map || {};
             const titleSuffix = mode === "purple" ? "（紫武）" : "";
             const showMeta = ["前1000", "前200", "前100", "前50"].includes(rangeLabel);
             const seasonText = window.currentSeasonLabel || "-";
@@ -820,41 +886,44 @@
                     ${showMeta ? `<div class="range-meta">赛季：${seasonText}</div>` : ""}
                     <div class="lane">
                         <div class="lane-title">奶妈（${healer.valid_count ?? 0}）</div>
-                        ${healerList.length ? renderList(healerList, healer.valid_count || 0, healerMembers) : "<div class='muted'>暂无奶妈数据</div>"}
+                        ${healerList.length ? renderList(rangeKey, "healer", healerList, healer.valid_count || 0, healerLegendaryCountMap) : "<div class='muted'>暂无奶妈数据</div>"}
                     </div>
                     <div class="lane">
                         <div class="lane-title">DPS（${dps.valid_count ?? 0}）</div>
-                        ${dpsList.length ? renderList(dpsList, dps.valid_count || 0, dpsMembers) : "<div class='muted'>暂无DPS数据</div>"}
+                        ${dpsList.length ? renderList(rangeKey, "dps", dpsList, dps.valid_count || 0, dpsLegendaryCountMap) : "<div class='muted'>暂无DPS数据</div>"}
                     </div>
                 </div>
             `;
         }
 
         function buildFilteredLane(lane, mode) {
-            const membersMap = lane.members || {};
-            const filteredMembersMap = {};
+            const sourceList = lane.list || [];
+            const sourceLegendaryCountMap = lane.legendary_count_map || {};
             const listItems = [];
             let validCount = 0;
+            const filteredLegendaryCountMap = {};
 
-            Object.keys(membersMap).forEach((kungfu) => {
-                const members = membersMap[kungfu] || [];
-                const filtered = mode === "purple"
-                    ? members.filter((member) => String(member.weapon_quality) !== "5")
-                    : members.slice();
-                if (filtered.length > 0) {
-                    filteredMembersMap[kungfu] = filtered;
+            sourceList.forEach(([kungfu, count]) => {
+                const legendaryCount = Number(sourceLegendaryCountMap[kungfu] || 0);
+                const filteredCount = mode === "purple"
+                    ? Math.max(Number(count || 0) - legendaryCount, 0)
+                    : Number(count || 0);
+                if (filteredCount > 0) {
+                    listItems.push([kungfu, filteredCount]);
+                    filteredLegendaryCountMap[kungfu] = mode === "purple" ? 0 : legendaryCount;
                 }
-                validCount += filtered.length;
-                listItems.push([kungfu, filtered.length]);
+                validCount += filteredCount;
             });
 
             listItems.sort((a, b) => b[1] - a[1]);
 
             return {
+                ...lane,
                 valid_count: validCount,
                 list: listItems,
+                distribution: Object.fromEntries(listItems),
                 min_score: lane.min_score,
-                members: filteredMembersMap,
+                legendary_count_map: filteredLegendaryCountMap,
             };
         }
 
@@ -882,7 +951,7 @@
 
             grid.innerHTML = rangeConfigs
                 .filter((config) => stats[config.key])
-                .map((config) => renderRangeCard(config.label, stats[config.key], mode))
+                .map((config) => renderRangeCard(config.key, config.label, stats[config.key], mode))
                 .join("");
         }
 
@@ -936,6 +1005,7 @@
                 setStatus("缺少 timestamp 参数，无法读取统计数据", "error");
                 return;
             }
+            currentStatsTimestamp = String(timestamp);
             updateUrlTimestamp(timestamp);
             const apiUrl = buildReadUrl(timestamp);
             setStatus(`请求接口：${apiUrl}`);
@@ -1090,6 +1160,24 @@
                     return;
                 }
                 exportCardImage(card, button.getAttribute("data-range") || "心法统计");
+            });
+
+            grid.addEventListener("click", (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) {
+                    return;
+                }
+                const summary = target.closest("summary");
+                if (!summary) {
+                    return;
+                }
+                const detailsNode = summary.closest(".detail");
+                if (!(detailsNode instanceof HTMLElement)) {
+                    return;
+                }
+                window.requestAnimationFrame(() => {
+                    ensureDetailLoaded(detailsNode);
+                });
             });
         }
 

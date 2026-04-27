@@ -8,4 +8,4 @@
 
 ## Completed
 
-- 当前没有保留中的已完成执行计划文档
+- `completed/jjc-ranking-stats-split-plan.md`: JJC 统计页 summary/details 拆分、按需明细加载与历史数据迁移计划

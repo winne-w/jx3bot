@@ -120,6 +120,9 @@ python test_tuilan_match_history.py
 - service 能返回结构化数据
 - renderer 能生成图片
 - 统计文件写入 `data/jjc_ranking_stats/`
+  - 新结构优先写入 `data/jjc_ranking_stats/<timestamp>/summary.json`
+  - 明细按需拆分在 `data/jjc_ranking_stats/<timestamp>/details/`
+  - 历史兼容阶段可能仍存在旧的 `data/jjc_ranking_stats/<timestamp>.json`
 
 ### 6. 资历 / 百战 / 骗子查询
 
@@ -139,12 +142,16 @@ python test_tuilan_match_history.py
 ```bash
 curl "http://127.0.0.1:5288/api/arena/recent?server=梦江南&name=示例角色"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list"
+curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=read&timestamp=<时间戳>"
+curl "http://127.0.0.1:5288/api/jjc/ranking-stats/details?timestamp=<时间戳>&range=top_50&lane=healer&kungfu=云裳心经"
 ```
 
 预期:
 
 - 返回统一结构
 - 参数非法时返回错误响应，而不是 500
+- `action=read` 首屏摘要不再返回全量 `members`
+- `details` 接口可按需返回单个心法成员明细
 
 ## 故障排查
 
