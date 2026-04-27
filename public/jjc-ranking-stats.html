@@ -622,7 +622,7 @@
         const pageNode = document.querySelector(".page");
         let currentStats = null;
         let currentMode = "all";
-        let showLegendaryOverlay = true;
+        let showLegendaryOverlay = false;
 
         const listContainer = document.createElement("div");
         listContainer.className = "status";
@@ -652,7 +652,7 @@
         toggleContainer.className = "toggle-wrap";
         toggleContainer.innerHTML = `
             <label>
-                <input type="checkbox" id="legendary-toggle" checked>
+                <input type="checkbox" id="legendary-toggle">
                 <span>橙武占比覆盖</span>
             </label>
         `;
