@@ -660,6 +660,46 @@
             gap: 10px;
         }
 
+        .load-more-wrap {
+            display: flex;
+            justify-content: center;
+            padding: 12px 0 4px;
+        }
+
+        .load-more-wrap.hidden {
+            display: none;
+        }
+
+        .load-more-btn {
+            border: none;
+            padding: 10px 32px;
+            border-radius: 999px;
+            font-size: 0.92rem;
+            font-weight: 600;
+            cursor: pointer;
+            color: #ffffff;
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+            box-shadow: 0 8px 20px rgba(91, 124, 250, 0.22);
+            transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+        }
+
+        .load-more-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px rgba(91, 124, 250, 0.3);
+        }
+
+        .load-more-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .load-more-btn.loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
         .match-row-btn {
             border: none;
             width: 100%;
@@ -1011,6 +1051,15 @@
         const roleRecentCache = new Map();
         const matchDetailCache = new Map();
 
+        let currentPagination = {
+            hasMore: false,
+            nextCursor: null,
+            server: "",
+            name: "",
+            identityHints: {},
+            isLoading: false,
+        };
+
         const listContainer = document.createElement("div");
         listContainer.className = "status";
         listContainer.id = "list-status";
@@ -1156,10 +1205,13 @@
             return url.toString();
         }
 
-        function buildRoleRecentUrl(server, name, identityHints = {}) {
+        function buildRoleRecentUrl(server, name, identityHints = {}, cursor = 0) {
             const url = new URL(roleRecentApiBase, window.location.origin);
             url.searchParams.set("server", server);
             url.searchParams.set("name", name);
+            if (cursor > 0) {
+                url.searchParams.set("cursor", String(cursor));
+            }
             if (identityHints.game_role_id) {
                 url.searchParams.set("game_role_id", identityHints.game_role_id);
             }
@@ -1492,12 +1544,80 @@
             }
         }
 
-        function renderRoleRecentModal(data) {
+        function renderRoleRecentMatchItem(match, playerName, playerServer) {
+            return `
+                <button
+                    class="match-row-btn ${match.won ? "win" : "lose"}"
+                    type="button"
+                    data-match-id="${match.match_id ?? ""}"
+                    data-focus-name="${escapeHtml(playerName)}"
+                    data-focus-server="${escapeHtml(playerServer)}"
+                >
+                    <div class="match-row-top">
+                        <span class="match-tag ${match.won ? "win" : "lose"}">${match.won ? "胜利" : "失败"}</span>
+                        <span>${formatGrade(match.avg_grade)}局</span>
+                        <span>${escapeHtml(match.kungfu || "未知心法")}</span>
+                        <span>${match.total_mmr ?? "-"}${match.mmr_delta != null ? ` (${match.mmr_delta > 0 ? "+" : ""}${match.mmr_delta})` : ""}</span>
+                    </div>
+                    <div class="match-row-bottom match-row-meta">
+                        <span>开始时间：${formatTime(match.start_time)}</span>
+                        <span>时长：${formatDuration(match.duration)}</span>
+                    </div>
+                </button>
+            `;
+        }
+
+        function renderLoadMoreButton() {
+            if (!currentPagination.hasMore) {
+                return "<div class='load-more-wrap hidden'></div>";
+            }
+            const disabledAttr = currentPagination.isLoading ? " disabled" : "";
+            const loadingClass = currentPagination.isLoading ? " loading" : "";
+            return `
+                <div class="load-more-wrap">
+                    <button class="load-more-btn${loadingClass}" type="button" id="load-more-btn"${disabledAttr}>
+                        ${currentPagination.isLoading ? "加载中..." : "加载更多对局"}
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderRoleRecentModal(data, isAppend = false) {
             const summary = data.summary || {};
             const matches = Array.isArray(data.recent_matches) ? data.recent_matches : [];
             const cacheText = data.cache?.cached_at ? `缓存时间：${formatTime(data.cache.cached_at)}` : "实时请求";
-            roleModalTitle.textContent = `${data.player?.name || "未知角色"}·${data.player?.server || "未知服务器"}`;
+            const pagination = data.pagination || {};
+            const playerName = data.player?.name || "未知角色";
+            const playerServer = data.player?.server || "未知服务器";
+
+            roleModalTitle.textContent = `${playerName}·${playerServer}`;
             roleModalSubtitle.textContent = `最近 33 战绩窗口 | ${cacheText}`;
+
+            currentPagination = {
+                hasMore: !!pagination.has_more,
+                nextCursor: pagination.next_cursor ?? null,
+                server: playerServer,
+                name: playerName,
+                identityHints: data.identity || {},
+                isLoading: false,
+            };
+
+            if (isAppend) {
+                const panel = roleModalBody.querySelector(".match-list-panel");
+                if (panel) {
+                    const loadMoreWrap = panel.querySelector(".load-more-wrap");
+                    const fragment = document.createElement("div");
+                    fragment.innerHTML = matches.map((match) => renderRoleRecentMatchItem(match, playerName, playerServer)).join("");
+                    if (loadMoreWrap) {
+                        loadMoreWrap.insertAdjacentElement("beforebegin", fragment);
+                        loadMoreWrap.outerHTML = renderLoadMoreButton();
+                    } else {
+                        panel.insertAdjacentHTML("beforeend", fragment.innerHTML);
+                        panel.insertAdjacentHTML("beforeend", renderLoadMoreButton());
+                    }
+                }
+                return;
+            }
 
             const summaryCards = [
                 { label: "最近场次", value: summary.total_matches ?? 0 },
@@ -1509,26 +1629,7 @@
             ];
 
             const matchListHtml = matches.length
-                ? matches.map((match) => `
-                    <button
-                        class="match-row-btn ${match.won ? "win" : "lose"}"
-                        type="button"
-                        data-match-id="${match.match_id ?? ""}"
-                        data-focus-name="${escapeHtml(data.player?.name || "")}"
-                        data-focus-server="${escapeHtml(data.player?.server || "")}"
-                    >
-                        <div class="match-row-top">
-                            <span class="match-tag ${match.won ? "win" : "lose"}">${match.won ? "胜利" : "失败"}</span>
-                            <span>${formatGrade(match.avg_grade)}局</span>
-                            <span>${escapeHtml(match.kungfu || "未知心法")}</span>
-                            <span>${match.total_mmr ?? "-"}${match.mmr_delta != null ? ` (${match.mmr_delta > 0 ? "+" : ""}${match.mmr_delta})` : ""}</span>
-                        </div>
-                        <div class="match-row-bottom match-row-meta">
-                            <span>开始时间：${formatTime(match.start_time)}</span>
-                            <span>时长：${formatDuration(match.duration)}</span>
-                        </div>
-                    </button>
-                `).join("")
+                ? matches.map((match) => renderRoleRecentMatchItem(match, playerName, playerServer)).join("")
                 : "<div class='modal-empty'>暂无最近 33 对局数据</div>";
 
             roleModalBody.innerHTML = `
@@ -1540,7 +1641,10 @@
                         </div>
                     `).join("")}
                 </div>
-                <div class="match-list-panel">${matchListHtml}</div>
+                <div class="match-list-panel">
+                    ${matchListHtml}
+                    ${renderLoadMoreButton()}
+                </div>
             `;
         }
 
@@ -1672,6 +1776,42 @@
                 renderRoleRecentModal(data);
             } catch (error) {
                 roleModalBody.innerHTML = `<div class='modal-loading error'>加载角色近期战绩失败：${escapeHtml(error.message || error)}</div>`;
+            }
+        }
+
+        async function loadMoreMatches() {
+            if (currentPagination.isLoading || !currentPagination.hasMore || currentPagination.nextCursor == null) {
+                return;
+            }
+            currentPagination.isLoading = true;
+            const loadMoreBtn = roleModalBody.querySelector("#load-more-btn");
+            if (loadMoreBtn) {
+                loadMoreBtn.textContent = "加载中...";
+                loadMoreBtn.classList.add("loading");
+                loadMoreBtn.disabled = true;
+            }
+
+            try {
+                const url = buildRoleRecentUrl(
+                    currentPagination.server,
+                    currentPagination.name,
+                    currentPagination.identityHints,
+                    currentPagination.nextCursor,
+                );
+                const response = await fetch(url, { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                renderRoleRecentModal(data, true);
+            } catch (error) {
+                if (loadMoreBtn) {
+                    loadMoreBtn.textContent = "加载失败，点击重试";
+                    loadMoreBtn.classList.remove("loading");
+                    loadMoreBtn.disabled = false;
+                }
+                currentPagination.isLoading = false;
             }
         }
 
@@ -1867,6 +2007,11 @@
             }
             if (target === roleModal || target.closest("[data-close-modal='role']")) {
                 closeModal(roleModal);
+                return;
+            }
+            const loadMoreBtn = target.closest("#load-more-btn");
+            if (loadMoreBtn) {
+                loadMoreMatches();
                 return;
             }
             const matchButton = target.closest(".match-row-btn");

@@ -200,6 +200,7 @@ async def get_ranking_stats_role_recent(
     global_role_id: Optional[str] = Query(None, description="推栏全局角色 ID"),
     role_id: Optional[str] = Query(None, description="推栏角色 ID"),
     zone: Optional[str] = Query(None, description="区服分区"),
+    cursor: int = Query(0, description="分页游标，0 表示第一页"),
 ) -> dict[str, Any]:
     server = server.strip()
     name = name.strip()
@@ -209,6 +210,7 @@ async def get_ranking_stats_role_recent(
     result = await jjc_ranking_inspect_service.get_role_recent(
         server=server,
         name=name,
+        cursor=cursor,
         identity_hints={
             "game_role_id": (game_role_id or "").strip() or None,
             "global_role_id": (global_role_id or "").strip() or None,
