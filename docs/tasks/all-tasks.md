@@ -10,6 +10,9 @@
   - 主题：主线分层重构、日志口径收口、`defget` 兼容面缩减
   - 详细说明：`docs/exec-plans/active/refactor-plan.md`
 
+- `in-progress/jjc-ranking-role-inspect.md`
+  - 主题：竞技场统计页角色下钻、最近 33 战绩与对局详情按需缓存
+
 ## Completed
 
 - `completed/doc-system-rebuild.md`
