@@ -1,68 +1,33 @@
 from __future__ import annotations
 
-import json
-import os
 import time
 from typing import Any
 
 from nonebot import logger
 
 from src.infra.http_client import HttpClient
+from src.infra.mongo import get_db
+from src.storage.mongo_repos.server_master_repo import ServerMasterCacheRepo
 
 SERVER_MASTER_API_URL = "https://www.jx3api.com/data/server/master"
-SERVER_MASTER_CACHE_FILE = "data/cache/server_master_cache.json"
 SERVER_MASTER_CACHE_TTL = 7 * 24 * 60 * 60
-
-_cache_loaded = False
-_cache: dict[str, dict[str, Any]] = {}
 
 
 def _normalize_server_key(name: str) -> str:
     return (name or "").strip()
 
 
-def _load_cache() -> None:
-    global _cache_loaded, _cache
-    if _cache_loaded:
-        return
-
-    _cache_loaded = True
-    if not os.path.exists(SERVER_MASTER_CACHE_FILE):
-        return
-
-    try:
-        with open(SERVER_MASTER_CACHE_FILE, "r", encoding="utf-8") as file_handle:
-            data = json.load(file_handle)
-        if isinstance(data, dict):
-            _cache = data
-    except Exception as exc:
-        logger.warning("区服简称缓存读取失败: {}", exc)
-        _cache = {}
+def _repo() -> ServerMasterCacheRepo:
+    return ServerMasterCacheRepo(db=get_db(), ttl_seconds=SERVER_MASTER_CACHE_TTL)
 
 
-def _save_cache() -> None:
-    try:
-        os.makedirs(os.path.dirname(SERVER_MASTER_CACHE_FILE), exist_ok=True)
-        with open(SERVER_MASTER_CACHE_FILE, "w", encoding="utf-8") as file_handle:
-            json.dump(_cache, file_handle, ensure_ascii=False, indent=2)
-    except Exception as exc:
-        logger.warning("区服简称缓存写入失败: {}", exc)
-
-
-def _get_cached_master_name(query_name: str) -> str | None:
-    _load_cache()
+async def _get_cached_master_name(query_name: str) -> str | None:
     key = _normalize_server_key(query_name)
     if not key:
         return None
 
-    entry = _cache.get(key)
-    if not isinstance(entry, dict):
-        return None
-
-    cached_at = int(entry.get("cached_at", 0) or 0)
-    if int(time.time()) - cached_at >= SERVER_MASTER_CACHE_TTL:
-        _cache.pop(key, None)
-        _save_cache()
+    entry = await _repo().get(key)
+    if entry is None:
         return None
 
     master_name = entry.get("name")
@@ -71,8 +36,7 @@ def _get_cached_master_name(query_name: str) -> str | None:
     return None
 
 
-def _cache_master_result(query_name: str, result_data: dict[str, Any]) -> None:
-    _load_cache()
+async def _cache_master_result(query_name: str, result_data: dict[str, Any]) -> None:
     now = int(time.time())
     master_name = (result_data.get("name") or "").strip()
     if not master_name:
@@ -85,16 +49,17 @@ def _cache_master_result(query_name: str, result_data: dict[str, Any]) -> None:
         "cached_at": now,
     }
 
+    # 收集所有别名 keys
     keys = {query_name, master_name}
     for alias in result_data.get("abbreviation", []) or []:
         if isinstance(alias, str) and alias.strip():
             keys.add(alias.strip())
 
-    for key in keys:
-        normalized_key = _normalize_server_key(key)
-        if normalized_key:
-            _cache[normalized_key] = entry_payload
-    _save_cache()
+    repo = _repo()
+    for alias_key in keys:
+        normalized = _normalize_server_key(alias_key)
+        if normalized:
+            await repo.put(normalized, entry_payload)
 
 
 async def resolve_master_server_name(server_name: str) -> str:
@@ -106,7 +71,7 @@ async def resolve_master_server_name(server_name: str) -> str:
     if not query_name:
         return server_name
 
-    cached_name = _get_cached_master_name(query_name)
+    cached_name = await _get_cached_master_name(query_name)
     if cached_name:
         return cached_name
 
@@ -132,5 +97,5 @@ async def resolve_master_server_name(server_name: str) -> str:
     if not master_name:
         return server_name
 
-    _cache_master_result(query_name, data)
+    await _cache_master_result(query_name, data)
     return master_name
