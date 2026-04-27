@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Optional, Union
 
 from nonebot import logger
@@ -46,6 +46,15 @@ def _extract_id_like_fields(match: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _extract_grade_like_fields(match: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in match.items():
+        key_text = str(key).lower()
+        if "grade" in key_text or "rank" in key_text or "segment" in key_text:
+            result[str(key)] = value
+    return result
+
+
 def _normalize_name(name: Optional[str]) -> str:
     if not name:
         return ""
@@ -85,6 +94,25 @@ def _extract_duration(match: dict[str, Any]) -> Optional[int]:
     return None
 
 
+def _extract_avg_grade(match: dict[str, Any]) -> Optional[int]:
+    return _coerce_int(
+        match.get("avgGrade")
+        or match.get("avg_grade")
+        or match.get("grade")
+        or match.get("segment")
+        or match.get("level")
+    )
+
+
+def _extract_total_mmr(match: dict[str, Any]) -> Optional[int]:
+    return _coerce_int(
+        match.get("totalMmr")
+        or match.get("total_mmr")
+        or match.get("score")
+        or match.get("mmr_total")
+    )
+
+
 @dataclass(frozen=True)
 class JjcRankingInspectService:
     ranking_service: JjcRankingService
@@ -95,14 +123,30 @@ class JjcRankingInspectService:
     tuilan_request: Callable[[str, dict[str, Any]], Any]
     role_indicator_fetcher: Callable[..., Optional[dict[str, Any]]]
     kungfu_pinyin_to_chinese: dict[str, str]
-    role_recent_ttl_seconds: int = 60
+    role_recent_ttl_seconds: int = 600
     max_recent_matches: int = 20
+    tuilan_query_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def _translate_kungfu_name(self, value: Any) -> str:
         text = _pick_str(value) or ""
         if not text:
             return ""
         return self.kungfu_pinyin_to_chinese.get(text, text)
+
+    async def _run_serialized_tuilan_query(
+        self,
+        label: str,
+        func: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        logger.info("等待推栏查询锁: label={}", label)
+        async with self.tuilan_query_lock:
+            logger.info("获取推栏查询锁: label={}", label)
+            try:
+                return await asyncio.to_thread(func, *args, **kwargs)
+            finally:
+                logger.info("释放推栏查询锁: label={}", label)
 
     async def get_role_recent(
         self,
@@ -210,7 +254,13 @@ class JjcRankingInspectService:
             if identity:
                 return identity
 
-        ranking_result = await self.ranking_service.query_jjc_ranking()
+        logger.info("等待推栏查询锁: label=live_ranking:{}:{}", server, name)
+        async with self.tuilan_query_lock:
+            logger.info("获取推栏查询锁: label=live_ranking:{}:{}", server, name)
+            try:
+                ranking_result = await self.ranking_service.query_jjc_ranking()
+            finally:
+                logger.info("释放推栏查询锁: label=live_ranking:{}:{}", server, name)
         if not ranking_result.get("error") and ranking_result.get("code") == 0:
             for player in ranking_result.get("data", []):
                 if not isinstance(player, dict):
@@ -267,7 +317,8 @@ class JjcRankingInspectService:
             zone,
             source,
         )
-        result = await asyncio.to_thread(
+        result = await self._run_serialized_tuilan_query(
+            f"role_indicator:{server}:{name}",
             self.role_indicator_fetcher,
             game_role_id,
             zone,
@@ -304,7 +355,8 @@ class JjcRankingInspectService:
         if not global_role_id:
             return {"error": True, "message": "global_role_id_missing", "identity": identity}
 
-        raw = await asyncio.to_thread(
+        raw = await self._run_serialized_tuilan_query(
+            f"match_history:{server}:{name}",
             self.match_history_client.get_mine_match_history,
             global_role_id=global_role_id,
             size=self.max_recent_matches,
@@ -333,8 +385,8 @@ class JjcRankingInspectService:
                     "match_id": match_id,
                     "won": bool(item.get("won")),
                     "kungfu": self._translate_kungfu_name(item.get("kungfu") or item.get("kungfu_name")),
-                    "avg_grade": _coerce_int(item.get("avgGrade") or item.get("grade")),
-                    "total_mmr": _coerce_int(item.get("totalMmr") or item.get("score") or item.get("mmr_total")),
+                    "avg_grade": _extract_avg_grade(item),
+                    "total_mmr": _extract_total_mmr(item),
                     "mmr_delta": _coerce_int(item.get("mmr")),
                     "mvp": bool(item.get("mvp")),
                     "match_time": match_time,
@@ -349,23 +401,51 @@ class JjcRankingInspectService:
         wins = sum(1 for item in recent_matches if item.get("won"))
         total = len(recent_matches)
         missing_match_id_count = sum(1 for item in recent_matches if not item.get("match_id"))
+        missing_avg_grade_count = sum(1 for item in recent_matches if item.get("avg_grade") is None)
 
         logger.info(
-            "JJC 角色近期构建完成: server={} name={} history_total={} recent_total={} missing_match_id_count={} identity_source={}",
+            "JJC 角色近期构建完成: server={} name={} history_total={} recent_total={} missing_match_id_count={} missing_avg_grade_count={} identity_source={}",
             server,
             name,
             len(history_3v3),
             total,
             missing_match_id_count,
+            missing_avg_grade_count,
             identity.get("source"),
         )
         if history_3v3:
             logger.info(
-                "JJC 推栏战局历史样本字段: server={} name={} first_keys={} first_id_like_fields={}",
+                "JJC 推栏战局历史样本字段: server={} name={} first_keys={} first_id_like_fields={} first_grade_like_fields={}",
                 server,
                 name,
                 sorted(first_raw_match.keys()) if isinstance(first_raw_match, dict) else [],
                 _extract_id_like_fields(first_raw_match) if isinstance(first_raw_match, dict) else {},
+                _extract_grade_like_fields(first_raw_match) if isinstance(first_raw_match, dict) else {},
+            )
+        if missing_avg_grade_count > 0:
+            missing_avg_grade_samples = []
+            for item in raw.get("data") or []:
+                if not isinstance(item, dict):
+                    continue
+                parsed_avg_grade = _extract_avg_grade(item)
+                if parsed_avg_grade is not None:
+                    continue
+                missing_avg_grade_samples.append(
+                    {
+                        "keys": sorted(item.keys()),
+                        "grade_like_fields": _extract_grade_like_fields(item),
+                        "time": item.get("match_time") or item.get("startTime") or item.get("start_time"),
+                        "kungfu": item.get("kungfu") or item.get("kungfu_name"),
+                        "won": item.get("won"),
+                    }
+                )
+                if len(missing_avg_grade_samples) >= 3:
+                    break
+            logger.warning(
+                "JJC 角色近期存在缺失段位字段样本: server={} name={} samples={}",
+                server,
+                name,
+                missing_avg_grade_samples,
             )
         if missing_match_id_count > 0:
             missing_match_id_samples = []
@@ -422,7 +502,8 @@ class JjcRankingInspectService:
             return data
 
         logger.info("加载 JJC 对局详情: match_id={}", normalized_match_id)
-        detail = await asyncio.to_thread(
+        detail = await self._run_serialized_tuilan_query(
+            f"match_detail:{normalized_match_id}",
             self.match_detail_client.get_match_detail_obj,
             match_id=normalized_match_id,
         )
