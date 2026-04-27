@@ -115,6 +115,11 @@ TUILAN_COOKIE = "_wsi1=b71125f3741e4eca8746f6c6761f3da931c210a9; __wsi1=b71125f3
 TUILAN_DEVICE_ID = "lWrrIG5QpALPiSZ7txB//A=="
 TUILAN_USER_AGENT = "okhttp/3.12.2"
 
+# MongoDB 连接串
+# 示例: mongodb://用户名:密码@地址:端口/数据库名?authSource=admin
+# 可通过环境变量 MONGO_URI 或 runtime_config.json 覆盖
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://root:password@127.0.0.1:27017/jx3bot?authSource=admin")
+
 # 赛季时间定义
 CURRENT_SEASON = "暗影千机"
 CURRENT_SEASON_START = "2026-04-24"
@@ -159,6 +164,7 @@ RUNTIME_CONFIG_KEYS = {
     "SESSION_data": int,
     "calendar_time": int,
     "STATUS_check_time": int,
+    "MONGO_URI": str,
 }
 
 if os.path.exists(RUNTIME_CONFIG_FILE):
