@@ -26,12 +26,15 @@ async def _get_cached_master_name(query_name: str) -> str | None:
     if not key:
         return None
 
+    logger.info("[server_master] 查询 MongoDB 缓存: key={}", key)
     entry = await _repo().get(key)
     if entry is None:
+        logger.info("[server_master] 缓存未命中: key={}", key)
         return None
 
     master_name = entry.get("name")
     if isinstance(master_name, str) and master_name.strip():
+        logger.info("[server_master] 缓存命中: key={} -> master={}", key, master_name.strip())
         return master_name.strip()
     return None
 
@@ -40,6 +43,7 @@ async def _cache_master_result(query_name: str, result_data: dict[str, Any]) -> 
     now = int(time.time())
     master_name = (result_data.get("name") or "").strip()
     if not master_name:
+        logger.warning("[server_master] API 返回无 name 字段，跳过缓存: result={}", result_data)
         return
 
     entry_payload = {
@@ -51,7 +55,8 @@ async def _cache_master_result(query_name: str, result_data: dict[str, Any]) -> 
 
     # 收集所有别名 keys
     keys = {query_name, master_name}
-    for alias in result_data.get("abbreviation", []) or []:
+    abbr_list = result_data.get("abbreviation", []) or []
+    for alias in abbr_list:
         if isinstance(alias, str) and alias.strip():
             keys.add(alias.strip())
 
@@ -60,6 +65,10 @@ async def _cache_master_result(query_name: str, result_data: dict[str, Any]) -> 
         normalized = _normalize_server_key(alias_key)
         if normalized:
             await repo.put(normalized, entry_payload)
+    logger.info(
+        "[server_master] 写入 MongoDB: query={}, keys={}, master={}, zone={}",
+        query_name, list(keys), master_name, result_data.get("zone", ""),
+    )
 
 
 async def resolve_master_server_name(server_name: str) -> str:
@@ -68,13 +77,16 @@ async def resolve_master_server_name(server_name: str) -> str:
     解析失败时返回原始输入，不中断主流程。
     """
     query_name = _normalize_server_key(server_name)
+    logger.info("[server_master] 开始解析区服: raw={} query={}", server_name, query_name)
     if not query_name:
+        logger.warning("[server_master] 区服名为空，返回原始值")
         return server_name
 
     cached_name = await _get_cached_master_name(query_name)
     if cached_name:
         return cached_name
 
+    logger.info("[server_master] 调用 API: url={} name={}", SERVER_MASTER_API_URL, query_name)
     http_client = HttpClient(timeout=15.0, retries=1, backoff_seconds=0.3, verify=False)
     response = await http_client.arequest_json(
         "GET",
@@ -84,18 +96,23 @@ async def resolve_master_server_name(server_name: str) -> str:
     )
 
     if not isinstance(response, dict):
+        logger.warning("[server_master] API 返回非 dict: type={}", type(response))
         return server_name
 
     if response.get("code") != 200:
+        logger.warning("[server_master] API 返回非 200: code={}", response.get("code"))
         return server_name
 
     data = response.get("data")
     if not isinstance(data, dict):
+        logger.warning("[server_master] API data 不是 dict: type={}", type(data))
         return server_name
 
     master_name = (data.get("name") or "").strip()
     if not master_name:
+        logger.warning("[server_master] API data.name 为空")
         return server_name
 
     await _cache_master_result(query_name, data)
+    logger.info("[server_master] 解析成功: {} -> {}", server_name, master_name)
     return master_name
