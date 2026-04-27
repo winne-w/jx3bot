@@ -140,11 +140,11 @@ async def handle_kf_query(event: GroupMessageEvent):
 
         real_time_status = server_data.get("status", "未知")
 
-        zone = server_data["zone"]
+        zone = server_data.get("zone", "")
         if zone.endswith("区"):
             zone = zone[:-1] + "大区"
 
-        status_history = CacheManager.load_cache("status_history", {})
+        status_history = await CacheManager.load_cache("status_history", {})
 
         if server not in status_history:
             status_history[server] = {"last_maintenance": None, "last_open": None}
