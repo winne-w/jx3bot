@@ -41,6 +41,7 @@
 - 新增外部调用时，优先补到 `src/infra/`，不要在 handler 或 service 中直接散写请求。
 - 涉及 `groups.json`、订阅、服务器别名缓存时，统一走 `src/storage/` 和对应 repo，不新增裸 `open(...)` 写法。
 - 秘钥、票据、Cookie、邮箱、内网地址不得硬编码进代码和文档。
+- 运行时基线是 `Python 3.9+`。新增类型注解必须兼容 Python 3.9，不要在 FastAPI/Pydantic 会解析的代码路径里使用 `str | None`、`dict[str, Any] | None` 这类 `|` 联合写法，统一改用 `typing.Optional[...]`、`typing.Union[...]`。
 
 ## 文档更新规则
 
@@ -54,5 +55,6 @@
 - 本地启动: `python bot.py`
 - 插件快速检查: `nb plugin list --json`
 - 手工脚本: `python test_tuilan_match_history.py`
+- 改过 FastAPI 路由、Pydantic 会解析的函数签名或新增类型注解后，至少执行一次 `python -m py_compile <相关文件>`，重点确认没有 Python 3.9 注解兼容问题。
 
 外部接口较多，很多验证依赖在线服务。无法离线证明正确时，至少补充手工回归路径。

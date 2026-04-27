@@ -6,6 +6,20 @@
 
 ## 先判断改动类型
 
+## 运行时兼容约束
+
+- 当前仓库运行时基线是 `Python 3.9+`。
+- 新增类型注解时，优先使用 `typing.Optional[...]`、`typing.Union[...]`、`typing.List[...]`、`typing.Dict[...]`。
+- 不要在 FastAPI 路由、Pydantic 会读取的函数签名、模块级类型声明里使用 `str | None`、`dict[str, Any] | None` 这类 Python 3.10+ 的 `|` 联合写法。
+- 如果只是仓库内部纯 Python 辅助代码，也不要默认使用 3.10+ 注解语法，避免后续代码移动到 API/配置路径后触发启动时报错。
+
+常见高风险位置：
+
+- `src/api/routers/`
+- FastAPI 路由参数和返回值注解
+- 会被 Pydantic 解析的 dataclass / model / dependency 签名
+- 启动链路直接导入的模块
+
 ### 消息命令改动
 
 放置原则：
@@ -87,12 +101,20 @@
 - 插件仍能被 NoneBot 发现
 - 改动路径经过手工回归
 - 文档同步更新
+- 如果改过类型注解、FastAPI 路由签名或启动链路导入模块，额外执行相关文件的 `python -m py_compile`
 
 最小命令：
 
 ```bash
 nb plugin list --json
 python test_tuilan_match_history.py
+```
+
+涉及注解或 API 签名时，至少补做：
+
+```bash
+python -m py_compile src/api/routers/<router>.py
+python -m py_compile <相关 service/storage 文件>
 ```
 
 ## 什么时候必须改文档
