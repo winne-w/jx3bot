@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Optional
+from typing import Any, List, Optional, Union
 from urllib.parse import quote
 
 from fastapi import APIRouter, Query
 
 from src.api.response import error_response, success_response
+from src.services.jx3.singletons import jjc_ranking_inspect_service
 
 
 router = APIRouter(prefix="/api/jjc", tags=["jjc"])
@@ -29,7 +30,7 @@ def _legacy_path(timestamp: str) -> str:
     return os.path.join(_stats_dir(), f"{timestamp}.json")
 
 
-def _load_json(file_path: str) -> dict[str, Any] | list[Any] | None:
+def _load_json(file_path: str) -> Optional[Union[dict[str, Any], List[Any]]]:
     try:
         with open(file_path, "r", encoding="utf-8") as file_handle:
             return json.load(file_handle)
@@ -88,7 +89,7 @@ def _extract_detail_from_legacy(
     range_key: str,
     lane: str,
     kungfu: str,
-) -> dict[str, Any] | None:
+) -> Optional[dict[str, Any]]:
     range_stats = (payload.get("kungfu_statistics") or {}).get(range_key) or {}
     lane_stats = range_stats.get(lane) or {}
     members_map = lane_stats.get("members") or {}
@@ -189,3 +190,42 @@ async def get_ranking_stats_details(
     if detail_payload is None:
         return error_response("not_found")
     return success_response(detail_payload)
+
+
+@router.get("/ranking-stats/role-recent")
+async def get_ranking_stats_role_recent(
+    server: str = Query(..., description="服务器名"),
+    name: str = Query(..., description="角色名"),
+    game_role_id: Optional[str] = Query(None, description="榜单角色 ID"),
+    global_role_id: Optional[str] = Query(None, description="推栏全局角色 ID"),
+    role_id: Optional[str] = Query(None, description="推栏角色 ID"),
+    zone: Optional[str] = Query(None, description="区服分区"),
+) -> dict[str, Any]:
+    server = server.strip()
+    name = name.strip()
+    if not server or not name:
+        return error_response("invalid_params")
+
+    result = await jjc_ranking_inspect_service.get_role_recent(
+        server=server,
+        name=name,
+        identity_hints={
+            "game_role_id": (game_role_id or "").strip() or None,
+            "global_role_id": (global_role_id or "").strip() or None,
+            "role_id": (role_id or "").strip() or None,
+            "zone": (zone or "").strip() or None,
+        },
+    )
+    if result.get("error"):
+        return error_response(result.get("message") or result.get("error") or "unknown_error", data=result)
+    return success_response(result)
+
+
+@router.get("/ranking-stats/match-detail")
+async def get_ranking_stats_match_detail(
+    match_id: str = Query(..., description="对局 ID"),
+) -> dict[str, Any]:
+    result = await jjc_ranking_inspect_service.get_match_detail(match_id=match_id)
+    if result.get("error"):
+        return error_response(result.get("message") or result.get("error") or "unknown_error", data=result)
+    return success_response(result)

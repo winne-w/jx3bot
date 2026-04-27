@@ -144,6 +144,8 @@ curl "http://127.0.0.1:5288/api/arena/recent?server=梦江南&name=示例角色"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=read&timestamp=<时间戳>"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/details?timestamp=<时间戳>&range=top_50&lane=healer&kungfu=云裳心经"
+curl "http://127.0.0.1:5288/api/jjc/ranking-stats/role-recent?server=梦江南&name=示例角色"
+curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局ID>"
 ```
 
 预期:
@@ -152,6 +154,8 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats/details?timestamp=<时间戳>&
 - 参数非法时返回错误响应，而不是 500
 - `action=read` 首屏摘要不再返回全量 `members`
 - `details` 接口可按需返回单个心法成员明细
+- 统计页点击角色时可按需返回最近 33 胜负和最近对局列表
+- 统计页点击对局时可按需返回单局详情
 
 ## 故障排查
 
