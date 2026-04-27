@@ -5,8 +5,13 @@ from jinja2 import Environment, FileSystemLoader
 
 from src.infra.jx3api_get import get
 from src.services.jx3.group_config_repo import GroupConfigRepo
+from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
+from src.services.jx3.jjc_cache_repo import JjcCacheRepo
+from src.services.jx3.kungfu import get_role_indicator
+from src.services.jx3.match_history import MatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient
+from src.storage.jjc_ranking_inspect_cache import JjcRankingInspectCacheRepo
 from src.utils.tuilan_request import tuilan_request
 
 env = Environment(loader=FileSystemLoader("templates"))
@@ -44,4 +49,25 @@ jjc_ranking_service = JjcRankingService(
 match_detail_client = MatchDetailClient(
     match_detail_url=cfg.API_URLS["竞技场战局详情"],
     tuilan_request=tuilan_request,
+)
+
+match_history_client = MatchHistoryClient(
+    match_history_url=cfg.API_URLS["竞技场战局历史"],
+    tuilan_request=tuilan_request,
+)
+
+jjc_ranking_inspect_service = JjcRankingInspectService(
+    ranking_service=jjc_ranking_service,
+    kungfu_cache_repo=JjcCacheRepo(
+        jjc_ranking_cache_file=JJC_RANKING_CACHE_FILE,
+        jjc_ranking_cache_duration=JJC_RANKING_CACHE_DURATION,
+        kungfu_cache_duration=KUNGFU_CACHE_DURATION,
+    ),
+    match_history_client=match_history_client,
+    match_detail_client=match_detail_client,
+    cache_repo=JjcRankingInspectCacheRepo(base_dir="data/cache/jjc_ranking_inspect"),
+    tuilan_request=tuilan_request,
+    role_indicator_fetcher=get_role_indicator,
+    kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
+    role_recent_ttl_seconds=600,
 )

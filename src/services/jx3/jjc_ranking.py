@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable
+from urllib.parse import quote
 
 from nonebot import logger
 
@@ -248,7 +249,9 @@ class JjcRankingService:
     ) -> None:
         stats_dir = os.path.join("data", "jjc_ranking_stats")
         ranking_timestamp = int(ranking_result.get("cache_time") or time.time())
-        stats_path = os.path.join(stats_dir, f"{ranking_timestamp}.json")
+        stats_entry_dir = os.path.join(stats_dir, str(ranking_timestamp))
+        summary_path = os.path.join(stats_entry_dir, "summary.json")
+        details_root_dir = os.path.join(stats_entry_dir, "details")
         try:
             os.makedirs(stats_dir, exist_ok=True)
             stats_payload = {
@@ -259,11 +262,86 @@ class JjcRankingService:
                 "week_info": week_info,
                 "kungfu_statistics": stats,
             }
-            with open(stats_path, "w", encoding="utf-8") as file_handle:
-                json.dump(stats_payload, file_handle, ensure_ascii=False, indent=2)
-            logger.info("保存竞技场统计结果: %s", stats_path)
+            summary_payload = self._build_summary_payload(stats_payload)
+
+            os.makedirs(stats_entry_dir, exist_ok=True)
+            with open(summary_path, "w", encoding="utf-8") as file_handle:
+                json.dump(summary_payload, file_handle, ensure_ascii=False, indent=2)
+
+            self._write_details_files(details_root_dir, stats)
+
+            logger.info("保存竞技场统计摘要: %s", summary_path)
+            logger.info("保存竞技场统计详情目录: %s", details_root_dir)
         except Exception as exc:
             logger.warning("保存竞技场统计结果失败: %s", exc)
+
+    def _build_summary_payload(self, stats_payload: dict[str, Any]) -> dict[str, Any]:
+        summary_payload = {
+            key: value
+            for key, value in stats_payload.items()
+            if key != "kungfu_statistics"
+        }
+        summary_payload["kungfu_statistics"] = {}
+
+        kungfu_statistics = stats_payload.get("kungfu_statistics") or {}
+        for range_key, range_stats in kungfu_statistics.items():
+            if not isinstance(range_stats, dict):
+                summary_payload["kungfu_statistics"][range_key] = range_stats
+                continue
+
+            summary_range: dict[str, Any] = {
+                key: value
+                for key, value in range_stats.items()
+                if key not in {"healer", "dps"}
+            }
+            for lane_name in ("healer", "dps"):
+                lane = range_stats.get(lane_name) or {}
+                if not isinstance(lane, dict):
+                    summary_range[lane_name] = lane
+                    continue
+
+                members_map = lane.get("members") or {}
+                legendary_count_map: dict[str, int] = {}
+                for kungfu, members in members_map.items():
+                    legendary_count_map[kungfu] = sum(
+                        1 for member in (members or []) if str((member or {}).get("weapon_quality")) == "5"
+                    )
+
+                summary_lane = {
+                    key: value
+                    for key, value in lane.items()
+                    if key != "members"
+                }
+                summary_lane["legendary_count_map"] = legendary_count_map
+                summary_range[lane_name] = summary_lane
+
+            summary_payload["kungfu_statistics"][range_key] = summary_range
+
+        return summary_payload
+
+    def _write_details_files(self, details_root_dir: str, stats: dict[str, Any]) -> None:
+        for range_key, range_stats in (stats or {}).items():
+            if not isinstance(range_stats, dict):
+                continue
+            for lane_name in ("healer", "dps"):
+                lane = range_stats.get(lane_name) or {}
+                members_map = lane.get("members") or {}
+                if not isinstance(members_map, dict):
+                    continue
+
+                lane_dir = os.path.join(details_root_dir, range_key, lane_name)
+                os.makedirs(lane_dir, exist_ok=True)
+                for kungfu, members in members_map.items():
+                    encoded_kungfu = quote(str(kungfu), safe="")
+                    detail_path = os.path.join(lane_dir, f"{encoded_kungfu}.json")
+                    detail_payload = {
+                        "range": range_key,
+                        "lane": lane_name,
+                        "kungfu": kungfu,
+                        "members": members or [],
+                    }
+                    with open(detail_path, "w", encoding="utf-8") as file_handle:
+                        json.dump(detail_payload, file_handle, ensure_ascii=False, indent=2)
 
     async def get_user_kungfu(
         self,
@@ -448,6 +526,13 @@ class JjcRankingService:
                         "kungfu": kungfu_info.get("kungfu"),
                         "found": kungfu_info.get("found", False),
                         "kungfu_id": kungfu_info.get("kungfu_id"),
+                        "game_role_id": person_info.get("gameRoleId"),
+                        "global_role_id": (
+                            kungfu_info.get("global_role_id")
+                            or person_info.get("globalRoleId")
+                        ),
+                        "role_id": kungfu_info.get("role_id") or person_info.get("gameRoleId"),
+                        "zone": person_info.get("zone"),
                         "teammates": kungfu_info.get("teammates"),
                         "weapon_icon": kungfu_info.get("weapon_icon"),
                         "weapon_quality": kungfu_info.get("weapon_quality"),
@@ -516,6 +601,10 @@ class JjcRankingService:
                                     "name": player_item.get("name", "未知"),
                                     "score": score,
                                     "kungfu_id": player_item.get("kungfu_id"),
+                                    "game_role_id": player_item.get("game_role_id"),
+                                    "global_role_id": player_item.get("global_role_id"),
+                                    "role_id": player_item.get("role_id"),
+                                    "zone": player_item.get("zone"),
                                     "teammates": player_item.get("teammates"),
                                     "weapon_icon": player_item.get("weapon_icon"),
                                     "weapon_quality": player_item.get("weapon_quality"),
@@ -533,6 +622,10 @@ class JjcRankingService:
                                     "name": player_item.get("name", "未知"),
                                     "score": score,
                                     "kungfu_id": player_item.get("kungfu_id"),
+                                    "game_role_id": player_item.get("game_role_id"),
+                                    "global_role_id": player_item.get("global_role_id"),
+                                    "role_id": player_item.get("role_id"),
+                                    "zone": player_item.get("zone"),
                                     "teammates": player_item.get("teammates"),
                                     "weapon_icon": player_item.get("weapon_icon"),
                                     "weapon_quality": player_item.get("weapon_quality"),

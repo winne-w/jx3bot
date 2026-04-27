@@ -83,7 +83,7 @@ STATUS_check_time = 3   # 分钟检查一次服务器状态
 NEWS_records_time = 30  # 分钟检查一次 新闻技改
 calendar_time = 9  # 每天9点推送日常
 mail = "用于qq掉线提醒 邮箱的tk"
-STATUS_check_API = "https://www.jx3api.com/data/server/check"  
+STATUS_check_API = "https://www.jx3api.com/data/status/check"  
 # 新闻技改监控配置
 NEWS_API_URL = "https://www.jx3api.com/data/news/allnews?limit=3"  # 新闻API地址
 SKILL_records_URL = "https://www.jx3api.com/data/skills/records"  # 技改API地址
@@ -116,8 +116,8 @@ TUILAN_DEVICE_ID = "lWrrIG5QpALPiSZ7txB//A=="
 TUILAN_USER_AGENT = "okhttp/3.12.2"
 
 # 赛季时间定义
-CURRENT_SEASON = "山海源流"
-CURRENT_SEASON_START = "2025-10-30"
+CURRENT_SEASON = "暗影千机"
+CURRENT_SEASON_START = "2026-04-24"
 
 # 心法拼音映射及分类
 KUNGFU_META = {

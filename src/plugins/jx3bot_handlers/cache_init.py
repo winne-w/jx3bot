@@ -10,6 +10,15 @@ from typing import Any, Awaitable, Callable
 from nonebot import logger
 
 
+def _is_valid_server_data(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    data = payload.get("data")
+    if not isinstance(data, list) or not data:
+        return False
+    return any(isinstance(item, dict) and item.get("server") for item in data)
+
+
 def register(
     driver: Any,
     *,
@@ -28,13 +37,20 @@ def register(
         try:
             await download_json()
 
-            fresh_data = await jiaoyiget("https://www.jx3api.com/data/server/check")
+            fresh_data = await jiaoyiget("https://www.jx3api.com/data/status/check")
             token_data = await jiaoyiget(
                 f"https://www.jx3api.com/data/token/web-token?token={token}"
             )
             set_token_data(token_data)
 
             data_obj = json.loads(fresh_data) if isinstance(fresh_data, str) else fresh_data
+            if not _is_valid_server_data(data_obj):
+                logger.warning(
+                    "服务器数据接口返回无效内容，跳过覆盖本地缓存: payload_type={} payload={}",
+                    type(data_obj).__name__,
+                    data_obj,
+                )
+                raise ValueError("invalid_server_data_payload")
 
             os.makedirs(os.path.dirname(os.path.abspath(server_data_file)), exist_ok=True)
             with open(server_data_file, "w", encoding="utf-8") as file_handle:

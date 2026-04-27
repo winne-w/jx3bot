@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from nonebot import logger
+
 from src.services.jx3.group_binding import get_server_by_group
 from src.services.jx3.server_resolver import resolve_master_server_name
-from src.infra.jx3api_get import get, idget
+from src.infra.jx3api_get import get, has_server_catalog, idget
 
 
 class CommandContextError(RuntimeError):
@@ -29,27 +31,89 @@ async def resolve_server_and_name(
     - foo[1], foo[2] 为“显式指定服务器 + 角色名”的场景
     """
     if len(foo) < 1:
+        logger.warning("resolve_server_and_name 参数不足: foo={} group_id={}", foo, group_id)
         return None
 
     if foo[0] is None:
         if len(foo) < 3:
+            logger.warning("resolve_server_and_name 显式区服参数不足: foo={} group_id={}", foo, group_id)
             return None
         server = foo[1]
         name = foo[2]
+        logger.info(
+            "resolve_server_and_name 使用显式区服: group_id={} raw_server={} role_name={}",
+            group_id,
+            server,
+            name,
+        )
     else:
         name = foo[0]
         server = await get_server_by_group(group_id or "")
+        logger.info(
+            "resolve_server_and_name 使用群绑定区服: group_id={} bound_server={} role_name={}",
+            group_id,
+            server,
+            name,
+        )
         if not server and require_group_binding:
+            logger.warning(
+                "resolve_server_and_name 群未绑定区服: group_id={} role_name={} require_group_binding={}",
+                group_id,
+                name,
+                require_group_binding,
+            )
             raise CommandContextError(group_binding_tip, at_user=False)
 
+    if not await has_server_catalog():
+        logger.warning(
+            "resolve_server_and_name 区服文件不可用，直接使用输入区服: group_id={} server={} role_name={}",
+            group_id,
+            server,
+            name,
+        )
+        return server, name
+
     if not await idget(server):
+        logger.info(
+            "resolve_server_and_name 区服首次校验失败，尝试主服解析: group_id={} raw_server={} role_name={}",
+            group_id,
+            server,
+            name,
+        )
         resolved_server = await resolve_master_server_name(server)
         if resolved_server != server:
+            logger.info(
+                "resolve_server_and_name 主服解析命中: group_id={} raw_server={} resolved_server={} role_name={}",
+                group_id,
+                server,
+                resolved_server,
+                name,
+            )
             server = resolved_server
+        else:
+            logger.warning(
+                "resolve_server_and_name 主服解析未命中: group_id={} raw_server={} role_name={}",
+                group_id,
+                server,
+                name,
+            )
 
     if not await idget(server):
+        logger.warning(
+            "resolve_server_and_name 区服校验最终失败: group_id={} final_server={} role_name={} foo={}",
+            group_id,
+            server,
+            name,
+            foo,
+        )
         raise CommandContextError("请输入正确的服务器！", at_user=True)
 
+    logger.info(
+        "resolve_server_and_name 区服解析成功: group_id={} final_server={} role_name={}",
+        group_id,
+        server,
+        name,
+    )
     return server, name
 
 

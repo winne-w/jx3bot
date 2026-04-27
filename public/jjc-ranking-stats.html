@@ -34,7 +34,8 @@
         }
 
         .page {
-            max-width: 1180px;
+            width: 100%;
+            max-width: none;
             margin: 0 auto;
             position: relative;
         }
@@ -129,12 +130,19 @@
         .tabs {
             margin-top: 18px;
             display: inline-flex;
-            gap: 8px;
+            gap: 10px;
             padding: 6px;
-            border-radius: 999px;
+            border-radius: 20px;
             background: rgba(255, 255, 255, 0.9);
             border: 1px solid rgba(137, 196, 244, 0.22);
             box-shadow: var(--shadow);
+            flex-wrap: wrap;
+        }
+
+        .tab-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .tab-btn {
@@ -153,6 +161,22 @@
             color: #ffffff;
             background: linear-gradient(120deg, var(--accent), var(--accent-2));
             box-shadow: 0 8px 20px rgba(91, 124, 250, 0.25);
+        }
+
+        .tab-export-btn {
+            border: none;
+            padding: 0;
+            font-size: 0.76rem;
+            font-weight: 600;
+            color: var(--accent);
+            background: transparent;
+            cursor: pointer;
+            line-height: 1;
+            transition: color 0.2s ease, opacity 0.2s ease;
+        }
+
+        .tab-export-btn:hover {
+            color: var(--accent-2);
         }
 
         .toggle-wrap {
@@ -218,10 +242,11 @@
             margin-top: 28px;
             display: grid;
             gap: 24px;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(1, minmax(0, 1fr));
         }
 
         .range-card {
+            min-width: 0;
             background: var(--card);
             border-radius: 20px;
             padding: 18px 18px 22px;
@@ -240,10 +265,9 @@
 
         .range-heading {
             display: flex;
-            flex-wrap: nowrap;
+            flex-wrap: wrap;
             align-items: baseline;
             gap: 10px;
-            white-space: nowrap;
         }
 
         .range-title h3 {
@@ -295,6 +319,16 @@
         }
 
         .range-card.is-exporting .detail-list {
+            display: none;
+        }
+
+        .page.is-exporting-full .tab-export-btn,
+        .page.is-exporting-full .export-btn {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .page.is-exporting-full .detail-list {
             display: none;
         }
 
@@ -424,6 +458,23 @@
             color: var(--muted);
         }
 
+        .detail-item-btn {
+            width: 100%;
+            border: none;
+            background: rgba(91, 124, 250, 0.04);
+            border-radius: 12px;
+            padding: 10px 12px;
+            text-align: left;
+            cursor: pointer;
+            transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .detail-item-btn:hover {
+            transform: translateY(-1px);
+            background: rgba(91, 124, 250, 0.09);
+            box-shadow: 0 8px 18px rgba(94, 125, 245, 0.12);
+        }
+
         .detail-name {
             display: flex;
             align-items: center;
@@ -510,6 +561,391 @@
             color: var(--ink);
         }
 
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(24, 33, 47, 0.56);
+            backdrop-filter: blur(6px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            z-index: 2000;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal-card {
+            width: min(960px, 100%);
+            max-height: min(86vh, 920px);
+            overflow: auto;
+            border-radius: 24px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(244, 249, 255, 0.98));
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: 0 24px 60px rgba(24, 33, 47, 0.24);
+            padding: 22px;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .modal-title {
+            margin: 0;
+            font-size: 1.18rem;
+            letter-spacing: 1px;
+        }
+
+        .modal-subtitle {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .modal-close {
+            border: none;
+            background: rgba(91, 124, 250, 0.12);
+            color: var(--accent);
+            width: 34px;
+            height: 34px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            line-height: 1;
+        }
+
+        .modal-loading,
+        .modal-empty {
+            padding: 18px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.82);
+            border: 1px dashed rgba(94, 125, 245, 0.24);
+            color: var(--muted);
+        }
+
+        .role-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .role-overview-card {
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+        }
+
+        .role-overview-card strong {
+            display: block;
+            font-size: 1.12rem;
+            color: var(--ink);
+            margin-bottom: 6px;
+        }
+
+        .role-overview-card span {
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .match-list-panel {
+            display: grid;
+            gap: 10px;
+        }
+
+        .load-more-wrap {
+            display: flex;
+            justify-content: center;
+            padding: 12px 0 4px;
+        }
+
+        .load-more-wrap.hidden {
+            display: none;
+        }
+
+        .load-more-btn {
+            border: none;
+            padding: 10px 32px;
+            border-radius: 999px;
+            font-size: 0.92rem;
+            font-weight: 600;
+            cursor: pointer;
+            color: #ffffff;
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+            box-shadow: 0 8px 20px rgba(91, 124, 250, 0.22);
+            transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+        }
+
+        .load-more-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px rgba(91, 124, 250, 0.3);
+        }
+
+        .load-more-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .load-more-btn.loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .match-row-btn {
+            border: none;
+            width: 100%;
+            text-align: left;
+            border-radius: 16px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+
+        .match-row-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 24px rgba(94, 125, 245, 0.12);
+            border-color: rgba(91, 124, 250, 0.28);
+        }
+
+        .match-row-btn.win {
+            border-left: 4px solid #34b56a;
+        }
+
+        .match-row-btn.lose {
+            border-left: 4px solid #d46a6a;
+        }
+
+        .match-row-top,
+        .match-row-bottom {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 14px;
+        }
+
+        .match-row-top {
+            margin-bottom: 8px;
+        }
+
+        .match-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(91, 124, 250, 0.1);
+            color: var(--accent);
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        .match-tag.win {
+            background: rgba(52, 181, 106, 0.12);
+            color: #248651;
+        }
+
+        .match-tag.lose {
+            background: rgba(212, 106, 106, 0.12);
+            color: #a34a4a;
+        }
+
+        .match-row-meta {
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .detail-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .detail-summary-card {
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+        }
+
+        .detail-summary-card strong {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 1.06rem;
+        }
+
+        .team-grid {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        }
+
+        .team-card {
+            border-radius: 18px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+        }
+
+        .team-card.won {
+            border-color: rgba(52, 181, 106, 0.3);
+            box-shadow: inset 0 0 0 1px rgba(52, 181, 106, 0.08);
+        }
+
+        .team-card h4 {
+            margin: 0 0 12px;
+            font-size: 1rem;
+        }
+
+        .team-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .team-title-row h4 {
+            margin: 0;
+        }
+
+        .team-kungfu-icons {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .team-kungfu-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: 0 3px 8px rgba(24, 33, 47, 0.08);
+            overflow: hidden;
+        }
+
+        .team-kungfu-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .team-player-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .team-player {
+            border-radius: 14px;
+            padding: 12px;
+            background: rgba(91, 124, 250, 0.05);
+        }
+
+        .team-player.focus {
+            background: rgba(255, 120, 177, 0.09);
+            border: 1px solid rgba(255, 120, 177, 0.18);
+        }
+
+        .team-player-top,
+        .team-player-bottom {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            align-items: center;
+        }
+
+        .team-player-top {
+            margin-bottom: 6px;
+        }
+
+        .player-name {
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .player-meta {
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .player-section {
+            margin-top: 10px;
+        }
+
+        .player-section-label {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+
+        .icon-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(36px, 36px));
+            gap: 8px;
+        }
+
+        .icon-chip {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: 0 4px 10px rgba(24, 33, 47, 0.08);
+        }
+
+        .icon-chip.legendary {
+            border: 2px solid #f5a623;
+            box-shadow: 0 4px 12px rgba(245, 166, 35, 0.35);
+        }
+
+        .icon-chip img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .icon-chip.empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            font-size: 0.72rem;
+        }
+
+        @media (min-width: 760px) {
+            .grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1120px) {
+            .grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1460px) {
+            .grid {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+        }
+
         .muted {
             color: var(--muted);
         }
@@ -538,7 +974,7 @@
     <div class="page">
         <header>
             <div class="title">竞技场心法排名统计</div>
-            <div class="announcement">现在点击心法名称可展开查看角色分数；右侧分享按钮可生成该统计卡片图片。</div>
+            <div class="announcement">现在点击心法名称可展开查看角色分数；点击角色可查看最近 33 战绩和对局列表，并继续点击对局查看对局详情；右侧分享按钮可生成该统计卡片图片；页面有问题或数据不更新可以联系贴吧周报贴楼主。</div>
             <div class="subtitle" id="subtitle">
                 <span class="muted">正在加载实时数据...</span>
             </div>
@@ -548,6 +984,32 @@
         <section class="grid" id="grid"></section>
     </div>
 
+    <div class="modal-overlay" id="role-modal" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title" id="role-modal-title">角色近期战绩</h3>
+                    <div class="modal-subtitle" id="role-modal-subtitle"></div>
+                </div>
+                <button class="modal-close" type="button" data-close-modal="role" aria-label="关闭">×</button>
+            </div>
+            <div id="role-modal-body"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="match-modal" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title" id="match-modal-title">对局详情</h3>
+                    <div class="modal-subtitle" id="match-modal-subtitle"></div>
+                </div>
+                <button class="modal-close" type="button" data-close-modal="match" aria-label="关闭">×</button>
+            </div>
+            <div id="match-modal-body"></div>
+        </div>
+    </div>
+
     <script>
         const BASE_API = "/jx3bot/api/jjc/ranking-stats";
         const DEFAULT_LIST_API = `${BASE_API}?action=list`;
@@ -555,6 +1017,9 @@
         const params = new URLSearchParams(window.location.search);
         const listApiUrl = params.get("list_api") || DEFAULT_LIST_API;
         const readApiBase = params.get("api") || DEFAULT_READ_API;
+        const detailsApiBase = params.get("details_api") || `${BASE_API}/details`;
+        const roleRecentApiBase = params.get("role_recent_api") || `${BASE_API}/role-recent`;
+        const matchDetailApiBase = params.get("match_detail_api") || `${BASE_API}/match-detail`;
         const initialTimestamp = params.get("timestamp");
 
         const rangeConfigs = [
@@ -567,9 +1032,33 @@
         const subtitle = document.getElementById("subtitle");
         const grid = document.getElementById("grid");
         const statusNode = document.getElementById("status");
+        const pageNode = document.querySelector(".page");
+        const roleModal = document.getElementById("role-modal");
+        const roleModalTitle = document.getElementById("role-modal-title");
+        const roleModalSubtitle = document.getElementById("role-modal-subtitle");
+        const roleModalBody = document.getElementById("role-modal-body");
+        const matchModal = document.getElementById("match-modal");
+        const matchModalTitle = document.getElementById("match-modal-title");
+        const matchModalSubtitle = document.getElementById("match-modal-subtitle");
+        const matchModalBody = document.getElementById("match-modal-body");
+
         let currentStats = null;
+        let currentStatsTimestamp = initialTimestamp || "";
         let currentMode = "all";
-        let showLegendaryOverlay = true;
+        let showLegendaryOverlay = false;
+        let currentRoleInspect = null;
+        const detailCache = new Map();
+        const roleRecentCache = new Map();
+        const matchDetailCache = new Map();
+
+        let currentPagination = {
+            hasMore: false,
+            nextCursor: null,
+            server: "",
+            name: "",
+            identityHints: {},
+            isLoading: false,
+        };
 
         const listContainer = document.createElement("div");
         listContainer.className = "status";
@@ -584,8 +1073,14 @@
         const tabContainer = document.createElement("div");
         tabContainer.className = "tabs";
         tabContainer.innerHTML = `
-            <button class="tab-btn active" data-mode="all" type="button">全部排名</button>
-            <button class="tab-btn" data-mode="purple" type="button">紫武排名</button>
+            <div class="tab-group">
+                <button class="tab-btn active" data-mode="all" type="button">全部排名</button>
+                <button class="tab-export-btn" data-export-mode="all" type="button">导出</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-btn" data-mode="purple" type="button">紫武排名</button>
+                <button class="tab-export-btn" data-export-mode="purple" type="button">导出</button>
+            </div>
         `;
         listContainer.insertAdjacentElement("afterend", tabContainer);
 
@@ -593,34 +1088,20 @@
         toggleContainer.className = "toggle-wrap";
         toggleContainer.innerHTML = `
             <label>
-                <input type="checkbox" id="legendary-toggle" checked>
+                <input type="checkbox" id="legendary-toggle">
                 <span>橙武占比覆盖</span>
             </label>
         `;
         tabContainer.insertAdjacentElement("afterend", toggleContainer);
         const legendaryToggle = toggleContainer.querySelector("#legendary-toggle");
 
-        tabContainer.addEventListener("click", (event) => {
-            const button = event.target.closest(".tab-btn");
-            if (!button) return;
-            const mode = button.dataset.mode || "all";
-            currentMode = mode;
-            tabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
-                btn.classList.toggle("active", btn === button);
-            });
-            toggleContainer.classList.toggle("hidden", currentMode !== "all");
-            if (currentStats) {
-                renderStats(currentStats, mode);
-            }
-        });
-
-        if (legendaryToggle) {
-            legendaryToggle.addEventListener("change", (event) => {
-                showLegendaryOverlay = event.target.checked;
-                if (currentStats) {
-                    renderStats(currentStats, currentMode);
-                }
-            });
+        function escapeHtml(value) {
+            return String(value ?? "")
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#39;");
         }
 
         function formatTime(timestamp, includeWeekday = false) {
@@ -646,11 +1127,41 @@
             return date.toLocaleString("zh-CN", options);
         }
 
+        function formatDuration(seconds) {
+            const value = Number(seconds);
+            if (!Number.isFinite(value) || value <= 0) {
+                return "-";
+            }
+            const mins = Math.floor(value / 60);
+            const secs = value % 60;
+            return `${mins}分${String(secs).padStart(2, "0")}秒`;
+        }
+
+        function formatGrade(value) {
+            if (value == null || value === "") {
+                return "-";
+            }
+            return `${value}段`;
+        }
+
         function setStatus(message, type) {
             const isError = type === "error";
             statusNode.textContent = message;
             statusNode.classList.toggle("error", isError);
             statusNode.classList.toggle("hidden", !isError);
+        }
+
+        function unwrapResponse(payload) {
+            if (!payload || typeof payload !== "object") {
+                throw new Error("响应格式异常");
+            }
+            if (Object.prototype.hasOwnProperty.call(payload, "status_code")) {
+                if (payload.status_code !== 0) {
+                    throw new Error(payload.status_msg || "接口返回错误");
+                }
+                return payload.data;
+            }
+            return payload;
         }
 
         function renderDateList(timestamps) {
@@ -681,79 +1192,198 @@
             dateSelect.value = selected;
         }
 
-        function renderList(list, validCount, membersMap) {
+        function buildDetailsCacheKey(timestamp, rangeKey, lane, kungfu) {
+            return [timestamp, rangeKey, lane, kungfu].join("::");
+        }
+
+        function buildDetailsUrl(timestamp, rangeKey, lane, kungfu) {
+            const url = new URL(detailsApiBase, window.location.origin);
+            url.searchParams.set("timestamp", timestamp);
+            url.searchParams.set("range", rangeKey);
+            url.searchParams.set("lane", lane);
+            url.searchParams.set("kungfu", kungfu);
+            return url.toString();
+        }
+
+        function buildRoleRecentUrl(server, name, identityHints = {}, cursor = 0) {
+            const url = new URL(roleRecentApiBase, window.location.origin);
+            url.searchParams.set("server", server);
+            url.searchParams.set("name", name);
+            if (cursor > 0) {
+                url.searchParams.set("cursor", String(cursor));
+            }
+            if (identityHints.game_role_id) {
+                url.searchParams.set("game_role_id", identityHints.game_role_id);
+            }
+            if (identityHints.global_role_id) {
+                url.searchParams.set("global_role_id", identityHints.global_role_id);
+            }
+            if (identityHints.role_id) {
+                url.searchParams.set("role_id", identityHints.role_id);
+            }
+            if (identityHints.zone) {
+                url.searchParams.set("zone", identityHints.zone);
+            }
+            return url.toString();
+        }
+
+        function buildMatchDetailUrl(matchId) {
+            const url = new URL(matchDetailApiBase, window.location.origin);
+            url.searchParams.set("match_id", matchId);
+            return url.toString();
+        }
+
+        function openModal(modal) {
+            if (!(modal instanceof HTMLElement)) {
+                return;
+            }
+            modal.classList.add("show");
+            modal.setAttribute("aria-hidden", "false");
+            document.body.style.overflow = "hidden";
+        }
+
+        function closeModal(modal) {
+            if (!(modal instanceof HTMLElement)) {
+                return;
+            }
+            modal.classList.remove("show");
+            modal.setAttribute("aria-hidden", "true");
+            if (!roleModal.classList.contains("show") && !matchModal.classList.contains("show")) {
+                document.body.style.overflow = "";
+            }
+        }
+
+        function renderDetailContent(members) {
+            const filteredMembers = currentMode === "purple"
+                ? (members || []).filter((member) => String(member.weapon_quality) !== "5")
+                : (members || []);
+            if (!filteredMembers.length) {
+                return "<div class='muted'>暂无明细</div>";
+            }
+
+            return filteredMembers.map((member) => {
+                const kungfuIcons = [];
+                if (member.kungfu_id) {
+                    const isLegendary = String(member.weapon_quality) === "5";
+                    kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${member.kungfu_id}.png" alt="kungfu">`);
+                }
+                if (Array.isArray(member.teammates)) {
+                    member.teammates.forEach((teammate) => {
+                        if (teammate && teammate.kungfu_id) {
+                            const isLegendary = String(teammate.weapon_quality) === "5";
+                            const teammateName = teammate.role_name ?? "未知";
+                            const tooltip = `${teammateName}`;
+                            kungfuIcons.push(`<span class="detail-kungfu-wrap" data-tooltip="${escapeHtml(tooltip)}"><img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate"></span>`);
+                        }
+                    });
+                }
+                const kungfuRow = kungfuIcons.length
+                    ? `<div class="detail-kungfu-row">${kungfuIcons.join("")}</div>`
+                    : "";
+                return `
+                    <button
+                        class="detail-item detail-item-btn"
+                        type="button"
+                        data-role-server="${escapeHtml(member.server ?? "")}"
+                        data-role-name="${escapeHtml(member.name ?? "")}"
+                        data-game-role-id="${escapeHtml(member.game_role_id ?? "")}"
+                        data-global-role-id="${escapeHtml(member.global_role_id ?? "")}"
+                        data-role-id="${escapeHtml(member.role_id ?? "")}"
+                        data-zone="${escapeHtml(member.zone ?? "")}"
+                    >
+                        <div class="detail-rank">#${member.rank ?? "-"}</div>
+                        <div class="detail-name">
+                            ${member.weapon_icon ? `<img class="detail-weapon${String(member.weapon_quality) === "5" ? " is-legendary" : ""}" src="${escapeHtml(member.weapon_icon)}" alt="weapon">` : ""}
+                            <div>
+                                <div>${escapeHtml(member.name ?? "未知")}·${escapeHtml(member.server ?? "未知")}</div>
+                                ${kungfuRow}
+                            </div>
+                        </div>
+                        <div class="detail-score">${member.score ?? "-"}</div>
+                    </button>
+                `;
+            }).join("");
+        }
+
+        async function ensureDetailLoaded(detailsNode) {
+            if (!(detailsNode instanceof HTMLElement) || !detailsNode.open) {
+                return;
+            }
+            const detailListNode = detailsNode.querySelector(".detail-list");
+            if (!(detailListNode instanceof HTMLElement)) {
+                return;
+            }
+
+            const rangeKey = detailsNode.dataset.range || "";
+            const lane = detailsNode.dataset.lane || "";
+            const kungfu = decodeURIComponent(detailsNode.dataset.kungfu || "");
+            if (!currentStatsTimestamp || !rangeKey || !lane || !kungfu) {
+                detailListNode.innerHTML = "<div class='muted'>缺少详情参数</div>";
+                return;
+            }
+
+            const cacheKey = buildDetailsCacheKey(currentStatsTimestamp, rangeKey, lane, kungfu);
+            if (detailCache.has(cacheKey)) {
+                detailListNode.innerHTML = renderDetailContent(detailCache.get(cacheKey) || []);
+                detailListNode.dataset.loaded = "true";
+                return;
+            }
+
+            detailListNode.innerHTML = "<div class='muted'>正在加载明细...</div>";
+            try {
+                const response = await fetch(buildDetailsUrl(currentStatsTimestamp, rangeKey, lane, kungfu), { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                const members = Array.isArray(data.members) ? data.members : [];
+                detailCache.set(cacheKey, members);
+                detailListNode.innerHTML = renderDetailContent(members);
+                detailListNode.dataset.loaded = "true";
+            } catch (error) {
+                detailListNode.innerHTML = `<div class='muted error'>加载明细失败：${escapeHtml(error.message || error)}</div>`;
+                detailListNode.dataset.loaded = "false";
+            }
+        }
+
+        function renderList(rangeKey, laneName, list, validCount, legendaryCountMap) {
             const maxCount = list.reduce((maxValue, item) => Math.max(maxValue, item[1]), 1);
             return list.map(([kungfu, count]) => {
                 const percent = validCount > 0 ? (count / validCount) * 100 : 0;
-                const members = (membersMap && membersMap[kungfu]) || [];
-                const legendaryCount = members.filter((member) => String(member.weapon_quality) === "5").length;
-                const legendaryPercent = members.length ? (legendaryCount / members.length) * 100 : 0;
+                const legendaryCount = Number((legendaryCountMap || {})[kungfu] || 0);
+                const legendaryPercent = count > 0 ? (legendaryCount / count) * 100 : 0;
                 const overlayPercent = showLegendaryOverlay ? legendaryPercent : 0;
-                const detailContent = members.length
-                    ? members.map((member) => {
-                        const kungfuIcons = [];
-                        if (member.kungfu_id) {
-                            const isLegendary = String(member.weapon_quality) === "5";
-                            kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${member.kungfu_id}.png" alt="kungfu">`);
-                        }
-                        if (Array.isArray(member.teammates)) {
-                            member.teammates.forEach((teammate) => {
-                                if (teammate && teammate.kungfu_id) {
-                                    const isLegendary = String(teammate.weapon_quality) === "5";
-                                    const teammateName = teammate.role_name ?? "未知";
-                                    const tooltip = `${teammateName}`;
-                                    kungfuIcons.push(`<span class="detail-kungfu-wrap" data-tooltip="${tooltip}"><img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate"></span>`);
-                                }
-                            });
-                        }
-                        const kungfuRow = kungfuIcons.length
-                            ? `<div class="detail-kungfu-row">${kungfuIcons.join("")}</div>`
-                            : "";
-                        return `
-                        <div class="detail-item">
-                            <div class="detail-rank">#${member.rank ?? "-"}</div>
-                            <div class="detail-name">
-                                ${member.weapon_icon ? `<img class="detail-weapon${String(member.weapon_quality) === "5" ? " is-legendary" : ""}" src="${member.weapon_icon}" alt="weapon">` : ""}
-                                <div>
-                                    <div>${member.name ?? "未知"}·${member.server ?? "未知"}</div>
-                                    ${kungfuRow}
-                                </div>
-                            </div>
-                            <div class="detail-score">${member.score ?? "-"}</div>
-                        </div>
-                    `;
-                    }).join("")
-                    : "<div class='muted'>暂无明细</div>";
                 return `
-                    <details class="detail">
+                    <details class="detail" data-range="${rangeKey}" data-lane="${laneName}" data-kungfu="${encodeURIComponent(kungfu)}">
                         <summary>
                             <div class="bar-row">
-                            <div class="bar-kungfu"><span class="arrow">›</span>${kungfu}</div>
-                            <div class="bar">
-                                <div class="bar-fill" style="width:${(count / maxCount) * 100}%">
-                                    <div class="bar-legendary" style="width:${overlayPercent}%"></div>
+                                <div class="bar-kungfu"><span class="arrow">›</span>${escapeHtml(kungfu)}</div>
+                                <div class="bar">
+                                    <div class="bar-fill" style="width:${(count / maxCount) * 100}%">
+                                        <div class="bar-legendary" style="width:${overlayPercent}%"></div>
+                                    </div>
                                 </div>
+                                <div class="bar-value">${count}</div>
+                                <div class="bar-percent">${percent.toFixed(1)}%</div>
                             </div>
-                            <div class="bar-value">${count}</div>
-                            <div class="bar-percent">${percent.toFixed(1)}%</div>
-                        </div>
-                    </summary>
-                    <div class="detail-list">
-                        ${detailContent}
+                        </summary>
+                        <div class="detail-list" data-loaded="false">
+                            <div class='muted'>展开后加载明细</div>
                         </div>
                     </details>
                 `;
             }).join("");
         }
 
-        function renderRangeCard(rangeLabel, stats, mode) {
+        function renderRangeCard(rangeKey, rangeLabel, stats, mode) {
             const healer = stats.healer || {};
             const dps = stats.dps || {};
             const minScore = healer.min_score ?? dps.min_score ?? "-";
             const healerList = healer.list || [];
             const dpsList = dps.list || [];
-            const healerMembers = healer.members || {};
-            const dpsMembers = dps.members || {};
+            const healerLegendaryCountMap = healer.legendary_count_map || {};
+            const dpsLegendaryCountMap = dps.legendary_count_map || {};
             const titleSuffix = mode === "purple" ? "（紫武）" : "";
             const showMeta = ["前1000", "前200", "前100", "前50"].includes(rangeLabel);
             const seasonText = window.currentSeasonLabel || "-";
@@ -772,44 +1402,47 @@
                             </svg>
                         </button>
                     </div>
-                    ${showMeta ? `<div class="range-meta">赛季：${seasonText}</div>` : ""}
+                    ${showMeta ? `<div class="range-meta">赛季：${escapeHtml(seasonText)}</div>` : ""}
                     <div class="lane">
                         <div class="lane-title">奶妈（${healer.valid_count ?? 0}）</div>
-                        ${healerList.length ? renderList(healerList, healer.valid_count || 0, healerMembers) : "<div class='muted'>暂无奶妈数据</div>"}
+                        ${healerList.length ? renderList(rangeKey, "healer", healerList, healer.valid_count || 0, healerLegendaryCountMap) : "<div class='muted'>暂无奶妈数据</div>"}
                     </div>
                     <div class="lane">
                         <div class="lane-title">DPS（${dps.valid_count ?? 0}）</div>
-                        ${dpsList.length ? renderList(dpsList, dps.valid_count || 0, dpsMembers) : "<div class='muted'>暂无DPS数据</div>"}
+                        ${dpsList.length ? renderList(rangeKey, "dps", dpsList, dps.valid_count || 0, dpsLegendaryCountMap) : "<div class='muted'>暂无DPS数据</div>"}
                     </div>
                 </div>
             `;
         }
 
         function buildFilteredLane(lane, mode) {
-            const membersMap = lane.members || {};
-            const filteredMembersMap = {};
+            const sourceList = lane.list || [];
+            const sourceLegendaryCountMap = lane.legendary_count_map || {};
             const listItems = [];
             let validCount = 0;
+            const filteredLegendaryCountMap = {};
 
-            Object.keys(membersMap).forEach((kungfu) => {
-                const members = membersMap[kungfu] || [];
-                const filtered = mode === "purple"
-                    ? members.filter((member) => String(member.weapon_quality) !== "5")
-                    : members.slice();
-                if (filtered.length > 0) {
-                    filteredMembersMap[kungfu] = filtered;
+            sourceList.forEach(([kungfu, count]) => {
+                const legendaryCount = Number(sourceLegendaryCountMap[kungfu] || 0);
+                const filteredCount = mode === "purple"
+                    ? Math.max(Number(count || 0) - legendaryCount, 0)
+                    : Number(count || 0);
+                if (filteredCount > 0) {
+                    listItems.push([kungfu, filteredCount]);
+                    filteredLegendaryCountMap[kungfu] = mode === "purple" ? 0 : legendaryCount;
                 }
-                validCount += filtered.length;
-                listItems.push([kungfu, filtered.length]);
+                validCount += filteredCount;
             });
 
             listItems.sort((a, b) => b[1] - a[1]);
 
             return {
+                ...lane,
                 valid_count: validCount,
                 list: listItems,
+                distribution: Object.fromEntries(listItems),
                 min_score: lane.min_score,
-                members: filteredMembersMap,
+                legendary_count_map: filteredLegendaryCountMap,
             };
         }
 
@@ -837,7 +1470,7 @@
 
             grid.innerHTML = rangeConfigs
                 .filter((config) => stats[config.key])
-                .map((config) => renderRangeCard(config.label, stats[config.key], mode))
+                .map((config) => renderRangeCard(config.key, config.label, stats[config.key], mode))
                 .join("");
         }
 
@@ -846,12 +1479,12 @@
             window.currentSeasonLabel = seasonLabel || "-";
             window.currentRankingTimeLabel = formatTime(data.ranking_cache_time || data.generated_at);
             subtitle.innerHTML = `
-                <span>赛季：${seasonLabel || "-"}</span>
+                <span>赛季：${escapeHtml(seasonLabel || "-")}</span>
                 <span>榜单时间：${formatTime(data.ranking_cache_time || data.generated_at)}</span>
             `;
 
             currentStats = data;
-            renderStats(data, "all");
+            setMode(currentMode);
 
             if (!grid.innerHTML) {
                 grid.innerHTML = "<div class='range-card'>暂无统计数据</div>";
@@ -873,35 +1506,21 @@
             window.history.replaceState({}, "", url.toString());
         }
 
-        function unwrapResponse(payload) {
-            if (!payload || typeof payload !== "object") {
-                throw new Error("响应格式异常");
-            }
-            if (Object.prototype.hasOwnProperty.call(payload, "status_code")) {
-                if (payload.status_code !== 0) {
-                    throw new Error(payload.status_msg || "接口返回错误");
-                }
-                return payload.data;
-            }
-            return payload;
-        }
-
         async function loadStats(timestamp) {
             if (!timestamp) {
                 setStatus("缺少 timestamp 参数，无法读取统计数据", "error");
                 return;
             }
+            currentStatsTimestamp = String(timestamp);
             updateUrlTimestamp(timestamp);
-            const apiUrl = buildReadUrl(timestamp);
-            setStatus(`请求接口：${apiUrl}`);
+            setStatus(`请求接口：${buildReadUrl(timestamp)}`);
             try {
-                const response = await fetch(apiUrl, { cache: "no-store" });
+                const response = await fetch(buildReadUrl(timestamp), { cache: "no-store" });
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
                 const payload = await response.json();
-                const data = unwrapResponse(payload);
-                render(data);
+                render(unwrapResponse(payload));
                 setStatus("数据加载完成");
             } catch (error) {
                 setStatus(`获取统计失败：${error.message || error}`, "error");
@@ -915,8 +1534,7 @@
                     throw new Error(`HTTP ${response.status}`);
                 }
                 const payload = await response.json();
-                const data = unwrapResponse(payload);
-                renderDateList(data);
+                renderDateList(unwrapResponse(payload));
                 if (dateSelect && dateSelect.value) {
                     loadStats(dateSelect.value);
                 }
@@ -926,18 +1544,304 @@
             }
         }
 
-        loadDateList();
-        if (initialTimestamp) {
-            loadStats(initialTimestamp);
+        function renderRoleRecentMatchItem(match, playerName, playerServer) {
+            return `
+                <button
+                    class="match-row-btn ${match.won ? "win" : "lose"}"
+                    type="button"
+                    data-match-id="${match.match_id ?? ""}"
+                    data-focus-name="${escapeHtml(playerName)}"
+                    data-focus-server="${escapeHtml(playerServer)}"
+                >
+                    <div class="match-row-top">
+                        <span class="match-tag ${match.won ? "win" : "lose"}">${match.won ? "胜利" : "失败"}</span>
+                        <span>${formatGrade(match.avg_grade)}局</span>
+                        <span>${escapeHtml(match.kungfu || "未知心法")}</span>
+                        <span>${match.total_mmr ?? "-"}${match.mmr_delta != null ? ` (${match.mmr_delta > 0 ? "+" : ""}${match.mmr_delta})` : ""}</span>
+                    </div>
+                    <div class="match-row-bottom match-row-meta">
+                        <span>开始时间：${formatTime(match.start_time)}</span>
+                        <span>时长：${formatDuration(match.duration)}</span>
+                    </div>
+                </button>
+            `;
         }
 
-        if (dateSelect) {
-            dateSelect.addEventListener("change", (event) => {
-                const value = event.target.value;
-                if (value) {
-                    loadStats(value);
+        function renderLoadMoreButton() {
+            if (!currentPagination.hasMore) {
+                return "<div class='load-more-wrap hidden'></div>";
+            }
+            const disabledAttr = currentPagination.isLoading ? " disabled" : "";
+            const loadingClass = currentPagination.isLoading ? " loading" : "";
+            return `
+                <div class="load-more-wrap">
+                    <button class="load-more-btn${loadingClass}" type="button" id="load-more-btn"${disabledAttr}>
+                        ${currentPagination.isLoading ? "加载中..." : "加载更多对局"}
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderRoleRecentModal(data, isAppend = false) {
+            const summary = data.summary || {};
+            const matches = Array.isArray(data.recent_matches) ? data.recent_matches : [];
+            const cacheText = data.cache?.cached_at ? `缓存时间：${formatTime(data.cache.cached_at)}` : "实时请求";
+            const pagination = data.pagination || {};
+            const playerName = data.player?.name || "未知角色";
+            const playerServer = data.player?.server || "未知服务器";
+
+            roleModalTitle.textContent = `${playerName}·${playerServer}`;
+            roleModalSubtitle.textContent = `最近 33 战绩窗口 | ${cacheText}`;
+
+            currentPagination = {
+                hasMore: !!pagination.has_more,
+                nextCursor: pagination.next_cursor ?? null,
+                server: playerServer,
+                name: playerName,
+                identityHints: data.identity || {},
+                isLoading: false,
+            };
+
+            if (isAppend) {
+                const panel = roleModalBody.querySelector(".match-list-panel");
+                if (panel) {
+                    const loadMoreWrap = panel.querySelector(".load-more-wrap");
+                    const fragment = document.createElement("div");
+                    fragment.innerHTML = matches.map((match) => renderRoleRecentMatchItem(match, playerName, playerServer)).join("");
+                    if (loadMoreWrap) {
+                        loadMoreWrap.insertAdjacentElement("beforebegin", fragment);
+                        loadMoreWrap.outerHTML = renderLoadMoreButton();
+                    } else {
+                        panel.insertAdjacentHTML("beforeend", fragment.innerHTML);
+                        panel.insertAdjacentHTML("beforeend", renderLoadMoreButton());
+                    }
                 }
-            });
+                return;
+            }
+
+            const summaryCards = [
+                { label: "最近场次", value: summary.total_matches ?? 0 },
+                { label: "胜场", value: summary.wins ?? 0 },
+                { label: "负场", value: summary.losses ?? 0 },
+                { label: "胜率", value: summary.win_rate != null ? `${summary.win_rate}%` : "-" },
+                { label: "当前分数", value: summary.score ?? "-" },
+                { label: "当前段位", value: formatGrade(summary.grade) },
+            ];
+
+            const matchListHtml = matches.length
+                ? matches.map((match) => renderRoleRecentMatchItem(match, playerName, playerServer)).join("")
+                : "<div class='modal-empty'>暂无最近 33 对局数据</div>";
+
+            roleModalBody.innerHTML = `
+                <div class="role-overview">
+                    ${summaryCards.map((item) => `
+                        <div class="role-overview-card">
+                            <strong>${escapeHtml(item.value)}</strong>
+                            <span>${escapeHtml(item.label)}</span>
+                        </div>
+                    `).join("")}
+                </div>
+                <div class="match-list-panel">
+                    ${matchListHtml}
+                    ${renderLoadMoreButton()}
+                </div>
+            `;
+        }
+
+        function renderIconGrid(items, emptyText) {
+            if (!Array.isArray(items) || !items.length) {
+                return `<div class="icon-grid"><div class="icon-chip empty">${escapeHtml(emptyText || "无")}</div></div>`;
+            }
+            const chips = items
+                .filter((item) => item && item.icon)
+                .map((item) => `
+                    <div class="icon-chip${String(item.quality) === "5" ? " legendary" : ""}" title="${escapeHtml(item.name || "")}">
+                        <img src="${escapeHtml(item.icon)}" alt="${escapeHtml(item.name || "icon")}">
+                    </div>
+                `);
+            if (!chips.length) {
+                return `<div class="icon-grid"><div class="icon-chip empty">${escapeHtml(emptyText || "无")}</div></div>`;
+            }
+            return `<div class="icon-grid">${chips.join("")}</div>`;
+        }
+
+        function renderTeamKungfuIcons(players) {
+            if (!Array.isArray(players) || !players.length) {
+                return "";
+            }
+            const icons = players
+                .filter((player) => player && player.kungfu_id)
+                .map((player) => `
+                    <span class="team-kungfu-icon" title="${escapeHtml(player.role_name || player.person_name || player.kungfu || "")}">
+                        <img src="https://img.jx3box.com/image/xf/${escapeHtml(player.kungfu_id)}.png" alt="${escapeHtml(player.kungfu || "kungfu")}">
+                    </span>
+                `);
+            if (!icons.length) {
+                return "";
+            }
+            return `<div class="team-kungfu-icons">${icons.join("")}</div>`;
+        }
+
+        function renderTeam(team, focusPlayer) {
+            if (!team) {
+                return "<div class='modal-empty'>暂无队伍数据</div>";
+            }
+            const players = Array.isArray(team.players_info) ? team.players_info : [];
+            return `
+                <div class="team-card ${team.won ? "won" : ""}">
+                    <div class="team-title-row">
+                        <h4>${escapeHtml(team.team_name || "队伍")} ${team.won ? "· 胜利" : "· 失败"}</h4>
+                        ${renderTeamKungfuIcons(players)}
+                    </div>
+                    <div class="team-player-list">
+                        ${players.map((player) => {
+                            const isFocus = focusPlayer
+                                && player.role_name === focusPlayer.name
+                                && player.server === focusPlayer.server;
+                            return `
+                                <div class="team-player ${isFocus ? "focus" : ""}">
+                                    <div class="team-player-top">
+                                        <span class="player-name">${escapeHtml(player.role_name || "未知")}</span>
+                                        <span class="player-meta">${escapeHtml(player.server || "未知服")}</span>
+                                        <span class="player-meta">${escapeHtml(player.kungfu || "未知心法")}</span>
+                                        ${player.mvp ? "<span class='match-tag win'>MVP</span>" : ""}
+                                    </div>
+                                    <div class="team-player-bottom player-meta">
+                                        <span>分数：${player.score ?? "-"}</span>
+                                        <span>总分：${player.total_score ?? "-"}</span>
+                                        <span>装分：${player.equip_score ?? "-"}</span>
+                                        <span>强化：${player.equip_strength_score ?? "-"}</span>
+                                        <span>血量：${player.max_hp ?? "-"}</span>
+                                    </div>
+                                    <div class="player-section">
+                                        <div class="player-section-label">装备</div>
+                                        ${renderIconGrid(player.armors || [], "无装备")}
+                                    </div>
+                                    <div class="player-section">
+                                        <div class="player-section-label">奇穴</div>
+                                        ${renderIconGrid(player.talents || [], "无奇穴")}
+                                    </div>
+                                </div>
+                            `;
+                        }).join("")}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderMatchDetailModal(payload, focusPlayer) {
+            const detail = payload.detail || {};
+            const basicInfo = detail.basic_info || {};
+            matchModalTitle.textContent = "对局详情";
+            matchModalSubtitle.textContent = payload.cache?.cached_at
+                ? `缓存时间：${formatTime(payload.cache.cached_at)}`
+                : "实时请求";
+            matchModalBody.innerHTML = `
+                <div class="detail-summary-grid">
+                    <div class="detail-summary-card"><strong>${escapeHtml(basicInfo.map || "-")}</strong><span class="player-meta">地图</span></div>
+                    <div class="detail-summary-card"><strong>${formatGrade(basicInfo.grade)}</strong><span class="player-meta">分段</span></div>
+                    <div class="detail-summary-card"><strong>${formatDuration(basicInfo.duration)}</strong><span class="player-meta">时长</span></div>
+                    <div class="detail-summary-card"><strong>${formatTime(basicInfo.start_time || detail.match_time)}</strong><span class="player-meta">开始时间</span></div>
+                </div>
+                <div class="team-grid">
+                    ${renderTeam(detail.team1, focusPlayer)}
+                    ${renderTeam(detail.team2, focusPlayer)}
+                </div>
+            `;
+        }
+
+        async function loadRoleRecent(server, name, identityHints = {}) {
+            const cacheKey = `${server}::${name}::${identityHints.global_role_id || ""}::${identityHints.game_role_id || ""}::${identityHints.zone || ""}`;
+            openModal(roleModal);
+            roleModalTitle.textContent = `${name}·${server}`;
+            roleModalSubtitle.textContent = "最近 33 战绩窗口";
+            roleModalBody.innerHTML = "<div class='modal-loading'>正在加载角色近期战绩...</div>";
+
+            const cached = roleRecentCache.get(cacheKey);
+            if (cached && Date.now() - cached.fetchedAt < 600000) {
+                currentRoleInspect = { server, name };
+                renderRoleRecentModal(cached.data);
+                return;
+            }
+
+            try {
+                const response = await fetch(buildRoleRecentUrl(server, name, identityHints), { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                roleRecentCache.set(cacheKey, { fetchedAt: Date.now(), data });
+                currentRoleInspect = { server, name };
+                renderRoleRecentModal(data);
+            } catch (error) {
+                roleModalBody.innerHTML = `<div class='modal-loading error'>加载角色近期战绩失败：${escapeHtml(error.message || error)}</div>`;
+            }
+        }
+
+        async function loadMoreMatches() {
+            if (currentPagination.isLoading || !currentPagination.hasMore || currentPagination.nextCursor == null) {
+                return;
+            }
+            currentPagination.isLoading = true;
+            const loadMoreBtn = roleModalBody.querySelector("#load-more-btn");
+            if (loadMoreBtn) {
+                loadMoreBtn.textContent = "加载中...";
+                loadMoreBtn.classList.add("loading");
+                loadMoreBtn.disabled = true;
+            }
+
+            try {
+                const url = buildRoleRecentUrl(
+                    currentPagination.server,
+                    currentPagination.name,
+                    currentPagination.identityHints,
+                    currentPagination.nextCursor,
+                );
+                const response = await fetch(url, { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                renderRoleRecentModal(data, true);
+            } catch (error) {
+                if (loadMoreBtn) {
+                    loadMoreBtn.textContent = "加载失败，点击重试";
+                    loadMoreBtn.classList.remove("loading");
+                    loadMoreBtn.disabled = false;
+                }
+                currentPagination.isLoading = false;
+            }
+        }
+
+        async function loadMatchDetail(matchId, focusPlayer) {
+            if (!matchId) {
+                return;
+            }
+            openModal(matchModal);
+            matchModalTitle.textContent = "对局详情";
+            matchModalSubtitle.textContent = "";
+            matchModalBody.innerHTML = "<div class='modal-loading'>正在加载对局详情...</div>";
+
+            const cached = matchDetailCache.get(String(matchId));
+            if (cached) {
+                renderMatchDetailModal(cached, focusPlayer);
+                return;
+            }
+
+            try {
+                const response = await fetch(buildMatchDetailUrl(matchId), { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                matchDetailCache.set(String(matchId), data);
+                renderMatchDetailModal(data, focusPlayer);
+            } catch (error) {
+                matchModalBody.innerHTML = `<div class='modal-loading error'>加载对局详情失败：${escapeHtml(error.message || error)}</div>`;
+            }
         }
 
         async function exportCardImage(card, label) {
@@ -970,23 +1874,199 @@
             }
         }
 
+        function setMode(mode) {
+            currentMode = mode;
+            tabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.mode === mode);
+            });
+            toggleContainer.classList.toggle("hidden", currentMode !== "all");
+            if (currentStats) {
+                renderStats(currentStats, mode);
+            }
+        }
+
+        async function exportFullPageImage(modeOverride) {
+            if (typeof window.html2canvas !== "function") {
+                setStatus("图片生成库未加载，请稍后重试", "error");
+                return;
+            }
+            if (!pageNode) {
+                setStatus("页面节点不存在，无法导出", "error");
+                return;
+            }
+            const previousMode = currentMode;
+            const exportMode = modeOverride || currentMode;
+            if (exportMode !== currentMode) {
+                setMode(exportMode);
+                await new Promise((resolve) => window.requestAnimationFrame(resolve));
+            }
+            const seasonLabel = (window.currentSeasonLabel || "").replace(/\s+/g, "") || "赛季";
+            const rankingTimeLabel = (window.currentRankingTimeLabel || "").replace(/[^\dA-Za-z\u4e00-\u9fa5]+/g, "_") || "榜单";
+            const modeSuffix = exportMode === "purple" ? "_紫武排名" : "_全部排名";
+            const fileName = `竞技场心法排名统计_${seasonLabel}_${rankingTimeLabel}${modeSuffix}.png`;
+            const openDetails = Array.from(pageNode.querySelectorAll("details[open]"));
+            try {
+                pageNode.classList.add("is-exporting-full");
+                openDetails.forEach((detail) => detail.removeAttribute("open"));
+                setStatus("正在生成整页图片，请稍候");
+                const canvas = await window.html2canvas(pageNode, {
+                    backgroundColor: "#f7fafd",
+                    scale: 2,
+                    useCORS: true,
+                    scrollX: 0,
+                    scrollY: -window.scrollY,
+                    windowWidth: document.documentElement.scrollWidth,
+                    windowHeight: document.documentElement.scrollHeight,
+                });
+                const link = document.createElement("a");
+                link.download = fileName;
+                link.href = canvas.toDataURL("image/png");
+                link.click();
+                setStatus("整页图片导出完成");
+            } catch (error) {
+                setStatus(`生成整页图片失败：${error.message || error}`, "error");
+            } finally {
+                openDetails.forEach((detail) => detail.setAttribute("open", ""));
+                pageNode.classList.remove("is-exporting-full");
+                if (previousMode !== exportMode) {
+                    setMode(previousMode);
+                }
+            }
+        }
+
+        if (legendaryToggle) {
+            legendaryToggle.addEventListener("change", (event) => {
+                showLegendaryOverlay = event.target.checked;
+                if (currentStats) {
+                    renderStats(currentStats, currentMode);
+                }
+            });
+        }
+
+        loadDateList();
+        if (initialTimestamp) {
+            loadStats(initialTimestamp);
+        }
+
+        if (dateSelect) {
+            dateSelect.addEventListener("change", (event) => {
+                const value = event.target.value;
+                if (value) {
+                    loadStats(value);
+                }
+            });
+        }
+
         if (grid) {
             grid.addEventListener("click", (event) => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement)) {
                     return;
                 }
-                const button = target.closest(".export-btn");
-                if (!button) {
+
+                const exportButton = target.closest(".export-btn");
+                if (exportButton) {
+                    const card = exportButton.closest(".range-card");
+                    if (card) {
+                        exportCardImage(card, exportButton.getAttribute("data-range") || "心法统计");
+                    }
                     return;
                 }
-                const card = button.closest(".range-card");
-                if (!card) {
+
+                const memberButton = target.closest(".detail-item-btn");
+                if (memberButton) {
+                    const server = memberButton.getAttribute("data-role-server") || "";
+                    const name = memberButton.getAttribute("data-role-name") || "";
+                    if (server && name) {
+                        loadRoleRecent(server, name, {
+                            game_role_id: memberButton.getAttribute("data-game-role-id") || "",
+                            global_role_id: memberButton.getAttribute("data-global-role-id") || "",
+                            role_id: memberButton.getAttribute("data-role-id") || "",
+                            zone: memberButton.getAttribute("data-zone") || "",
+                        });
+                    }
                     return;
                 }
-                exportCardImage(card, button.getAttribute("data-range") || "心法统计");
+
+                const summary = target.closest("summary");
+                if (summary) {
+                    const detailsNode = summary.closest(".detail");
+                    if (detailsNode instanceof HTMLElement) {
+                        window.requestAnimationFrame(() => {
+                            ensureDetailLoaded(detailsNode);
+                        });
+                    }
+                }
             });
         }
+
+        roleModal.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target === roleModal || target.closest("[data-close-modal='role']")) {
+                closeModal(roleModal);
+                return;
+            }
+            const loadMoreBtn = target.closest("#load-more-btn");
+            if (loadMoreBtn) {
+                loadMoreMatches();
+                return;
+            }
+            const matchButton = target.closest(".match-row-btn");
+            if (!matchButton) {
+                return;
+            }
+            const matchId = matchButton.getAttribute("data-match-id") || "";
+            if (!matchId) {
+                return;
+            }
+            const focusPlayer = {
+                name: matchButton.getAttribute("data-focus-name") || currentRoleInspect?.name || "",
+                server: matchButton.getAttribute("data-focus-server") || currentRoleInspect?.server || "",
+            };
+            loadMatchDetail(matchId, focusPlayer);
+        });
+
+        matchModal.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target === matchModal || target.closest("[data-close-modal='match']")) {
+                closeModal(matchModal);
+            }
+        });
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key !== "Escape") {
+                return;
+            }
+            if (matchModal.classList.contains("show")) {
+                closeModal(matchModal);
+                return;
+            }
+            if (roleModal.classList.contains("show")) {
+                closeModal(roleModal);
+            }
+        });
+
+        tabContainer.addEventListener("click", (event) => {
+            const button = event.target.closest(".tab-btn");
+            if (!button) {
+                return;
+            }
+            setMode(button.dataset.mode || "all");
+        });
+
+        tabContainer.addEventListener("click", (event) => {
+            const button = event.target.closest(".tab-export-btn");
+            if (!button) {
+                return;
+            }
+            exportFullPageImage(button.dataset.exportMode || currentMode);
+        });
     </script>
 </body>
 </html>

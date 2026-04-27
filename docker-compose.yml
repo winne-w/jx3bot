@@ -14,6 +14,11 @@ services:
       - ./log.txt:/app/log.txt
       - ./server_data.json:/app/server_data.json
       - ./groups.json:/app/groups.json
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     environment:
       - TZ=Asia/Shanghai
       - ENVIRONMENT=prod

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from cacheout import Cache
 
@@ -27,6 +27,44 @@ _server_data_file = "server_data.json"
 
 _cache_ttl_seconds = int(getattr(cfg, "SESSION_data", 720) if cfg else 720)
 _cache = Cache(maxsize=256, ttl=_cache_ttl_seconds, timer=time.time, default=None)
+
+
+def _extract_server_items(payload: Any) -> list[dict]:
+    if isinstance(payload, dict):
+        data = payload.get("data", [])
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        return []
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return []
+
+
+def _load_server_data_cache_if_needed() -> bool:
+    global _server_data_cache
+
+    if _server_data_cache is not None:
+        return True
+
+    try:
+        if os.path.exists(_server_data_file):
+            with open(_server_data_file, "r", encoding="utf-8") as f:
+                _server_data_cache = json.load(f)
+            server_items = _extract_server_items(_server_data_cache)
+            logger.info(f"jx3api_get server data 已加载: file={_server_data_file} count={len(server_items)}")
+            return True
+
+        logger.warning("jx3api_get server data 文件不存在: {}", _server_data_file)
+        return False
+    except Exception as exc:
+        logger.warning("jx3api_get 读取服务器数据失败: {}", exc)
+        return False
+
+
+async def has_server_catalog() -> bool:
+    if not _load_server_data_cache_if_needed():
+        return False
+    return len(_extract_server_items(_server_data_cache)) > 0
 
 
 async def get(
@@ -74,22 +112,24 @@ async def get(
 async def idget(server_name: str) -> bool:
     global _server_data_cache
 
-    if _server_data_cache is None:
-        try:
-            if os.path.exists(_server_data_file):
-                with open(_server_data_file, "r", encoding="utf-8") as f:
-                    _server_data_cache = json.load(f)
-            else:
-                logger.warning("jx3api_get server data 文件不存在: {}", _server_data_file)
-                return False
-        except Exception as exc:
-            logger.warning("jx3api_get 读取服务器数据失败: {}", exc)
-            return False
+    normalized_name = (server_name or "").strip()
+    if not normalized_name:
+        logger.warning("jx3api_get idget 收到空区服名: raw={}", server_name)
+        return False
+
+    if not _load_server_data_cache_if_needed():
+        return False
 
     try:
-        for server in _server_data_cache.get("data", []):
-            if server.get("server") == server_name:
+        server_items = _extract_server_items(_server_data_cache)
+        if not server_items:
+            logger.warning("jx3api_get server data 为空，跳过严格区服校验: file={}", _server_data_file)
+            return False
+        for server in server_items:
+            if server.get("server") == normalized_name:
                 return True
+        sample_servers = [item.get("server") for item in server_items[:10] if item.get("server")]
+        logger.warning(f"jx3api_get 未匹配到区服: query={normalized_name} sample_servers={sample_servers}")
         return False
     except Exception as exc:
         logger.warning("jx3api_get 解析服务器数据失败: {}", exc)
