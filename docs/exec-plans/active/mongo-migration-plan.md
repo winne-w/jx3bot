@@ -739,7 +739,7 @@ class RuntimeConfigRepo:
 
 **阶段二：逐集合迁移**
 
-- [ ] 4.2.1 `server_master_cache` → `server_resolver.py`（低风险）
+- [x] 4.2.1 `server_master_cache` → `server_resolver.py`（低风险） ✅
 - [ ] 4.2.2 `status_cache` → `status_monitor/storage.py`（低风险）
 - [ ] 4.2.3 `jjc_ranking_cache` → `JjcCacheRepo`（低风险）
 - [ ] 4.2.4 `kungfu_cache` → `JjcCacheRepo`（中风险）
