@@ -23,7 +23,7 @@ API_URLS = {
     "竞技场排行榜查询": "https://m.pvp.xoyo.com/3c/mine/arena/top200",
     "竞技场战局历史": "https://m.pvp.xoyo.com/3c/mine/match/history",
     "竞技场战局详情": "https://m.pvp.xoyo.com/3c/mine/match/detail",
-
+    "区服主服查询": "https://www.jx3api.com/data/master/search",
 }
 
 # 默认服务器
