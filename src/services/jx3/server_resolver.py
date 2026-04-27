@@ -5,11 +5,11 @@ from typing import Any
 
 from nonebot import logger
 
+from config import API_URLS
 from src.infra.http_client import HttpClient
 from src.infra.mongo import get_db
 from src.storage.mongo_repos.server_master_repo import ServerMasterCacheRepo
 
-SERVER_MASTER_API_URL = "https://www.jx3api.com/data/master/search"
 SERVER_MASTER_CACHE_TTL = 7 * 24 * 60 * 60
 
 
@@ -86,11 +86,11 @@ async def resolve_master_server_name(server_name: str) -> str:
     if cached_name:
         return cached_name
 
-    logger.info("[server_master] 调用 API: url={} name={}", SERVER_MASTER_API_URL, query_name)
+    logger.info("[server_master] 调用 API: url={} name={}", API_URLS["区服主服查询"], query_name)
     http_client = HttpClient(timeout=15.0, retries=1, backoff_seconds=0.3, verify=False)
     response = await http_client.arequest_json(
         "GET",
-        SERVER_MASTER_API_URL,
+        API_URLS["区服主服查询"],
         params={"name": query_name},
         verify=False,
     )
