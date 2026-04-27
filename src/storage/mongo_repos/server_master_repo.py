@@ -18,12 +18,15 @@ class ServerMasterCacheRepo:
         if doc is None:
             return None
 
+        logger.info("[server_master_repo] MongoDB 查询结果: key={} doc_keys={}", key, list(doc.keys()) if doc else None)
         cached_at = int(doc.get("cached_at", 0) or 0)
-        if int(time.time()) - cached_at >= self.ttl_seconds:
+        now = int(time.time())
+        if now - cached_at >= self.ttl_seconds:
             await self.db.server_master_cache.delete_one({"key": key})
-            logger.info("server_master_cache 过期删除: key={}", key)
+            logger.info("[server_master_repo] 过期删除: key={} cached_at={} now={} age_s={}", key, cached_at, now, now - cached_at)
             return None
 
+        logger.info("[server_master_repo] 缓存有效: key={} name={} age_s={}", key, doc.get("name"), now - cached_at)
         return {
             "name": doc.get("name", ""),
             "zone": doc.get("zone", ""),
@@ -43,6 +46,7 @@ class ServerMasterCacheRepo:
             },
             upsert=True,
         )
+        logger.info("[server_master_repo] 写入: key={} name={} zone={}", key, entry.get("name"), entry.get("zone"))
 
     async def delete(self, key: str) -> None:
         await self.db.server_master_cache.delete_one({"key": key})
