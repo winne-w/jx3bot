@@ -274,7 +274,7 @@ async def check_records():
         global previous_records_ids
         try:
             if not previous_records_ids:
-                previous_records_ids = load_id_set("records_ids")
+                previous_records_ids = await load_id_set("records_ids")
                 if not previous_records_ids:
                     logger.info("status_monitor 没有发现技改缓存或缓存为空")
                 else:
@@ -290,7 +290,7 @@ async def check_records():
 
             if not previous_records_ids:
                 previous_records_ids = current_records_ids
-                save_id_set(previous_records_ids, "records_ids")
+                await save_id_set(previous_records_ids, "records_ids")
                 logger.info("status_monitor 首次运行，已记录{}条技改ID", len(current_records_ids))
                 return
 
@@ -328,7 +328,7 @@ async def check_records():
                             logger.warning("status_monitor 向群{}推送技改失败: {}", gid, e)
 
             previous_records_ids = current_records_ids
-            save_id_set(previous_records_ids, "records_ids")
+            await save_id_set(previous_records_ids, "records_ids")
         except Exception as e:
             logger.warning("status_monitor 检查技改出错: {}", e)
 
@@ -339,7 +339,7 @@ async def check_news():
         global previous_news_ids
         try:
             if not previous_news_ids:
-                previous_news_ids = load_id_set("news_ids")
+                previous_news_ids = await load_id_set("news_ids")
                 if not previous_news_ids:
                     logger.info("status_monitor 没有发现新闻缓存或缓存为空")
                 else:
@@ -362,7 +362,7 @@ async def check_news():
 
             if not previous_news_ids:
                 previous_news_ids = current_news_ids
-                save_id_set(previous_news_ids, "news_ids")
+                await save_id_set(previous_news_ids, "news_ids")
                 logger.info("status_monitor 首次运行，已记录{}条新闻ID", len(current_news_ids))
                 return
 
@@ -399,7 +399,7 @@ async def check_news():
                             logger.warning("status_monitor 向群{}推送新闻失败: {}", gid, e)
 
             previous_news_ids = current_news_ids
-            save_id_set(previous_news_ids, "news_ids")
+            await save_id_set(previous_news_ids, "news_ids")
         except Exception as e:
             logger.warning("status_monitor 检查新闻出错: {}", e)
 
@@ -412,7 +412,7 @@ async def check_event_codes():
 
         try:
             if not previous_codes_ids:
-                previous_codes_ids = load_id_set("event_codes_ids")
+                previous_codes_ids = await load_id_set("event_codes_ids")
                 if not previous_codes_ids:
                     logger.info("status_monitor 没有发现活动码缓存或缓存为空")
                 else:
@@ -428,7 +428,7 @@ async def check_event_codes():
 
             if not previous_codes_ids:
                 previous_codes_ids = current_codes_ids
-                save_id_set(previous_codes_ids, "event_codes_ids")
+                await save_id_set(previous_codes_ids, "event_codes_ids")
                 logger.info("status_monitor 首次运行，已记录{}条活动码ID", len(current_codes_ids))
                 return
 
@@ -464,7 +464,7 @@ async def check_event_codes():
 
             if current_codes_ids:
                 previous_codes_ids = current_codes_ids
-                save_id_set(previous_codes_ids, "event_codes_ids")
+                await save_id_set(previous_codes_ids, "event_codes_ids")
         except Exception as e:
             logger.warning("status_monitor 检查活动码出错: {}", e)
 
@@ -475,7 +475,7 @@ async def check_status():
     global previous_status
     try:
         if not previous_status:
-            previous_status = CacheManager.load_cache("server_status", {})
+            previous_status = await CacheManager.load_cache("server_status", {})
             if not previous_status:
                 logger.info("status_monitor 没有发现服务器状态缓存或缓存为空")
                 previous_status = {}
@@ -491,7 +491,7 @@ async def check_status():
         current = {server: info["status"] for server, info in current_details.items()}
         current_time = int(time.time())
 
-        status_history = CacheManager.load_cache("status_history", {})
+        status_history = await CacheManager.load_cache("status_history", {})
 
         if not previous_status:
             for server, status in current.items():
@@ -507,8 +507,8 @@ async def check_status():
             logger.info("status_monitor 首次运行，已记录{}条服务器数据", len(current))
             previous_status = current
 
-            CacheManager.save_cache(previous_status, "server_status")
-            CacheManager.save_cache(status_history, "status_history")
+            await CacheManager.save_cache(previous_status, "server_status")
+            await CacheManager.save_cache(status_history, "status_history")
             return
 
         changed_servers = []
@@ -589,8 +589,8 @@ async def check_status():
                         logger.warning("status_monitor 向群{}推送服务器状态失败: {}", gid, e)
 
         previous_status = current
-        CacheManager.save_cache(previous_status, "server_status")
-        CacheManager.save_cache(status_history, "status_history")
+        await CacheManager.save_cache(previous_status, "server_status")
+        await CacheManager.save_cache(status_history, "status_history")
     except Exception as e:
         logger.warning("status_monitor 开服检查出错: {}", e)
 
