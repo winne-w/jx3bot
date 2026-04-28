@@ -4,8 +4,10 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 try:
     from nonebot import logger  # type: ignore
@@ -17,45 +19,38 @@ except Exception:  # pragma: no cover
 
 @dataclass(frozen=True)
 class JjcCacheRepo:
-    jjc_ranking_cache_file: str
     jjc_ranking_cache_duration: int
     kungfu_cache_duration: int
+    db: Optional[AsyncIOMotorDatabase] = None
 
-    def load_ranking_cache(self) -> dict[str, Any] | None:
-        if not os.path.exists(self.jjc_ranking_cache_file):
+    async def load_ranking_cache(self) -> Optional[dict[str, Any]]:
+        if self.db is None:
+            logger.warning("MongoDB 未初始化，跳过排行榜缓存读取")
             return None
-        try:
-            with open(self.jjc_ranking_cache_file, "r", encoding="utf-8") as file_handle:
-                cached_data = json.load(file_handle)
-        except Exception as exc:
-            logger.warning(f"读取竞技场排行榜缓存失败: file={self.jjc_ranking_cache_file} error={exc}")
+        doc = await self.db.jjc_ranking_cache.find_one({"cache_key": "ranking"})
+        if doc is None:
+            logger.info("竞技场排行榜缓存未命中 (MongoDB)")
             return None
+        cache_time = doc.get("cache_time", 0)
+        if time.time() - cache_time >= self.jjc_ranking_cache_duration:
+            logger.info("竞技场排行榜缓存已过期 (MongoDB)")
+            return None
+        logger.info("使用 MongoDB 缓存的竞技场排行榜数据")
+        return doc.get("data")
 
-        current_time = time.time()
-        cache_time = cached_data.get("cache_time", 0)
-        if current_time - cache_time < self.jjc_ranking_cache_duration:
-            logger.info("使用文件缓存的竞技场排行榜数据")
-            return cached_data.get("data")
-        logger.info("竞技场排行榜文件缓存已过期")
-        return None
-
-    def save_ranking_cache(self, ranking_result: dict[str, Any]) -> None:
-        cache_dir = os.path.dirname(self.jjc_ranking_cache_file)
-        os.makedirs(cache_dir, exist_ok=True)
-        try:
-            with open(self.jjc_ranking_cache_file, "w", encoding="utf-8") as file_handle:
-                json.dump(
-                    {
-                        "cache_time": ranking_result.get("cache_time", time.time()),
-                        "data": ranking_result,
-                    },
-                    file_handle,
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            logger.info(f"竞技场排行榜数据已保存到文件缓存: {self.jjc_ranking_cache_file}")
-        except Exception as exc:
-            logger.warning(f"保存竞技场排行榜缓存失败: file={self.jjc_ranking_cache_file} error={exc}")
+    async def save_ranking_cache(self, ranking_result: dict[str, Any]) -> None:
+        if self.db is None:
+            return
+        await self.db.jjc_ranking_cache.update_one(
+            {"cache_key": "ranking"},
+            {"$set": {
+                "cache_time": ranking_result.get("cache_time", time.time()),
+                "data": ranking_result,
+                "created_at": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+        logger.info("竞技场排行榜数据已保存到 MongoDB 缓存")
 
     def kungfu_cache_path(self, server: str, name: str) -> str:
         cache_dir = "data/cache/kungfu"
