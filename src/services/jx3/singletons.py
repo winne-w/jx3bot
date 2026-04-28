@@ -11,7 +11,7 @@ from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.kungfu import get_role_indicator
 from src.services.jx3.match_history import MatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient
-from src.storage.jjc_ranking_inspect_cache import JjcRankingInspectCacheRepo
+from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 from src.utils.tuilan_request import tuilan_request
 
 env = Environment(loader=FileSystemLoader("templates"))
@@ -62,7 +62,7 @@ jjc_ranking_inspect_service = JjcRankingInspectService(
     ),
     match_history_client=match_history_client,
     match_detail_client=match_detail_client,
-    cache_repo=JjcRankingInspectCacheRepo(base_dir="data/cache/jjc_ranking_inspect"),
+    cache_repo=JjcInspectRepo(),
     tuilan_request=tuilan_request,
     role_indicator_fetcher=get_role_indicator,
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,

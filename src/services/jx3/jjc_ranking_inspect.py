@@ -12,7 +12,7 @@ from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.jjc_ranking import JjcRankingService
 from src.services.jx3.match_history import MatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient, MatchDetailResponse
-from src.storage.jjc_ranking_inspect_cache import JjcRankingInspectCacheRepo
+from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 
 
 def _coerce_int(value: Any) -> Optional[int]:
@@ -120,7 +120,7 @@ class JjcRankingInspectService:
     kungfu_cache_repo: JjcCacheRepo
     match_history_client: MatchHistoryClient
     match_detail_client: MatchDetailClient
-    cache_repo: JjcRankingInspectCacheRepo
+    cache_repo: JjcInspectRepo
     tuilan_request: Callable[[str, dict[str, Any]], Any]
     role_indicator_fetcher: Callable[..., Optional[dict[str, Any]]]
     kungfu_pinyin_to_chinese: dict[str, str]
@@ -522,7 +522,7 @@ class JjcRankingInspectService:
         if normalized_match_id is None:
             return {"error": True, "message": "invalid_match_id"}
 
-        cached = self.cache_repo.load_match_detail(normalized_match_id)
+        cached = await self.cache_repo.load_match_detail(normalized_match_id)
         if cached:
             data = dict(cached.get("data") or {})
             data["cache"] = {"hit": True, "cached_at": cached.get("cached_at")}
@@ -555,6 +555,6 @@ class JjcRankingInspectService:
                     continue
                 player["kungfu"] = self._translate_kungfu_name(player.get("kungfu"))
         cached_at = time.time()
-        self.cache_repo.save_match_detail(normalized_match_id, {"cached_at": cached_at, "data": payload})
+        await self.cache_repo.save_match_detail(normalized_match_id, {"cached_at": cached_at, "data": payload})
         payload["cache"] = {"hit": False, "cached_at": cached_at}
         return payload

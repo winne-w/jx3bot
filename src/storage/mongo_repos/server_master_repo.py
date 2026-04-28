@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from nonebot import logger
@@ -13,12 +13,12 @@ class ServerMasterCacheRepo:
     db: AsyncIOMotorDatabase
     ttl_seconds: int = field(default=7 * 24 * 60 * 60)  # 7 天
 
-    async def get(self, key: str) -> dict[str, Any] | None:
+    async def get(self, key: str) -> Optional[dict[str, Any]]:
         doc = await self.db.server_master_cache.find_one({"key": key})
         if doc is None:
             return None
 
-        logger.info("[server_master_repo] MongoDB 查询结果: key={} doc_keys={}", key, list(doc.keys()) if doc else None)
+        logger.info("[server_master_repo] MongoDB 查询结果: key={} doc_keys={}", key, list(doc.keys()))
         cached_at = int(doc.get("cached_at", 0) or 0)
         now = int(time.time())
         if now - cached_at >= self.ttl_seconds:
