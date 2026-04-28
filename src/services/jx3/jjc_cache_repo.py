@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import json
-import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
+
+from src.infra.mongo import get_db as _get_db
 
 try:
     from nonebot import logger  # type: ignore
@@ -52,34 +52,21 @@ class JjcCacheRepo:
         )
         logger.info("竞技场排行榜数据已保存到 MongoDB 缓存")
 
-    def kungfu_cache_path(self, server: str, name: str) -> str:
-        cache_dir = "data/cache/kungfu"
-        os.makedirs(cache_dir, exist_ok=True)
-        return os.path.join(cache_dir, f"{server}_{name}.json")
-
-    def load_kungfu_cache_raw(self, server: str, name: str) -> dict[str, Any] | None:
-        cache_file = self.kungfu_cache_path(server, name)
-        if not os.path.exists(cache_file):
+    async def load_kungfu_cache_raw(self, server: str, name: str) -> Optional[dict[str, Any]]:
+        db = self.db if self.db is not None else _get_db()
+        doc = await db.kungfu_cache.find_one({"server": server, "name": name})
+        if doc is None:
             return None
-        try:
-            with open(cache_file, "r", encoding="utf-8") as file_handle:
-                return json.load(file_handle)
-        except Exception as exc:
-            logger.warning(f"读取心法缓存失败(原始): file={cache_file} error={exc}")
+        return dict(doc)
+
+    async def load_kungfu_cache(self, server: str, name: str) -> Optional[dict[str, Any]]:
+        db = self.db if self.db is not None else _get_db()
+        doc = await db.kungfu_cache.find_one({"server": server, "name": name})
+        if doc is None:
+            logger.info(f"心法缓存未命中: server={server} name={name} reason=cache_miss")
             return None
 
-    def load_kungfu_cache(self, server: str, name: str) -> dict[str, Any] | None:
-        cache_file = self.kungfu_cache_path(server, name)
-        if not os.path.exists(cache_file):
-            logger.info(f"心法缓存未命中: server={server} name={name} reason=cache_file_missing")
-            return None
-        try:
-            with open(cache_file, "r", encoding="utf-8") as file_handle:
-                cached_data = json.load(file_handle)
-        except Exception as exc:
-            logger.warning(f"读取心法缓存失败: file={cache_file} error={exc}")
-            return None
-
+        cached_data = dict(doc)
         cache_time = cached_data.get("cache_time", 0)
         kungfu_value = cached_data.get("kungfu")
         weapon_checked = cached_data.get("weapon_checked", False)
@@ -127,11 +114,14 @@ class JjcCacheRepo:
 
         return None
 
-    def save_kungfu_cache(self, server: str, name: str, result: dict[str, Any]) -> None:
-        cache_file = self.kungfu_cache_path(server, name)
+    async def save_kungfu_cache(self, server: str, name: str, result: dict[str, Any]) -> None:
+        db = self.db if self.db is not None else _get_db()
         try:
-            with open(cache_file, "w", encoding="utf-8") as file_handle:
-                json.dump(result, file_handle, ensure_ascii=False, indent=2)
-            logger.info(f"心法信息已更新缓存到: {cache_file}")
+            await db.kungfu_cache.update_one(
+                {"server": server, "name": name},
+                {"$set": {**result, "cache_time": result.get("cache_time", time.time())}},
+                upsert=True,
+            )
+            logger.info(f"心法信息已更新缓存到 MongoDB: server={server} name={name}")
         except Exception as exc:
-            logger.warning(f"保存心法缓存失败: file={cache_file} error={exc}")
+            logger.warning(f"保存心法缓存失败: server={server} name={name} error={exc}")

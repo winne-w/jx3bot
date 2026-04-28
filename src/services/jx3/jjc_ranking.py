@@ -50,8 +50,8 @@ class JjcRankingService:
             db=get_db(),
         )
 
-    def _merge_cached_weapon(self, server: str, name: str, result: dict[str, Any]) -> None:
-        cached = self._cache().load_kungfu_cache_raw(server, name)
+    async def _merge_cached_weapon(self, server: str, name: str, result: dict[str, Any]) -> None:
+        cached = await self._cache().load_kungfu_cache_raw(server, name)
         if not cached:
             return
         cached_weapon = cached.get("weapon")
@@ -242,9 +242,9 @@ class JjcRankingService:
         if kungfu_detail:
             result.update(kungfu_detail)
         result.setdefault("weapon_checked", True)
-        self._merge_cached_weapon(server, name, result)
+        await self._merge_cached_weapon(server, name, result)
 
-        self._cache().save_kungfu_cache(server, name, result)
+        await self._cache().save_kungfu_cache(server, name, result)
 
     def save_ranking_stats(
         self,
@@ -356,7 +356,7 @@ class JjcRankingService:
         ranking_data: dict[str, Any] | None = None,
         rank: int | None = None,
     ) -> dict[str, Any]:
-        cached = self._cache().load_kungfu_cache(server, name)
+        cached = await self._cache().load_kungfu_cache(server, name)
         if cached:
             return cached
 
@@ -413,9 +413,9 @@ class JjcRankingService:
                                 **(kungfu_detail or {}),
                             }
                             result["found"] = result.get("kungfu") is not None
-                            self._merge_cached_weapon(server, name, result)
+                            await self._merge_cached_weapon(server, name, result)
 
-                            self._cache().save_kungfu_cache(server, name, result)
+                            await self._cache().save_kungfu_cache(server, name, result)
                             if result["found"]:
                                 return result
 
@@ -465,12 +465,12 @@ class JjcRankingService:
             "cache_time": time.time(),
         }
         result.setdefault("weapon_checked", True)
-        self._merge_cached_weapon(server, name, result)
-        cached = self._cache().load_kungfu_cache(server, name)
+        await self._merge_cached_weapon(server, name, result)
+        cached = await self._cache().load_kungfu_cache(server, name)
         if cached:
             cached.update(result)
             result = cached
-        self._cache().save_kungfu_cache(server, name, result)
+        await self._cache().save_kungfu_cache(server, name, result)
         return result
 
     async def get_ranking_kungfu_data(self, ranking_data: dict[str, Any]) -> dict[str, Any]:

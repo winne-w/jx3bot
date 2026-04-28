@@ -244,7 +244,7 @@ class JjcRankingInspectService:
             if identity:
                 return identity
 
-        raw_cache = self.kungfu_cache_repo.load_kungfu_cache_raw(server, normalized_name) or {}
+        raw_cache = await self.kungfu_cache_repo.load_kungfu_cache_raw(server, normalized_name) or {}
         cache_global_role_id = _pick_str(raw_cache.get("global_role_id"))
         cache_role_id = _pick_str(raw_cache.get("role_id"))
         cache_zone = _pick_str(raw_cache.get("zone"))
