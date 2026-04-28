@@ -61,8 +61,6 @@ register_cache_init(
     jiaoyiget=fetch_json,
     token=cfg.TOKEN,
     server_data_file=SERVER_DATA_FILE,
-    jjc_ranking_cache_file=jjc_ranking_service.jjc_ranking_cache_file,
-    jjc_ranking_cache_duration=jjc_ranking_service.jjc_ranking_cache_duration,
     set_server_data_cache=_set_server_data_cache,
     set_token_data=_set_token_data,
     ensure_baizhan_skill_icons=ensure_baizhan_skill_icons,

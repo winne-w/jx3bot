@@ -13,6 +13,7 @@ from urllib.parse import quote
 from nonebot import logger
 
 from src.services.jx3.kungfu import get_kungfu_detail_by_role_info
+from src.infra.mongo import get_db
 from src.services.jx3.jjc_api_client import JjcApiClient
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 
@@ -25,7 +26,6 @@ class JjcRankingService:
     arena_time_tag_url: str
     arena_ranking_url: str
     match_detail_url: str
-    jjc_ranking_cache_file: str
     jjc_ranking_cache_duration: int
     kungfu_cache_duration: int
     current_season: Any
@@ -45,9 +45,9 @@ class JjcRankingService:
 
     def _cache(self) -> JjcCacheRepo:
         return JjcCacheRepo(
-            jjc_ranking_cache_file=self.jjc_ranking_cache_file,
             jjc_ranking_cache_duration=self.jjc_ranking_cache_duration,
             kungfu_cache_duration=self.kungfu_cache_duration,
+            db=get_db(),
         )
 
     def _merge_cached_weapon(self, server: str, name: str, result: dict[str, Any]) -> None:
@@ -115,6 +115,10 @@ class JjcRankingService:
     async def query_jjc_ranking(self) -> dict[str, Any]:
         logger.info("开始查询竞技场排行榜数据")
 
+        cached = await self._cache().load_ranking_cache()
+        if cached:
+            return cached
+
         try:
             logger.info("获取竞技场时间标签")
             time_tag_result = await asyncio.to_thread(self._api().get_arena_time_tag)
@@ -160,6 +164,8 @@ class JjcRankingService:
 
             ranking_result["defaultWeek"] = default_week
             ranking_result["cache_time"] = time.time()
+
+            await self._cache().save_ranking_cache(ranking_result)
 
             return ranking_result
         except Exception as exc:
