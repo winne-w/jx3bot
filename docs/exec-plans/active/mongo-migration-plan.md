@@ -745,8 +745,8 @@ class RuntimeConfigRepo:
 - [x] 4.2.4 `kungfu_cache` → `JjcCacheRepo`（中风险） ✅
 - [x] 4.2.5 `jjc_role_recent` → `JjcRankingInspectCacheRepo`（中风险） ✅
 - [x] 4.2.6 `jjc_match_detail` → `JjcRankingInspectCacheRepo`（中风险） ✅
-- [ ] 4.2.7 `runtime_config` → `config_manager.py`（低风险）
-- [ ] 4.2.8 `wanbaolou_subscriptions` → `wanbaolou/__init__.py`（中风险）
+- [x] 4.2.7 `runtime_config` → 跳过（用户决定不迁移）
+- [x] 4.2.8 `wanbaolou_subscriptions` → `wanbaolou/__init__.py`（中风险） ✅
 - [ ] 4.2.9 `reminders` → `reminder.py`（高风险）
 - [ ] 4.2.10 `group_configs` → `GroupConfigRepo` + `group_binding.py`（高风险）
 
