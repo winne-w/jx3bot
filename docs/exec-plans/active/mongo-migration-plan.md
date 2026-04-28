@@ -742,7 +742,7 @@ class RuntimeConfigRepo:
 - [x] 4.2.1 `server_master_cache` → `server_resolver.py`（低风险） ✅
 - [x] 4.2.2 `status_cache` → `status_monitor/storage.py`（低风险） ✅
 - [x] 4.2.3 `jjc_ranking_cache` → `JjcCacheRepo`（低风险） ✅
-- [ ] 4.2.4 `kungfu_cache` → `JjcCacheRepo`（中风险）
+- [x] 4.2.4 `kungfu_cache` → `JjcCacheRepo`（中风险） ✅
 - [ ] 4.2.5 `jjc_role_recent` → `JjcRankingInspectCacheRepo`（中风险）
 - [ ] 4.2.6 `jjc_match_detail` → `JjcRankingInspectCacheRepo`（中风险）
 - [ ] 4.2.7 `runtime_config` → `config_manager.py`（低风险）
