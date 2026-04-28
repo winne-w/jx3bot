@@ -170,7 +170,7 @@ class JjcRankingInspectService:
     ) -> dict[str, Any]:
         is_first_page = cursor <= 0
         if is_first_page:
-            cached = self.cache_repo.load_role_recent(
+            cached = await self.cache_repo.load_role_recent(
                 server,
                 name,
                 ttl_seconds=self.role_recent_ttl_seconds,
@@ -201,7 +201,7 @@ class JjcRankingInspectService:
             return payload
         if is_first_page:
             cached_at = time.time()
-            self.cache_repo.save_role_recent(server, name, {"cached_at": cached_at, "data": payload})
+            await self.cache_repo.save_role_recent(server, name, {"cached_at": cached_at, "data": payload})
             payload["cache"] = {"hit": False, "cached_at": cached_at, "ttl_seconds": self.role_recent_ttl_seconds}
         else:
             payload["cache"] = {"hit": False, "cached_at": time.time()}
