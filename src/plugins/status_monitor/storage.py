@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Set
 
+from nonebot import logger
+
 from src.infra.mongo import get_db
 from src.services.jx3.singletons import group_config_repo
 from src.storage.mongo_repos.status_cache_repo import StatusCacheRepo
@@ -26,7 +28,7 @@ class CacheManager:
             await _repo().save(cache_name, data)
             return True
         except Exception as exc:
-            print(f"保存缓存失败({cache_name}): {str(exc)}")
+            logger.warning("保存缓存失败({}): {}", cache_name, exc)
             return False
 
     @staticmethod
@@ -34,7 +36,7 @@ class CacheManager:
         try:
             return await _repo().load(cache_name, default)
         except Exception as exc:
-            print(f"读取缓存失败({cache_name}): {str(exc)}")
+            logger.warning("读取缓存失败({}): {}", cache_name, exc)
             return default
 
 

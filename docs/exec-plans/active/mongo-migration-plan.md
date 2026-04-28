@@ -744,7 +744,7 @@ class RuntimeConfigRepo:
 - [x] 4.2.3 `jjc_ranking_cache` → `JjcCacheRepo`（低风险） ✅
 - [x] 4.2.4 `kungfu_cache` → `JjcCacheRepo`（中风险） ✅
 - [x] 4.2.5 `jjc_role_recent` → `JjcRankingInspectCacheRepo`（中风险） ✅
-- [ ] 4.2.6 `jjc_match_detail` → `JjcRankingInspectCacheRepo`（中风险）
+- [x] 4.2.6 `jjc_match_detail` → `JjcRankingInspectCacheRepo`（中风险） ✅
 - [ ] 4.2.7 `runtime_config` → `config_manager.py`（低风险）
 - [ ] 4.2.8 `wanbaolou_subscriptions` → `wanbaolou/__init__.py`（中风险）
 - [ ] 4.2.9 `reminders` → `reminder.py`（高风险）
@@ -864,7 +864,9 @@ async def startup_mongo():
 1. 新建/改造 repo 类
 2. 修改调用方代码，替换文件 I/O 为 repo 调用
 3. 运行验证流程（见各集合的验证方式）
-4. 确认正常后删除旧文件读写代码
+4. 提交 commit
+5. 新开 subagent 进行 code review，检查：类型安全、async/await 正确性、边界条件、与现有 repo 模式一致性
+6. 确认正常后删除旧文件读写代码
 
 ### 4.3 清理收尾（阶段三）
 

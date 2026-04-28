@@ -24,10 +24,12 @@ class JjcCacheRepo:
     db: Optional[AsyncIOMotorDatabase] = None
 
     async def load_ranking_cache(self) -> Optional[dict[str, Any]]:
-        if self.db is None:
-            logger.warning("MongoDB 未初始化，跳过排行榜缓存读取")
+        db = self.db if self.db is not None else _get_db()
+        try:
+            doc = await db.jjc_ranking_cache.find_one({"cache_key": "ranking"})
+        except Exception as exc:
+            logger.warning("读取竞技场排行榜缓存失败: {}", exc)
             return None
-        doc = await self.db.jjc_ranking_cache.find_one({"cache_key": "ranking"})
         if doc is None:
             logger.info("竞技场排行榜缓存未命中 (MongoDB)")
             return None
@@ -39,18 +41,20 @@ class JjcCacheRepo:
         return doc.get("data")
 
     async def save_ranking_cache(self, ranking_result: dict[str, Any]) -> None:
-        if self.db is None:
-            return
-        await self.db.jjc_ranking_cache.update_one(
-            {"cache_key": "ranking"},
-            {"$set": {
-                "cache_time": ranking_result.get("cache_time", time.time()),
-                "data": ranking_result,
-                "created_at": datetime.now(timezone.utc),
-            }},
-            upsert=True,
-        )
-        logger.info("竞技场排行榜数据已保存到 MongoDB 缓存")
+        db = self.db if self.db is not None else _get_db()
+        try:
+            await db.jjc_ranking_cache.update_one(
+                {"cache_key": "ranking"},
+                {"$set": {
+                    "cache_time": ranking_result.get("cache_time") or time.time(),
+                    "data": ranking_result,
+                    "created_at": datetime.now(timezone.utc),
+                }},
+                upsert=True,
+            )
+            logger.info("竞技场排行榜数据已保存到 MongoDB 缓存")
+        except Exception as exc:
+            logger.warning("保存竞技场排行榜缓存失败: {}", exc)
 
     async def load_kungfu_cache_raw(self, server: str, name: str) -> Optional[dict[str, Any]]:
         db = self.db if self.db is not None else _get_db()
