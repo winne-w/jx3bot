@@ -72,6 +72,16 @@ python -m py_compile <相关 service/storage 文件>
 | 渲染 | `src/renderers/` | 模板渲染、图片生成 | 写业务判断分支 |
 | HTTP API | `src/api/routers/` | FastAPI 路由、参数校验、调用 service | 直接读写文件、调用截图/消息发送 |
 
+## DDD 修改流程
+
+以后修改项目时，默认按 DDD 思路推进：
+
+1. 先设计用例：明确触发入口、参与角色、输入输出、业务规则、异常分支和验收标准。
+2. 再修改代码：把领域规则放在 `services` 可编排的业务层或更内聚的领域对象中，入口层只做参数提取和调用，外部系统能力通过 `infra/storage/renderers` 适配。
+3. 最后验证用例：针对设计用例逐项执行自动化或手工验证，说明覆盖到的正常路径、异常路径，以及无法离线验证的外部依赖。
+
+如果现有代码尚未完全符合 DDD 分层，优先在本次改动范围内收敛边界，不为无关模块做大规模重构。
+
 ## 强约束
 
 - 运行时基线是 `Python 3.9+`。新增类型注解必须兼容 Python 3.9，不要在 FastAPI/Pydantic 会解析的代码路径里使用 `str | None`、`dict[str, Any] | None` 这类 `|` 联合写法，统一改用 `typing.Optional[...]`、`typing.Union[...]`。其他位置也尽量不用。
