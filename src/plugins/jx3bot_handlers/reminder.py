@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 import uuid
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from nonebot import get_driver, on_regex, require
@@ -16,12 +14,17 @@ from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.rule import Rule
 
-REMINDER_FILE = Path("data/group_reminders.json")
+from src.infra.mongo import get_db as _get_db
+from src.storage.mongo_repos.reminder_repo import ReminderRepo
+
 CANCEL_TIMEOUT_SECONDS = 45
 JOB_ID_PREFIX = "group_reminder:"
 
-FILE_LOCK = asyncio.Lock()
 CANCEL_SESSIONS: dict[str, dict[str, Any]] = {}
+
+
+def _repo() -> ReminderRepo:
+    return ReminderRepo(db=_get_db())
 
 scheduler = require("nonebot_plugin_apscheduler").scheduler
 _driver = get_driver()
@@ -52,7 +55,7 @@ async def _restore_reminder_jobs() -> None:
                 continue
 
             run_date = remind_at_dt if remind_at_dt.timestamp() > now else datetime.now()
-            _schedule_reminder_job(reminder["id"], run_date)
+            _schedule_reminder_job(reminder["reminder_id"], run_date)
             restored += 1
 
     if restored:
@@ -84,28 +87,8 @@ def _render_time(remind_at: str) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _load_reminders_unlocked() -> dict[str, list[dict[str, Any]]]:
-    if not REMINDER_FILE.exists():
-        return {}
-    try:
-        with REMINDER_FILE.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return data
-    except Exception as exc:
-        logger.error(f"读取提醒数据失败: {exc}")
-    return {}
-
-
-def _save_reminders_unlocked(data: dict[str, list[dict[str, Any]]]) -> None:
-    REMINDER_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with REMINDER_FILE.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
 async def load_reminders() -> dict[str, list[dict[str, Any]]]:
-    async with FILE_LOCK:
-        return _load_reminders_unlocked()
+    return await _repo().load_all_pending()
 
 
 async def create_reminder(
@@ -117,7 +100,7 @@ async def create_reminder(
     mention_type: str,
 ) -> dict[str, Any]:
     reminder = {
-        "id": uuid.uuid4().hex,
+        "reminder_id": uuid.uuid4().hex,
         "group_id": str(group_id),
         "creator_user_id": str(user_id),
         "mention_type": mention_type,
@@ -126,21 +109,13 @@ async def create_reminder(
         "created_at": int(time.time()),
         "status": "pending",
     }
-
-    async with FILE_LOCK:
-        all_data = _load_reminders_unlocked()
-        group_key = str(group_id)
-        group_reminders = all_data.setdefault(group_key, [])
-        group_reminders.append(reminder)
-        _save_reminders_unlocked(all_data)
-
+    await _repo().insert(reminder)
     return reminder
 
 
 async def get_group_pending_reminders(group_id: int) -> list[dict[str, Any]]:
-    reminders_by_group = await load_reminders()
-    group_reminders = reminders_by_group.get(str(group_id), [])
-    pending = [item for item in group_reminders if item.get("status") == "pending"]
+    all_reminders = await _repo().load_by_group(group_id)
+    pending = [item for item in all_reminders if item.get("status") == "pending"]
     pending.sort(key=lambda x: x.get("remind_at", ""))
     return pending
 
@@ -151,48 +126,17 @@ async def get_user_pending_reminders(group_id: int, user_id: int) -> list[dict[s
 
 
 async def mark_reminder_done(reminder_id: str) -> bool:
-    updated = False
-    async with FILE_LOCK:
-        all_data = _load_reminders_unlocked()
-        for reminders in all_data.values():
-            for reminder in reminders:
-                if reminder.get("id") == reminder_id and reminder.get("status") == "pending":
-                    reminder["status"] = "done"
-                    reminder["done_at"] = int(time.time())
-                    updated = True
-                    break
-        if updated:
-            _save_reminders_unlocked(all_data)
-    return updated
+    return await _repo().update_status(reminder_id, "done", "done_at")
 
 
 async def cancel_reminder(reminder_id: str, group_id: int, user_id: int) -> dict[str, Any] | None:
-    canceled: dict[str, Any] | None = None
-    async with FILE_LOCK:
-        all_data = _load_reminders_unlocked()
-        group_key = str(group_id)
-        for reminder in all_data.get(group_key, []):
-            if reminder.get("id") != reminder_id:
-                continue
-            if reminder.get("creator_user_id") != str(user_id):
-                return None
-            if reminder.get("status") != "pending":
-                return None
-            reminder["status"] = "canceled"
-            reminder["canceled_at"] = int(time.time())
-            canceled = reminder
-            break
-        if canceled is not None:
-            _save_reminders_unlocked(all_data)
-    return canceled
+    return await _repo().cancel(reminder_id, group_id, user_id)
 
 
 async def find_pending_reminder(reminder_id: str) -> dict[str, Any] | None:
-    reminders_by_group = await load_reminders()
-    for reminders in reminders_by_group.values():
-        for reminder in reminders:
-            if reminder.get("id") == reminder_id and reminder.get("status") == "pending":
-                return reminder
+    doc = await _repo().find_by_id(reminder_id)
+    if doc and doc.get("status") == "pending":
+        return doc
     return None
 
 
@@ -330,11 +274,11 @@ def register(
                 message=message_text,
                 mention_type=mention_type,
             )
-            _schedule_reminder_job(reminder["id"], remind_at_dt)
+            _schedule_reminder_job(reminder["reminder_id"], remind_at_dt)
 
             logger.info(
                 "创建提醒成功: "
-                f"group_id={event.group_id}, user_id={event.user_id}, reminder_id={reminder['id']}, "
+                f"group_id={event.group_id}, user_id={event.user_id}, reminder_id={reminder['reminder_id']}, "
                 f"remind_at={remind_at}, mention_type={mention_type}"
             )
             await matcher.finish(
