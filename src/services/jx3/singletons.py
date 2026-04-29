@@ -4,7 +4,7 @@ import config as cfg
 from jinja2 import Environment, FileSystemLoader
 
 from src.infra.jx3api_get import get
-from src.services.jx3.group_config_repo import GroupConfigRepo
+from src.storage.mongo_repos.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
@@ -15,7 +15,7 @@ from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 from src.utils.tuilan_request import tuilan_request
 
 env = Environment(loader=FileSystemLoader("templates"))
-group_config_repo = GroupConfigRepo(path="groups.json")
+group_config_repo = GroupConfigRepo()
 
 KUNGFU_PINYIN_TO_CHINESE = {key: value["name"] for key, value in cfg.KUNGFU_META.items()}
 KUNGFU_HEALER_LIST = [

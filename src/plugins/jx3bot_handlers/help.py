@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from jinja2 import Environment
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
@@ -16,14 +16,14 @@ def register(
     *,
     group_config_file: str,
     bot_status: dict[str, Any],
-    load_groups: Callable[[str], dict[str, Any]],
+    load_groups: Callable[..., Awaitable[dict[str, Any]]],
     format_time_duration: Callable[[float], str],
 ) -> None:
     @help_matcher.handle()
     async def handle_help(bot: Bot, event: GroupMessageEvent) -> None:
         gid = str(event.group_id)
         try:
-            cfg = load_groups(group_config_file)
+            cfg = await load_groups(group_config_file)
             if gid not in cfg:
                 await help_matcher.finish("本群未绑定任何服务器")
 
