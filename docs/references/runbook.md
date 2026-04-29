@@ -18,7 +18,7 @@ python bot.py
 前提:
 
 - `config.py` 已配置
-- `groups.json` 已存在
+- MongoDB 已启动且 `runtime_config.json` 中 `MONGO_URI` 配置正确
 - OneBot 反向 WebSocket 已准备完成
 
 ### 模拟容器入口
@@ -46,7 +46,10 @@ docker compose logs -f
 ### 必备文件
 
 - `config.py`
-- `groups.json`
+
+### 必备服务
+
+- MongoDB（连接串通过 `runtime_config.json` 中的 `MONGO_URI` 配置）
 
 ### 常用环境变量
 
@@ -73,7 +76,7 @@ python test_tuilan_match_history.py
 ### 1. 启动与初始化
 
 - 启动后确认没有明显导入错误
-- 观察缓存初始化日志，确认 `server_data.json`、竞技缓存、token 缓存路径正常
+- 观察缓存初始化日志，确认 `server_data.json`、竞技缓存、token 缓存、MongoDB 连接路径正常
 - 若启用定时任务，观察 APScheduler 是否频繁 misfire
 
 ### 2. 基础命令
@@ -188,7 +191,8 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局I
 
 检查:
 
-- 当前运行文件是否存在且可读写
+- MongoDB 连接是否正常（`GET /api/mongo/health` 返回 `connected: true`）
+- 相关集合索引是否已创建
 - `src/storage/` 的装配逻辑是否仍与代码实现一致
 - 最近是否改动了缓存路径、运行目录或部署挂载
 

@@ -48,7 +48,7 @@ docs/                        补充架构与运行文档
 - Python 3.9+
 - 已安装项目依赖
 - 准备好 `config.py`
-- 准备好 `groups.json`
+- 准备好 MongoDB 连接（通过 `runtime_config.json` 中的 `MONGO_URI` 配置）
 - NapCat 或其他 OneBot V11 实现已配置反向 WebSocket
 
 默认运行时会同时启用消息插件和 HTTP API，监听地址由 `HOST`/`PORT` 控制。
