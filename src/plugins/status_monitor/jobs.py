@@ -302,7 +302,7 @@ async def check_records():
 
                 if get_driver().bots:
                     bot = list(get_driver().bots.values())[0]
-                    groups_config = group_config_repo.load()
+                    groups_config = await group_config_repo.load()
 
                     for gid, config in groups_config.items():
                         try:
@@ -373,7 +373,7 @@ async def check_news():
 
                 if get_driver().bots:
                     bot = list(get_driver().bots.values())[0]
-                    groups_config = group_config_repo.load()
+                    groups_config = await group_config_repo.load()
 
                     for gid, config in groups_config.items():
                         try:
@@ -438,7 +438,7 @@ async def check_event_codes():
                 new_codes = [code for code in current_codes if code["ID"] in new_codes_ids]
 
                 if get_driver().bots:
-                    groups_config = group_config_repo.load()
+                    groups_config = await group_config_repo.load()
                     bot = list(get_driver().bots.values())[0]
 
                     for code in new_codes:
@@ -531,7 +531,7 @@ async def check_status():
 
             if get_driver().bots:
                 bot = list(get_driver().bots.values())[0]
-                groups_config = group_config_repo.load()
+                groups_config = await group_config_repo.load()
 
                 for gid, config in groups_config.items():
                     try:
@@ -602,7 +602,7 @@ async def push_daily_gte():
             if not get_driver().bots:
                 return
             bot = list(get_driver().bots.values())[0]
-            groups_config = group_config_repo.load()
+            groups_config = await group_config_repo.load()
 
             for gid, config in groups_config.items():
                 try:
@@ -635,7 +635,7 @@ async def push_daily_jjc_ranking():
                 return
 
             bot = list(bots.values())[0]
-            groups_config = group_config_repo.load()
+            groups_config = await group_config_repo.load()
 
             target_groups = [
                 gid

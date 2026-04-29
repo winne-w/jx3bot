@@ -13,12 +13,12 @@ def _repo() -> StatusCacheRepo:
     return StatusCacheRepo(db=get_db())
 
 
-def load_groups() -> dict[str, Any]:
-    return group_config_repo.load()
+async def load_groups() -> dict[str, Any]:
+    return await group_config_repo.load()
 
 
-def save_groups(cfg: dict[str, Any]) -> None:
-    group_config_repo.save(cfg)
+async def save_groups(cfg: dict[str, Any]) -> None:
+    await group_config_repo.save(cfg)
 
 
 class CacheManager:
