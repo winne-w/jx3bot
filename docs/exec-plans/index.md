@@ -5,6 +5,7 @@
 ## Active
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
+- `active/role-identity-jjc-cache-plan.md`: 角色身份模型、JJC 缓存拆分、旧 `kungfu_cache` 迁移与回归计划
 
 ## Completed
 

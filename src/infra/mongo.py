@@ -135,4 +135,34 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     # group_configs
     await _safe_index("group_configs", "group_id", name="idx_group_id", unique=True)
 
+    # role_identities
+    await _safe_index("role_identities", "identity_key", name="idx_identity_key", unique=True)
+    await _safe_index(
+        "role_identities", "global_role_id", name="idx_global_role_id", unique=True,
+        partialFilterExpression={"global_role_id": {"$type": "string"}},
+    )
+    await _safe_index(
+        "role_identities", [("zone", 1), ("game_role_id", 1)],
+        name="idx_zone_game_role_id", unique=True,
+        partialFilterExpression={"zone": {"$type": "string"}, "game_role_id": {"$type": "string"}},
+    )
+    await _safe_index(
+        "role_identities", [("normalized_server", 1), ("normalized_name", 1)],
+        name="idx_normalized_server_name",
+    )
+    await _safe_index("role_identities", "last_seen_at", name="idx_last_seen_at")
+
+    # role_jjc_cache
+    await _safe_index("role_jjc_cache", "identity_key", name="idx_identity_key", unique=True)
+    await _safe_index("role_jjc_cache", "global_role_id", name="idx_global_role_id")
+    await _safe_index(
+        "role_jjc_cache", [("zone", 1), ("game_role_id", 1)],
+        name="idx_zone_game_role_id",
+    )
+    await _safe_index(
+        "role_jjc_cache", [("normalized_server", 1), ("normalized_name", 1)],
+        name="idx_normalized_server_name",
+    )
+    await _safe_index("role_jjc_cache", "checked_at", name="idx_checked_at", expireAfterSeconds=604800)
+
     logger.info("MongoDB 索引初始化完成")

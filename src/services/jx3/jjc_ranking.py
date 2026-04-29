@@ -177,6 +177,8 @@ class JjcRankingService:
 
         kungfu_info = None
         kungfu_detail: dict[str, Any] | None = None
+        captured_game_role_id = None
+        captured_zone = None
         try:
             ranking_result = await self.query_jjc_ranking()
             if ranking_result and not ranking_result.get("error") and ranking_result.get("code") == 0:
@@ -192,6 +194,8 @@ class JjcRankingService:
                     if player_server == server and player_name == name:
                         game_role_id = person_info.get("gameRoleId")
                         zone = person_info.get("zone")
+                        captured_game_role_id = game_role_id
+                        captured_zone = zone
 
                         if game_role_id and zone:
                             logger.info(
@@ -241,6 +245,10 @@ class JjcRankingService:
         }
         if kungfu_detail:
             result.update(kungfu_detail)
+        if captured_game_role_id and "game_role_id" not in result:
+            result["game_role_id"] = captured_game_role_id
+        if captured_zone and "zone" not in result:
+            result["zone"] = captured_zone
         result.setdefault("weapon_checked", True)
         await self._merge_cached_weapon(server, name, result)
 
@@ -412,6 +420,10 @@ class JjcRankingService:
                                 "cache_time": time.time(),
                                 **(kungfu_detail or {}),
                             }
+                            if game_role_id:
+                                result.setdefault("game_role_id", game_role_id)
+                            if zone:
+                                result.setdefault("zone", zone)
                             result["found"] = result.get("kungfu") is not None
                             await self._merge_cached_weapon(server, name, result)
 
@@ -468,7 +480,11 @@ class JjcRankingService:
         await self._merge_cached_weapon(server, name, result)
         cached = await self._cache().load_kungfu_cache(server, name)
         if cached:
-            cached.update(result)
+            for k, v in result.items():
+                if v is not None:
+                    if k == "found" and kungfu_info is None:
+                        continue
+                    cached[k] = v
             result = cached
         await self._cache().save_kungfu_cache(server, name, result)
         return result
