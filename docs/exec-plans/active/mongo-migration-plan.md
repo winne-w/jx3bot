@@ -752,13 +752,13 @@ class RuntimeConfigRepo:
 
 **阶段三：清理收尾**
 
-- [ ] 4.3.1 删除已迁移的 `data/cache/*.json` 文件
-- [ ] 4.3.2 删除已迁移的顶级 JSON 文件（`groups.json`、`runtime_config.json`、`data/group_reminders.json`、`data/wanbaolou_subscriptions.json`）
-- [ ] 4.3.3 更新 `README.md`：增加 MongoDB 依赖说明
-- [ ] 4.3.4 更新 `docs/references/runbook.md`：增加 MongoDB 连接排查步骤
-- [ ] 4.3.5 更新 `CLAUDE.md`：存储层描述调整为 MongoDB
-- [ ] 4.3.6 移除所有过渡期 fallback 代码
-- [ ] 4.3.7 更新 `docker-compose.yml`：移除已迁移文件的 volume 挂载（`groups.json`、`server_data.json` 等），移除 `runtime_config.json` 挂载（改用 MongoDB 或环境变量）
+- [x] 4.3.1 删除已迁移的 `data/cache/*.json` 文件
+- [x] 4.3.2 删除已迁移的顶级 JSON 文件（`groups.json`、`data/wanbaolou_subscriptions.json`；`runtime_config.json` 保留，不在迁移范围）
+- [x] 4.3.3 更新 `README.md`：增加 MongoDB 依赖说明
+- [x] 4.3.4 更新 `docs/references/runbook.md`：增加 MongoDB 连接排查步骤
+- [x] 4.3.5 更新 `CLAUDE.md`：存储层描述调整为 MongoDB
+- [x] 4.3.6 移除所有过渡期 fallback 代码（删除旧 `src/services/jx3/group_config_repo.py`）
+- [x] 4.3.7 更新 `docker-compose.yml`：移除 `groups.json` volume 挂载
 
 ---
 

@@ -51,7 +51,7 @@ python -m py_compile <相关 service/storage 文件>
 - `services` 不得直接依赖 `nonebot.adapters.*`、`Bot`、`Event`、`MessageSegment`。
 - 配置优先来自环境变量和 `config.py`，秘钥/token/Cookie/邮箱/内网地址不得硬编码。
 - 新增外部调用先补到 `src/infra/`，不要在 handler/service 中散写请求。
-- `groups.json`、订阅、服务器别名缓存统一走 `src/storage/`，不新增裸 `open(...)`。
+- 群配置、订阅、服务器别名缓存、运行时缓存统一走 MongoDB（`src/storage/mongo_repos/`），不新增裸 `open(...)` 或 JSON 文件读写。
 - JJC 统计文件写入 `data/jjc_ranking_stats/<timestamp>/summary.json`，明细按需拆分在 `details/` 子目录。
 
 ## API 响应格式
