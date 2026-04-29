@@ -16,6 +16,7 @@
 3. `project-roadmap.md`
 4. `project-history.md`
 5. `docs/design-docs/index.md`
+   - 数据库相关改动必须补读 `docs/design-docs/database-design.md`
 6. `docs/references/index.md`
 7. `docs/exec-plans/index.md`
 8. `docs/tasks/all-tasks.md`
@@ -90,6 +91,7 @@ python -m py_compile <相关 service/storage 文件>
 - 新增外部调用时，优先补到 `src/infra/`，不要在 handler 或 service 中直接散写请求。
 - 配置优先来自环境变量和 `config.py`，秘钥、票据、Cookie、邮箱、内网地址不得硬编码进代码和文档。
 - 群配置、订阅、服务器别名缓存、运行时缓存统一走 `src/storage/`，当前优先使用 MongoDB 相关 repo（如 `src/storage/mongo_repos/`），不新增裸 `open(...)` 或 JSON 文件读写。
+- 数据库设计以 `docs/design-docs/database-design.md` 为准。新增、删除、重命名集合或字段，调整索引、TTL、迁移脚本、存储归属时，必须同步更新该文档。
 - JJC 统计文件写入 `data/jjc_ranking_stats/<timestamp>/summary.json`，明细按需拆分在 `details/` 子目录。
 
 ## API 响应格式
@@ -107,7 +109,9 @@ python -m py_compile <相关 service/storage 文件>
 - 改动启动方式、端口、环境变量时，同时更新 `README.md`、`README-Docker.md`、`docs/references/runbook.md`。
 - 改动模块边界、目录职责时，同时更新 `project-architecture.md` 和 `docs/exec-plans/active/refactor-plan.md`。
 - 改动 API 路由时，同时更新 `README.md` 中的接口说明。
+- 改动数据库集合、字段、索引、TTL、迁移脚本或存储 repo 时，同时更新 `docs/design-docs/database-design.md`。
 - 改动手工验证路径时，同时更新 `docs/references/runbook.md` 的回归清单。
+- 生成阶段性执行计划时，写入 `docs/exec-plans/active/` 并同步更新 `docs/exec-plans/index.md`；计划完成后再移入 `docs/exec-plans/completed/`。
 
 ## 已知遗留问题
 
