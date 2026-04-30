@@ -112,6 +112,34 @@ class JjcRankingService:
                 return score
         return None
 
+    @staticmethod
+    def _build_invalid_kungfu_reason(player_item: dict[str, Any]) -> str:
+        reasons: list[str] = []
+        if not player_item.get("found"):
+            reasons.append("found_false")
+        if not player_item.get("kungfu"):
+            reasons.append("kungfu_empty")
+        if not player_item.get("kungfu_selected_source"):
+            reasons.append("source_missing")
+        if not player_item.get("weapon_checked"):
+            reasons.append("weapon_not_checked")
+        if not player_item.get("teammates_checked"):
+            reasons.append("teammates_not_checked")
+        teammates = player_item.get("teammates")
+        if not isinstance(teammates, list) or not teammates:
+            reasons.append("teammates_empty")
+        else:
+            missing_count = sum(
+                1
+                for item in teammates
+                if not isinstance(item, dict) or item.get("kungfu_id") in (None, "")
+            )
+            if missing_count:
+                reasons.append("teammates_kungfu_id_missing:%s" % missing_count)
+        if not player_item.get("match_history_checked"):
+            reasons.append("match_history_not_checked")
+        return ",".join(reasons) if reasons else "unknown"
+
     async def query_jjc_ranking(self) -> dict[str, Any]:
         logger.info("开始查询竞技场排行榜数据")
 
@@ -558,6 +586,12 @@ class JjcRankingService:
                         "teammates": kungfu_info.get("teammates"),
                         "weapon_icon": kungfu_info.get("weapon_icon"),
                         "weapon_quality": kungfu_info.get("weapon_quality"),
+                        "weapon_checked": kungfu_info.get("weapon_checked"),
+                        "teammates_checked": kungfu_info.get("teammates_checked"),
+                        "match_history_checked": kungfu_info.get("match_history_checked"),
+                        "kungfu_selected_source": kungfu_info.get("kungfu_selected_source"),
+                        "kungfu_indicator": kungfu_info.get("kungfu_indicator"),
+                        "kungfu_match_history": kungfu_info.get("kungfu_match_history"),
                     }
                 )
 
@@ -661,7 +695,20 @@ class JjcRankingService:
                     else:
                         invalid_count += 1
                         invalid_details.append(
-                            f"第{i+1}名：{player_item.get('server', '未知')} {player_item.get('name', '未知')}"
+                            "第{}名：{} {} score={} role_id={} global_role_id={} zone={} "
+                            "source={} indicator={} match_history={} reason={}".format(
+                                i + 1,
+                                player_item.get("server", "未知"),
+                                player_item.get("name", "未知"),
+                                player_item.get("score"),
+                                player_item.get("role_id"),
+                                player_item.get("global_role_id"),
+                                player_item.get("zone"),
+                                player_item.get("kungfu_selected_source"),
+                                player_item.get("kungfu_indicator"),
+                                player_item.get("kungfu_match_history"),
+                                self._build_invalid_kungfu_reason(player_item),
+                            )
                         )
 
                 for i, kungfu in enumerate(healer_kungfu):

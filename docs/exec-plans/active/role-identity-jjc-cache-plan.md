@@ -2,6 +2,31 @@
 
 更新时间：2026-04-29
 
+## 当前进展
+
+- 已完成：
+  - 阶段 1 文档设计
+  - 阶段 2 存储层实现与索引接入
+  - 阶段 3 迁移脚本落地并完成全量迁移
+  - 阶段 4 中 `jjc_cache_repo.py`、`jjc_ranking.py`、`jjc_ranking_inspect.py` 的灰度读路径接入
+  - 迁移核验脚本 `scripts/check_role_identity_migration.py` 落地并完成一次线上核验
+- 当前核验结论：
+  - `role_identities` 与 `role_jjc_cache` 当前各 10658 条
+  - 两边 `identity_key` 完全对齐
+  - `checked_at` 无缺失
+  - `global_role_id`、`zone + game_role_id` 在 identity/jjc 两侧均无重复
+- 已完成的真实链路回归：
+  - 使用样本角色 `乾坤一掷 / 一冬冬一 / SK01-OABFKL-WERHJU6LVO77YBNC5RPRJK3DKU` 验证 `get_role_recent(...)`
+  - 传 `global_role_id` 时成功返回 20 条近期对局，身份来源 `detail_hint_global_role_id`
+  - 仅传 `server + name` 且绕过首页缓存 (`cursor=1`) 时成功返回 20 条近期对局，身份来源 `role_identity_name_match`
+  - 使用最近对局 `match_id=253549814` 验证 `get_match_detail(...)`，成功返回 3v3 双方玩家详情
+- 本轮回归发现的附带问题：
+  - `init_mongo()` 在现网 `wanbaolou_subscriptions` 重复索引冲突场景下会输出 logging formatting error，原因是 `_safe_index()` 的 warning 日志写法与当前 logger 实现不兼容；该问题与本次 JJC 重构无直接耦合，但需要单独修复
+- 仍待完成：
+  - 阶段 5 继续观察新集合主写 + 旧集合 shadow write 的线上稳定性
+  - 阶段 6 旧集合 TTL Date 字段修复或正式标注为 legacy-only
+  - 阶段 7 更完整的功能级回归（竞技排名、竞技排名统计、JJC 角色近期联动）
+
 ## 背景
 
 当前 `kungfu_cache` 以 `server + name` 作为唯一键，实际承载了角色身份、心法、武器、队友和检查状态等多类信息。JJC 排行榜通常能拿到 `gameRoleId + zone + server + roleName`，但不一定有 `globalRoleId`；推栏战局历史需要 `global_role_id`；对局详情可能含有 `global_role_id`、`role_id`、`person_id`，但前提是已经拿到 `match_id`。
@@ -334,4 +359,3 @@ scripts/check_role_identity_migration.py
 6. 改 `jjc_ranking/get_user_kungfu` 的缓存读写。
 7. 跑小批量迁移和回归。
 8. 全量迁移后再考虑废弃旧 `kungfu_cache`。
-
