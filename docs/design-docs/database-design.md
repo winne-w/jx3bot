@@ -1,6 +1,6 @@
 # 数据库设计
 
-更新时间：2026-04-29
+更新时间：2026-04-30
 
 本文是当前项目数据库结构的维护文档。以后新增、删除、重命名集合或字段，调整索引、TTL、迁移脚本、存储归属时，必须同步更新本文。
 
@@ -381,11 +381,104 @@
 | `cached_at` | float | 缓存时间 Unix 秒 |
 | `data` | object | 对局详情原始或规整后的结果 |
 
+`data` 内部玩家节点字段（拆表后）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `players_info[].equipment_snapshot_hash` | string | 关联 `jjc_equipment_snapshot.snapshot_hash`，替代原 `armors` 数组 |
+| `players_info[].talent_snapshot_hash` | string | 关联 `jjc_talent_snapshot.snapshot_hash`，替代原 `talents` 数组 |
+| `players_info[].armors` | array | **[仅旧数据]** 未迁移文档可能仍保留完整装备数组 |
+| `players_info[].talents` | array | **[仅旧数据]** 未迁移文档可能仍保留完整奇穴数组 |
+
+文档顶层可携带：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `snapshot_migration` | object | 迁移元数据（`version`、`migrated_at`、`equipment_snapshot_count`、`talent_snapshot_count`） |
+
 索引：
 
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_match_id` | `match_id` | unique |
+
+当前存储形态：
+
+- `data` 字段是 MongoDB 嵌套对象（BSON document），不是 JSON 字符串。代码通过 Motor/PyMongo 写入 Python `dict`，Mongo 底层以 BSON 保存；这是推荐形态，支持嵌套字段查询、局部更新和后续迁移。
+- 不应把 `data` 改成 JSON 字符串。JSON 字符串会让 Mongo 只能按普通字符串处理，无法直接索引或查询 `data.detail.*` 子字段。
+- 现有 API 返回结构依赖 `data.detail.basic_info`、`team1`、`team2`、`players_info[].armors`、`players_info[].talents` 等字段。前端 `public/jjc-ranking-stats.html` 当前展示基础对局信息、双方玩家、分数/血量/装分、装备图标和奇穴图标。
+
+2026-04-30 只读抽样观察：
+
+- 当前集合文档数约 341，逻辑大小约 20.45 MB，平均每局约 60 KB；WiredTiger 压缩后集合存储约 7.0 MB，索引约 80 KB。
+- 顺序采样 80 局显示单局 BSON 大小约 51-61 KB，3v3 对局固定 6 名玩家。
+- 主要体积来自玩家装备与奇穴：`armors` 平均约 4.1 KB/玩家，`talents` 平均约 3.1 KB/玩家，`metrics` 平均约 1.1 KB/玩家，`body_qualities` 平均约 1.0 KB/玩家。
+- 因用户希望保留字段完整性，本集合后续优化优先考虑拆表与去重，不以字段裁剪作为默认方向。
+
+后续演进约束：
+
+- 历史对局详情是“对局当时快照”，不要直接改成从角色当前画像表读取装备、奇穴、分数等动态状态，否则会把历史对局展示成当前角色状态。
+- 可以把角色身份字段（如 `global_role_id`、`role_id`、`person_id`、服务器、角色名）与已有 `role_identities` 关联，但对局时的 `kungfu`、`mmr`、`score`、`total_score`、`equip_score`、`max_hp`、`mvp`、`fight_seconds` 等仍属于对局快照。
+- 第一阶段拆表已完成：`jjc_equipment_snapshot` 保存完整 `armors` 数组，`jjc_talent_snapshot` 保存完整 `talents` 数组，`jjc_match_detail` 的玩家节点保存对应 `*_snapshot_hash`。读取详情时由 `JjcInspectRepo` 批量查快照并拼回原 API 结构。迁移脚本为 `scripts/migrate_jjc_match_detail_snapshots.py`。后续如需统计能力再建事实表。
+- `snapshot_hash` 必须基于规范化后的完整数组生成：装备按稳定字段（优先 `pos`，再 `ui_id`/`name`）排序，奇穴按稳定字段（优先 `level`，再 `id`/`name`）排序，JSON 序列化使用固定 key 顺序和固定分隔符。迁移脚本必须幂等。
+- 后续若需要“点了某个奇穴的对局数”“有 CW 的对局数”等统计，可在 snapshot 表补充可查询索引字段（如 `talent_ids`、`talent_names`、`item_ui_ids`、`item_names`、`has_cw`），或再建 `jjc_match_player_fact` 事实表。事实表应视为可重建的查询索引，不应替代完整详情与快照源数据。
+- 若大量爬取导致热表继续增长，应考虑冷热分层：热集合保留近期可快速查询结构，归档集合或对象存储保留完整历史详情。无论是否归档，`match_id` 仍是幂等主键。
+
+计划文档：`docs/exec-plans/active/jjc-match-detail-storage-plan.md`。
+
+### `jjc_equipment_snapshot`
+
+用途：保存完整装备快照，按内容 hash 去重。与 `jjc_match_detail` 解耦，避免每场对局重复存储相同装备数组。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_match_snapshot_repo.py`
+- 迁移脚本：`scripts/migrate_jjc_match_detail_snapshots.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `snapshot_hash` | string | 规范化 `armors` 数组后的 SHA-256 内容 hash，业务唯一 |
+| `armors` | array | 完整装备数组，不裁剪字段 |
+| `created_at` | datetime | 首次写入时间 |
+| `last_seen_at` | datetime | 最近一次被对局引用的时间 |
+| `schema_version` | int | schema 版本，初始为 1 |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_snapshot_hash` | `snapshot_hash` | unique |
+| `idx_last_seen_at` | `last_seen_at` | 普通索引 |
+
+### `jjc_talent_snapshot`
+
+用途：保存完整奇穴快照，按内容 hash 去重。与 `jjc_match_detail` 解耦，避免每场对局重复存储相同奇穴数组。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_match_snapshot_repo.py`
+- 迁移脚本：`scripts/migrate_jjc_match_detail_snapshots.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `snapshot_hash` | string | 规范化 `talents` 数组后的 SHA-256 内容 hash，业务唯一 |
+| `talents` | array | 完整奇穴数组，不裁剪字段 |
+| `created_at` | datetime | 首次写入时间 |
+| `last_seen_at` | datetime | 最近一次被对局引用的时间 |
+| `schema_version` | int | schema 版本，初始为 1 |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_snapshot_hash` | `snapshot_hash` | unique |
+| `idx_last_seen_at` | `last_seen_at` | 普通索引 |
 
 ## 文件型持久化与非 Mongo 数据
 
@@ -406,3 +499,4 @@
 | `scripts/migrate_jjc_role_recent.py` | `data/cache/jjc_ranking_inspect/role_recent/` | `jjc_role_recent` | `server`, `name` |
 | `scripts/migrate_jjc_match_detail.py` | `data/cache/jjc_ranking_inspect/match_detail/` | `jjc_match_detail` | `match_id` |
 | `scripts/migrate_role_identity_and_jjc_cache.py` | `kungfu_cache` | `role_identities`, `role_jjc_cache` | `identity_key` |
+| `scripts/migrate_jjc_match_detail_snapshots.py` | `jjc_match_detail` | `jjc_equipment_snapshot`, `jjc_talent_snapshot` | `snapshot_hash` (内容 hash) |
