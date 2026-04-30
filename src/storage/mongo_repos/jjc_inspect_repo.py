@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -19,7 +19,7 @@ from src.storage.mongo_repos.jjc_match_snapshot_repo import JjcMatchSnapshotRepo
 @dataclass(frozen=True)
 class JjcInspectRepo:
     db: Optional[AsyncIOMotorDatabase] = None
-    snapshot_repo: Optional[JjcMatchSnapshotRepo] = None
+    snapshot_repo: JjcMatchSnapshotRepo = field(default_factory=JjcMatchSnapshotRepo)
 
     async def load_role_recent(self, server: str, name: str, *, ttl_seconds: int) -> Optional[dict[str, Any]]:
         db = self.db if self.db is not None else _get_db()
@@ -93,7 +93,7 @@ class JjcInspectRepo:
     async def _hydrate_match_detail(self, doc: dict[str, Any], match_id: int) -> None:
         """Fill players_info[].armors/talents from snapshot hashes in-place.
 
-        Old-format players that already have armors/talents fields are left unchanged.
+        Always uses equipment_snapshot_hash/talent_snapshot_hash to hydrate.
         Missing snapshots yield empty arrays with a warning instead of failing the match.
         """
         if self.snapshot_repo is None:
@@ -118,14 +118,12 @@ class JjcInspectRepo:
             for player in players:
                 if not isinstance(player, dict):
                     continue
-                if "armors" not in player:
-                    h = player.get("equipment_snapshot_hash")
-                    if isinstance(h, str) and h:
-                        equip_hashes.add(h)
-                if "talents" not in player:
-                    h = player.get("talent_snapshot_hash")
-                    if isinstance(h, str) and h:
-                        talent_hashes.add(h)
+                h = player.get("equipment_snapshot_hash")
+                if isinstance(h, str) and h:
+                    equip_hashes.add(h)
+                h = player.get("talent_snapshot_hash")
+                if isinstance(h, str) and h:
+                    talent_hashes.add(h)
 
         equip_snapshots = await self.snapshot_repo.load_equipment_snapshots(list(equip_hashes)) if equip_hashes else {}
         talent_snapshots = await self.snapshot_repo.load_talent_snapshots(list(talent_hashes)) if talent_hashes else {}
@@ -140,24 +138,26 @@ class JjcInspectRepo:
             for player in players:
                 if not isinstance(player, dict):
                     continue
-                if "armors" not in player:
-                    h = player.get("equipment_snapshot_hash")
-                    if isinstance(h, str) and h:
-                        snap = equip_snapshots.get(h)
-                        if snap is not None:
-                            player["armors"] = snap.get("armors", [])
-                        else:
-                            logger.warning(f"装备快照缺失: match_id={match_id} equipment_snapshot_hash={h}")
-                            player["armors"] = []
-                if "talents" not in player:
-                    h = player.get("talent_snapshot_hash")
-                    if isinstance(h, str) and h:
-                        snap = talent_snapshots.get(h)
-                        if snap is not None:
-                            player["talents"] = snap.get("talents", [])
-                        else:
-                            logger.warning(f"奇穴快照缺失: match_id={match_id} talent_snapshot_hash={h}")
-                            player["talents"] = []
+                player.pop("armors", None)
+                player.pop("talents", None)
+
+                h = player.get("equipment_snapshot_hash")
+                if isinstance(h, str) and h:
+                    snap = equip_snapshots.get(h)
+                    if snap is not None:
+                        player["armors"] = snap.get("armors", [])
+                    else:
+                        logger.warning(f"装备快照缺失: match_id={match_id} equipment_snapshot_hash={h}")
+                        player["armors"] = []
+
+                h = player.get("talent_snapshot_hash")
+                if isinstance(h, str) and h:
+                    snap = talent_snapshots.get(h)
+                    if snap is not None:
+                        player["talents"] = snap.get("talents", [])
+                    else:
+                        logger.warning(f"奇穴快照缺失: match_id={match_id} talent_snapshot_hash={h}")
+                        player["talents"] = []
 
     async def _extract_snapshots(self, data: dict[str, Any], cached_at: Optional[float] = None) -> None:
         """For each player with armors/talents, save to snapshot collections and replace with hashes.

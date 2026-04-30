@@ -49,51 +49,8 @@ def _build_repo(db=None, snapshot_repo=None):
 
 
 # ---------------------------------------------------------------------------
-# Stage 3: read hydration
+# Read hydration
 # ---------------------------------------------------------------------------
-
-
-class TestLoadMatchDetailOldStructure(unittest.IsolatedAsyncioTestCase):
-    """Old-format players with armors/talents are left unchanged."""
-
-    async def test_old_structure_unchanged(self):
-        player = _make_player(kungfu="冰心诀", armors=[{"pos": 1, "name": "破军"}], talents=[{"level": 1, "name": "奇穴一"}])
-        doc = _make_match_detail_doc(100, {"team1": _make_team([player])})
-        db = _mock_db()
-        db.jjc_match_detail.find_one.return_value = doc
-
-        snapshot_repo = MagicMock()
-        snapshot_repo.load_equipment_snapshots = AsyncMock()
-        snapshot_repo.load_talent_snapshots = AsyncMock()
-
-        repo = _build_repo(db=db, snapshot_repo=snapshot_repo)
-        result = await repo.load_match_detail(100)
-
-        assert result is not None
-        hydrated = result["data"]["detail"]["team1"]["players_info"][0]
-        self.assertEqual(hydrated["armors"], [{"pos": 1, "name": "破军"}])
-        self.assertEqual(hydrated["talents"], [{"level": 1, "name": "奇穴一"}])
-        # No snapshot queries should fire for old-format players
-        snapshot_repo.load_equipment_snapshots.assert_not_called()
-        snapshot_repo.load_talent_snapshots.assert_not_called()
-
-    async def test_old_structure_with_no_talents(self):
-        player = _make_player(kungfu="冰心诀", armors=[{"pos": 1, "name": "破军"}])
-        doc = _make_match_detail_doc(101, {"team1": _make_team([player])})
-        db = _mock_db()
-        db.jjc_match_detail.find_one.return_value = doc
-
-        snapshot_repo = MagicMock()
-        snapshot_repo.load_equipment_snapshots = AsyncMock()
-        snapshot_repo.load_talent_snapshots = AsyncMock()
-
-        repo = _build_repo(db=db, snapshot_repo=snapshot_repo)
-        result = await repo.load_match_detail(101)
-
-        assert result is not None
-        hydrated = result["data"]["detail"]["team1"]["players_info"][0]
-        self.assertEqual(hydrated["armors"], [{"pos": 1, "name": "破军"}])
-        self.assertNotIn("talents", hydrated)
 
 
 class TestLoadMatchDetailHydration(unittest.IsolatedAsyncioTestCase):
@@ -123,7 +80,7 @@ class TestLoadMatchDetailHydration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hydrated["talent_snapshot_hash"], "t1")
 
     async def test_player_without_any_indicators_left_unchanged(self):
-        """Old-format player without armors/talents and without hash keys is left unchanged."""
+        """Player without snapshot hashes does not receive equipment/talent arrays."""
         player = _make_player(kungfu="冰心诀")
         doc = _make_match_detail_doc(201, {"team1": _make_team([player])})
         db = _mock_db()
@@ -218,25 +175,6 @@ class TestLoadMatchDetailSharedHashes(unittest.IsolatedAsyncioTestCase):
         snapshot_repo.load_equipment_snapshots.assert_called_once()
         args = snapshot_repo.load_equipment_snapshots.call_args[0][0]
         self.assertEqual(args, ["h_shared"])
-
-
-class TestLoadMatchDetailNoSnapshotRepo(unittest.IsolatedAsyncioTestCase):
-    """Without snapshot_repo injected, load returns docs as-is (no hydration)."""
-
-    async def test_no_snapshot_repo_returns_raw_doc(self):
-        player = _make_player(kungfu="冰心诀", equipment_snapshot_hash="h1")
-        doc = _make_match_detail_doc(500, {"team1": _make_team([player])})
-        db = _mock_db()
-        db.jjc_match_detail.find_one.return_value = doc
-
-        repo = _build_repo(db=db)
-        result = await repo.load_match_detail(500)
-
-        assert result is not None
-        hydrated = result["data"]["detail"]["team1"]["players_info"][0]
-        self.assertNotIn("armors", hydrated)
-        self.assertNotIn("talents", hydrated)
-        self.assertEqual(hydrated["equipment_snapshot_hash"], "h1")
 
 
 # ---------------------------------------------------------------------------
@@ -461,33 +399,6 @@ class TestSaveMatchDetailSnapshotFailure(unittest.IsolatedAsyncioTestCase):
             await repo.save_match_detail(801, payload)
 
         db.jjc_match_detail.update_one.assert_not_called()
-
-
-class TestSaveMatchDetailNoSnapshotRepo(unittest.IsolatedAsyncioTestCase):
-    """Without snapshot_repo, data is stored as-is (no extraction)."""
-
-    async def test_no_snapshot_repo_stores_as_is(self):
-        armors = [{"pos": 1, "name": "破军"}]
-        talents = [{"level": 1, "name": "奇穴一"}]
-        player = _make_player(kungfu="冰心诀", armors=copy.deepcopy(armors), talents=copy.deepcopy(talents))
-        payload_data = {
-            "match_id": 900,
-            "detail": {"team1": _make_team([player])},
-        }
-        payload = {"cached_at": 1234567890.0, "data": payload_data}
-
-        db = _mock_db()
-        repo = _build_repo(db=db)
-
-        await repo.save_match_detail(900, payload)
-
-        db.jjc_match_detail.update_one.assert_called_once()
-        call_args, _ = db.jjc_match_detail.update_one.call_args
-        stored_player = call_args[1]["$set"]["data"]["detail"]["team1"]["players_info"][0]
-        self.assertEqual(stored_player["armors"], armors)
-        self.assertEqual(stored_player["talents"], talents)
-        self.assertNotIn("equipment_snapshot_hash", stored_player)
-        self.assertNotIn("talent_snapshot_hash", stored_player)
 
 
 # ---------------------------------------------------------------------------
