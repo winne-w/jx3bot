@@ -187,38 +187,25 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局I
 - 截图依赖与浏览器环境是否完整
 - 相关字体或静态资源路径是否仍然存在
 
-### 8. JJC 对局详情快照迁移
+### 8. JJC 对局详情快照缓存
 
-将 `jjc_match_detail` 中玩家维度的完整 `armors`/`talents` 数组拆到 `jjc_equipment_snapshot` / `jjc_talent_snapshot` 集合，按内容 hash 去重。迁移脚本：`scripts/migrate_jjc_match_detail_snapshots.py`，优先读取环境变量 `MONGO_URI`，其次 `runtime_config.json`。
+`jjc_match_detail` 只保存对局详情主体和玩家节点中的 `equipment_snapshot_hash` / `talent_snapshot_hash`。完整 `armors` / `talents` 分别保存在 `jjc_equipment_snapshot` / `jjc_talent_snapshot`，读取时由 `JjcInspectRepo` 按 hash 拼回 API 响应。
+
+历史详情缓存不迁移；如需重建，直接清空详情和快照缓存，后续点击对局详情时重新请求外部接口并按新格式写入。
 
 ```bash
-# dry-run：只统计不写库
-python scripts/migrate_jjc_match_detail_snapshots.py --dry-run --limit 10
-python scripts/migrate_jjc_match_detail_snapshots.py --dry-run
+# dry-run：只统计，不清空
+python scripts/clear_jjc_match_detail_snapshot_cache.py
 
-# apply：执行迁移
-python scripts/migrate_jjc_match_detail_snapshots.py --apply --match-id <对局ID>
-python scripts/migrate_jjc_match_detail_snapshots.py --apply --limit 20
-python scripts/migrate_jjc_match_detail_snapshots.py --apply
+# 清空详情缓存和快照缓存
+python scripts/clear_jjc_match_detail_snapshot_cache.py --apply
 
-# verify：校验迁移结果
-python scripts/migrate_jjc_match_detail_snapshots.py --verify-only --match-id <对局ID>
-python scripts/migrate_jjc_match_detail_snapshots.py --verify-only --limit 20
-python scripts/migrate_jjc_match_detail_snapshots.py --verify-only
+# 验证最近 5 条是否按新格式保存
+python scripts/verify_jjc_match_detail_snapshot_storage.py
 
-# rollback：从备份集合恢复
-python scripts/migrate_jjc_match_detail_snapshots.py --rollback --match-id <对局ID>
-python scripts/migrate_jjc_match_detail_snapshots.py --rollback
-
-# 灰度参数
-#   --limit N              限制处理文档数
-#   --match-id ID          只处理单局
-#   --batch-size N         批处理大小，默认 100
-#   --resume-after ID      从某个 match_id 之后继续
-#   --drop-backup          清理备份集合（必须单独显式执行，不和 apply 绑定）
+# 验证指定对局
+python scripts/verify_jjc_match_detail_snapshot_storage.py --match-id <对局ID>
 ```
-
-备份集合：`jjc_match_detail_snapshot_migration_backup`（以 `match_id` unique，重复 apply 不覆盖已有备份）。
 
 ### 存储或缓存表现异常
 

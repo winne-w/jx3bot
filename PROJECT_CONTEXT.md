@@ -126,8 +126,8 @@ python -m py_compile <相关 service/storage 文件>
 - 改过 FastAPI 路由、Pydantic 会解析的函数签名或新增类型注解后，至少执行一次 `python -m py_compile <相关文件>`，重点确认没有 Python 3.9 注解兼容问题。
 - JJC 对局详情快照相关单测：
   ```bash
-  python -m unittest tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot_repo tests.test_migrate_jjc_match_detail_snapshots
-  python -m py_compile src/services/jx3/match_detail_snapshots.py src/storage/mongo_repos/jjc_match_snapshot_repo.py scripts/migrate_jjc_match_detail_snapshots.py
+  python -m unittest tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot_repo tests.test_jjc_match_detail_hydration tests.test_scripts_jjc_snapshot
+  python -m py_compile src/services/jx3/match_detail_snapshots.py src/storage/mongo_repos/jjc_match_snapshot_repo.py src/storage/mongo_repos/jjc_inspect_repo.py scripts/clear_jjc_match_detail_snapshot_cache.py scripts/verify_jjc_match_detail_snapshot_storage.py
   ```
 
 外部接口较多，很多验证依赖在线服务。无法离线证明正确时，至少补充手工回归路径。

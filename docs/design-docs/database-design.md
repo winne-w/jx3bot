@@ -387,14 +387,6 @@
 |---|---|---|
 | `players_info[].equipment_snapshot_hash` | string | 关联 `jjc_equipment_snapshot.snapshot_hash`，替代原 `armors` 数组 |
 | `players_info[].talent_snapshot_hash` | string | 关联 `jjc_talent_snapshot.snapshot_hash`，替代原 `talents` 数组 |
-| `players_info[].armors` | array | **[仅旧数据]** 未迁移文档可能仍保留完整装备数组 |
-| `players_info[].talents` | array | **[仅旧数据]** 未迁移文档可能仍保留完整奇穴数组 |
-
-文档顶层可携带：
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `snapshot_migration` | object | 迁移元数据（`version`、`migrated_at`、`equipment_snapshot_count`、`talent_snapshot_count`） |
 
 索引：
 
@@ -419,8 +411,8 @@
 
 - 历史对局详情是“对局当时快照”，不要直接改成从角色当前画像表读取装备、奇穴、分数等动态状态，否则会把历史对局展示成当前角色状态。
 - 可以把角色身份字段（如 `global_role_id`、`role_id`、`person_id`、服务器、角色名）与已有 `role_identities` 关联，但对局时的 `kungfu`、`mmr`、`score`、`total_score`、`equip_score`、`max_hp`、`mvp`、`fight_seconds` 等仍属于对局快照。
-- 第一阶段拆表已完成：`jjc_equipment_snapshot` 保存完整 `armors` 数组，`jjc_talent_snapshot` 保存完整 `talents` 数组，`jjc_match_detail` 的玩家节点保存对应 `*_snapshot_hash`。读取详情时由 `JjcInspectRepo` 批量查快照并拼回原 API 结构。迁移脚本为 `scripts/migrate_jjc_match_detail_snapshots.py`。后续如需统计能力再建事实表。
-- `snapshot_hash` 必须基于规范化后的完整数组生成：装备按稳定字段（优先 `pos`，再 `ui_id`/`name`）排序，奇穴按稳定字段（优先 `level`，再 `id`/`name`）排序，JSON 序列化使用固定 key 顺序和固定分隔符。迁移脚本必须幂等。
+- 第一阶段拆表已完成：`jjc_equipment_snapshot` 保存完整 `armors` 数组，`jjc_talent_snapshot` 保存完整 `talents` 数组，`jjc_match_detail` 的玩家节点保存对应 `*_snapshot_hash`。读取详情时由 `JjcInspectRepo` 批量查快照并拼回原 API 结构。历史详情缓存不做兼容迁移，必要时通过 `scripts/clear_jjc_match_detail_snapshot_cache.py` 清空后重新按新格式写入。
+- `snapshot_hash` 必须基于规范化后的完整数组生成：装备按稳定字段（优先 `pos`，再 `ui_id`/`name`）排序，奇穴按稳定字段（优先 `level`，再 `id`/`name`）排序，JSON 序列化使用固定 key 顺序和固定分隔符。
 - 后续若需要“点了某个奇穴的对局数”“有 CW 的对局数”等统计，可在 snapshot 表补充可查询索引字段（如 `talent_ids`、`talent_names`、`item_ui_ids`、`item_names`、`has_cw`），或再建 `jjc_match_player_fact` 事实表。事实表应视为可重建的查询索引，不应替代完整详情与快照源数据。
 - 若大量爬取导致热表继续增长，应考虑冷热分层：热集合保留近期可快速查询结构，归档集合或对象存储保留完整历史详情。无论是否归档，`match_id` 仍是幂等主键。
 
@@ -433,7 +425,6 @@
 读写归属：
 
 - `src/storage/mongo_repos/jjc_match_snapshot_repo.py`
-- 迁移脚本：`scripts/migrate_jjc_match_detail_snapshots.py`
 
 字段：
 
@@ -460,7 +451,6 @@
 读写归属：
 
 - `src/storage/mongo_repos/jjc_match_snapshot_repo.py`
-- 迁移脚本：`scripts/migrate_jjc_match_detail_snapshots.py`
 
 字段：
 
@@ -499,4 +489,3 @@
 | `scripts/migrate_jjc_role_recent.py` | `data/cache/jjc_ranking_inspect/role_recent/` | `jjc_role_recent` | `server`, `name` |
 | `scripts/migrate_jjc_match_detail.py` | `data/cache/jjc_ranking_inspect/match_detail/` | `jjc_match_detail` | `match_id` |
 | `scripts/migrate_role_identity_and_jjc_cache.py` | `kungfu_cache` | `role_identities`, `role_jjc_cache` | `identity_key` |
-| `scripts/migrate_jjc_match_detail_snapshots.py` | `jjc_match_detail` | `jjc_equipment_snapshot`, `jjc_talent_snapshot` | `snapshot_hash` (内容 hash) |
