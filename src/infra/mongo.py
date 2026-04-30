@@ -78,15 +78,11 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         try:
             await col.create_index(keys, name=name, **kwargs)
         except DuplicateKeyError:
-            logger.warning(
-                "索引创建跳过(数据冲突): collection={} index={}", collection_name, name
-            )
+            logger.warning(f"索引创建跳过(数据冲突): collection={collection_name} index={name}")
         except OperationFailure as exc:
             if "already exists" in str(exc).lower() or exc.code == 85:
                 return  # 索引已存在，正常
-            logger.warning(
-                "索引创建失败: collection={} index={} error={}", collection_name, name, exc
-            )
+            logger.warning(f"索引创建失败: collection={collection_name} index={name} error={exc}")
 
     # server_master_cache
     await _safe_index("server_master_cache", "key", name="idx_key", unique=True)

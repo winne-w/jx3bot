@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from weakref import WeakKeyDictionary
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Optional, Union
 
@@ -126,17 +127,16 @@ class JjcRankingInspectService:
     kungfu_pinyin_to_chinese: dict[str, str]
     role_recent_ttl_seconds: int = 600
     max_recent_matches: int = 20
-    _tuilan_query_locks: dict[int, asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
+    _tuilan_query_locks: WeakKeyDictionary = field(default_factory=WeakKeyDictionary, init=False, repr=False)
     _tuilan_query_locks_guard: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def _get_tuilan_query_lock(self) -> asyncio.Lock:
         loop = asyncio.get_running_loop()
-        loop_id = id(loop)
         with self._tuilan_query_locks_guard:
-            lock = self._tuilan_query_locks.get(loop_id)
+            lock = self._tuilan_query_locks.get(loop)
             if lock is None:
                 lock = asyncio.Lock()
-                self._tuilan_query_locks[loop_id] = lock
+                self._tuilan_query_locks[loop] = lock
         return lock
 
     def _translate_kungfu_name(self, value: Any) -> str:
@@ -214,28 +214,52 @@ class JjcRankingInspectService:
         name: str,
         identity_hints: dict[str, Any],
     ) -> dict[str, Any]:
-        normalized_name = _normalize_name(name)
+        """按优先级解析角色身份：role_identities → role_jjc_cache → live ranking → 旧 kungfu_cache。"""
+        display_name = _normalize_name(name)
         hint_global_role_id = _pick_str(identity_hints.get("global_role_id"))
         hint_role_id = _pick_str(identity_hints.get("role_id"))
         hint_game_role_id = _pick_str(identity_hints.get("game_role_id"))
         hint_zone = _pick_str(identity_hints.get("zone"))
 
+        # ---- 1. 前端直接传入 global_role_id ----
         if hint_global_role_id:
             logger.info("JJC 角色标识解析: 直接使用前端传入 global_role_id server={} name={}", server, name)
             return {
                 "server": server,
-                "name": normalized_name,
+                "name": display_name,
                 "global_role_id": hint_global_role_id,
                 "role_id": hint_role_id,
                 "game_role_id": hint_game_role_id or hint_role_id,
                 "zone": hint_zone,
                 "source": "detail_hint_global_role_id",
+                "identity_key": f"global:{hint_global_role_id}",
             }
 
+        # ---- 2. 有 game_role_id + zone → 先查 role_identities，再走 indicator 补 global ----
         if hint_game_role_id and hint_zone:
+            identity = await self.kungfu_cache_repo.resolve_role_identity(
+                server=server,
+                name=name,
+                zone=hint_zone,
+                game_role_id=hint_game_role_id,
+            )
+            if identity:
+                gid = _pick_str(identity.get("global_role_id"))
+                if gid:
+                    logger.info("JJC 角色标识解析: 使用 role_identities (hints) server={} name={}", server, name)
+                    return {
+                        "server": server,
+                        "name": display_name,
+                        "global_role_id": gid,
+                        "role_id": _pick_str(identity.get("role_id")) or hint_role_id,
+                        "game_role_id": _pick_str(identity.get("game_role_id")) or hint_game_role_id,
+                        "zone": _pick_str(identity.get("zone")) or hint_zone,
+                        "source": "role_identity_hint_match",
+                        "identity_key": identity.get("identity_key") or f"global:{gid}",
+                    }
             identity = await self._resolve_identity_from_indicator(
                 server=server,
-                name=normalized_name,
+                name=name,
                 game_role_id=hint_game_role_id,
                 zone=hint_zone,
                 role_id=hint_role_id,
@@ -244,34 +268,74 @@ class JjcRankingInspectService:
             if identity:
                 return identity
 
-        raw_cache = await self.kungfu_cache_repo.load_kungfu_cache_raw(server, normalized_name) or {}
-        cache_global_role_id = _pick_str(raw_cache.get("global_role_id"))
-        cache_role_id = _pick_str(raw_cache.get("role_id"))
-        cache_zone = _pick_str(raw_cache.get("zone"))
-        if cache_global_role_id:
-            logger.info("JJC 角色标识解析: 使用心法缓存 global_role_id server={} name={}", server, name)
-            return {
-                "server": server,
-                "name": normalized_name,
-                "global_role_id": cache_global_role_id,
-                "role_id": cache_role_id,
-                "game_role_id": cache_role_id,
-                "zone": cache_zone,
-                "source": "kungfu_cache_global_role_id",
-            }
+        # ---- 3. 查 role_identities 按 server + name ----
+        identity = await self.kungfu_cache_repo.resolve_role_identity(
+            server=server,
+            name=name,
+        )
+        if identity:
+            gid = _pick_str(identity.get("global_role_id"))
+            if gid:
+                logger.info("JJC 角色标识解析: 使用 role_identities (name) server={} name={}", server, name)
+                return {
+                    "server": server,
+                    "name": display_name,
+                    "global_role_id": gid,
+                    "role_id": _pick_str(identity.get("role_id")),
+                    "game_role_id": _pick_str(identity.get("game_role_id")),
+                    "zone": _pick_str(identity.get("zone")),
+                    "source": "role_identity_name_match",
+                    "identity_key": identity.get("identity_key") or f"global:{gid}",
+                }
+            z = _pick_str(identity.get("zone"))
+            grid = _pick_str(identity.get("game_role_id"))
+            if z and grid:
+                identity_result = await self._resolve_identity_from_indicator(
+                    server=server,
+                    name=name,
+                    game_role_id=grid,
+                    zone=z,
+                    role_id=_pick_str(identity.get("role_id")),
+                    source="role_identity_indicator",
+                )
+                if identity_result:
+                    return identity_result
 
-        if cache_role_id and cache_zone:
-            identity = await self._resolve_identity_from_indicator(
-                server=server,
-                name=normalized_name,
-                game_role_id=cache_role_id,
-                zone=cache_zone,
-                role_id=cache_role_id,
-                source="kungfu_cache_role_id",
-            )
-            if identity:
-                return identity
+        # ---- 4. 查新缓存 role_jjc_cache 中的身份字段 ----
+        jjc_cache = await self.kungfu_cache_repo.load_new_kungfu_cache_raw(
+            server=server,
+            name=name,
+        )
+        if jjc_cache:
+            cache_global_role_id = _pick_str(jjc_cache.get("global_role_id"))
+            cache_game_role_id = _pick_str(jjc_cache.get("game_role_id"))
+            cache_zone = _pick_str(jjc_cache.get("zone"))
+            cache_role_id = _pick_str(jjc_cache.get("role_id"))
+            if cache_global_role_id:
+                logger.info("JJC 角色标识解析: 使用新缓存 global_role_id server={} name={}", server, name)
+                return {
+                    "server": server,
+                    "name": display_name,
+                    "global_role_id": cache_global_role_id,
+                    "role_id": cache_role_id,
+                    "game_role_id": cache_game_role_id or cache_role_id,
+                    "zone": cache_zone,
+                    "source": "new_cache_global_role_id",
+                    "identity_key": jjc_cache.get("identity_key") or f"global:{cache_global_role_id}",
+                }
+            if cache_game_role_id and cache_zone:
+                identity = await self._resolve_identity_from_indicator(
+                    server=server,
+                    name=name,
+                    game_role_id=cache_game_role_id,
+                    zone=cache_zone,
+                    role_id=cache_role_id,
+                    source="new_cache_game_role_id",
+                )
+                if identity:
+                    return identity
 
+        # ---- 5. 实时排行榜查询 ----
         logger.info("等待推栏查询锁: label=live_ranking:{}:{}", server, name)
         async with self._get_tuilan_query_lock():
             logger.info("获取推栏查询锁: label=live_ranking:{}:{}", server, name)
@@ -286,7 +350,7 @@ class JjcRankingInspectService:
                 person_info = player.get("personInfo", {}) or {}
                 player_server = _pick_str(person_info.get("server"))
                 player_name = _normalize_name(_pick_str(person_info.get("roleName")))
-                if player_server != server or player_name != normalized_name:
+                if player_server != server or player_name != display_name:
                     continue
                 ranking_global_role_id = _pick_str(person_info.get("globalRoleId"))
                 ranking_game_role_id = _pick_str(person_info.get("gameRoleId"))
@@ -295,17 +359,18 @@ class JjcRankingInspectService:
                     logger.info("JJC 角色标识解析: 使用实时榜单 global_role_id server={} name={}", server, name)
                     return {
                         "server": server,
-                        "name": normalized_name,
+                        "name": display_name,
                         "global_role_id": ranking_global_role_id,
                         "role_id": ranking_game_role_id,
                         "game_role_id": ranking_game_role_id,
                         "zone": ranking_zone,
                         "source": "live_ranking_global_role_id",
+                        "identity_key": f"global:{ranking_global_role_id}",
                     }
                 if ranking_game_role_id and ranking_zone:
                     identity = await self._resolve_identity_from_indicator(
                         server=server,
-                        name=normalized_name,
+                        name=name,
                         game_role_id=ranking_game_role_id,
                         zone=ranking_zone,
                         role_id=ranking_game_role_id,
@@ -314,8 +379,38 @@ class JjcRankingInspectService:
                     if identity:
                         return identity
 
+        # ---- 6. 最后回退旧 kungfu_cache ----
+        old_doc = await self.kungfu_cache_repo.load_legacy_kungfu_cache_raw(server, name)
+        if old_doc:
+            cache_global_role_id = _pick_str(old_doc.get("global_role_id"))
+            cache_role_id = _pick_str(old_doc.get("role_id"))
+            cache_zone = _pick_str(old_doc.get("zone"))
+            if cache_global_role_id:
+                logger.info("JJC 角色标识解析: 使用旧缓存 global_role_id server={} name={}", server, name)
+                return {
+                    "server": server,
+                    "name": display_name,
+                    "global_role_id": cache_global_role_id,
+                    "role_id": cache_role_id,
+                    "game_role_id": cache_role_id,
+                    "zone": cache_zone,
+                    "source": "kungfu_cache_global_role_id",
+                    "identity_key": f"global:{cache_global_role_id}",
+                }
+            if cache_role_id and cache_zone:
+                identity = await self._resolve_identity_from_indicator(
+                    server=server,
+                    name=name,
+                    game_role_id=cache_role_id,
+                    zone=cache_zone,
+                    role_id=cache_role_id,
+                    source="kungfu_cache_role_id",
+                )
+                if identity:
+                    return identity
+
         logger.warning("JJC 角色标识解析失败: server={} name={} hints={}", server, name, identity_hints)
-        return {"error": True, "message": "role_identity_not_found", "server": server, "name": normalized_name}
+        return {"error": True, "message": "role_identity_not_found", "server": server, "name": display_name}
 
     async def _resolve_identity_from_indicator(
         self,
@@ -358,14 +453,26 @@ class JjcRankingInspectService:
                 source,
             )
             return None
+        try:
+            await self.kungfu_cache_repo.upsert_role_identity_from_indicator(
+                server=server,
+                name=name,
+                zone=zone,
+                game_role_id=game_role_id,
+                global_role_id=global_role_id,
+                role_id=resolved_role_id,
+            )
+        except Exception as exc:
+            logger.warning("JJC 角色标识解析: 写入 role_identities 失败 server={} name={} error={}", server, name, exc)
         return {
             "server": server,
-            "name": name,
+            "name": _normalize_name(name),
             "global_role_id": global_role_id,
             "role_id": resolved_role_id,
             "game_role_id": game_role_id,
             "zone": zone,
             "source": source,
+            "identity_key": f"global:{global_role_id}",
         }
 
     async def _build_role_recent_payload(self, *, server: str, name: str, identity: dict[str, Any], cursor: int = 0) -> dict[str, Any]:
@@ -497,6 +604,7 @@ class JjcRankingInspectService:
         return {
             "player": {"server": server, "name": name},
             "identity": identity,
+            "identity_key": identity.get("identity_key"),
             "pagination": {
                 "cursor": cursor,
                 "has_more": has_more,

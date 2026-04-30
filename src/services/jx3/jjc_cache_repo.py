@@ -33,6 +33,55 @@ class JjcCacheRepo:
         from src.storage.mongo_repos.role_jjc_cache_repo import RoleJjcCacheRepo
         return RoleJjcCacheRepo(db=self.db if self.db is not None else _get_db())
 
+    async def resolve_role_identity(
+        self,
+        *,
+        server: str,
+        name: str,
+        zone: Optional[str] = None,
+        game_role_id: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        identity_repo = self._get_identity_repo()
+        return await identity_repo.resolve_best_identity(
+            server=server,
+            name=name,
+            zone=zone,
+            game_role_id=game_role_id,
+        )
+
+    async def upsert_role_identity_from_indicator(
+        self,
+        *,
+        server: str,
+        name: str,
+        zone: Optional[str],
+        game_role_id: Optional[str],
+        global_role_id: Optional[str],
+        role_id: Optional[str],
+    ) -> dict[str, Any]:
+        identity_repo = self._get_identity_repo()
+        jjc_repo = self._get_jjc_cache_repo()
+        return await identity_repo.upsert_from_indicator(
+            server=server,
+            name=name,
+            zone=zone,
+            game_role_id=game_role_id,
+            global_role_id=global_role_id,
+            role_id=role_id,
+            cache_repo=jjc_repo,
+        )
+
+    async def load_new_kungfu_cache_raw(self, server: str, name: str) -> Optional[dict[str, Any]]:
+        jjc_repo = self._get_jjc_cache_repo()
+        return await jjc_repo.load_by_best_identity(server=server, name=name)
+
+    async def load_legacy_kungfu_cache_raw(self, server: str, name: str) -> Optional[dict[str, Any]]:
+        db = self.db if self.db is not None else _get_db()
+        doc = await db.kungfu_cache.find_one({"server": server, "name": name})
+        if doc is None:
+            return None
+        return dict(doc)
+
     @staticmethod
     def _new_doc_to_compat(doc: dict[str, Any]) -> dict[str, Any]:
         """将 role_jjc_cache 文档转为 kungfu_cache 兼容结构，补充 cache_time。"""
@@ -43,6 +92,46 @@ class JjcCacheRepo:
         elif "cache_time" not in result:
             result["cache_time"] = 0.0
         return result
+
+    @staticmethod
+    def _ensure_found_flag(cached_data: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if not isinstance(cached_data, dict):
+            return cached_data
+        if "found" not in cached_data:
+            cached_data["found"] = cached_data.get("kungfu") not in (None, "")
+        return cached_data
+
+    @staticmethod
+    def _summarize_cache_doc(cached_data: Optional[dict[str, Any]]) -> dict[str, Any]:
+        if not isinstance(cached_data, dict):
+            return {}
+        teammates = cached_data.get("teammates")
+        teammate_kungfu_missing = 0
+        if isinstance(teammates, list):
+            teammate_kungfu_missing = sum(
+                1
+                for item in teammates
+                if not isinstance(item, dict) or item.get("kungfu_id") in (None, "")
+            )
+        return {
+            "identity_key": cached_data.get("identity_key"),
+            "global_role_id": cached_data.get("global_role_id"),
+            "game_role_id": cached_data.get("game_role_id"),
+            "role_id": cached_data.get("role_id"),
+            "zone": cached_data.get("zone"),
+            "kungfu": cached_data.get("kungfu"),
+            "kungfu_id": cached_data.get("kungfu_id"),
+            "kungfu_indicator": cached_data.get("kungfu_indicator"),
+            "kungfu_match_history": cached_data.get("kungfu_match_history"),
+            "kungfu_selected_source": cached_data.get("kungfu_selected_source"),
+            "weapon_checked": cached_data.get("weapon_checked"),
+            "teammates_checked": cached_data.get("teammates_checked"),
+            "match_history_checked": cached_data.get("match_history_checked"),
+            "teammates_count": len(teammates) if isinstance(teammates, list) else None,
+            "teammates_missing_kungfu_id_count": teammate_kungfu_missing,
+            "cache_time": cached_data.get("cache_time"),
+            "checked_at": cached_data.get("checked_at"),
+        }
 
     def _check_freshness(
         self,
@@ -75,8 +164,13 @@ class JjcCacheRepo:
             )
             if cache_fresh:
                 logger.info(
-                    "使用心法缓存{}: server={} name={} cache_time={}",
-                    source, server, name, cache_time,
+                    "使用心法缓存{}: server={} name={} cache_time={} cache_age={} summary={}",
+                    source,
+                    server,
+                    name,
+                    cache_time,
+                    round(cache_age, 1) if cache_age is not None else None,
+                    self._summarize_cache_doc(cached_data),
                 )
                 return cached_data
 
@@ -94,13 +188,22 @@ class JjcCacheRepo:
             cache_dt = datetime.fromtimestamp(cache_time).strftime("%Y-%m-%d %H:%M:%S") if cache_time else "未知"
             reason_text = ",".join(reasons) if reasons else "unknown"
             logger.info(
-                "心法缓存不命中{}: server={} name={} cache_time={} reason={}",
-                source, server, name, cache_dt, reason_text,
+                "心法缓存不命中{}: server={} name={} cache_time={} cache_age={} reason={} summary={}",
+                source,
+                server,
+                name,
+                cache_dt,
+                round(cache_age, 1) if cache_age is not None else None,
+                reason_text,
+                self._summarize_cache_doc(cached_data),
             )
         else:
             logger.info(
-                "心法缓存不命中{}: server={} name={} reason=kungfu_empty",
-                source, server, name,
+                "心法缓存不命中{}: server={} name={} reason=kungfu_empty summary={}",
+                source,
+                server,
+                name,
+                self._summarize_cache_doc(cached_data),
             )
 
         return None
@@ -145,45 +248,69 @@ class JjcCacheRepo:
     async def load_kungfu_cache_raw(self, server: str, name: str) -> Optional[dict[str, Any]]:
         # 优先从新集合 role_jjc_cache 按 server/name 读取
         try:
-            jjc_repo = self._get_jjc_cache_repo()
-            doc = await jjc_repo.load_by_best_identity(server=server, name=name)
+            doc = await self.load_new_kungfu_cache_raw(server, name)
             if doc is not None:
-                return self._new_doc_to_compat(doc)
+                compat_doc = self._ensure_found_flag(self._new_doc_to_compat(doc))
+                logger.info(
+                    "读取心法原始缓存命中(新集合): server={} name={} summary={}",
+                    server,
+                    name,
+                    self._summarize_cache_doc(compat_doc),
+                )
+                return compat_doc
         except Exception as exc:
             logger.warning("从 role_jjc_cache 读取缓存失败，回退旧集合: {}", exc)
 
         # 回退旧 kungfu_cache
-        db = self.db if self.db is not None else _get_db()
-        doc = await db.kungfu_cache.find_one({"server": server, "name": name})
+        doc = await self.load_legacy_kungfu_cache_raw(server, name)
         if doc is None:
             return None
-        return dict(doc)
+        self._ensure_found_flag(doc)
+        logger.info(
+            "读取心法原始缓存命中(旧集合): server={} name={} summary={}",
+            server,
+            name,
+            self._summarize_cache_doc(doc),
+        )
+        return doc
 
     async def load_kungfu_cache(self, server: str, name: str) -> Optional[dict[str, Any]]:
         # 优先从新集合 role_jjc_cache 按 server/name 读取
         try:
-            jjc_repo = self._get_jjc_cache_repo()
-            doc = await jjc_repo.load_by_best_identity(server=server, name=name)
+            doc = await self.load_new_kungfu_cache_raw(server, name)
             if doc is not None:
-                cached_data = self._new_doc_to_compat(doc)
-                return self._check_freshness(cached_data, server, name, source="(新集合)")
+                cached_data = self._ensure_found_flag(self._new_doc_to_compat(doc))
+                if "found" not in doc:
+                    logger.debug(
+                        "新集合缓存缺少 found 字段，已按 kungfu 自动补齐: server={} name={} kungfu={} found={}",
+                        server,
+                        name,
+                        cached_data.get("kungfu"),
+                        cached_data.get("found"),
+                    )
+                result = self._check_freshness(cached_data, server, name, source="(新集合)")
+                if result is None:
+                    logger.info(
+                        "新集合缓存未通过 freshness 校验，准备回退旧集合: server={} name={}",
+                        server,
+                        name,
+                    )
+                return result
         except Exception as exc:
             logger.warning("从 role_jjc_cache 读取缓存失败，回退旧集合: {}", exc)
 
         # 回退旧 kungfu_cache
-        db = self.db if self.db is not None else _get_db()
-        doc = await db.kungfu_cache.find_one({"server": server, "name": name})
+        doc = await self.load_legacy_kungfu_cache_raw(server, name)
         if doc is None:
             logger.info("心法缓存未命中: server={} name={} reason=cache_miss", server, name)
             return None
 
-        cached_data = dict(doc)
+        cached_data = self._ensure_found_flag(doc)
         return self._check_freshness(cached_data, server, name, source="(旧集合)")
 
     async def save_kungfu_cache(self, server: str, name: str, result: dict[str, Any]) -> None:
         # 1) 写入新集合 role_identities + role_jjc_cache
         try:
-            identity_repo = self._get_identity_repo()
             jjc_repo = self._get_jjc_cache_repo()
 
             zone = result.get("zone")
@@ -191,14 +318,13 @@ class JjcCacheRepo:
             global_role_id = result.get("global_role_id")
             role_id = result.get("role_id")
 
-            identity = await identity_repo.upsert_from_indicator(
+            identity = await self.upsert_role_identity_from_indicator(
                 server=server,
                 name=name,
                 zone=zone,
                 game_role_id=game_role_id,
                 global_role_id=global_role_id,
                 role_id=role_id,
-                cache_repo=jjc_repo,
             )
             identity_key = identity["identity_key"]
 
@@ -217,6 +343,7 @@ class JjcCacheRepo:
             ])
             cache_data["weapon_checked"] = result.get("weapon_checked", False)
             cache_data["teammates_checked"] = result.get("teammates_checked", False)
+            cache_data["found"] = result.get("found", result.get("kungfu") not in (None, ""))
             if "match_history_checked" in result:
                 cache_data["match_history_checked"] = result["match_history_checked"]
             if "match_history_win_samples" in result:
