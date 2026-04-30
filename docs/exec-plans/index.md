@@ -7,6 +7,7 @@
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/found-field-deprecation-plan.md`: `found` 字段降级与 `kungfu` 主判定改造计划
 - `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
+- `active/jjc-match-data-sync-plan.md`: JJC 官方接口对局数据同步、QQ 管理入口、时间水位续拉与重启恢复计划
 
 ## Completed
 
