@@ -161,9 +161,9 @@
 
 说明：repo 内部也会按 `ttl_seconds` 主动判断过期并删除；TTL 索引因字段类型为 int 不可靠，只作兜底意图声明。若长期保留本集合，应补 `cached_at_dt`（Date 类型）用于真实 TTL。
 
-### `kungfu_cache` **[LEGACY — 运行时已移除]**
+### `kungfu_cache` **[LEGACY — 已删除]**
 
-> **状态**：本集合已被 `role_identities` + `role_jjc_cache` 替代。运行时代码已不再读写本集合，仅保留历史数据与迁移脚本参考；新代码不应再直接依赖本集合。
+> **状态**：本集合已被 `role_identities` + `role_jjc_cache` 替代。运行时代码已移除对本集合的依赖，且历史 `kungfu_cache` 集合已于 2026-04-30 从 MongoDB 删除（删除前文档数 11474）。新代码不应再直接依赖本集合。
 
 用途：JJC 排名中角色心法、武器和队友心法判断缓存，替代旧 `data/cache/kungfu/*.json`。以 `server + name` 为唯一键，但该键不是永久身份主键——同一角色改名/转服后会产生新记录，同一角色也可能因来源不同存在多条记录。
 
@@ -199,7 +199,7 @@
 
 - 迁移脚本：`scripts/migrate_role_identity_and_jjc_cache.py`，支持 dry-run / `--apply` / `--limit`，幂等。
 - 运行时业务已不再回退本集合；新集合 miss 时直接查外部接口并回写 `role_identities` / `role_jjc_cache`。
-- 本集合当前仅作为历史数据保留，是否 drop 由后续运维清理策略决定。
+- 本集合已完成历史清理；迁移脚本仍保留用于审计和历史参考。
 
 ### `role_identities`
 
