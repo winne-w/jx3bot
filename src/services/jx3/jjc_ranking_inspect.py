@@ -214,7 +214,7 @@ class JjcRankingInspectService:
         name: str,
         identity_hints: dict[str, Any],
     ) -> dict[str, Any]:
-        """按优先级解析角色身份：role_identities → role_jjc_cache → live ranking → 旧 kungfu_cache。"""
+        """按优先级解析角色身份：role_identities → role_jjc_cache → live ranking。"""
         display_name = _normalize_name(name)
         hint_global_role_id = _pick_str(identity_hints.get("global_role_id"))
         hint_role_id = _pick_str(identity_hints.get("role_id"))
@@ -378,36 +378,6 @@ class JjcRankingInspectService:
                     )
                     if identity:
                         return identity
-
-        # ---- 6. 最后回退旧 kungfu_cache ----
-        old_doc = await self.kungfu_cache_repo.load_legacy_kungfu_cache_raw(server, name)
-        if old_doc:
-            cache_global_role_id = _pick_str(old_doc.get("global_role_id"))
-            cache_role_id = _pick_str(old_doc.get("role_id"))
-            cache_zone = _pick_str(old_doc.get("zone"))
-            if cache_global_role_id:
-                logger.info("JJC 角色标识解析: 使用旧缓存 global_role_id server={} name={}", server, name)
-                return {
-                    "server": server,
-                    "name": display_name,
-                    "global_role_id": cache_global_role_id,
-                    "role_id": cache_role_id,
-                    "game_role_id": cache_role_id,
-                    "zone": cache_zone,
-                    "source": "kungfu_cache_global_role_id",
-                    "identity_key": f"global:{cache_global_role_id}",
-                }
-            if cache_role_id and cache_zone:
-                identity = await self._resolve_identity_from_indicator(
-                    server=server,
-                    name=name,
-                    game_role_id=cache_role_id,
-                    zone=cache_zone,
-                    role_id=cache_role_id,
-                    source="kungfu_cache_role_id",
-                )
-                if identity:
-                    return identity
 
         logger.warning("JJC 角色标识解析失败: server={} name={} hints={}", server, name, identity_hints)
         return {"error": True, "message": "role_identity_not_found", "server": server, "name": display_name}
