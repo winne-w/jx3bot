@@ -1,6 +1,6 @@
 # 运行与回归手册
 
-更新时间：2026-03-09
+更新时间：2026-04-30
 
 本文面向维护者和 agent，记录当前仓库可执行的启动方式、验证命令和常见排查路径。
 
@@ -186,6 +186,39 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局I
 - `mpimg/` 是否可写
 - 截图依赖与浏览器环境是否完整
 - 相关字体或静态资源路径是否仍然存在
+
+### 8. JJC 对局详情快照迁移
+
+将 `jjc_match_detail` 中玩家维度的完整 `armors`/`talents` 数组拆到 `jjc_equipment_snapshot` / `jjc_talent_snapshot` 集合，按内容 hash 去重。迁移脚本：`scripts/migrate_jjc_match_detail_snapshots.py`，优先读取环境变量 `MONGO_URI`，其次 `runtime_config.json`。
+
+```bash
+# dry-run：只统计不写库
+python scripts/migrate_jjc_match_detail_snapshots.py --dry-run --limit 10
+python scripts/migrate_jjc_match_detail_snapshots.py --dry-run
+
+# apply：执行迁移
+python scripts/migrate_jjc_match_detail_snapshots.py --apply --match-id <对局ID>
+python scripts/migrate_jjc_match_detail_snapshots.py --apply --limit 20
+python scripts/migrate_jjc_match_detail_snapshots.py --apply
+
+# verify：校验迁移结果
+python scripts/migrate_jjc_match_detail_snapshots.py --verify-only --match-id <对局ID>
+python scripts/migrate_jjc_match_detail_snapshots.py --verify-only --limit 20
+python scripts/migrate_jjc_match_detail_snapshots.py --verify-only
+
+# rollback：从备份集合恢复
+python scripts/migrate_jjc_match_detail_snapshots.py --rollback --match-id <对局ID>
+python scripts/migrate_jjc_match_detail_snapshots.py --rollback
+
+# 灰度参数
+#   --limit N              限制处理文档数
+#   --match-id ID          只处理单局
+#   --batch-size N         批处理大小，默认 100
+#   --resume-after ID      从某个 match_id 之后继续
+#   --drop-backup          清理备份集合（必须单独显式执行，不和 apply 绑定）
+```
+
+备份集合：`jjc_match_detail_snapshot_migration_backup`（以 `match_id` unique，重复 apply 不覆盖已有备份）。
 
 ### 存储或缓存表现异常
 
