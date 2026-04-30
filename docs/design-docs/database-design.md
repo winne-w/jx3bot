@@ -161,17 +161,16 @@
 
 说明：repo 内部也会按 `ttl_seconds` 主动判断过期并删除；TTL 索引因字段类型为 int 不可靠，只作兜底意图声明。若长期保留本集合，应补 `cached_at_dt`（Date 类型）用于真实 TTL。
 
-### `kungfu_cache` **[LEGACY — 计划废弃]**
+### `kungfu_cache` **[LEGACY — 运行时已移除]**
 
-> **状态**：本集合已被 `role_identities` + `role_jjc_cache` 替代，不再作为主写目标。短期内保留读回退兼容，待全量迁移与灰度验证完成后废弃。新代码不应再直接读写本集合。
+> **状态**：本集合已被 `role_identities` + `role_jjc_cache` 替代。运行时代码已不再读写本集合，仅保留历史数据与迁移脚本参考；新代码不应再直接依赖本集合。
 
 用途：JJC 排名中角色心法、武器和队友心法判断缓存，替代旧 `data/cache/kungfu/*.json`。以 `server + name` 为唯一键，但该键不是永久身份主键——同一角色改名/转服后会产生新记录，同一角色也可能因来源不同存在多条记录。
 
-读写归属：
+历史归属：
 
-- `src/services/jx3/jjc_cache_repo.py`
-- 心法解析逻辑：`src/services/jx3/kungfu.py`
-- 迁移脚本：`scripts/migrate_kungfu_cache.py`
+- 历史心法解析逻辑：`src/services/jx3/kungfu.py`
+- 历史迁移脚本：`scripts/migrate_kungfu_cache.py`
 
 字段：
 
@@ -199,8 +198,8 @@
 迁移到新集合的说明：
 
 - 迁移脚本：`scripts/migrate_role_identity_and_jjc_cache.py`，支持 dry-run / `--apply` / `--limit`，幂等。
-- 迁移时勿删除本集合；业务读路径应优先查新集合，miss 后回退本集合。
-- 迁移完成后经至少一个观察周期再评估是否 drop 本集合及其迁移脚本。
+- 运行时业务已不再回退本集合；新集合 miss 时直接查外部接口并回写 `role_identities` / `role_jjc_cache`。
+- 本集合当前仅作为历史数据保留，是否 drop 由后续运维清理策略决定。
 
 ### `role_identities`
 
@@ -407,4 +406,3 @@
 | `scripts/migrate_jjc_role_recent.py` | `data/cache/jjc_ranking_inspect/role_recent/` | `jjc_role_recent` | `server`, `name` |
 | `scripts/migrate_jjc_match_detail.py` | `data/cache/jjc_ranking_inspect/match_detail/` | `jjc_match_detail` | `match_id` |
 | `scripts/migrate_role_identity_and_jjc_cache.py` | `kungfu_cache` | `role_identities`, `role_jjc_cache` | `identity_key` |
-

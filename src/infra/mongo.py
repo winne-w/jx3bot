@@ -91,12 +91,6 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     # status_cache
     await _safe_index("status_cache", "cache_name", name="idx_cache_name", unique=True)
 
-    # kungfu_cache
-    await _safe_index(
-        "kungfu_cache", [("server", 1), ("name", 1)], name="idx_server_name", unique=True
-    )
-    await _safe_index("kungfu_cache", "cache_time", name="idx_cache_time", expireAfterSeconds=604800)
-
     # jjc_role_recent
     await _safe_index(
         "jjc_role_recent", [("server", 1), ("name", 1)], name="idx_server_name", unique=True

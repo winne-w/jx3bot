@@ -75,16 +75,9 @@ class JjcCacheRepo:
         jjc_repo = self._get_jjc_cache_repo()
         return await jjc_repo.load_by_best_identity(server=server, name=name)
 
-    async def load_legacy_kungfu_cache_raw(self, server: str, name: str) -> Optional[dict[str, Any]]:
-        db = self.db if self.db is not None else _get_db()
-        doc = await db.kungfu_cache.find_one({"server": server, "name": name})
-        if doc is None:
-            return None
-        return dict(doc)
-
     @staticmethod
     def _new_doc_to_compat(doc: dict[str, Any]) -> dict[str, Any]:
-        """将 role_jjc_cache 文档转为 kungfu_cache 兼容结构，补充 cache_time。"""
+        """将 role_jjc_cache 文档转为当前服务兼容结构，补充 cache_time。"""
         result = dict(doc)
         checked_at = result.get("checked_at")
         if isinstance(checked_at, datetime):
@@ -246,7 +239,6 @@ class JjcCacheRepo:
     # ---- 心法/JJC 角色缓存 (灰度接入新集合) ----
 
     async def load_kungfu_cache_raw(self, server: str, name: str) -> Optional[dict[str, Any]]:
-        # 优先从新集合 role_jjc_cache 按 server/name 读取
         try:
             doc = await self.load_new_kungfu_cache_raw(server, name)
             if doc is not None:
@@ -259,23 +251,11 @@ class JjcCacheRepo:
                 )
                 return compat_doc
         except Exception as exc:
-            logger.warning("从 role_jjc_cache 读取缓存失败，回退旧集合: {}", exc)
-
-        # 回退旧 kungfu_cache
-        doc = await self.load_legacy_kungfu_cache_raw(server, name)
-        if doc is None:
-            return None
-        self._ensure_found_flag(doc)
-        logger.info(
-            "读取心法原始缓存命中(旧集合): server={} name={} summary={}",
-            server,
-            name,
-            self._summarize_cache_doc(doc),
-        )
-        return doc
+            logger.warning("从 role_jjc_cache 读取原始缓存失败: {}", exc)
+        logger.info("心法原始缓存未命中新集合: server={} name={}", server, name)
+        return None
 
     async def load_kungfu_cache(self, server: str, name: str) -> Optional[dict[str, Any]]:
-        # 优先从新集合 role_jjc_cache 按 server/name 读取
         try:
             doc = await self.load_new_kungfu_cache_raw(server, name)
             if doc is not None:
@@ -291,25 +271,21 @@ class JjcCacheRepo:
                 result = self._check_freshness(cached_data, server, name, source="(新集合)")
                 if result is None:
                     logger.info(
-                        "新集合缓存未通过 freshness 校验，准备回退旧集合: server={} name={}",
+                        "新集合缓存未通过 freshness 校验: server={} name={}",
                         server,
                         name,
                     )
-                return result
+                    return None
+                else:
+                    return result
         except Exception as exc:
-            logger.warning("从 role_jjc_cache 读取缓存失败，回退旧集合: {}", exc)
-
-        # 回退旧 kungfu_cache
-        doc = await self.load_legacy_kungfu_cache_raw(server, name)
-        if doc is None:
-            logger.info("心法缓存未命中: server={} name={} reason=cache_miss", server, name)
+            logger.warning("从 role_jjc_cache 读取缓存失败: {}", exc)
             return None
 
-        cached_data = self._ensure_found_flag(doc)
-        return self._check_freshness(cached_data, server, name, source="(旧集合)")
+        logger.info("心法缓存未命中新集合: server={} name={} reason=cache_miss", server, name)
+        return None
 
     async def save_kungfu_cache(self, server: str, name: str, result: dict[str, Any]) -> None:
-        # 1) 写入新集合 role_identities + role_jjc_cache
         try:
             jjc_repo = self._get_jjc_cache_repo()
 
@@ -355,22 +331,7 @@ class JjcCacheRepo:
                 server, name, identity_key,
             )
         except Exception as exc:
-            logger.warning(
-                "写入新集合 (role_identities / role_jjc_cache) 失败，继续旧集合 shadow write: {}",
-                exc,
-            )
-
-        # 2) 旧 kungfu_cache shadow write (保留)
-        db = self.db if self.db is not None else _get_db()
-        try:
-            await db.kungfu_cache.update_one(
-                {"server": server, "name": name},
-                {"$set": {**result, "cache_time": result.get("cache_time", time.time())}},
-                upsert=True,
-            )
-            logger.info("心法信息已更新缓存到 MongoDB: server={} name={}", server, name)
-        except Exception as exc:
-            logger.warning("保存心法缓存失败: server={} name={} error={}", server, name, exc)
+            logger.warning("写入新集合 (role_identities / role_jjc_cache) 失败: {}", exc)
 
 
 def _copy_if_present(src: dict[str, Any], dst: dict[str, Any], keys: list) -> None:
