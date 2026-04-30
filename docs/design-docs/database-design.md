@@ -478,6 +478,18 @@
 - `data/jjc_ranking_stats/<timestamp>/summary.json` 与 `details/`: JJC 统计产物，属于文件型统计快照，不在 Mongo 中。
 - `data/baizhan_images/baizhan_data.json`、图片缓存和 `mpimg/`: 静态或缓存资源。
 
+## 已清理的未使用 Mongo 集合
+
+2026-04-30 按当前代码引用、`src/infra/mongo.py:_ensure_indexes()` 和本文集合设计核对，以下 MongoDB 集合不属于运行时代码访问边界，已从配置库 `jx3bot` 删除：
+
+| 集合 | 删除前文档数 | 清理原因 |
+|---|---:|---|
+| `cache_entries` | 9 | 未在当前代码、迁移脚本或数据库设计中引用 |
+| `group_reminders` | 0 | 历史提醒集合名；当前使用 `reminders` |
+| `jjc_kungfu_cache` | 0 | 历史/临时集合名；当前 JJC 角色缓存使用 `role_identities` 与 `role_jjc_cache` |
+| `jjc_match_detail_snapshot_migration_backup` | 0 | 临时备份集合，当前代码无引用 |
+| `jjc_ranking_stats` | 1 | Mongo 集合无运行时代码引用；当前 JJC 统计快照写入 `data/jjc_ranking_stats/` 文件目录 |
+
 ## 历史迁移脚本
 
 | 脚本 | 源数据 | 目标集合 | 幂等键 |
