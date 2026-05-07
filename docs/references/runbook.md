@@ -1,6 +1,6 @@
 # 运行与回归手册
 
-更新时间：2026-05-06
+更新时间：2026-05-07
 
 本文面向维护者和 agent，记录当前仓库可执行的启动方式、验证命令和常见排查路径。
 
@@ -158,8 +158,9 @@ python test_tuilan_match_history.py
 - `/jjc同步开始` 只触发一轮同步，不会启动常驻任务
 - 角色缺少 `global_role_id` 且队列中已有 `person_id` 时，同步前会先调用推栏 `mine/match/person-history` 补全；补全失败再走现有角色身份解析链路
 - 同步详情应写入现有 `jjc_match_detail`，并从详情玩家回填 `jjc_sync_role_queue`；详情玩家缺 `global_role_id` 但有 `person_id` 时，会尝试通过 `person-history` 补齐后再入队
+- 单条详情临时失败不会中断当前角色同步，`/jjc同步开始` 输出中的 `详情失败` 表示对局详情已写入失败状态并等待 `detail_retry_after` 后重试
+- 推栏返回 `code=-1`、`msg=no data found`、`data=null` 时，对局写入 `detail_unavailable` 终态；`/jjc同步开始` 输出中的 `详情不可用` 表示后续不会重复请求该对局详情
 - 若状态中最近错误出现 `role_identity_not_found` 或缺少 `global_role_id`，优先用带 `global_role_id=...` 的添加命令补充身份
-- 若状态中最近错误出现 `match_detail_failed:<match_id>`，说明该角色本轮水位未推进；排查详情接口或缓存写入后可再次执行 `/jjc同步开始`
 - 若服务中断后状态长期存在 `syncing` 或 `detail_syncing`，再次执行 `/jjc同步开始` 会先恢复过期租约再领取角色
 
 离线自动验证：
@@ -170,7 +171,7 @@ python -m unittest tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot
 python -m py_compile src/services/jx3/jjc_match_data_sync.py src/storage/mongo_repos/jjc_sync_repo.py src/plugins/jx3bot_handlers/jjc_match_data_sync.py src/infra/mongo.py
 ```
 
-在线手工回归需要真实 QQ/推栏环境：先 `/jjc同步添加 <服务器> <角色名>`，再 `/jjc同步状态`、`/jjc同步开始 incremental`、`/jjc同步状态`，确认角色被领取、对局详情写入、失败时水位不推进。
+在线手工回归需要真实 QQ/推栏环境：先 `/jjc同步添加 <服务器> <角色名>`，再 `/jjc同步状态`、`/jjc同步开始 incremental`、`/jjc同步状态`，确认角色被领取、对局详情写入、单条详情失败时仍继续处理后续对局和后续页。
 
 ### 6. 资历 / 百战 / 骗子查询
 
@@ -204,6 +205,7 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局I
 - `details` 接口可按需返回单个心法成员明细
 - 统计页点击角色时可按需返回最近 33 胜负和最近对局列表
 - 统计页点击对局时可按需返回单局详情
+- 不可用对局详情返回 `unavailable=true`、`code=-1`、`message=no data found`、`detail=null`，统计页应显示“该对局查询不到数据”
 
 ## 故障排查
 

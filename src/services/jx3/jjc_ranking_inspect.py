@@ -614,6 +614,18 @@ class JjcRankingInspectService:
         )
         if not isinstance(detail, MatchDetailResponse):
             return {"error": True, "message": "invalid_response"}
+        if detail.code == -1 and detail.msg.strip() == "no data found" and detail.data is None:
+            payload: dict[str, Any] = {
+                "match_id": normalized_match_id,
+                "unavailable": True,
+                "code": -1,
+                "message": "no data found",
+                "detail": None,
+            }
+            cached_at = time.time()
+            await self.cache_repo.save_match_detail(normalized_match_id, {"cached_at": cached_at, "data": payload})
+            payload["cache"] = {"hit": False, "cached_at": cached_at}
+            return payload
         if detail.code != 0 or not detail.data:
             return {"error": True, "message": detail.msg or "unknown_error", "code": detail.code}
 

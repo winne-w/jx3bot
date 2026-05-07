@@ -552,7 +552,16 @@ class JjcSyncRepo:
         doc = await db.jjc_sync_match_seen.find_one_and_update(
             filter={
                 "match_id": _match_id,
-                "status": {"$in": ["discovered", "failed"]},
+                "$or": [
+                    {"status": "discovered"},
+                    {
+                        "status": "failed",
+                        "$or": [
+                            {"detail_retry_after": None},
+                            {"detail_retry_after": {"$lte": now}},
+                        ],
+                    },
+                ],
             },
             update={"$set": {
                 "status": "detail_syncing",
@@ -603,6 +612,48 @@ class JjcSyncRepo:
             )
             return False
 
+    async def mark_match_detail_unavailable(
+        self,
+        match_id: Union[int, str],
+        reason: str = '',
+        code: Union[int, str] = 0,
+    ) -> bool:
+        """标记对局详情不可用（如接口返回 code!=0 的确定性不可用）。
+
+        更新 status='detail_unavailable'，写入不可用原因和代码，
+        清除租约和重试字段。
+        成功写入返回 True，match_id 无法转为 int 或写入异常时返回 False。
+        """
+        _match_id = self._coerce_int(match_id)
+        if _match_id is None:
+            return False
+
+        _code = self._coerce_int(code)
+        db = self._db()
+        now = time.time()
+
+        try:
+            await db.jjc_sync_match_seen.update_one(
+                {"match_id": _match_id},
+                {"$set": {
+                    "status": "detail_unavailable",
+                    "detail_unavailable_reason": reason,
+                    "detail_unavailable_code": _code,
+                    "detail_unavailable_at": now,
+                    "lease_owner": None,
+                    "lease_expires_at": None,
+                    "detail_retry_after": None,
+                    "updated_at": now,
+                }},
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "标记对局详情不可用失败: match_id={} error={}",
+                _match_id, exc,
+            )
+            return False
+
     async def mark_match_detail_failed(
         self,
         match_id: Union[int, str],
@@ -610,7 +661,9 @@ class JjcSyncRepo:
     ) -> bool:
         """标记对局详情同步失败。
 
-        更新 status='failed'，累加 fail_count，清除租约。
+        更新 status='failed'，累加 fail_count，按递增退避策略设置 detail_retry_after：
+        fail_count=1 → 5min, 2 → 30min, 3 → 2h, >=4 → 6h（封顶）。
+        清除租约。
         成功写入返回 True，match_id 无法转为 int 或写入异常时返回 False。
         """
         _match_id = self._coerce_int(match_id)
@@ -628,13 +681,26 @@ class JjcSyncRepo:
         if existing is not None:
             current_fail_count = existing.get("fail_count", 0) or 0
 
+        new_fail_count = current_fail_count + 1
+
+        # 递增退避：1=5min, 2=30min, 3=2h, 4+=6h（封顶）
+        if new_fail_count <= 1:
+            retry_delay = 300
+        elif new_fail_count == 2:
+            retry_delay = 1800
+        elif new_fail_count == 3:
+            retry_delay = 7200
+        else:
+            retry_delay = 21600
+
         try:
             await db.jjc_sync_match_seen.update_one(
                 {"match_id": _match_id},
                 {"$set": {
                     "status": "failed",
-                    "fail_count": current_fail_count + 1,
+                    "fail_count": new_fail_count,
                     "last_error": error_message,
+                    "detail_retry_after": now + retry_delay,
                     "lease_owner": None,
                     "lease_expires_at": None,
                     "updated_at": now,

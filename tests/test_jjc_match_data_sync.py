@@ -28,6 +28,8 @@ class FakeRepo:
         self.roles: List[Dict[str, Any]] = []
         self.saved_matches: List[int] = []
         self.failed_matches: List[int] = []
+        self.unavailable_matches: List[int] = []
+        self.failed_messages: Dict[int, str] = {}
         self.upserted_roles: List[Dict[str, Any]] = []
         self.discovered_matches: List[Dict[str, Any]] = []
         self.success_release: Optional[Dict[str, Any]] = None
@@ -59,6 +61,11 @@ class FakeRepo:
 
     async def mark_match_detail_failed(self, match_id: int, error_message: str = "") -> bool:
         self.failed_matches.append(match_id)
+        self.failed_messages[match_id] = error_message
+        return True
+
+    async def mark_match_detail_unavailable(self, match_id: int, reason: str = "", code: int = 0) -> bool:
+        self.unavailable_matches.append(match_id)
         return True
 
     async def upsert_role(self, **kwargs: Any) -> str:
@@ -99,9 +106,13 @@ class FakePersonHistoryClient:
 
 
 class FakeInspectService:
-    def __init__(self, errors: Optional[set] = None) -> None:
+    def __init__(self, errors: Optional[set] = None, unavailable: Optional[set] = None,
+                 transient_failures: Optional[Dict[int, int]] = None) -> None:
         self.errors = errors or set()
+        self.unavailable = unavailable or set()
+        self.transient_failures = transient_failures or {}
         self.calls: List[int] = []
+        self.call_counts: Dict[int, int] = {}
         self.identity_calls: List[Dict[str, Any]] = []
         self.identity_result: Optional[Dict[str, Any]] = None
 
@@ -121,8 +132,15 @@ class FakeInspectService:
 
     async def get_match_detail(self, *, match_id: int) -> Dict[str, Any]:
         self.calls.append(match_id)
+        self.call_counts[match_id] = self.call_counts.get(match_id, 0) + 1
+        call_num = self.call_counts[match_id]
+        transient_remaining = self.transient_failures.get(match_id, 0)
+        if call_num <= transient_remaining:
+            raise RuntimeError("transient_detail_down")
         if match_id in self.errors:
             return {"error": True, "message": "detail down"}
+        if match_id in self.unavailable:
+            return {"match_id": match_id, "detail": None}
         return {
             "match_id": match_id,
             "detail": {
@@ -372,7 +390,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repo.success_release["oldest_synced_match_time"], 1810000000)
         self.assertEqual(len(history.calls), 1)
 
-    async def test_detail_failure_fails_role_without_advancing_watermark(self) -> None:
+    async def test_detail_failure_does_not_fail_role_continues_to_success(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
             "identity_key": "global:seed",
@@ -395,10 +413,176 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         result = await service.run_once()
 
         self.assertFalse(result["error"])
-        self.assertEqual(result["failed_roles"], 1)
-        self.assertIsNone(repo.success_release)
-        self.assertIsNotNone(repo.failure_release)
-        self.assertIn("match_detail_failed:20", repo.failure_release["error_message"])
+        self.assertEqual(result["failed_roles"], 0)
+        self.assertEqual(result["failed_details"], 1)
+        self.assertIsNotNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
+        self.assertIn(20, repo.failed_matches)
+
+    async def test_detail_transient_failure_retries_then_succeeds(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [{
+            "identity_key": "global:seed",
+            "server": "梦江南",
+            "name": "种子",
+            "global_role_id": "seed",
+        }]
+        history = FakeHistoryClient([
+            {"data": [{"match_id": 50, "match_time": 1810000000, "pvpType": 3}]}
+        ])
+        sleep = SleepCounter()
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(transient_failures={50: 2}),
+            sleep_func=sleep,
+        )
+
+        result = await service.run_once()
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["failed_roles"], 0)
+        self.assertEqual(result["saved_details"], 1)
+        self.assertEqual(result["failed_details"], 0)
+        self.assertEqual(50, repo.saved_matches[0])
+        self.assertIsNotNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
+
+    async def test_detail_transient_failure_exhausted_marks_failed(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [{
+            "identity_key": "global:seed",
+            "server": "梦江南",
+            "name": "种子",
+            "global_role_id": "seed",
+        }]
+        history = FakeHistoryClient([
+            {"data": [{"match_id": 55, "match_time": 1810000000, "pvpType": 3}]}
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(transient_failures={55: 3}),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.run_once()
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["failed_roles"], 0)
+        self.assertEqual(result["failed_details"], 1)
+        self.assertEqual(result["saved_details"], 0)
+        self.assertIn(55, repo.failed_matches)
+        self.assertIn("transient_detail_down", repo.failed_messages.get(55, ""))
+        self.assertIsNotNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
+
+    async def test_unavailable_detail_marks_unavailable_without_player_enqueue(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [{
+            "identity_key": "global:seed",
+            "server": "梦江南",
+            "name": "种子",
+            "global_role_id": "seed",
+        }]
+        history = FakeHistoryClient([
+            {"data": [{"match_id": 60, "match_time": 1810000000, "pvpType": 3}]}
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(unavailable={60}),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.run_once()
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["failed_roles"], 0)
+        self.assertEqual(result["unavailable_details"], 1)
+        self.assertEqual(result["saved_details"], 0)
+        self.assertEqual(repo.upserted_roles, [])
+        self.assertIn(60, repo.unavailable_matches)
+        self.assertNotIn(60, repo.failed_matches)
+        self.assertIsNotNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
+
+    async def test_run_once_aggregates_failed_and_unavailable_details(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [{
+            "identity_key": "global:seed",
+            "server": "梦江南",
+            "name": "种子",
+            "global_role_id": "seed",
+        }]
+        history = FakeHistoryClient([
+            {"data": [
+                {"match_id": 70, "match_time": 1810003000, "pvpType": 3},
+                {"match_id": 71, "match_time": 1810002000, "pvpType": 3},
+                {"match_id": 72, "match_time": 1810001000, "pvpType": 3},
+            ]}
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(errors={70}, unavailable={71}),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.run_once()
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["failed_roles"], 0)
+        self.assertEqual(result["failed_details"], 1)
+        self.assertEqual(result["unavailable_details"], 1)
+        self.assertEqual(result["saved_details"], 1)
+        self.assertEqual(result["discovered_matches"], 3)
+        self.assertIsNotNone(repo.success_release)
+
+    async def test_failed_detail_continues_to_next_page(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [{
+            "identity_key": "global:seed",
+            "server": "梦江南",
+            "name": "种子",
+            "global_role_id": "seed",
+        }]
+        history = FakeHistoryClient([
+            {"data": [
+                {"match_id": 80, "match_time": 1810003000, "pvpType": 3},
+                {"match_id": 81, "match_time": 1810002000, "pvpType": 3},
+            ]},
+            {"data": [
+                {"match_id": 82, "match_time": 1810001000, "pvpType": 3},
+            ]}
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(errors={80}),
+            sleep_func=_noop_sleep,
+            page_size=2,
+        )
+
+        result = await service.run_once()
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["failed_roles"], 0)
+        self.assertEqual(result["failed_details"], 1)
+        self.assertEqual(result["saved_details"], 2)
+        self.assertEqual(len(history.calls), 2)
+        self.assertIsNotNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
 
     async def test_existing_detail_claim_is_skipped(self) -> None:
         repo = FakeRepo()

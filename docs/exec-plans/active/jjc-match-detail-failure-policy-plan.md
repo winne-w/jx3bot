@@ -1,5 +1,10 @@
 # JJC 对局详情失败策略调整计划
 
+## 执行状态
+
+- 2026-05-07：已完成阶段 2 实现。落地范围包括仓储 `detail_unavailable` 状态与失败退避、详情 unavailable 缓存/API 返回、同步服务单条失败不中断与有限重试、管理员结果输出、统计页 unavailable 展示、数据库设计与运行手册更新。
+- 验证已执行：`python -m unittest tests.test_jjc_match_data_sync tests.test_jjc_match_detail_hydration tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot_repo tests.test_jjc_sync_repo`；`python -m py_compile src/services/jx3/jjc_match_data_sync.py src/services/jx3/jjc_ranking_inspect.py src/storage/mongo_repos/jjc_sync_repo.py src/storage/mongo_repos/jjc_inspect_repo.py src/plugins/jx3bot_handlers/jjc_match_data_sync.py`。
+
 ## 背景
 
 当前 JJC 同步在处理某个角色的历史页时，如果任意一条对局详情请求失败，会把该角色本次同步标记失败并停止继续处理当前页后续对局和后续页。线上已观察到推栏详情接口对部分 `match_id` 返回：
@@ -189,8 +194,8 @@ python -m py_compile src/services/jx3/jjc_match_data_sync.py src/services/jx3/jj
 - 风险：前端若未识别 unavailable payload，可能显示通用错误。需要前端专门处理 `unavailable == true`。
 - 回滚：保留旧状态兼容。若需回滚代码，`detail_unavailable` 文档不会破坏唯一索引；旧代码读取到 unavailable 缓存可能无法展示详情，但不会重复写大对象。必要时可手工将相关 `jjc_sync_match_seen.status` 改回 `failed` 或删除 unavailable 缓存重新请求。
 
-## 待确认
+## 已确认
 
-- 临时失败重试次数是否固定为 3 次。
-- `detail_retry_after` 退避时间是否采用 5 分钟、30 分钟、2 小时、6 小时上限。
-- 管理员 `/jjc同步状态` 是否需要展示 `详情临时失败` 与 `详情不可用` 的累计数量。
+- 临时失败重试次数固定为 3 次（首次请求 + 2 次重试）。
+- `detail_retry_after` 退避时间采用 5 分钟、30 分钟、2 小时递增，之后按 6 小时上限封顶。
+- 管理员 `/jjc同步开始` 本轮结果展示 `详情失败` 与 `详情不可用` 计数；`/jjc同步状态` 暂不额外汇总对局详情状态。

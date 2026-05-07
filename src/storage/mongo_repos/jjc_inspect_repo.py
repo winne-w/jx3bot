@@ -77,7 +77,8 @@ class JjcInspectRepo:
         db = self.db if self.db is not None else _get_db()
         data = payload.get("data") or payload
         mongo_data = copy.deepcopy(data)
-        await self._extract_snapshots(mongo_data, payload.get("cached_at"))
+        if not data.get("unavailable"):
+            await self._extract_snapshots(mongo_data, payload.get("cached_at"))
         try:
             await db.jjc_match_detail.update_one(
                 {"match_id": normalized_id},
@@ -100,6 +101,8 @@ class JjcInspectRepo:
             return
         data = doc.get("data")
         if not isinstance(data, dict):
+            return
+        if data.get("unavailable"):
             return
         detail = data.get("detail")
         if not isinstance(detail, dict):
@@ -166,6 +169,8 @@ class JjcInspectRepo:
         Exceptions from snapshot saving propagate so callers can abort the match_detail write.
         """
         if self.snapshot_repo is None:
+            return
+        if data.get("unavailable"):
             return
         detail = data.get("detail")
         if not isinstance(detail, dict):

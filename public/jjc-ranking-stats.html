@@ -1732,6 +1732,20 @@
         }
 
         function renderMatchDetailModal(payload, focusPlayer) {
+            if (payload.unavailable) {
+                matchModalTitle.textContent = "对局详情";
+                matchModalSubtitle.textContent = payload.cache?.cached_at
+                    ? `缓存时间：${formatTime(payload.cache.cached_at)}`
+                    : "实时请求";
+                matchModalBody.innerHTML = `
+                    <div class="modal-loading">
+                        该对局查询不到数据
+                        <div class="player-meta">match_id：${escapeHtml(payload.match_id || "-")}</div>
+                    </div>
+                `;
+                return;
+            }
+
             const detail = payload.detail || {};
             const basicInfo = detail.basic_info || {};
             matchModalTitle.textContent = "对局详情";
