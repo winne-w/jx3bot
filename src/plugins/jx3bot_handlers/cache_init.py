@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Optional
 
 from nonebot import logger
 
@@ -26,7 +26,7 @@ def register(
     server_data_file: str,
     set_server_data_cache: Callable[[Any], None],
     set_token_data: Callable[[Any], None],
-    ensure_baizhan_skill_icons: Callable[[], Any] | None = None,
+    ensure_baizhan_skill_icons: Optional[Callable[[], Any]] = None,
 ) -> None:
     @driver.on_startup
     async def init_cache() -> None:
@@ -34,10 +34,7 @@ def register(
             await download_json()
 
             fresh_data = await jiaoyiget("https://www.jx3api.com/data/status/check")
-            token_data = await jiaoyiget(
-                f"https://www.jx3api.com/data/token/web-token?token={token}"
-            )
-            set_token_data(token_data)
+            token_data = None
 
             data_obj = json.loads(fresh_data) if isinstance(fresh_data, str) else fresh_data
             if not _is_valid_server_data(data_obj):
@@ -54,15 +51,7 @@ def register(
 
             set_server_data_cache(data_obj)
             logger.info(f"服务器数据已获取并保存到: {server_data_file}")
-
-            if isinstance(token_data, dict):
-                try:
-                    import src.utils.shared_data
-
-                    src.utils.shared_data.tokendata = token_data["data"]["limit"]
-                    logger.info(f"token剩余：{src.utils.shared_data.tokendata}")
-                except Exception:
-                    logger.debug("token_data 结构不符合预期，跳过 tokendata 写入")
+            set_token_data(token_data)
 
         except Exception as exc:
             logger.warning(f"获取新数据失败: {exc}")

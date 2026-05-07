@@ -42,6 +42,14 @@ CLOUD_MUSIC_SERVER = getattr(cfg, "STATUS_MONITOR_CLOUD_MUSIC_SERVER", "") if cf
 CLOUD_MUSIC_SERVER = CLOUD_MUSIC_SERVER or "ipv4.xohome.cn:88[https连接方式]"
 
 
+def _format_server_status(status):
+    if status == 1 or status == "1":
+        return "正常"
+    if status == 0 or status == "0":
+        return "维护"
+    return status or "未知"
+
+
 # 查魔盒奖励
 gte_cmd = on_regex(r"^\s*奖励\s*$", priority=5)
 
@@ -131,14 +139,14 @@ async def handle_kf_query(event: GroupMessageEvent):
             await gtekf_cmd.send("未找到绑定的服务器")
             return
 
-        gte_data = await get_gte_data(url="https://www.jx3api.com/data/server/status", server=server)
+        gte_data = await get_gte_data(url="https://www.jx3api.com/data/status/check", server=server)
         if not gte_data or "data" not in gte_data:
             await gtekf_cmd.send(f"获取服务器 {server} 的开服数据失败")
             return
 
         server_data = gte_data["data"]
 
-        real_time_status = server_data.get("status", "未知")
+        real_time_status = _format_server_status(server_data.get("status"))
 
         zone = server_data.get("zone", "")
         if zone.endswith("区"):

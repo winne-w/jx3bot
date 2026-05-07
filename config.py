@@ -11,12 +11,12 @@ TICKET = ""
 
 # API接口地址
 API_URLS = {
-    "烟花查询": "https://www.jx3api.com/data/fireworks/records",
-    "奇遇查询": "https://www.jx3api.com/data/luck/adventure",
-    "装备查询": "https://www.jx3api.com/data/role/attribute",
+    "烟花查询": "https://www.jx3api.com/data/show/records",
+    "奇遇查询": "https://www.jx3api.com/data/event/records",
+    "装备查询": "",
     "竞技查询": "https://www.jx3api.com/data/arena/recent",
-    "副本查询": "https://www.jx3api.com/data/role/teamCdList",
-    "名片查询": "https://www.jx3api.com/data/show/card",
+    "副本查询": "",
+    "名片查询": "https://www.jx3api.com/data/card/record",
     "百战查询": "https://www.jx3api.com/data/role/monster",
     "资历查询": "https://www.jx3api.com/data/tuilan/achievement",
     "竞技场时间查询": "https://m.pvp.xoyo.com/3c/mine/arena/time-tag",
@@ -87,7 +87,7 @@ mail = "用于qq掉线提醒 邮箱的tk"
 STATUS_check_API = "https://www.jx3api.com/data/status/check"  
 # 新闻技改监控配置
 NEWS_API_URL = "https://www.jx3api.com/data/news/allnews?limit=3"  # 新闻API地址
-SKILL_records_URL = "https://www.jx3api.com/data/skills/records"  # 技改API地址
+SKILL_records_URL = "https://www.jx3api.com/data/skill/rework"  # 技改API地址
 calendar_URL = "https://www.jx3api.com/data/active/calendar"   #活动日常
 jx3box_URL = "https://cms.jx3box.com/api/cms/config/banner?client=std&type=code"   #福利
 
