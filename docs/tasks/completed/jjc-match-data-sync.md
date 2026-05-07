@@ -1,7 +1,7 @@
 # Task: JJC Match Data Sync
 
-状态：进行中
-更新时间：2026-05-06
+状态：已完成
+更新时间：2026-05-07
 
 ## 目标
 
@@ -38,4 +38,4 @@
 - 详情保存后能回填双方角色到同步队列
 - 新增同步 service/repo 单测和现有 JJC 详情快照回归通过
 
-详细计划：`docs/exec-plans/active/jjc-match-data-sync-plan.md`
+详细计划：`docs/exec-plans/completed/jjc-match-data-sync-plan.md`
