@@ -149,6 +149,39 @@ async def handle_bot_connect(bot: Bot):
             os.remove(RESTART_FLAG_FILE)
             print(f"已删除重启标记文件: {RESTART_FLAG_FILE}")
 
+# 管理帮助命令
+admin_help_cmd = on_command("管理帮助", priority=5)
+@admin_help_cmd.handle()
+async def handle_admin_help(event):
+    user_id = event.get_user_id()
+    if int(user_id) not in ADMIN_QQ:
+        await admin_help_cmd.finish("您没有权限查看管理帮助")
+
+    help_text = "\n".join([
+        "管理员命令帮助",
+        "",
+        "配置与重启:",
+        "/查看配置",
+        "/修改配置 配置项=值",
+        "/重启",
+        "/重启 原因",
+        "",
+        "JJC 对局同步:",
+        "/jjc同步状态",
+        "/jjc同步开始",
+        "/jjc同步开始 incremental",
+        "/jjc同步开始 full",
+        "/jjc同步暂停 [原因]",
+        "/jjc同步恢复",
+        "/jjc同步重置 <服务器> <角色名>",
+        "/jjc同步添加 <服务器> <角色名> [global_role_id=...] [role_id=...] [zone=...]",
+        "",
+        "普通功能帮助:",
+        "帮助",
+    ])
+    await admin_help_cmd.finish(help_text)
+
+
 # 查看配置命令
 view_config_cmd = on_command("查看配置", priority=5)
 @view_config_cmd.handle()
