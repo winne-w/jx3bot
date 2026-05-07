@@ -286,7 +286,7 @@ async def check_records():
                 return
 
             current_records = data["data"]
-            current_records_ids = {record["id"] for record in current_records}
+            current_records_ids = {str(record.get("id", "")) for record in current_records}
 
             if not previous_records_ids:
                 previous_records_ids = current_records_ids
@@ -298,7 +298,11 @@ async def check_records():
             if new_records_ids:
                 logger.info("status_monitor 检测到{}条新增技改", len(new_records_ids))
 
-                new_records = [record for record in current_records if record["id"] in new_records_ids]
+                new_records = [
+                    record
+                    for record in current_records
+                    if str(record.get("id", "")) in new_records_ids
+                ]
 
                 if get_driver().bots:
                     bot = list(get_driver().bots.values())[0]

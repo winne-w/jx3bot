@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Annotated, Callable
+from urllib.parse import urlencode
 
 from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
 from nonebot.params import RegexGroup
@@ -23,10 +24,7 @@ def register(
             await bot.send(event, MessageSegment.at(event.user_id) + Message("\n请正确输入要查询的QQ号码"))
             return
 
-        data = await get(f"https://www.jx3api.com/data/fraud/detailed?uid={uid}", token=token)
-        if data.get("code") != 200:
-            formatted_reply = format_scammer_reply(data)
-            await bot.send(event, MessageSegment.at(event.user_id) + Message(f"\n{formatted_reply}"))
-            return
-
-        await bot.send(event, MessageSegment.at(event.user_id) + Message("\n服务器访"))
+        query = urlencode({"uid": uid})
+        data = await get(f"https://www.jx3api.com/data/fraud/detail?{query}", token=token)
+        formatted_reply = format_scammer_reply(data)
+        await bot.send(event, MessageSegment.at(event.user_id) + Message(f"\n{formatted_reply}"))

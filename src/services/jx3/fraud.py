@@ -1,19 +1,13 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, List
 
 
 def format_scammer_reply(data: dict[str, Any]) -> str:
-    if (
-        data.get("code") != 200
-        or "data" not in data
-        or "records" not in data["data"]
-        or not data["data"]["records"]
-    ):
+    records = _extract_records(data)
+    if not records:
         return "未查询到相关骗子信息，该接口只能查剑网三相关的，别的不如百度请慎用！"
-
-    records = data["data"]["records"]
 
     reply = "⚠️ 查询到骗子记录 ⚠️\n"
     reply += "------------------------\n"
@@ -43,4 +37,20 @@ def format_scammer_reply(data: dict[str, Any]) -> str:
 
     reply += "\n⚠️ 请注意防范诈骗，谨慎交易 ⚠️"
     return reply
+
+
+def _extract_records(data: dict[str, Any]) -> List[dict[str, Any]]:
+    if data.get("code") != 200:
+        return []
+
+    payload = data.get("data")
+    if isinstance(payload, dict):
+        records = payload.get("records")
+        if isinstance(records, list):
+            return [item for item in records if isinstance(item, dict)]
+        if {"server", "tieba", "data"} & set(payload.keys()):
+            return [payload]
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return []
 

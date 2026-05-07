@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from urllib.parse import urlencode
 from typing import Any, Annotated, Callable
 
 from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
@@ -18,9 +19,8 @@ def register(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
         subject = foo[0]
-        data = await jiaoyiget(
-            f"https://www.jx3api.com/data/exam/answer?subject={subject}&limit=20"
-        )
+        query = urlencode({"subject": subject, "limit": 20})
+        data = await jiaoyiget(f"https://www.jx3api.com/data/exam/search?{query}")
         check_question = format_questions_reply(data)
         await bot.send(
             event, MessageSegment.at(event.user_id) + Message(f"\n{check_question}")

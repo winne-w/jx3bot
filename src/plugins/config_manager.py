@@ -175,7 +175,9 @@ async def handle_view_config(event):
             else:
                 config_info += f"{key} = {value}\n"
     
-    await view_config_cmd.finish(f"当前配置:\n token剩余:{src.utils.shared_data.tokendata}\n{config_info}")
+    token_limit = src.utils.shared_data.tokendata
+    token_limit_text = token_limit if token_limit is not None else "未知"
+    await view_config_cmd.finish(f"当前配置:\n token剩余:{token_limit_text}\n{config_info}")
 
 # 修改配置命令
 config_cmd = on_command("修改配置", priority=5)
