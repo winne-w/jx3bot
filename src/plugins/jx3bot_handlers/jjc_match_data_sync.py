@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, Dict, List, Optional
 
 from nonebot.adapters.onebot.v11 import Bot, Event
 
@@ -77,22 +77,146 @@ _STATUS_LABELS = {
 
 
 async def _cmd_start(bot: Bot, event: Event, svc: Any, text: str) -> None:
+    parsed = _parse_start_args(text)
+    if parsed["error"]:
+        await bot.send(event, str(parsed["message"]))
+        return
+
+    mode = parsed["mode"]
+    limit = parsed["limit"]
+    max_rounds = parsed["max_rounds"]
+    max_minutes = parsed["max_minutes"]
+    max_seconds = max_minutes * 60
+    background = parsed["background"]
+
+    if background:
+        result = await svc.start_background_run(
+            mode=mode,
+            limit=limit,
+            max_rounds=max_rounds,
+            max_seconds=max_seconds,
+        )
+        if result.get("error"):
+            await bot.send(event, f"后台同步启动失败：{result.get('message', 'unknown_error')}")
+            return
+        rounds_text = "auto" if max_rounds is None else str(max_rounds)
+        await bot.send(
+            event,
+            "\n".join([
+                "JJC 后台批量同步已启动",
+                f"模式: {mode}",
+                f"每轮角色: {limit}",
+                f"最大轮数: {rounds_text}",
+                f"最长运行: {max_minutes}分钟",
+            ]),
+        )
+        return
+
+    if max_rounds is not None or parsed["rounds_auto"]:
+        result = await svc.run_until_idle(
+            mode=mode,
+            limit=limit,
+            max_rounds=max_rounds,
+            max_seconds=max_seconds,
+        )
+        await _send_sync_result(bot, event, result, title="JJC 同步批量结果")
+        return
+
+    result = await svc.run_once(mode=mode, limit=limit)
+    await _send_sync_result(bot, event, result, title="JJC 同步本轮结果")
+
+
+def _parse_start_args(text: str) -> Dict[str, Any]:
     parts = text.split()
-    mode = parts[1] if len(parts) > 1 else "default"
+    mode = "default"
+    limit = 3
+    max_rounds: Optional[int] = None
+    max_minutes = 60
+    background = False
+    rounds_auto = False
+
+    for part in parts[1:]:
+        if part in ("background", "后台"):
+            background = True
+            rounds_auto = True
+            continue
+        if "=" in part:
+            key, value = part.split("=", 1)
+            if key == "limit":
+                try:
+                    limit = int(value)
+                except ValueError:
+                    return _start_usage("limit 必须是正整数")
+            elif key == "rounds":
+                if value == "auto":
+                    max_rounds = None
+                    rounds_auto = True
+                else:
+                    try:
+                        max_rounds = int(value)
+                    except ValueError:
+                        return _start_usage("rounds 必须是正整数或 auto")
+            elif key == "minutes":
+                try:
+                    max_minutes = int(value)
+                except ValueError:
+                    return _start_usage("minutes 必须是正整数")
+            elif key == "seconds":
+                return _start_usage("请使用 minutes 参数，例如 minutes=60")
+            else:
+                return _start_usage(f"未知参数: {key}")
+            continue
+        if mode == "default":
+            mode = part
+        else:
+            return _start_usage(f"未知参数: {part}")
+
     if mode == "default":
         mode = "incremental_or_full"
     if mode not in ("incremental_or_full", "full", "incremental"):
-        await bot.send(event, "用法: /jjc同步开始 [default|full|incremental]")
-        return
+        return _start_usage("mode 必须是 default/full/incremental")
+    if limit < 1:
+        return _start_usage("limit 必须是正整数")
+    if limit > 200:
+        return _start_usage("limit 最大为 200")
+    if max_rounds is not None and max_rounds < 1:
+        return _start_usage("rounds 必须是正整数或 auto")
+    if max_minutes < 1:
+        return _start_usage("minutes 必须是正整数")
+    return {
+        "error": False,
+        "mode": mode,
+        "limit": limit,
+        "max_rounds": max_rounds,
+        "max_minutes": max_minutes,
+        "background": background,
+        "rounds_auto": rounds_auto,
+    }
 
-    result = await svc.run_once(mode=mode)
+
+def _start_usage(reason: str) -> Dict[str, Any]:
+    return {
+        "error": True,
+        "message": (
+            f"{reason}\n"
+            "用法: /jjc同步开始 [default|full|incremental] "
+            "[limit=3] [rounds=1|auto] [minutes=60] [background|后台]"
+        ),
+    }
+
+
+async def _send_sync_result(bot: Bot, event: Event, result: Dict[str, Any], title: str) -> None:
     if result.get("error"):
         await bot.send(event, f"同步启动失败：{result.get('message', 'unknown_error')}")
         return
 
-    lines: List[str] = ["JJC 同步本轮结果"]
+    lines: List[str] = [title]
     if result.get("paused"):
         lines.append("运行状态：已暂停，本轮未执行")
+    if "rounds" in result:
+        lines.append(f"执行轮数: {result.get('rounds', 0)}")
+    if result.get("stopped_reason"):
+        lines.append(f"停止原因: {result.get('stopped_reason')}")
     lines.append(f"恢复租约: {result.get('recovered_leases', 0)}")
     lines.append(f"处理角色: {result.get('processed_roles', 0)}")
     lines.append(f"发现对局: {result.get('discovered_matches', 0)}")
@@ -137,6 +261,15 @@ async def _cmd_status(bot: Bot, event: Event, svc: Any) -> None:
             nam = err.get("name", "?")
             msg = err.get("last_error", "?")
             lines.append(f"  {i}. {srv}/{nam}: {msg}")
+
+    if result.get("background_running"):
+        lines.append("后台批量同步：运行中")
+    elif result.get("last_background_summary"):
+        summary = result["last_background_summary"]
+        reason = summary.get("stopped_reason") or "unknown"
+        rounds = summary.get("rounds", 0)
+        processed = summary.get("processed_roles", 0)
+        lines.append(f"最近后台批量：已停止({reason})，轮数 {rounds}，处理角色 {processed}")
 
     await bot.send(event, "\n".join(lines))
 

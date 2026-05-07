@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
@@ -223,6 +224,95 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
 
     async def _run_to_thread_inline(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         return func(*args, **kwargs)
+
+    async def test_run_until_idle_aggregates_multiple_rounds(self) -> None:
+        service = JjcMatchDataSyncService(
+            repo=FakeRepo(),
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+        results = [
+            {
+                "error": False,
+                "processed_roles": 2,
+                "discovered_matches": 3,
+                "saved_details": 4,
+                "skipped_details": 0,
+                "failed_details": 1,
+                "unavailable_details": 0,
+                "failed_roles": 0,
+                "recovered_leases": 1,
+                "errors": [],
+            },
+            {
+                "error": False,
+                "processed_roles": 0,
+                "discovered_matches": 0,
+                "saved_details": 0,
+                "skipped_details": 0,
+                "failed_details": 0,
+                "unavailable_details": 0,
+                "failed_roles": 0,
+                "recovered_leases": 0,
+                "errors": [],
+            },
+        ]
+        calls: List[Dict[str, Any]] = []
+
+        async def _run_once(mode: str = "incremental_or_full", limit: int = 3) -> Dict[str, Any]:
+            calls.append({"mode": mode, "limit": limit})
+            return results.pop(0)
+
+        service.run_once = _run_once  # type: ignore[method-assign]
+
+        result = await service.run_until_idle(mode="full", limit=50, max_rounds=10, max_seconds=60)
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["rounds"], 2)
+        self.assertEqual(result["processed_roles"], 2)
+        self.assertEqual(result["saved_details"], 4)
+        self.assertEqual(result["failed_details"], 1)
+        self.assertEqual(result["recovered_leases"], 1)
+        self.assertEqual(result["stopped_reason"], "idle")
+        self.assertEqual(calls, [{"mode": "full", "limit": 50}, {"mode": "full", "limit": 50}])
+
+    async def test_start_background_run_rejects_duplicate_running_task(self) -> None:
+        service = JjcMatchDataSyncService(
+            repo=FakeRepo(),
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+        release = asyncio.Event()
+
+        async def _run_until_idle(**kwargs: Any) -> Dict[str, Any]:
+            await release.wait()
+            return {
+                "error": False,
+                "rounds": 1,
+                "processed_roles": 0,
+                "stopped_reason": "idle",
+                "elapsed_seconds": 0.0,
+            }
+
+        service.run_until_idle = _run_until_idle  # type: ignore[method-assign]
+
+        first = await service.start_background_run(limit=50)
+        second = await service.start_background_run(limit=50)
+        release.set()
+        if service._background_task is not None:
+            await service._background_task
+
+        self.assertFalse(first["error"])
+        self.assertTrue(second["error"])
+        self.assertEqual(second["message"], "background_sync_already_running")
+        self.assertIsNotNone(service._last_background_summary)
+        self.assertEqual(service._last_background_summary["stopped_reason"], "idle")
 
     async def test_run_once_paused_does_not_claim_roles(self) -> None:
         repo = FakeRepo()
