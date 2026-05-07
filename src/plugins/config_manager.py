@@ -169,6 +169,7 @@ async def handle_admin_help(event):
         "JJC 对局同步:",
         "/jjc同步状态",
         "/jjc同步开始",
+        "/jjc同步开始 limit=50 rounds=auto minutes=60 background",
         "/jjc同步开始 incremental",
         "/jjc同步开始 full",
         "/jjc同步暂停 [原因]",

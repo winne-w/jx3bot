@@ -286,6 +286,8 @@ class JjcMatchDataSyncService:
         self._page_size = page_size
         self._max_pages_per_role = max_pages_per_role
         self._lease_seconds = lease_seconds
+        self._background_task: Optional[asyncio.Task] = None
+        self._last_background_summary: Optional[Dict[str, Any]] = None
 
     async def run_once(
         self,
@@ -311,6 +313,8 @@ class JjcMatchDataSyncService:
 
         if mode not in ("incremental_or_full", "full", "incremental"):
             return {"error": True, "message": "invalid_mode"}
+        if limit < 1:
+            return {"error": True, "message": "invalid_limit"}
         if self._match_history_client is None or self._inspect_service is None:
             return {"error": True, "message": "sync_dependencies_not_configured"}
 
@@ -351,6 +355,146 @@ class JjcMatchDataSyncService:
     def _finish_summary(summary: Dict[str, Any], started_at: float) -> Dict[str, Any]:
         summary["elapsed_seconds"] = round(time.time() - started_at, 3)
         return summary
+
+    async def run_until_idle(
+        self,
+        mode: str = "incremental_or_full",
+        limit: int = 20,
+        max_rounds: Optional[int] = None,
+        max_seconds: int = 3600,
+    ) -> Dict[str, Any]:
+        """连续执行多轮同步，直到队列暂时无可执行角色或达到保护上限。"""
+        started_at = time.time()
+        rounds_limit = max_rounds if max_rounds is not None else 1000000
+        summary: Dict[str, Any] = {
+            "error": False,
+            "mode": mode,
+            "limit": limit,
+            "max_rounds": max_rounds,
+            "max_seconds": max_seconds,
+            "rounds": 0,
+            "processed_roles": 0,
+            "discovered_matches": 0,
+            "saved_details": 0,
+            "skipped_details": 0,
+            "failed_details": 0,
+            "unavailable_details": 0,
+            "failed_roles": 0,
+            "recovered_leases": 0,
+            "errors": [],
+            "stopped_reason": "",
+            "elapsed_seconds": 0.0,
+        }
+
+        if limit < 1:
+            return {"error": True, "message": "invalid_limit"}
+        if rounds_limit < 1:
+            return {"error": True, "message": "invalid_rounds"}
+        if max_seconds < 1:
+            return {"error": True, "message": "invalid_max_seconds"}
+
+        while summary["rounds"] < rounds_limit:
+            elapsed = time.time() - started_at
+            if elapsed >= max_seconds:
+                summary["stopped_reason"] = "max_seconds_reached"
+                break
+
+            result = await self.run_once(mode=mode, limit=limit)
+            summary["rounds"] += 1
+
+            for key in (
+                "processed_roles",
+                "discovered_matches",
+                "saved_details",
+                "skipped_details",
+                "failed_details",
+                "unavailable_details",
+                "failed_roles",
+                "recovered_leases",
+            ):
+                summary[key] += result.get(key, 0)
+
+            errors = result.get("errors") or []
+            if errors:
+                summary["errors"].extend(errors)
+
+            if result.get("error"):
+                summary["error"] = True
+                summary["message"] = result.get("message", "unknown_error")
+                summary["stopped_reason"] = "error"
+                break
+            if result.get("paused"):
+                summary["paused"] = True
+                summary["stopped_reason"] = "paused"
+                break
+            if result.get("processed_roles", 0) <= 0:
+                summary["stopped_reason"] = "idle"
+                break
+
+        if not summary["stopped_reason"]:
+            summary["stopped_reason"] = "max_rounds_reached"
+        return self._finish_summary(summary, started_at)
+
+    async def start_background_run(
+        self,
+        mode: str = "incremental_or_full",
+        limit: int = 20,
+        max_rounds: Optional[int] = None,
+        max_seconds: int = 3600,
+    ) -> Dict[str, Any]:
+        """启动后台批量同步任务。"""
+        if self._background_task is not None and not self._background_task.done():
+            return {"error": True, "message": "background_sync_already_running"}
+        if limit < 1:
+            return {"error": True, "message": "invalid_limit"}
+        if max_rounds is not None and max_rounds < 1:
+            return {"error": True, "message": "invalid_rounds"}
+        if max_seconds < 1:
+            return {"error": True, "message": "invalid_max_seconds"}
+
+        self._background_task = asyncio.create_task(
+            self._run_background(
+                mode=mode,
+                limit=limit,
+                max_rounds=max_rounds,
+                max_seconds=max_seconds,
+            )
+        )
+        return {
+            "error": False,
+            "message": "background_sync_started",
+            "mode": mode,
+            "limit": limit,
+            "max_rounds": max_rounds,
+            "max_seconds": max_seconds,
+        }
+
+    async def _run_background(
+        self,
+        mode: str,
+        limit: int,
+        max_rounds: Optional[int],
+        max_seconds: int,
+    ) -> None:
+        try:
+            self._last_background_summary = await self.run_until_idle(
+                mode=mode,
+                limit=limit,
+                max_rounds=max_rounds,
+                max_seconds=max_seconds,
+            )
+        except Exception as exc:
+            logger.warning("JJC 后台批量同步异常: error={}", exc)
+            self._last_background_summary = {
+                "error": True,
+                "message": str(exc),
+                "mode": mode,
+                "limit": limit,
+                "max_rounds": max_rounds,
+                "max_seconds": max_seconds,
+                "stopped_reason": "exception",
+                "elapsed_seconds": 0.0,
+            }
 
     async def _sync_one_role(
         self,
@@ -821,6 +965,8 @@ class JjcMatchDataSyncService:
                 "paused": paused,
                 "counts": counts,
                 "recent_errors": recent_errors,
+                "background_running": self._background_task is not None and not self._background_task.done(),
+                "last_background_summary": self._last_background_summary,
             }
         except Exception as exc:
             logger.warning("status 查询失败: error={}", exc)
