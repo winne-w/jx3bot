@@ -1,7 +1,14 @@
 # JJC 排名统计角色下钻计划
 
-状态：待执行
+状态：已实现/已验证，待提交
 更新时间：2026-05-07
+
+## 执行状态
+
+- 2026-05-07：代码侧已具备角色下钻 API、600 秒被动缓存、按需对局详情缓存、统计页角色点击与对局详情弹窗、README 与 runbook 回归说明。
+- 2026-05-07：确认“33”语义为 3v3 对局而非 33 条记录；默认窗口保持 20 条，并补充后端单测覆盖 `match_history` 请求 size 与 3v3 过滤。
+- 验证已执行：`python -m unittest tests.test_jjc_ranking_inspect tests.test_jjc_match_detail_hydration`；`python -m py_compile src/api/routers/jjc_ranking_stats.py src/services/jx3/*.py src/storage/mongo_repos/jjc_inspect_repo.py`。
+- 当前计划保持 active，待相关代码提交后再移动到 completed。
 
 ## 背景
 
@@ -9,7 +16,7 @@
 
 ## 目标
 
-- 在竞技场统计页支持点击角色查看最近 33 战绩和最近对局列表。
+- 在竞技场统计页支持点击角色查看最近 3v3 战绩和最近对局列表。
 - 支持点击最近对局后按需查看单局详情。
 - 角色战绩与对局详情均采用被动缓存，不在排名统计生成阶段预热。
 - 首屏统计页仍只依赖 summary/details 数据。
@@ -30,7 +37,7 @@
 - `src/storage/`
   - 复用或补充缓存仓储能力，避免新增裸文件读写。
 - `public/jjc-ranking-stats.html`
-  - 角色行点击、最近 33 战绩面板、最近对局列表和详情展示。
+  - 角色行点击、最近 3v3 战绩面板、最近对局列表和详情展示。
 - `README.md`
   - 同步新增 API 或页面行为说明。
 - `docs/references/runbook.md`
@@ -59,7 +66,7 @@ python -m py_compile src/services/jx3/*.py
 手工回归：
 
 - 打开 JJC 排名统计页，确认首屏仍能加载 summary/details。
-- 点击角色，确认展示最近 33 战绩和最近对局列表。
+- 点击角色，确认展示最近 3v3 战绩和最近对局列表。
 - 600 秒内重复点击同一 `server + name`，确认命中角色战绩缓存。
 - 点击最近对局，确认可展示单局详情。
 - 外部接口失败时，确认前端显示明确错误且不影响首屏统计展示。

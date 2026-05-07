@@ -11,7 +11,7 @@
   - 详细说明：`docs/exec-plans/active/refactor-plan.md`
 
 - `in-progress/jjc-ranking-role-inspect.md`
-  - 主题：竞技场统计页角色下钻、最近 33 战绩与对局详情按需缓存
+  - 主题：竞技场统计页角色下钻、最近 3v3 战绩与对局详情按需缓存
   - 详细说明：`docs/exec-plans/active/jjc-ranking-role-inspect-plan.md`
 
 ## Completed
