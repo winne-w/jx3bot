@@ -974,7 +974,7 @@
     <div class="page">
         <header>
             <div class="title">竞技场心法排名统计</div>
-            <div class="announcement">现在点击心法名称可展开查看角色分数；点击角色可查看最近 33 战绩和对局列表，并继续点击对局查看对局详情；右侧分享按钮可生成该统计卡片图片；页面有问题或数据不更新可以联系贴吧周报贴楼主。</div>
+            <div class="announcement">现在点击心法名称可展开查看角色分数；点击角色可查看最近 3v3 战绩和对局列表，并继续点击对局查看对局详情；右侧分享按钮可生成该统计卡片图片；页面有问题或数据不更新可以联系贴吧周报贴楼主。</div>
             <div class="subtitle" id="subtitle">
                 <span class="muted">正在加载实时数据...</span>
             </div>
@@ -1594,7 +1594,7 @@
             const playerServer = data.player?.server || "未知服务器";
 
             roleModalTitle.textContent = `${playerName}·${playerServer}`;
-            roleModalSubtitle.textContent = `最近 33 战绩窗口 | ${cacheText}`;
+            roleModalSubtitle.textContent = `最近 3v3 战绩窗口 | ${cacheText}`;
 
             currentPagination = {
                 hasMore: !!pagination.has_more,
@@ -1633,7 +1633,7 @@
 
             const matchListHtml = matches.length
                 ? matches.map((match) => renderRoleRecentMatchItem(match, playerName, playerServer)).join("")
-                : "<div class='modal-empty'>暂无最近 33 对局数据</div>";
+                : "<div class='modal-empty'>暂无最近 3v3 对局数据</div>";
 
             roleModalBody.innerHTML = `
                 <div class="role-overview">
@@ -1770,7 +1770,7 @@
             const cacheKey = `${server}::${name}::${identityHints.global_role_id || ""}::${identityHints.game_role_id || ""}::${identityHints.zone || ""}`;
             openModal(roleModal);
             roleModalTitle.textContent = `${name}·${server}`;
-            roleModalSubtitle.textContent = "最近 33 战绩窗口";
+            roleModalSubtitle.textContent = "最近 3v3 战绩窗口";
             roleModalBody.innerHTML = "<div class='modal-loading'>正在加载角色近期战绩...</div>";
 
             const cached = roleRecentCache.get(cacheKey);

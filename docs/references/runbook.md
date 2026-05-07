@@ -203,7 +203,7 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局I
 - 参数非法时返回错误响应，而不是 500
 - `action=read` 首屏摘要不再返回全量 `members`
 - `details` 接口可按需返回单个心法成员明细
-- 统计页点击角色时可按需返回最近 33 胜负和最近对局列表
+- 统计页点击角色时可按需返回最近 3v3 胜负和最近对局列表
 - 统计页点击对局时可按需返回单局详情
 - 不可用对局详情返回 `unavailable=true`、`code=-1`、`message=no data found`、`detail=null`，统计页应显示“该对局查询不到数据”
 

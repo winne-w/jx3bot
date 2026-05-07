@@ -7,7 +7,7 @@
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
 - `active/jjc-match-data-sync-batch-plan.md`: JJC 对局同步批量领取、多轮执行与后台运行计划
-- `active/jjc-ranking-role-inspect-plan.md`: JJC 排名统计页角色下钻、最近 33 战绩与对局详情按需缓存计划
+- `active/jjc-ranking-role-inspect-plan.md`: JJC 排名统计页角色下钻、最近 3v3 战绩与对局详情按需缓存计划
 
 ## Completed
 
