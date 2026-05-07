@@ -721,6 +721,68 @@ class JjcMatchDataSyncService:
             identity["name"] = role_name
         return identity
 
+    async def _resolve_player_identity_from_local_repo(self, player: Dict[str, Any]) -> Dict[str, Any]:
+        if self._identity_repo is None:
+            return {}
+        server = str(player.get("server") or "").strip()
+        name = str(player.get("role_name") or "").strip()
+        zone = str(player.get("zone") or "").strip()
+        role_id = str(player.get("role_id") or "").strip()
+        global_role_id = str(player.get("global_role_id") or "").strip()
+        if not ((server and name) or (zone and role_id) or global_role_id):
+            return {}
+        try:
+            doc = await self._identity_repo.resolve_best_identity(
+                server=server,
+                name=name,
+                zone=zone or None,
+                game_role_id=role_id or None,
+                global_role_id=global_role_id or None,
+            )
+        except Exception as exc:
+            logger.warning(
+                "JJC 同步通过本地身份库补全玩家身份失败: server={} name={} error={}".format(
+                    server, name, exc
+                )
+            )
+            return {}
+        if not doc:
+            return {}
+        if not (server and name) and zone and role_id:
+            doc_zone = str(doc.get("zone") or "").strip()
+            doc_role_id = str(doc.get("role_id") or doc.get("game_role_id") or "").strip()
+            if doc_zone != zone or doc_role_id != role_id:
+                return {}
+        return {
+            "global_role_id": str(doc.get("global_role_id") or "").strip(),
+            "role_id": str(doc.get("role_id") or doc.get("game_role_id") or "").strip(),
+            "game_role_id": str(doc.get("game_role_id") or doc.get("role_id") or "").strip(),
+            "person_id": str(doc.get("person_id") or "").strip(),
+            "zone": str(doc.get("zone") or "").strip(),
+            "server": str(doc.get("server") or "").strip(),
+            "role_name": str(doc.get("role_name") or doc.get("name") or "").strip(),
+            "source": "local_identity",
+        }
+
+    @staticmethod
+    def _backfill_player_from_identity(player: Dict[str, Any], identity: Dict[str, Any]) -> None:
+        for source_key, target_key in (
+            ("global_role_id", "global_role_id"),
+            ("role_id", "role_id"),
+            ("game_role_id", "role_id"),
+            ("zone", "zone"),
+            ("person_id", "person_id"),
+        ):
+            value = str(identity.get(source_key) or "").strip()
+            if value and not str(player.get(target_key) or "").strip():
+                player[target_key] = value
+        server_value = str(identity.get("server") or "").strip()
+        if server_value and not str(player.get("server") or "").strip():
+            player["server"] = server_value
+        name_value = str(identity.get("role_name") or "").strip()
+        if name_value and not str(player.get("role_name") or "").strip():
+            player["role_name"] = name_value
+
     async def _resolve_player_identity_from_person_history(self, player: Dict[str, Any]) -> Dict[str, Any]:
         if str(player.get("global_role_id") or "").strip():
             return {}
@@ -844,22 +906,14 @@ class JjcMatchDataSyncService:
     ) -> None:
         detail_match_time = _coerce_int(detail.get("match_time")) or fallback_match_time
         for player in extract_players_from_detail(detail):
-            person_identity = await self._resolve_player_identity_from_person_history(player)
-            if person_identity:
-                for source_key, target_key in (
-                    ("global_role_id", "global_role_id"),
-                    ("role_id", "role_id"),
-                    ("game_role_id", "role_id"),
-                    ("zone", "zone"),
-                    ("person_id", "person_id"),
-                ):
-                    value = str(person_identity.get(source_key) or "").strip()
-                    if value and not str(player.get(target_key) or "").strip():
-                        player[target_key] = value
-                if str(person_identity.get("server") or "").strip():
-                    player["server"] = str(person_identity.get("server") or "").strip()
-                if str(person_identity.get("role_name") or "").strip():
-                    player["role_name"] = str(person_identity.get("role_name") or "").strip()
+            if not str(player.get("global_role_id") or "").strip():
+                identity = await self._resolve_player_identity_from_local_repo(player)
+                if identity:
+                    self._backfill_player_from_identity(player, identity)
+                else:
+                    person_identity = await self._resolve_player_identity_from_person_history(player)
+                    if person_identity:
+                        self._backfill_player_from_identity(player, person_identity)
             server = str(player.get("server") or "").strip()
             name = str(player.get("role_name") or "").strip()
             if not server or not name:
