@@ -1,7 +1,14 @@
 # JJC 对局同步 person-history 本地身份优先计划
 
-状态：计划中
+状态：已实现/已验证，待提交
 更新时间：2026-05-07
+
+## 执行状态
+
+- 2026-05-07：已实现对局详情玩家身份本地优先补全；缺少 `global_role_id` 时先查 `identity_repo.resolve_best_identity`，本地命中后跳过 `person-history`，本地未命中或异常时保留原 fallback。
+- 2026-05-07：已补充单测覆盖本地命中、本地未命中、已有 `global_role_id` 短路、查询异常 fallback、仅有 `zone + role_id` 时的本地查询。
+- 验证已执行：`python -m unittest tests.test_jjc_match_data_sync`；`python -m py_compile src/services/jx3/jjc_match_data_sync.py`。
+- 当前计划保持 active，待相关代码提交后再移动到 completed。
 
 ## 背景
 

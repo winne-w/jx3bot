@@ -164,10 +164,36 @@ class FakeInspectService:
 class FakeIdentityRepo:
     def __init__(self) -> None:
         self.upserted: List[Dict[str, Any]] = []
+        self.resolve_calls: List[Dict[str, Any]] = []
+        self.resolve_results: Any = {}
+        self.resolve_error: Optional[Exception] = None
 
     async def upsert_from_match_detail(self, **kwargs: Any) -> Dict[str, Any]:
         self.upserted.append(kwargs)
         return kwargs
+
+    async def resolve_best_identity(
+        self,
+        *,
+        server: str = "",
+        name: str = "",
+        zone: str = "",
+        game_role_id: str = "",
+        global_role_id: str = "",
+    ) -> Dict[str, Any]:
+        self.resolve_calls.append({
+            "server": server,
+            "name": name,
+            "zone": zone,
+            "game_role_id": game_role_id,
+            "global_role_id": global_role_id,
+        })
+        if self.resolve_error is not None:
+            raise self.resolve_error
+        if isinstance(self.resolve_results, list):
+            idx = len(self.resolve_calls) - 1
+            return self.resolve_results[idx] if idx < len(self.resolve_results) else {}
+        return self.resolve_results
 
 
 class TestExtractHistoryItems(unittest.TestCase):
@@ -896,6 +922,254 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(identity_repo.upserted[0]["name"], "角色A")
         self.assertEqual(identity_repo.upserted[0]["global_role_id"], "gid-a")
         self.assertEqual(identity_repo.upserted[0]["game_role_id"], "rid-a")
+
+    # --- local identity priority tests (planned resolve_best_identity flow) ---
+
+    async def test_enqueue_player_local_identity_hit_backfills_global_role_id_and_skips_person_history(self) -> None:
+        repo = FakeRepo()
+        identity_repo = FakeIdentityRepo()
+        identity_repo.resolve_results = {
+            "global_role_id": "gid-local",
+            "role_id": "rid-a",
+            "game_role_id": "rid-a",
+            "zone": "zone-a",
+            "server": "梦江南",
+            "role_name": "角色A",
+        }
+        person_history = FakePersonHistoryClient([])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            identity_repo=identity_repo,
+            person_match_history_client=person_history,
+            sleep_func=_noop_sleep,
+        )
+
+        await service._enqueue_players_from_detail({
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "角色A",
+                        "global_role_id": "",
+                        "role_id": "",
+                        "person_id": "pid-a",
+                        "server": "梦江南",
+                    }
+                ]
+            }
+        })
+
+        self.assertEqual(len(identity_repo.resolve_calls), 1)
+        self.assertEqual(identity_repo.resolve_calls[0]["server"], "梦江南")
+        self.assertEqual(identity_repo.resolve_calls[0]["name"], "角色A")
+        self.assertEqual(person_history.calls, [])
+        self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-local")
+        self.assertEqual(repo.upserted_roles[0]["person_id"], "pid-a")
+
+    async def test_enqueue_player_local_identity_hit_can_use_zone_and_role_id_without_name(self) -> None:
+        repo = FakeRepo()
+        identity_repo = FakeIdentityRepo()
+        identity_repo.resolve_results = {
+            "global_role_id": "gid-local",
+            "role_id": "rid-a",
+            "zone": "zone-a",
+            "server": "梦江南",
+            "name": "角色A",
+        }
+        person_history = FakePersonHistoryClient([])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            identity_repo=identity_repo,
+            person_match_history_client=person_history,
+            sleep_func=_noop_sleep,
+        )
+
+        await service._enqueue_players_from_detail({
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "",
+                        "global_role_id": "",
+                        "role_id": "rid-a",
+                        "zone": "zone-a",
+                        "server": "",
+                    }
+                ]
+            }
+        })
+
+        self.assertEqual(len(identity_repo.resolve_calls), 1)
+        self.assertEqual(identity_repo.resolve_calls[0]["zone"], "zone-a")
+        self.assertEqual(identity_repo.resolve_calls[0]["game_role_id"], "rid-a")
+        self.assertEqual(person_history.calls, [])
+        self.assertEqual(repo.upserted_roles[0]["server"], "梦江南")
+        self.assertEqual(repo.upserted_roles[0]["name"], "角色A")
+        self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-local")
+
+    async def test_enqueue_player_zone_role_lookup_ignores_mismatched_local_identity(self) -> None:
+        repo = FakeRepo()
+        identity_repo = FakeIdentityRepo()
+        identity_repo.resolve_results = {
+            "global_role_id": "gid-other",
+            "role_id": "rid-other",
+            "zone": "zone-other",
+            "server": "梦江南",
+            "name": "其他角色",
+        }
+        person_history = FakePersonHistoryClient([])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            identity_repo=identity_repo,
+            person_match_history_client=person_history,
+            sleep_func=_noop_sleep,
+        )
+
+        await service._enqueue_players_from_detail({
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "",
+                        "global_role_id": "",
+                        "role_id": "rid-a",
+                        "zone": "zone-a",
+                        "server": "",
+                    }
+                ]
+            }
+        })
+
+        self.assertEqual(len(identity_repo.resolve_calls), 1)
+        self.assertEqual(person_history.calls, [])
+        self.assertEqual(repo.upserted_roles, [])
+
+    async def test_enqueue_player_local_identity_miss_falls_back_to_person_history(self) -> None:
+        repo = FakeRepo()
+        identity_repo = FakeIdentityRepo()
+        identity_repo.resolve_results = {}
+        person_history = FakePersonHistoryClient([
+            {
+                "data": [
+                    {
+                        "person_id": "pid-a",
+                        "global_role_id": "gid-ph",
+                        "role_name": "角色A",
+                        "server": "梦江南",
+                        "zone": "电信区",
+                    }
+                ]
+            }
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            identity_repo=identity_repo,
+            person_match_history_client=person_history,
+            sleep_func=_noop_sleep,
+        )
+
+        await service._enqueue_players_from_detail({
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "角色A",
+                        "global_role_id": "",
+                        "role_id": "",
+                        "person_id": "pid-a",
+                        "server": "梦江南",
+                    }
+                ]
+            }
+        })
+
+        self.assertEqual(len(identity_repo.resolve_calls), 1)
+        self.assertEqual(len(person_history.calls), 1)
+        self.assertEqual(person_history.calls[0]["person_id"], "pid-a")
+        self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-ph")
+        self.assertEqual(repo.upserted_roles[0]["person_id"], "pid-a")
+
+    async def test_enqueue_player_with_existing_global_role_id_skips_local_repo_and_person_history(self) -> None:
+        repo = FakeRepo()
+        identity_repo = FakeIdentityRepo()
+        person_history = FakePersonHistoryClient([])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            identity_repo=identity_repo,
+            person_match_history_client=person_history,
+            sleep_func=_noop_sleep,
+        )
+
+        await service._enqueue_players_from_detail({
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "角色A",
+                        "global_role_id": "gid-existing",
+                        "role_id": "rid-a",
+                        "zone": "zone-a",
+                        "server": "梦江南",
+                    }
+                ]
+            },
+            "team2": {"players_info": []},
+        })
+
+        self.assertEqual(identity_repo.resolve_calls, [])
+        self.assertEqual(person_history.calls, [])
+        self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-existing")
+
+    async def test_enqueue_player_local_identity_exception_falls_back_to_person_history(self) -> None:
+        repo = FakeRepo()
+        identity_repo = FakeIdentityRepo()
+        identity_repo.resolve_error = RuntimeError("db down")
+        person_history = FakePersonHistoryClient([
+            {
+                "data": [
+                    {
+                        "person_id": "pid-a",
+                        "global_role_id": "gid-ph",
+                        "role_name": "角色A",
+                        "server": "梦江南",
+                        "zone": "电信区",
+                    }
+                ]
+            }
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            identity_repo=identity_repo,
+            person_match_history_client=person_history,
+            sleep_func=_noop_sleep,
+        )
+
+        await service._enqueue_players_from_detail({
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "角色A",
+                        "global_role_id": "",
+                        "role_id": "",
+                        "person_id": "pid-a",
+                        "server": "梦江南",
+                    }
+                ]
+            }
+        })
+
+        self.assertEqual(len(identity_repo.resolve_calls), 1)
+        self.assertEqual(len(person_history.calls), 1)
+        self.assertEqual(person_history.calls[0]["person_id"], "pid-a")
+        self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-ph")
+        self.assertEqual(repo.upserted_roles[0]["person_id"], "pid-a")
 
 
 if __name__ == "__main__":
