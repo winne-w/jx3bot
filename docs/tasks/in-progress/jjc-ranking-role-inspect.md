@@ -1,7 +1,7 @@
 # Task: JJC Ranking Role Inspect
 
 状态：进行中
-更新时间：2026-04-27
+更新时间：2026-05-07
 
 执行计划：`docs/exec-plans/active/jjc-ranking-role-inspect-plan.md`
 
@@ -24,7 +24,7 @@
 ## 约束
 
 - 排名统计落盘结构不增加角色战绩或对局详情预热
-- 角色最近战绩按 `server + name` 被动缓存 60 秒
+- 角色最近战绩按 `server + name` 被动缓存 600 秒
 - 对局详情按 `match_id` 被动缓存
 - 新增 HTTP API 只做参数校验和 service 转发
 
