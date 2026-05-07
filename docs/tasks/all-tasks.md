@@ -1,6 +1,6 @@
 # All Tasks
 
-更新时间：2026-05-06
+更新时间：2026-05-07
 
 这里维护当前任务索引，而不是把所有细节塞进一个大计划文档。
 
@@ -12,12 +12,13 @@
 
 - `in-progress/jjc-ranking-role-inspect.md`
   - 主题：竞技场统计页角色下钻、最近 33 战绩与对局详情按需缓存
-
-- `in-progress/jjc-match-data-sync.md`
-  - 主题：JJC 官方接口对局数据同步、QQ 管理入口、时间水位续拉与重启恢复
-  - 详细说明：`docs/exec-plans/active/jjc-match-data-sync-plan.md`
+  - 详细说明：`docs/exec-plans/active/jjc-ranking-role-inspect-plan.md`
 
 ## Completed
+
+- `completed/jjc-match-data-sync.md`
+  - 主题：JJC 官方接口对局数据同步、QQ 管理入口、时间水位续拉与重启恢复
+  - 详细说明：`docs/exec-plans/completed/jjc-match-data-sync-plan.md`
 
 - `completed/doc-system-rebuild.md`
   - 主题：按 agent-first 方式重建文档体系
@@ -30,6 +31,7 @@
 
 - 新的跨文件、多阶段开发，先写计划文档，再开始编码
 - 新的跨文件、多阶段工作，优先在 `docs/tasks/in-progress/` 增加任务文档
+- 小改动只维护 `docs/exec-plans/active/`；跨阶段或长期任务同时维护 task，并在 task 中链接 active plan
 - 任务完成后移动到 `docs/tasks/completed/`
 - 长期不变的设计不要写进 task，放到 `project-architecture.md` 或 `docs/design-docs/`
 - 阶段性方案不要写进 task 目录索引正文，放到 `docs/exec-plans/`

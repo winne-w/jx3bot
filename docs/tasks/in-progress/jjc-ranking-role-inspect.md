@@ -3,6 +3,8 @@
 状态：进行中
 更新时间：2026-04-27
 
+执行计划：`docs/exec-plans/active/jjc-ranking-role-inspect-plan.md`
+
 ## 目标
 
 - 为竞技场统计页增加角色级下钻能力
