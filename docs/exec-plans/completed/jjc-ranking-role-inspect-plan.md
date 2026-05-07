@@ -1,6 +1,6 @@
 # JJC 排名统计角色下钻计划
 
-状态：已实现/已验证，待提交
+状态：已完成
 更新时间：2026-05-07
 
 ## 执行状态
@@ -8,11 +8,11 @@
 - 2026-05-07：代码侧已具备角色下钻 API、600 秒被动缓存、按需对局详情缓存、统计页角色点击与对局详情弹窗、README 与 runbook 回归说明。
 - 2026-05-07：确认“33”语义为 3v3 对局而非 33 条记录；默认窗口保持 20 条，并补充后端单测覆盖 `match_history` 请求 size 与 3v3 过滤。
 - 验证已执行：`python -m unittest tests.test_jjc_ranking_inspect tests.test_jjc_match_detail_hydration`；`python -m py_compile src/api/routers/jjc_ranking_stats.py src/services/jx3/*.py src/storage/mongo_repos/jjc_inspect_repo.py`。
-- 当前计划保持 active，待相关代码提交后再移动到 completed。
+- 2026-05-07：相关代码已提交，计划已归档到 completed。
 
 ## 背景
 
-`docs/tasks/in-progress/jjc-ranking-role-inspect.md` 已记录竞技场统计页角色下钻任务，但缺少可执行的阶段性计划。按当前文档规则，跨文件功能改动进入实现前需要在 `docs/exec-plans/active/` 下维护具体实施方案。
+`docs/tasks/completed/jjc-ranking-role-inspect.md` 已记录竞技场统计页角色下钻任务。按当前文档规则，跨文件功能改动进入实现前需要在 `docs/exec-plans/active/` 下维护具体实施方案；实现提交后归档到 completed。
 
 ## 目标
 

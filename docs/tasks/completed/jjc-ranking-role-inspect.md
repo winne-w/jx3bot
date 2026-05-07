@@ -1,14 +1,14 @@
 # Task: JJC Ranking Role Inspect
 
-状态：进行中
+状态：已完成
 更新时间：2026-05-07
 
-执行计划：`docs/exec-plans/active/jjc-ranking-role-inspect-plan.md`
+执行计划：`docs/exec-plans/completed/jjc-ranking-role-inspect-plan.md`
 
 ## 目标
 
 - 为竞技场统计页增加角色级下钻能力
-- 点击角色时按需查看最近一段时间 33 胜负和最近对局列表
+- 点击角色时按需查看最近一段时间 3v3 胜负和最近对局列表
 - 点击对局时按需查看单局详情
 - 不在生成排名时预热这些数据，统一改为点击时被动缓存
 

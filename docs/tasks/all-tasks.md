@@ -10,11 +10,11 @@
   - 主题：主线分层重构、日志口径收口、`defget` 兼容面缩减
   - 详细说明：`docs/exec-plans/active/refactor-plan.md`
 
-- `in-progress/jjc-ranking-role-inspect.md`
-  - 主题：竞技场统计页角色下钻、最近 3v3 战绩与对局详情按需缓存
-  - 详细说明：`docs/exec-plans/active/jjc-ranking-role-inspect-plan.md`
-
 ## Completed
+
+- `completed/jjc-ranking-role-inspect.md`
+  - 主题：竞技场统计页角色下钻、最近 3v3 战绩与对局详情按需缓存
+  - 详细说明：`docs/exec-plans/completed/jjc-ranking-role-inspect-plan.md`
 
 - `completed/jjc-match-data-sync.md`
   - 主题：JJC 官方接口对局数据同步、QQ 管理入口、时间水位续拉与重启恢复
