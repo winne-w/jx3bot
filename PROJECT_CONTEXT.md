@@ -116,6 +116,7 @@ python -m py_compile <相关 service/storage 文件>
 2. 每完成一个计划步骤，更新执行状态；涉及数据库、API、运行手册或架构边界的改动，按文档更新规则同步相关文档。
 3. 完成后运行计划中定义的验证命令；无法离线验证的外部依赖，补充手工回归路径和风险说明。
 4. 完成后给出实现结果、验证结果、未覆盖风险和后续建议。
+5. 代码实现和验证完成但尚未提交时，计划仍保留在 `docs/exec-plans/active/`；只能在计划内记录“已实现/已验证/待提交”状态，不得提前移动到 `docs/exec-plans/completed/`。
 
 如需把阶段 2 拆给子 agent 并行实现，使用全局 `subagent-implementation` skill；本项目文档不重复维护通用子 agent 调度细节。
 
@@ -147,7 +148,7 @@ python -m py_compile <相关 service/storage 文件>
 - 改动 API 路由时，同时更新 `README.md` 中的接口说明。
 - 改动数据库集合、字段、索引、TTL、迁移脚本或存储 repo 时，同时更新 `docs/design-docs/database-design.md`。
 - 改动手工验证路径时，同时更新 `docs/references/runbook.md` 的回归清单。
-- 生成阶段性执行计划时，写入 `docs/exec-plans/active/` 并同步更新 `docs/exec-plans/index.md`；计划完成后再移入 `docs/exec-plans/completed/`。
+- 生成阶段性执行计划时，写入 `docs/exec-plans/active/` 并同步更新 `docs/exec-plans/index.md`；相关代码提交后，才可将计划移入 `docs/exec-plans/completed/` 并更新索引。
 
 ## 已知遗留问题
 

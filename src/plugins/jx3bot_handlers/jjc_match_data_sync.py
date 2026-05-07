@@ -98,6 +98,8 @@ async def _cmd_start(bot: Bot, event: Event, svc: Any, text: str) -> None:
     lines.append(f"发现对局: {result.get('discovered_matches', 0)}")
     lines.append(f"保存详情: {result.get('saved_details', 0)}")
     lines.append(f"跳过详情: {result.get('skipped_details', 0)}")
+    lines.append(f"详情失败: {result.get('failed_details', 0)}")
+    lines.append(f"详情不可用: {result.get('unavailable_details', 0)}")
     lines.append(f"失败角色: {result.get('failed_roles', 0)}")
     elapsed = result.get("elapsed_seconds")
     if isinstance(elapsed, (int, float)):

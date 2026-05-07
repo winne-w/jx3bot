@@ -401,6 +401,7 @@
 - `data` 字段是 MongoDB 嵌套对象（BSON document），不是 JSON 字符串。代码通过 Motor/PyMongo 写入 Python `dict`，Mongo 底层以 BSON 保存；这是推荐形态，支持嵌套字段查询、局部更新和后续迁移。
 - 不应把 `data` 改成 JSON 字符串。JSON 字符串会让 Mongo 只能按普通字符串处理，无法直接索引或查询 `data.detail.*` 子字段。
 - 现有 API 返回结构依赖 `data.detail.basic_info`、`team1`、`team2`、`players_info[].armors`、`players_info[].talents` 等字段。前端 `public/jjc-ranking-stats.html` 当前展示基础对局信息、双方玩家、分数/血量/装分、装备图标和奇穴图标。
+- 推栏明确返回 `code=-1`、`msg=no data found`、`data=null` 时，`data` 保存轻量不可用终态：`{"match_id": <int>, "unavailable": true, "code": -1, "message": "no data found", "detail": null}`。这类文档不进入装备/奇穴快照拆表，读取时原样返回并带缓存命中信息。
 
 2026-04-30 只读抽样观察：
 
@@ -543,12 +544,16 @@
 | `source_identity_key` | string/null | 首次发现该对局的角色身份键 |
 | `source_server` | string/null | 首次发现来源服务器 |
 | `source_role_name` | string/null | 首次发现来源角色名 |
-| `status` | string | 状态：`discovered`、`detail_syncing`、`detail_saved`、`failed` |
+| `status` | string | 状态：`discovered`、`detail_syncing`、`detail_saved`、`failed`、`detail_unavailable` |
 | `match_time` | int/null | 对局时间 Unix 秒 |
 | `lease_owner` | string/null | 当前执行实例标识 |
 | `lease_expires_at` | float/null | 执行租约过期时间 Unix 秒 |
 | `discovered_at` | float | 首次发现时间 Unix 秒 |
 | `detail_saved_at` | float/null | 详情保存时间 Unix 秒 |
+| `detail_retry_after` | float/null | 失败后下次重试时间 Unix 秒 |
+| `detail_unavailable_reason` | string/null | 详情不可用原因 |
+| `detail_unavailable_code` | int/null | 详情不可用代码 |
+| `detail_unavailable_at` | float/null | 标记不可用时间 Unix 秒 |
 | `fail_count` | int | 连续失败次数 |
 | `last_error` | string/null | 最近错误 |
 | `updated_at` | float | 更新时间 Unix 秒 |

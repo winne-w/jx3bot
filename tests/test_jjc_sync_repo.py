@@ -225,16 +225,135 @@ class TestJjcSyncRepoMatchSeen(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result)
 
-    async def test_claim_match_detail_allows_failed_retry(self) -> None:
+    async def test_claim_match_detail_filter_allows_discovered(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one_and_update.return_value = {
+            "match_id": 1001,
+            "status": "detail_syncing",
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.claim_match_detail(1001, lease_owner="owner", lease_seconds=60)
+
+        self.assertIsNotNone(result)
+        kwargs = db.jjc_sync_match_seen.find_one_and_update.call_args.kwargs
+        filter_doc = kwargs["filter"]
+        self.assertEqual(filter_doc["match_id"], 1001)
+        # filter must include discovered and failed-with-due-retry
+        or_conditions = filter_doc["$or"]
+        self.assertEqual(len(or_conditions), 2)
+        self.assertEqual(or_conditions[0], {"status": "discovered"})
+        self.assertEqual(or_conditions[1]["status"], "failed")
+        self.assertEqual(kwargs["update"]["$set"]["status"], "detail_syncing")
+
+    async def test_claim_match_detail_returns_none_when_no_match(self) -> None:
+        db = FakeDb()
+        # find_one_and_update default returns None → not claimable
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.claim_match_detail(1001)
+
+        self.assertIsNone(result)
+
+    async def test_claim_match_detail_returns_none_for_bad_id(self) -> None:
         db = FakeDb()
         repo = JjcSyncRepo(db=db)
 
-        await repo.claim_match_detail(1001, lease_owner="owner", lease_seconds=60)
+        result = await repo.claim_match_detail("not-a-number")
 
-        filter_doc, update = db.jjc_sync_match_seen.find_one_and_update.call_args.kwargs["filter"], db.jjc_sync_match_seen.find_one_and_update.call_args.kwargs["update"]
-        self.assertEqual(filter_doc["match_id"], 1001)
-        self.assertEqual(filter_doc["status"], {"$in": ["discovered", "failed"]})
-        self.assertEqual(update["$set"]["status"], "detail_syncing")
+        self.assertIsNone(result)
+        db.jjc_sync_match_seen.find_one_and_update.assert_not_called()
+
+    async def test_mark_match_detail_unavailable_writes_fields_and_clears_lease(self) -> None:
+        db = FakeDb()
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.mark_match_detail_unavailable(
+            match_id="2001",
+            reason="不存在",
+            code="1",
+        )
+
+        self.assertTrue(result)
+        filter_doc, update = db.jjc_sync_match_seen.update_one.call_args.args
+        self.assertEqual(filter_doc, {"match_id": 2001})
+        set_fields = update["$set"]
+        self.assertEqual(set_fields["status"], "detail_unavailable")
+        self.assertEqual(set_fields["detail_unavailable_reason"], "不存在")
+        self.assertEqual(set_fields["detail_unavailable_code"], 1)
+        self.assertIsNotNone(set_fields["detail_unavailable_at"])
+        self.assertIsNone(set_fields["lease_owner"])
+        self.assertIsNone(set_fields["lease_expires_at"])
+        self.assertIsNone(set_fields["detail_retry_after"])
+
+    async def test_mark_match_detail_unavailable_returns_false_for_bad_id(self) -> None:
+        db = FakeDb()
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.mark_match_detail_unavailable(match_id="bad")
+
+        self.assertFalse(result)
+        db.jjc_sync_match_seen.update_one.assert_not_called()
+
+    async def test_mark_match_detail_failed_backoff_1st_failure(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one.return_value = {"fail_count": 0}
+        repo = JjcSyncRepo(db=db)
+
+        await repo.mark_match_detail_failed(3001, "err")
+
+        _, update = db.jjc_sync_match_seen.update_one.call_args.args
+        set_fields = update["$set"]
+        self.assertEqual(set_fields["fail_count"], 1)
+        self.assertAlmostEqual(set_fields["detail_retry_after"], set_fields["updated_at"] + 300, delta=2)
+
+    async def test_mark_match_detail_failed_backoff_2nd_failure(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one.return_value = {"fail_count": 1}
+        repo = JjcSyncRepo(db=db)
+
+        await repo.mark_match_detail_failed(3001, "err")
+
+        _, update = db.jjc_sync_match_seen.update_one.call_args.args
+        set_fields = update["$set"]
+        self.assertEqual(set_fields["fail_count"], 2)
+        self.assertAlmostEqual(set_fields["detail_retry_after"], set_fields["updated_at"] + 1800, delta=2)
+
+    async def test_mark_match_detail_failed_backoff_3rd_failure(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one.return_value = {"fail_count": 2}
+        repo = JjcSyncRepo(db=db)
+
+        await repo.mark_match_detail_failed(3001, "err")
+
+        _, update = db.jjc_sync_match_seen.update_one.call_args.args
+        set_fields = update["$set"]
+        self.assertEqual(set_fields["fail_count"], 3)
+        self.assertAlmostEqual(set_fields["detail_retry_after"], set_fields["updated_at"] + 7200, delta=2)
+
+    async def test_mark_match_detail_failed_backoff_4th_failure_capped(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one.return_value = {"fail_count": 3}
+        repo = JjcSyncRepo(db=db)
+
+        await repo.mark_match_detail_failed(3001, "err")
+
+        _, update = db.jjc_sync_match_seen.update_one.call_args.args
+        set_fields = update["$set"]
+        self.assertEqual(set_fields["fail_count"], 4)
+        self.assertAlmostEqual(set_fields["detail_retry_after"], set_fields["updated_at"] + 21600, delta=2)
+
+    async def test_mark_match_detail_failed_backoff_5th_failure_still_capped(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one.return_value = {"fail_count": 4}
+        repo = JjcSyncRepo(db=db)
+
+        await repo.mark_match_detail_failed(3001, "err")
+
+        _, update = db.jjc_sync_match_seen.update_one.call_args.args
+        set_fields = update["$set"]
+        self.assertEqual(set_fields["fail_count"], 5)
+        self.assertAlmostEqual(set_fields["detail_retry_after"], set_fields["updated_at"] + 21600, delta=2)
 
 
 class TestJjcSyncRepoState(unittest.IsolatedAsyncioTestCase):

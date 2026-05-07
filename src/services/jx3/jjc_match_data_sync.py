@@ -301,6 +301,8 @@ class JjcMatchDataSyncService:
             "discovered_matches": 0,
             "saved_details": 0,
             "skipped_details": 0,
+            "failed_details": 0,
+            "unavailable_details": 0,
             "failed_roles": 0,
             "recovered_leases": 0,
             "errors": [],
@@ -332,7 +334,7 @@ class JjcMatchDataSyncService:
                     lease_owner=lease_owner,
                 )
                 summary["processed_roles"] += 1
-                for key in ("discovered_matches", "saved_details", "skipped_details"):
+                for key in ("discovered_matches", "saved_details", "skipped_details", "failed_details", "unavailable_details"):
                     summary[key] += role_result.get(key, 0)
                 if role_result.get("error"):
                     summary["failed_roles"] += 1
@@ -396,6 +398,8 @@ class JjcMatchDataSyncService:
             "discovered_matches": 0,
             "saved_details": 0,
             "skipped_details": 0,
+            "failed_details": 0,
+            "unavailable_details": 0,
         }
 
         try:
@@ -465,7 +469,9 @@ class JjcMatchDataSyncService:
                     elif detail_result == "skipped":
                         result["skipped_details"] += 1
                     elif detail_result == "failed":
-                        raise RuntimeError(f"match_detail_failed:{match_id}")
+                        result["failed_details"] += 1
+                    elif detail_result == "unavailable":
+                        result["unavailable_details"] += 1
 
                 if should_stop_after_page:
                     break
@@ -652,6 +658,7 @@ class JjcMatchDataSyncService:
         match_id: int,
         match_time: Optional[int],
         lease_owner: str,
+        max_attempts: int = 3,
     ) -> str:
         claim = await self._repo.claim_match_detail(
             match_id=match_id,
@@ -661,22 +668,30 @@ class JjcMatchDataSyncService:
         if claim is None:
             return "skipped"
 
-        try:
-            await self._sleep_func()
-            payload = await self._inspect_service.get_match_detail(match_id=match_id)
-            if not isinstance(payload, dict) or payload.get("error"):
-                message = payload.get("message") if isinstance(payload, dict) else "invalid_detail_response"
-                await self._repo.mark_match_detail_failed(match_id, str(message))
-                return "failed"
+        last_error = ""
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await self._sleep_func()
+                payload = await self._inspect_service.get_match_detail(match_id=match_id)
+                if not isinstance(payload, dict) or payload.get("error"):
+                    message = payload.get("message") if isinstance(payload, dict) else "invalid_detail_response"
+                    last_error = str(message)
+                else:
+                    detail = payload.get("detail")
+                    if detail is None:
+                        reason = str(payload.get("message") or "no data found")
+                        code = payload.get("code") if payload.get("code") is not None else -1
+                        await self._repo.mark_match_detail_unavailable(match_id, reason=reason, code=code)
+                        return "unavailable"
+                    await self._repo.mark_match_detail_saved(match_id)
+                    if isinstance(detail, dict):
+                        await self._enqueue_players_from_detail(detail, fallback_match_time=match_time)
+                    return "saved"
+            except Exception as exc:
+                last_error = str(exc)
 
-            await self._repo.mark_match_detail_saved(match_id)
-            detail = payload.get("detail")
-            if isinstance(detail, dict):
-                await self._enqueue_players_from_detail(detail, fallback_match_time=match_time)
-            return "saved"
-        except Exception as exc:
-            await self._repo.mark_match_detail_failed(match_id, str(exc))
-            return "failed"
+        await self._repo.mark_match_detail_failed(match_id, last_error)
+        return "failed"
 
     async def _enqueue_players_from_detail(
         self,
