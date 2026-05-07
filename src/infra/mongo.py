@@ -163,4 +163,32 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     )
     await _safe_index("role_jjc_cache", "checked_at", name="idx_checked_at", expireAfterSeconds=604800)
 
+    # jjc_sync_role_queue
+    await _safe_index("jjc_sync_role_queue", "identity_key", name="idx_identity_key", unique=True)
+    await _safe_index(
+        "jjc_sync_role_queue",
+        [("status", 1), ("priority", 1), ("next_sync_after", 1)],
+        name="idx_status_priority_next_sync_after",
+    )
+    await _safe_index(
+        "jjc_sync_role_queue",
+        [("normalized_server", 1), ("normalized_name", 1)],
+        name="idx_normalized_server_name",
+    )
+    await _safe_index("jjc_sync_role_queue", "global_role_id", name="idx_global_role_id")
+    await _safe_index("jjc_sync_role_queue", "lease_expires_at", name="idx_lease_expires_at")
+
+    # jjc_sync_match_seen
+    await _safe_index("jjc_sync_match_seen", "match_id", name="idx_match_id", unique=True)
+    await _safe_index(
+        "jjc_sync_match_seen",
+        [("status", 1), ("match_time", 1)],
+        name="idx_status_match_time",
+    )
+    await _safe_index("jjc_sync_match_seen", "source_identity_key", name="idx_source_identity_key")
+    await _safe_index("jjc_sync_match_seen", "lease_expires_at", name="idx_lease_expires_at")
+
+    # jjc_sync_state
+    await _safe_index("jjc_sync_state", "key", name="idx_key", unique=True)
+
     logger.info("MongoDB 索引初始化完成")

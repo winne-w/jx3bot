@@ -14,6 +14,7 @@ from src.plugins.jx3bot_handlers.cache_init import register as register_cache_in
 from src.plugins.jx3bot_handlers.exam import register as register_exam
 from src.plugins.jx3bot_handlers.fraud import register as register_fraud
 from src.plugins.jx3bot_handlers.help import register as register_help
+from src.plugins.jx3bot_handlers.jjc_match_data_sync import register as register_jjc_match_data_sync
 from src.plugins.jx3bot_handlers.jjc_ranking import register as register_jjc_ranking
 from src.plugins.jx3bot_handlers.lifecycle import register as register_lifecycle
 from src.plugins.jx3bot_handlers.mingpian import register as register_mingpian
@@ -26,6 +27,7 @@ from src.renderers.jx3.jjc_ranking import send_combined_ranking_image, send_spli
 from src.services.jx3.singletons import (
     env,
     group_config_repo,
+    jjc_match_data_sync_service,
     jjc_ranking_service,
 )
 from src.services.jx3.baizhan_skill_icons import ensure_baizhan_skill_icons
@@ -99,6 +101,7 @@ async def _in_zili_session(event: Event) -> bool:
 
 zili_choice = on_regex(cfg.REGEX_PATTERNS["资历选择"], rule=Rule(_in_zili_session))
 zhanji_ranking = on_regex(cfg.REGEX_PATTERNS["竞技排名"])
+jjc_sync_admin = on_regex(r'^/jjc同步.*')
 reminder = on_regex(cfg.REGEX_PATTERNS["提醒"], priority=5, block=True)
 reminder_all = on_regex(cfg.REGEX_PATTERNS["提醒所有人"], priority=5, block=True)
 reminder_list = on_regex(cfg.REGEX_PATTERNS["提醒列表"], priority=5, block=True)
@@ -177,4 +180,10 @@ register_jjc_ranking(
         week_info=week_info,
         show_legendary=show_legendary,
     ),
+)
+
+register_jjc_match_data_sync(
+    jjc_sync_admin,
+    sync_service=jjc_match_data_sync_service,
+    admin_qq=cfg.ADMIN_QQ,
 )

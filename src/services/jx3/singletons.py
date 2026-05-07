@@ -7,12 +7,15 @@ from src.infra.jx3api_get import get
 from src.storage.mongo_repos.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
+from src.services.jx3.jjc_match_data_sync import JjcMatchDataSyncService
+from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.kungfu import get_role_indicator
-from src.services.jx3.match_history import MatchHistoryClient
+from src.services.jx3.match_history import MatchHistoryClient, PersonMatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 from src.storage.mongo_repos.jjc_match_snapshot_repo import JjcMatchSnapshotRepo
+from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
 from src.utils.tuilan_request import tuilan_request
 
 env = Environment(loader=FileSystemLoader("templates"))
@@ -55,6 +58,11 @@ match_history_client = MatchHistoryClient(
     tuilan_request=tuilan_request,
 )
 
+person_match_history_client = PersonMatchHistoryClient(
+    person_match_history_url=cfg.API_URLS["竞技场个人战局历史"],
+    tuilan_request=tuilan_request,
+)
+
 jjc_ranking_inspect_service = JjcRankingInspectService(
     ranking_service=jjc_ranking_service,
     kungfu_cache_repo=JjcCacheRepo(
@@ -68,4 +76,14 @@ jjc_ranking_inspect_service = JjcRankingInspectService(
     role_indicator_fetcher=get_role_indicator,
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
     role_recent_ttl_seconds=600,
+)
+
+jjc_match_data_sync_service = JjcMatchDataSyncService(
+    repo=JjcSyncRepo(),
+    current_season=cfg.CURRENT_SEASON,
+    current_season_start=cfg.CURRENT_SEASON_START,
+    match_history_client=match_history_client,
+    person_match_history_client=person_match_history_client,
+    inspect_service=jjc_ranking_inspect_service,
+    identity_repo=RoleIdentityRepo(),
 )

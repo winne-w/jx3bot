@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import random
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -16,6 +15,7 @@ from src.services.jx3.kungfu import get_kungfu_detail_by_role_info
 from src.infra.mongo import get_db
 from src.services.jx3.jjc_api_client import JjcApiClient
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
+from src.services.jx3.tuilan_rate_limit import fixed_sleep, random_sleep
 
 
 @dataclass(frozen=True)
@@ -165,7 +165,7 @@ class JjcRankingService:
                     "message": f"获取时间标签失败: {time_tag_result.get('msg', '未知错误')}",
                 }
 
-            await asyncio.sleep(5.45)
+            await fixed_sleep(5.45)
 
             data = time_tag_result.get("data", {})
             default_week = int(data.get("defaultWeek") or 0)
@@ -396,9 +396,7 @@ class JjcRankingService:
         if cached:
             return cached
 
-        delay = random.uniform(3, 5)
-        logger.info(f"等待 {delay:.2f} 秒后发起请求")
-        await asyncio.sleep(delay)
+        await random_sleep(3, 5)
 
         logger.info(f"优先使用心法查询接口查询心法信息: server={server} name={name}")
 

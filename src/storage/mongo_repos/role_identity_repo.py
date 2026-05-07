@@ -19,6 +19,16 @@ def _normalize(value: str) -> str:
     return (value or "").strip().lower()
 
 
+def _coerce_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    return None
+
+
 def build_identity_key(
     global_role_id: Optional[str] = None,
     zone: Optional[str] = None,
@@ -152,13 +162,14 @@ class RoleIdentityRepo:
         global_role_id: Optional[str] = None,
         role_id: Optional[str] = None,
         person_id: Optional[str] = None,
+        observed_at: Optional[datetime] = None,
         cache_repo: Any = None,
     ) -> Dict[str, Any]:
         """从对局详情数据写入或升级身份。"""
         return await self._upsert_identity(
             server=server, name=name, zone=zone, game_role_id=game_role_id,
             global_role_id=global_role_id, role_id=role_id, person_id=person_id,
-            source="match_detail", cache_repo=cache_repo,
+            source="match_detail", observed_at=observed_at, cache_repo=cache_repo,
         )
 
     # ---- 显式升级 ----
@@ -243,10 +254,12 @@ class RoleIdentityRepo:
         global_role_id: Optional[str] = None,
         role_id: Optional[str] = None,
         person_id: Optional[str] = None,
+        observed_at: Optional[datetime] = None,
         cache_repo: Any = None,
     ) -> Dict[str, Any]:
         """通用 upsert：查找已有身份 → 可能升级 → 新建或更新。"""
         now = datetime.now(timezone.utc)
+        profile_observed_at = observed_at or now
         ns = _normalize(server)
         nn = _normalize(name)
 
@@ -260,7 +273,7 @@ class RoleIdentityRepo:
             return await self._update_existing(
                 existing, server, name, ns, nn,
                 zone, game_role_id, global_role_id, role_id, person_id,
-                source, now, cache_repo=cache_repo,
+                source, now, profile_observed_at, cache_repo=cache_repo,
             )
 
         # 无已有身份 → 新建
@@ -280,6 +293,7 @@ class RoleIdentityRepo:
             "person_id": person_id or None,
             "aliases": [],
             "sources": [source],
+            "profile_observed_at": profile_observed_at,
             "first_seen_at": now,
             "last_seen_at": now,
             "updated_at": now,
@@ -303,7 +317,7 @@ class RoleIdentityRepo:
                 return await self._update_existing(
                     existing, server, name, ns, nn,
                     zone, game_role_id, global_role_id, role_id, person_id,
-                    source, now, cache_repo=cache_repo,
+                    source, now, profile_observed_at, cache_repo=cache_repo,
                 )
             raise
 
@@ -324,6 +338,7 @@ class RoleIdentityRepo:
         person_id: Optional[str],
         source: str,
         now: datetime,
+        profile_observed_at: datetime,
         cache_repo: Any = None,
     ) -> Dict[str, Any]:
         """更新已有身份记录，必要时执行身份升级。"""
@@ -338,13 +353,27 @@ class RoleIdentityRepo:
         needs_upgrade = _LEVEL_ORDER.get(new_level, 0) > _LEVEL_ORDER.get(current_level, 0)
 
         set_fields: Dict[str, Any] = {
-            "server": server,
-            "normalized_server": ns,
-            "name": name,
-            "normalized_name": nn,
             "last_seen_at": now,
             "updated_at": now,
         }
+        existing_observed_at = _coerce_datetime(
+            existing.get("profile_observed_at") or existing.get("updated_at")
+        )
+        should_update_profile = (
+            source != "match_detail"
+            or not existing.get("server")
+            or not existing.get("name")
+            or existing_observed_at is None
+            or profile_observed_at > existing_observed_at
+        )
+        if should_update_profile:
+            set_fields.update({
+                "server": server,
+                "normalized_server": ns,
+                "name": name,
+                "normalized_name": nn,
+                "profile_observed_at": profile_observed_at,
+            })
 
         # 更新非空外部 ID 字段（传了就用新值，否则保留已有值）
         for field_name, value in [
