@@ -90,3 +90,45 @@ class MatchHistoryClient:
                 break
 
             current_cursor += page_size
+
+
+@dataclass(frozen=True)
+class PersonMatchHistoryClient:
+    """
+    推栏：按 person_id 分页获取个人战局历史。
+
+    接口: POST https://m.pvp.xoyo.com/mine/match/person-history
+    body: {"person_id": "...", "size": 20, "cursor": 0, "ts": "..."}  (ts 由 tuilan_request 自动补充)
+    """
+
+    person_match_history_url: str
+    tuilan_request: Callable[[str, dict[str, Any]], Any]
+
+    def get_person_match_history(
+        self,
+        *,
+        person_id: str,
+        size: int = 20,
+        cursor: int = 0,
+    ) -> dict[str, Any]:
+        url = self.person_match_history_url
+        params = {"person_id": person_id, "size": int(size), "cursor": int(cursor)}
+
+        logger.info(f"推栏个人战局历史请求: url={url} params={json.dumps(params, ensure_ascii=False)}")
+
+        try:
+            result = self.tuilan_request(url, params)
+
+            if result is None:
+                logger.warning("推栏个人战局历史请求失败: 返回None")
+                return {"error": "请求返回None"}
+
+            if isinstance(result, dict) and "error" in result:
+                logger.warning("推栏个人战局历史请求失败: %s", result.get("error"))
+                return result
+
+            logger.info("推栏个人战局历史请求成功")
+            return result
+        except Exception as exc:
+            logger.exception("推栏个人战局历史请求异常: %s", exc)
+            return {"error": f"请求异常: {exc}"}

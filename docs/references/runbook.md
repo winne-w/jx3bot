@@ -1,6 +1,6 @@
 # 运行与回归手册
 
-更新时间：2026-04-30
+更新时间：2026-05-06
 
 本文面向维护者和 agent，记录当前仓库可执行的启动方式、验证命令和常见排查路径。
 
@@ -117,6 +117,12 @@ python test_tuilan_match_history.py
 - `竞技查询`
 - `竞技排名`
 - `竞技排名 拆分`
+- 添加角色：`/jjc同步添加 <服务器> <角色名> [global_role_id=...] [role_id=...] [zone=...]`
+- 查看状态：`/jjc同步状态`
+- 触发一轮同步：`/jjc同步开始 [default|full|incremental]`
+- 暂停后续同步：`/jjc同步暂停 [原因]`
+- 恢复同步：`/jjc同步恢复`
+- 重置角色水位：`/jjc同步重置 <服务器> <角色名>`
 
 预期:
 
@@ -126,6 +132,23 @@ python test_tuilan_match_history.py
   - 新结构优先写入 `data/jjc_ranking_stats/<timestamp>/summary.json`
   - 明细按需拆分在 `data/jjc_ranking_stats/<timestamp>/details/`
   - 历史兼容阶段可能仍存在旧的 `data/jjc_ranking_stats/<timestamp>.json`
+- JJC 同步命令只有 `config.py` 中 `ADMIN_QQ` 管理员可执行
+- `/jjc同步开始` 只触发一轮同步，不会启动常驻任务
+- 角色缺少 `global_role_id` 且队列中已有 `person_id` 时，同步前会先调用推栏 `mine/match/person-history` 补全；补全失败再走现有角色身份解析链路
+- 同步详情应写入现有 `jjc_match_detail`，并从详情玩家回填 `jjc_sync_role_queue`；详情玩家缺 `global_role_id` 但有 `person_id` 时，会尝试通过 `person-history` 补齐后再入队
+- 若状态中最近错误出现 `role_identity_not_found` 或缺少 `global_role_id`，优先用带 `global_role_id=...` 的添加命令补充身份
+- 若状态中最近错误出现 `match_detail_failed:<match_id>`，说明该角色本轮水位未推进；排查详情接口或缓存写入后可再次执行 `/jjc同步开始`
+- 若服务中断后状态长期存在 `syncing` 或 `detail_syncing`，再次执行 `/jjc同步开始` 会先恢复过期租约再领取角色
+
+离线自动验证：
+
+```bash
+python -m unittest tests.test_jjc_match_data_sync_handler tests.test_jjc_match_data_sync tests.test_jjc_sync_repo
+python -m unittest tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot_repo tests.test_jjc_match_detail_hydration tests.test_scripts_jjc_snapshot
+python -m py_compile src/services/jx3/jjc_match_data_sync.py src/storage/mongo_repos/jjc_sync_repo.py src/plugins/jx3bot_handlers/jjc_match_data_sync.py src/infra/mongo.py
+```
+
+在线手工回归需要真实 QQ/推栏环境：先 `/jjc同步添加 <服务器> <角色名>`，再 `/jjc同步状态`、`/jjc同步开始 incremental`、`/jjc同步状态`，确认角色被领取、对局详情写入、失败时水位不推进。
 
 ### 6. 资历 / 百战 / 骗子查询
 

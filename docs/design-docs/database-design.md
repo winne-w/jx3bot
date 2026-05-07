@@ -228,6 +228,7 @@
 | `person_id` | string/null | 对局详情中的 person ID |
 | `aliases` | array | 历史名称、历史服务器名、旧 `identity_key` 等，支持改名/转服后的回溯查询 |
 | `sources` | array | 数据来源列表，取值：`ranking`、`indicator`、`match_detail`、`migrated_kungfu_cache` |
+| `profile_observed_at` | datetime/null | 当前 `server` / `name` 所依据的资料观测时间；排行榜/indicator 用查询时间，对局详情用 `match_time` |
 | `first_seen_at` | datetime | 首次记录时间 |
 | `last_seen_at` | datetime | 最近一次出现时间 |
 | `updated_at` | datetime | 最近一次字段更新（如升级 identity_level）时间 |
@@ -247,6 +248,7 @@
 - `game_role` → `global`：通过 indicator 或对局详情拿到 `global_role_id` 后，重新计算 `identity_key` 为 `global:{global_role_id}`，将旧 `identity_key` 推入 `aliases`。
 - 升级后旧 `identity_key` 记录不删除，但标记或合并到新记录。
 - 同一 `global_role_id` 不得出现多条记录；同一 `zone + game_role_id` 组合同理。
+- `match_detail` 属于历史对局来源，只有当对局 `match_time` 晚于现有 `profile_observed_at` 时才更新当前 `server` / `name`，避免用旧对局覆盖转服/改名后的当前资料。
 
 索引：
 
@@ -469,6 +471,120 @@
 |---|---|---|
 | `idx_snapshot_hash` | `snapshot_hash` | unique |
 | `idx_last_seen_at` | `last_seen_at` | 普通索引 |
+
+### `jjc_sync_role_queue`
+
+用途：JJC 对局数据同步的角色队列，保存每个待同步角色的本赛季同步进度与执行租约。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_sync_repo.py`
+- 业务入口：`src/plugins/jx3bot_handlers/jjc_match_data_sync.py`
+- 同步编排：`src/services/jx3/jjc_match_data_sync.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `identity_key` | string | 角色身份键，优先 `global:{global_role_id}`，其次 `game:{zone}:{role_id}`，最后 `name:{normalized_server}:{normalized_name}`，业务唯一 |
+| `server` | string | 服务器名 |
+| `name` | string | 角色名 |
+| `normalized_server` | string | 规范化服务器名 |
+| `normalized_name` | string | 规范化角色名 |
+| `global_role_id` | string/null | 推栏全局角色 ID |
+| `role_id` | string/null | 角色 ID |
+| `person_id` | string/null | 推栏个人 ID；对局详情缺 `global_role_id` 时可用于 `person-history` 补全 |
+| `zone` | string/null | 区服分区 |
+| `identity_source` | string/null | 同步前身份补全来源，如 `role_identity_name_match`、`live_ranking_global_role_id`、`person_history` |
+| `source` | string | 来源：`manual`、`ranking`、`match_detail` |
+| `priority` | int | 调度优先级，手动添加高于自动发现 |
+| `status` | string | 状态：`pending`、`syncing`、`exhausted`、`cooldown`、`failed`、`disabled` |
+| `season_id` | string/null | 当前赛季标识 |
+| `season_start_time` | int | 当前赛季开始时间 Unix 秒 |
+| `full_synced_until_time` | int/null | 已完整覆盖到的最新时间点 Unix 秒 |
+| `oldest_synced_match_time` | int/null | 已同步到的最早对局时间 Unix 秒 |
+| `latest_seen_match_time` | int/null | 最近看到的最新对局时间 Unix 秒 |
+| `history_exhausted` | bool/null | 本赛季是否已经回溯到赛季开始 |
+| `last_cursor` | int | 最近处理 cursor |
+| `lease_owner` | string/null | 当前执行实例标识 |
+| `lease_expires_at` | float/null | 执行租约过期时间 Unix 秒，用于重启恢复 |
+| `last_synced_at` | float/null | 最近同步时间 Unix 秒 |
+| `next_sync_after` | float/null | 下一次允许同步时间 Unix 秒 |
+| `fail_count` | int | 连续失败次数 |
+| `last_error` | string/null | 最近错误 |
+| `created_at` | float | 创建时间 Unix 秒 |
+| `updated_at` | float | 更新时间 Unix 秒 |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_identity_key` | `identity_key` | unique |
+| `idx_status_priority_next_sync_after` | `status`, `priority`, `next_sync_after` | 普通复合索引 |
+| `idx_normalized_server_name` | `normalized_server`, `normalized_name` | 普通复合索引 |
+| `idx_global_role_id` | `global_role_id` | 普通索引 |
+| `idx_lease_expires_at` | `lease_expires_at` | 普通索引 |
+
+### `jjc_sync_match_seen`
+
+用途：保存已发现对局与详情同步状态，避免重复请求详情。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_sync_repo.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `match_id` | int | 对局 ID，业务唯一 |
+| `source_identity_key` | string/null | 首次发现该对局的角色身份键 |
+| `source_server` | string/null | 首次发现来源服务器 |
+| `source_role_name` | string/null | 首次发现来源角色名 |
+| `status` | string | 状态：`discovered`、`detail_syncing`、`detail_saved`、`failed` |
+| `match_time` | int/null | 对局时间 Unix 秒 |
+| `lease_owner` | string/null | 当前执行实例标识 |
+| `lease_expires_at` | float/null | 执行租约过期时间 Unix 秒 |
+| `discovered_at` | float | 首次发现时间 Unix 秒 |
+| `detail_saved_at` | float/null | 详情保存时间 Unix 秒 |
+| `fail_count` | int | 连续失败次数 |
+| `last_error` | string/null | 最近错误 |
+| `updated_at` | float | 更新时间 Unix 秒 |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_match_id` | `match_id` | unique |
+| `idx_status_match_time` | `status`, `match_time` | 普通复合索引 |
+| `idx_source_identity_key` | `source_identity_key` | 普通索引 |
+| `idx_lease_expires_at` | `lease_expires_at` | 普通索引 |
+
+### `jjc_sync_state`
+
+用途：保存同步全局状态，如暂停/恢复开关。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_sync_repo.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `key` | string | 状态键，当前固定为 `global`，业务唯一 |
+| `paused` | bool | 是否全局暂停 |
+| `reason` | string | 暂停原因 |
+| `updated_at` | float | 更新时间 Unix 秒 |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_key` | `key` | unique |
 
 ## 文件型持久化与非 Mongo 数据
 

@@ -1,7 +1,7 @@
 # JJC 对局数据同步计划
 
-状态：计划中
-更新时间：2026-04-30
+状态：实现中
+更新时间：2026-05-06
 
 ## 背景
 
@@ -26,6 +26,15 @@
 - 不新增统计事实表。
 - 不新增 HTTP 管理入口，第一阶段入口只放在 QQ 命令。
 - 不把同步任务默认自动开启；应由管理员命令触发或显式配置启用。
+
+## 执行进度
+
+- 2026-05-06：已完成 Step 1-4，包含推栏请求等待 helper、同步队列仓储、Mongo 索引/数据库文档、同步纯逻辑 helper。
+- 2026-05-06：已完成 Step 5-9 的首版实现，包含单角色分页同步、一轮调度、管理员 QQ 命令、详情保存后回填角色队列、状态/暂停/恢复/重置。
+- 2026-05-06：已补新增 service/repo 单测和编译验证；详情同步失败会导致当前角色失败且不推进水位，失败详情允许后续重试。
+- 2026-05-06：已补同步前角色身份补全，队列角色缺少 `global_role_id` 时先复用现有 JJC 身份解析链路并写回身份字段。
+- 2026-05-07：已补 `person-history` 身份补全链路；详情玩家或队列角色有 `person_id` 但缺 `global_role_id` 时，先尝试通过该接口补齐并写回。
+- 2026-05-06：仍需在线手工回归真实推栏接口分页、水位推进和 QQ 命令输出。
 
 ## QQ 入口
 
@@ -77,7 +86,9 @@
 | `normalized_name` | string | 规范化角色名 |
 | `global_role_id` | string/null | 推栏全局角色 ID |
 | `role_id` | string/null | 角色 ID |
+| `person_id` | string/null | 推栏个人 ID，用于 `person-history` 补全 `global_role_id` |
 | `zone` | string/null | 区服分区 |
+| `identity_source` | string/null | 同步前身份补全来源，如 `person_history` |
 | `source` | string | `manual`、`ranking`、`match_detail` |
 | `priority` | int | 调度优先级，手动添加高于自动发现 |
 | `status` | string | `pending`、`syncing`、`exhausted`、`cooldown`、`failed`、`disabled` |
@@ -172,7 +183,7 @@ cursor = 0
 4. 对每个 `match_id` 写入 `jjc_sync_match_seen`。
 5. 如果 `jjc_match_detail` 已存在或 `jjc_sync_match_seen.status = detail_saved`，跳过详情请求。
 6. 否则请求官方对局详情并保存到 `jjc_match_detail`。
-7. 从详情的 `team1.players_info` 和 `team2.players_info` 发现角色，写入或更新 `jjc_sync_role_queue`。
+7. 从详情的 `team1.players_info` 和 `team2.players_info` 发现角色；若玩家缺 `global_role_id` 但有 `person_id`，先查 `person-history` 补全，再写入或更新 `jjc_sync_role_queue`。
 8. 逐页向历史回溯，直到遇到 `match_time <= season_start_time`、接口空页或尾页。
 9. 正常完成后提交 `full_synced_until_time = run_upper_time`。
 

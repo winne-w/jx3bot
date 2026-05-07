@@ -1,6 +1,6 @@
 # All Tasks
 
-更新时间：2026-04-27
+更新时间：2026-05-06
 
 这里维护当前任务索引，而不是把所有细节塞进一个大计划文档。
 
@@ -12,6 +12,10 @@
 
 - `in-progress/jjc-ranking-role-inspect.md`
   - 主题：竞技场统计页角色下钻、最近 33 战绩与对局详情按需缓存
+
+- `in-progress/jjc-match-data-sync.md`
+  - 主题：JJC 官方接口对局数据同步、QQ 管理入口、时间水位续拉与重启恢复
+  - 详细说明：`docs/exec-plans/active/jjc-match-data-sync-plan.md`
 
 ## Completed
 
