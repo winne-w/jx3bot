@@ -162,6 +162,77 @@ class JjcInspectRepo:
                         logger.warning(f"奇穴快照缺失: match_id={match_id} talent_snapshot_hash={h}")
                         player["talents"] = []
 
+    async def batch_load_cached_detail_summaries(self, match_ids: list) -> dict[int, dict[str, Any]]:
+        """Return a dict keyed by normalized int match_id with compact summaries.
+
+        Only includes documents whose data.unavailable is not true.
+        """
+        normalized: list[int] = []
+        for mid in match_ids:
+            try:
+                normalized.append(int(mid))
+            except (ValueError, TypeError):
+                continue
+        if not normalized:
+            return {}
+
+        db = self.db if self.db is not None else _get_db()
+        try:
+            cursor = db.jjc_match_detail.find({"match_id": {"$in": normalized}})
+            docs = await cursor.to_list(length=None)
+        except Exception as exc:
+            logger.warning(f"批量读取 JJC 对局详情缓存失败: error={exc}")
+            return {}
+
+        result: dict[int, dict[str, Any]] = {}
+        for doc in docs:
+            mid = doc.get("match_id")
+            if not isinstance(mid, int):
+                continue
+            data = doc.get("data")
+            if not isinstance(data, dict):
+                continue
+            if data.get("unavailable"):
+                continue
+            detail = data.get("detail")
+            if not isinstance(detail, dict):
+                continue
+            summary = self._build_cached_detail_summary(mid, doc.get("cached_at"), detail)
+            if summary is not None:
+                result[mid] = summary
+        return result
+
+    @staticmethod
+    def _build_cached_detail_summary(match_id: int, cached_at: Any, detail: dict[str, Any]) -> Optional[dict[str, Any]]:
+        teams: dict[str, Any] = {}
+        for team_key in ("team1", "team2"):
+            team = detail.get(team_key)
+            if not isinstance(team, dict):
+                continue
+            players: list[dict[str, Any]] = []
+            for p in (team.get("players_info") or []):
+                if not isinstance(p, dict):
+                    continue
+                player_summary: dict[str, Any] = {}
+                for field in ("kungfu_id", "kungfu", "role_name", "server"):
+                    val = p.get(field)
+                    if val is not None:
+                        player_summary[field] = val
+                if player_summary:
+                    players.append(player_summary)
+            teams[team_key] = {
+                "won": bool(team.get("won")),
+                "players": players,
+            }
+        if not teams:
+            return None
+        return {
+            "match_id": match_id,
+            "cached_at": cached_at,
+            "team1": teams.get("team1", {"won": False, "players": []}),
+            "team2": teams.get("team2", {"won": False, "players": []}),
+        }
+
     async def _extract_snapshots(self, data: dict[str, Any], cached_at: Optional[float] = None) -> None:
         """For each player with armors/talents, save to snapshot collections and replace with hashes.
 
