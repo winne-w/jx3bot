@@ -199,6 +199,7 @@ def _match_player_and_teammates(
             teammate["weapon"] = teammate_weapon
             teammate["weapon_icon"] = teammate_weapon.get("icon")
             teammate["weapon_quality"] = teammate_weapon.get("quality")
+            teammate["weapon_name"] = teammate_weapon.get("name")
         teammates.append(teammate)
 
     return weapon_info, target_kungfu_id, teammates

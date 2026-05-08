@@ -5,6 +5,8 @@ from typing import Any, Awaitable, Callable
 from jinja2 import Environment
 from nonebot.adapters.onebot.v11 import Bot, Event, MessageSegment
 
+from src.services.jx3.weapon_quality import extract_member_weapon_name, is_jjc_legendary_weapon
+
 
 def _prepare_template_data(
     rank_data: dict[str, Any], rank_type: str
@@ -32,7 +34,14 @@ def _prepare_template_data(
 def _calculate_legendary_percent(members: list[dict[str, Any]]) -> float:
     if not members:
         return 0.0
-    legendary_count = sum(1 for item in members if str(item.get("weapon_quality")) == "5")
+    legendary_count = sum(
+        1
+        for item in members
+        if is_jjc_legendary_weapon(
+            item.get("weapon_quality"),
+            extract_member_weapon_name(item),
+        )
+    )
     return legendary_count / len(members) * 100
 
 

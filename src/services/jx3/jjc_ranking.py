@@ -12,6 +12,7 @@ from urllib.parse import quote
 from nonebot import logger
 
 from src.services.jx3.kungfu import get_kungfu_detail_by_role_info
+from src.services.jx3.weapon_quality import extract_member_weapon_name, extract_weapon_name, is_jjc_legendary_weapon
 from src.infra.mongo import get_db
 from src.services.jx3.jjc_api_client import JjcApiClient
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
@@ -346,7 +347,12 @@ class JjcRankingService:
                 legendary_count_map: dict[str, int] = {}
                 for kungfu, members in members_map.items():
                     legendary_count_map[kungfu] = sum(
-                        1 for member in (members or []) if str((member or {}).get("weapon_quality")) == "5"
+                        1
+                        for member in (members or [])
+                        if is_jjc_legendary_weapon(
+                            (member or {}).get("weapon_quality"),
+                            extract_member_weapon_name(member),
+                        )
                     )
 
                 summary_lane = {
@@ -584,6 +590,7 @@ class JjcRankingService:
                         "teammates": kungfu_info.get("teammates"),
                         "weapon_icon": kungfu_info.get("weapon_icon"),
                         "weapon_quality": kungfu_info.get("weapon_quality"),
+                        "weapon_name": extract_weapon_name(kungfu_info.get("weapon")),
                         "weapon_checked": kungfu_info.get("weapon_checked"),
                         "teammates_checked": kungfu_info.get("teammates_checked"),
                         "match_history_checked": kungfu_info.get("match_history_checked"),
@@ -662,6 +669,7 @@ class JjcRankingService:
                                     "teammates": player_item.get("teammates"),
                                     "weapon_icon": player_item.get("weapon_icon"),
                                     "weapon_quality": player_item.get("weapon_quality"),
+                                    "weapon_name": player_item.get("weapon_name"),
                                 }
                             )
                         elif kungfu in dps_kungfu:
@@ -683,6 +691,7 @@ class JjcRankingService:
                                     "teammates": player_item.get("teammates"),
                                     "weapon_icon": player_item.get("weapon_icon"),
                                     "weapon_quality": player_item.get("weapon_quality"),
+                                    "weapon_name": player_item.get("weapon_name"),
                                 }
                             )
                         else:
