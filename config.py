@@ -121,6 +121,14 @@ TUILAN_USER_AGENT = "okhttp/3.12.2"
 # 可通过环境变量 MONGO_URI 或 runtime_config.json 覆盖
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://root:password@127.0.0.1:27017/jx3bot?authSource=admin")
 
+# JJC 橙武名称白名单（品质为5且名称在此列表中才视为橙武）
+JJC_LEGENDARY_WEAPON_NAMES = [
+    "钗蝶语双", "七月嘉树", "万象金声", "幽微夜", "蜕骨", "伏魔悲音", "意真",
+    "长安", "掠炎", "金乌回首", "栖贤韵", "瀚海引", "镇恶", "仙灵", "暴龙震江",
+    "烛微刀", "碧血豪侠", "伏龙阳焰", "天下宏愿", "龙鲤", "银羽雪辉", "子不语",
+    "碧岚幽炎", "逾潮声", "静雨", "折枝花满", "昭佛光", "烬灭",
+]
+
 # 赛季时间定义
 CURRENT_SEASON = "暗影千机"
 CURRENT_SEASON_START = "2026-04-24"

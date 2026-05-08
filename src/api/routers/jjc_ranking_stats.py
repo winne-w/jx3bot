@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query
 
 from src.api.response import error_response, success_response
 from src.services.jx3.singletons import jjc_ranking_inspect_service
+from src.services.jx3.weapon_quality import extract_member_weapon_name, is_jjc_legendary_weapon
 
 
 router = APIRouter(prefix="/api/jjc", tags=["jjc"])
@@ -67,7 +68,12 @@ def _build_summary_from_legacy(payload: dict[str, Any]) -> dict[str, Any]:
             legendary_count_map: dict[str, int] = {}
             for kungfu, members in members_map.items():
                 legendary_count_map[kungfu] = sum(
-                    1 for member in (members or []) if str((member or {}).get("weapon_quality")) == "5"
+                    1
+                    for member in (members or [])
+                    if is_jjc_legendary_weapon(
+                        (member or {}).get("weapon_quality"),
+                        extract_member_weapon_name(member),
+                    )
                 )
 
             summary_lane = {

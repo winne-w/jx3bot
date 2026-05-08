@@ -1100,6 +1100,24 @@
             isLoading: false,
         };
 
+        const LEGENDARY_WEAPON_NAMES = new Set([
+            "钗蝶语双", "七月嘉树", "万象金声", "幽微夜", "蜕骨", "伏魔悲音", "意真",
+            "长安", "掠炎", "金乌回首", "栖贤韵", "瀚海引", "镇恶", "仙灵", "暴龙震江",
+            "烛微刀", "碧血豪侠", "伏龙阳焰", "天下宏愿", "龙鲤", "银羽雪辉", "子不语",
+            "碧岚幽炎", "逾潮声", "静雨", "折枝花满", "昭佛光", "烬灭",
+        ]);
+
+        function isLegendaryWeapon(item) {
+            if (!item || String(item.weapon_quality) !== "5") {
+                return false;
+            }
+            const weaponName = item.weapon_name || item.weapon?.name || "";
+            if (weaponName !== "") {
+                return LEGENDARY_WEAPON_NAMES.has(weaponName);
+            }
+            return false;
+        }
+
         const listContainer = document.createElement("div");
         listContainer.className = "status";
         listContainer.id = "list-status";
@@ -1293,7 +1311,7 @@
 
         function renderDetailContent(members) {
             const filteredMembers = currentMode === "purple"
-                ? (members || []).filter((member) => String(member.weapon_quality) !== "5")
+                ? (members || []).filter((member) => !isLegendaryWeapon(member))
                 : (members || []);
             if (!filteredMembers.length) {
                 return "<div class='muted'>暂无明细</div>";
@@ -1302,13 +1320,13 @@
             return filteredMembers.map((member) => {
                 const kungfuIcons = [];
                 if (member.kungfu_id) {
-                    const isLegendary = String(member.weapon_quality) === "5";
+                    const isLegendary = isLegendaryWeapon(member);
                     kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${member.kungfu_id}.png" alt="kungfu">`);
                 }
                 if (Array.isArray(member.teammates)) {
                     member.teammates.forEach((teammate) => {
                         if (teammate && teammate.kungfu_id) {
-                            const isLegendary = String(teammate.weapon_quality) === "5";
+                            const isLegendary = isLegendaryWeapon(teammate);
                             const teammateName = teammate.role_name ?? "未知";
                             const tooltip = `${teammateName}`;
                             kungfuIcons.push(`<span class="detail-kungfu-wrap" data-tooltip="${escapeHtml(tooltip)}"><img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate"></span>`);
@@ -1331,7 +1349,7 @@
                     >
                         <div class="detail-rank">#${member.rank ?? "-"}</div>
                         <div class="detail-name">
-                            ${member.weapon_icon ? `<img class="detail-weapon${String(member.weapon_quality) === "5" ? " is-legendary" : ""}" src="${escapeHtml(member.weapon_icon)}" alt="weapon">` : ""}
+                            ${member.weapon_icon ? `<img class="detail-weapon${isLegendaryWeapon(member) ? " is-legendary" : ""}" src="${escapeHtml(member.weapon_icon)}" alt="weapon">` : ""}
                             <div>
                                 <div>${escapeHtml(member.name ?? "未知")}·${escapeHtml(member.server ?? "未知")}</div>
                                 ${kungfuRow}
