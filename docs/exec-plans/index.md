@@ -7,6 +7,9 @@
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
 - `active/jjc-match-data-sync-person-history-cache-plan.md`: JJC 对局同步先查 Mongo 身份、减少 person-history 请求计划
+- `active/jjc-role-recent-cached-team-icons-plan.md`: JJC 角色近期对局列表展示已缓存详情双方心法图标计划
+- `active/jjc-role-recent-indicator-summary-plan.md`: JJC 角色 indicator 指标接口与 Mongo 缓存计划
+- `active/jjc-ranking-date-url-decoupling-plan.md`: JJC 排行榜日期选择不再依赖或写入 URL timestamp 计划
 
 ## Completed
 

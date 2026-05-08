@@ -954,6 +954,44 @@
             color: #8a2d2d;
         }
 
+        .match-icons-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+
+        .match-team-icons {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .match-kungfu-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            background: #fff;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .match-kungfu-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .match-vs {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--muted);
+            margin: 0 2px;
+        }
+
         @media (max-width: 700px) {
             body {
                 padding: 20px 14px 40px;
@@ -1023,7 +1061,6 @@
         const detailsApiBase = params.get("details_api") || `${BASE_API}/details`;
         const roleRecentApiBase = params.get("role_recent_api") || `${BASE_API}/role-recent`;
         const matchDetailApiBase = params.get("match_detail_api") || `${BASE_API}/match-detail`;
-        const initialTimestamp = params.get("timestamp");
 
         const rangeConfigs = [
             { key: "top_1000", label: "前1000" },
@@ -1046,7 +1083,7 @@
         const matchModalBody = document.getElementById("match-modal-body");
 
         let currentStats = null;
-        let currentStatsTimestamp = initialTimestamp || "";
+        let currentStatsTimestamp = "";
         let currentMode = "all";
         let showLegendaryOverlay = false;
         let currentRoleInspect = null;
@@ -1189,9 +1226,7 @@
                 .join("");
             dateSelect.disabled = false;
 
-            const selected = initialTimestamp && items.some((item) => item.value === String(initialTimestamp))
-                ? String(initialTimestamp)
-                : items[0].value;
+            const selected = items[0].value;
             dateSelect.value = selected;
         }
 
@@ -1500,22 +1535,12 @@
             return `${readApiBase}${joiner}timestamp=${encodeURIComponent(timestamp)}`;
         }
 
-        function updateUrlTimestamp(timestamp) {
-            if (!timestamp) {
-                return;
-            }
-            const url = new URL(window.location.href);
-            url.searchParams.set("timestamp", String(timestamp));
-            window.history.replaceState({}, "", url.toString());
-        }
-
         async function loadStats(timestamp) {
             if (!timestamp) {
                 setStatus("缺少 timestamp 参数，无法读取统计数据", "error");
                 return;
             }
             currentStatsTimestamp = String(timestamp);
-            updateUrlTimestamp(timestamp);
             setStatus(`请求接口：${buildReadUrl(timestamp)}`);
             try {
                 const response = await fetch(buildReadUrl(timestamp), { cache: "no-store" });
@@ -1547,7 +1572,38 @@
             }
         }
 
+        function renderCachedTeamIcons(cachedDetailSummary) {
+            if (!cachedDetailSummary || typeof cachedDetailSummary !== "object") {
+                return "";
+            }
+            var team1 = cachedDetailSummary.team1 && Array.isArray(cachedDetailSummary.team1.players)
+                ? cachedDetailSummary.team1.players
+                : [];
+            var team2 = cachedDetailSummary.team2 && Array.isArray(cachedDetailSummary.team2.players)
+                ? cachedDetailSummary.team2.players
+                : [];
+
+            function renderIcons(players) {
+                return players
+                    .filter(function (p) { return p && p.kungfu_id; })
+                    .map(function (p) {
+                        return "<span class=\"match-kungfu-icon\" title=\"" + escapeHtml(p.role_name || p.kungfu || "") + "\"><img src=\"https://img.jx3box.com/image/xf/" + escapeHtml(p.kungfu_id) + ".png\" alt=\"" + escapeHtml(p.kungfu || "kungfu") + "\"></span>";
+                    })
+                    .join("");
+            }
+
+            var team1Icons = renderIcons(team1);
+            var team2Icons = renderIcons(team2);
+
+            if (!team1Icons && !team2Icons) {
+                return "";
+            }
+
+            return "<div class=\"match-icons-row\"><div class=\"match-team-icons\">" + (team1Icons || "") + "</div><span class=\"match-vs\">vs</span><div class=\"match-team-icons\">" + (team2Icons || "") + "</div></div>";
+        }
+
         function renderRoleRecentMatchItem(match, playerName, playerServer) {
+            var cachedIconsHtml = renderCachedTeamIcons(match.cached_detail_summary);
             return `
                 <button
                     class="match-row-btn ${match.won ? "win" : "lose"}"
@@ -1566,6 +1622,7 @@
                         <span>开始时间：${formatTime(match.start_time)}</span>
                         <span>时长：${formatDuration(match.duration)}</span>
                     </div>
+                    ${cachedIconsHtml}
                 </button>
             `;
         }
@@ -1960,9 +2017,6 @@
         }
 
         loadDateList();
-        if (initialTimestamp) {
-            loadStats(initialTimestamp);
-        }
 
         if (dateSelect) {
             dateSelect.addEventListener("change", (event) => {

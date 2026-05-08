@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import threading
 import time
 from weakref import WeakKeyDictionary
@@ -188,6 +189,8 @@ class JjcRankingInspectService:
                     len(recent_matches),
                     missing_match_id_count,
                 )
+                await self._hydrate_recent_matches_with_cached_details(recent_matches)
+                data["recent_matches"] = recent_matches
                 data["cache"] = {"hit": True, "cached_at": cached.get("cached_at"), "ttl_seconds": self.role_recent_ttl_seconds}
                 return data
 
@@ -201,9 +204,15 @@ class JjcRankingInspectService:
             return payload
         if is_first_page:
             cached_at = time.time()
-            await self.cache_repo.save_role_recent(server, name, {"cached_at": cached_at, "data": payload})
+            await self.cache_repo.save_role_recent(server, name, {"cached_at": cached_at, "data": copy.deepcopy(payload)})
+            await self._hydrate_recent_matches_with_cached_details(
+                payload.get("recent_matches") or []
+            )
             payload["cache"] = {"hit": False, "cached_at": cached_at, "ttl_seconds": self.role_recent_ttl_seconds}
         else:
+            await self._hydrate_recent_matches_with_cached_details(
+                payload.get("recent_matches") or []
+            )
             payload["cache"] = {"hit": False, "cached_at": time.time()}
         return payload
 
@@ -594,6 +603,34 @@ class JjcRankingInspectService:
             },
             "recent_matches": recent_matches,
         }
+
+    async def _hydrate_recent_matches_with_cached_details(
+        self,
+        recent_matches: list,
+    ) -> None:
+        if not recent_matches:
+            return
+        match_ids = []
+        for item in recent_matches:
+            if not isinstance(item, dict):
+                continue
+            mid = _coerce_int(item.get("match_id"))
+            if mid:
+                match_ids.append(mid)
+        if not match_ids:
+            for item in recent_matches:
+                if isinstance(item, dict):
+                    item.pop("cached_detail_summary", None)
+            return
+        summaries = await self.cache_repo.batch_load_cached_detail_summaries(match_ids)
+        for item in recent_matches:
+            if not isinstance(item, dict):
+                continue
+            mid = _coerce_int(item.get("match_id"))
+            if mid is not None and mid in summaries:
+                item["cached_detail_summary"] = summaries[mid]
+            else:
+                item.pop("cached_detail_summary", None)
 
     async def get_match_detail(self, *, match_id: Union[int, str]) -> dict[str, Any]:
         normalized_match_id = _coerce_int(match_id)
