@@ -195,6 +195,6 @@ python scripts/fix_jjc_match_detail_role_names.py
 
 ## 当前状态
 
-- 阶段：方案已编写，待确认后进入实现。
-- 尚未修改业务代码。
+- 阶段：已进入实现，业务代码、历史修复脚本与数据库文档已落地，待线上 dry-run / apply。
+- 本地已完成 `tests.test_jjc_match_data_sync` 与相关 `py_compile` 验证。
 - 尚未执行历史数据写入。

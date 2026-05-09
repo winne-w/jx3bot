@@ -95,6 +95,31 @@ def extract_pvp_type_from_history(item: dict) -> Optional[int]:
     )
 
 
+def normalize_match_detail_role_name(role_name: Any, server: Any) -> str:
+    """去掉角色名中末尾的服务器后缀。
+
+    规则：先 strip。如果不含 · 则直接返回；如果包含则只按最后一个 · 分割。
+    若分割后右侧 trim 后等于 server trim 后且左侧非空，返回 trim 后的左侧；
+    否则保持原 trim 后的角色名。
+    """
+    name = str(role_name or "").strip()
+    server_name = str(server or "").strip()
+    if not name or "·" not in name:
+        return name
+
+    left, right = name.rsplit("·", 1)
+    left = left.strip()
+    right = right.strip()
+    if left and server_name and right == server_name:
+        return left
+    return name
+
+
+def normalize_role_name(role_name: Any, server: Any) -> str:
+    """兼容别名，统一复用对局详情角色名规范化逻辑。"""
+    return normalize_match_detail_role_name(role_name, server)
+
+
 def extract_players_from_detail(detail_data: dict) -> list[dict]:
     """从对局详情 payload 提取双方所有角色。
 
@@ -126,7 +151,7 @@ def extract_players_from_detail(detail_data: dict) -> list[dict]:
             person_id = str(player.get("person_id") or "").strip()
             zone = str(player.get("zone") or "").strip()
             server = str(player.get("server") or "").strip()
-            role_name = str(player.get("role_name") or "").strip()
+            role_name = normalize_role_name(player.get("role_name"), server)
             if global_role_id:
                 dedupe_key = f"global:{global_role_id}"
             elif zone and role_id:
@@ -230,7 +255,10 @@ def extract_identity_from_person_history(payload: dict, person_id: Optional[str]
         role_id = str(item.get("role_id") or item.get("roleId") or "").strip()
         zone = str(item.get("zone") or "").strip()
         server = str(item.get("server") or "").strip()
-        role_name = str(item.get("role_name") or item.get("roleName") or "").strip()
+        role_name = normalize_role_name(
+            item.get("role_name") or item.get("roleName"),
+            server,
+        )
         if global_role_id or role_id or zone or server or role_name:
             return {
                 "global_role_id": global_role_id,
@@ -779,9 +807,18 @@ class JjcMatchDataSyncService:
         server_value = str(identity.get("server") or "").strip()
         if server_value and not str(player.get("server") or "").strip():
             player["server"] = server_value
-        name_value = str(identity.get("role_name") or "").strip()
+        normalized_server = str(player.get("server") or identity.get("server") or "").strip()
+        name_value = normalize_role_name(
+            identity.get("role_name") or identity.get("name"),
+            normalized_server,
+        )
         if name_value and not str(player.get("role_name") or "").strip():
             player["role_name"] = name_value
+        # 回填后统一做一次规范化，确保不会残留带服务器后缀的角色名
+        current_name = str(player.get("role_name") or "").strip()
+        current_server = str(player.get("server") or "").strip()
+        if current_name and current_server:
+            player["role_name"] = normalize_role_name(current_name, current_server)
 
     async def _resolve_player_identity_from_person_history(self, player: Dict[str, Any]) -> Dict[str, Any]:
         if str(player.get("global_role_id") or "").strip():
@@ -915,7 +952,9 @@ class JjcMatchDataSyncService:
                     if person_identity:
                         self._backfill_player_from_identity(player, person_identity)
             server = str(player.get("server") or "").strip()
-            name = str(player.get("role_name") or "").strip()
+            name = normalize_role_name(
+                str(player.get("role_name") or "").strip(), server
+            )
             if not server or not name:
                 continue
             await self._upsert_role_identity_from_resolved(

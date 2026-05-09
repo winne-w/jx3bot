@@ -219,7 +219,7 @@
 | `identity_level` | string | 身份级别：`global`（有 `global_role_id`）、`game_role`（有 `zone + game_role_id`）、`name`（仅 `server + name`） |
 | `server` | string | 当前服务器名 |
 | `normalized_server` | string | 规范化服务器名（去除空格、统一大小写等） |
-| `name` | string | 当前角色名 |
+| `name` | string | 当前角色名，只保存纯角色名；推栏对局详情里的 `角色名·服务器` 展示名在派生写入时必须先拆掉服务器后缀 |
 | `normalized_name` | string | 规范化角色名 |
 | `zone` | string/null | 大区，来源于排行榜或 indicator |
 | `game_role_id` | string/null | 排行榜常见的角色 ID（`gameRoleId`） |
@@ -249,6 +249,7 @@
 - 升级后旧 `identity_key` 记录不删除，但标记或合并到新记录。
 - 同一 `global_role_id` 不得出现多条记录；同一 `zone + game_role_id` 组合同理。
 - `match_detail` 属于历史对局来源，只有当对局 `match_time` 晚于现有 `profile_observed_at` 时才更新当前 `server` / `name`，避免用旧对局覆盖转服/改名后的当前资料。
+- 对于 `match_detail` 来源，原始详情里的 `players_info[].role_name` 可以保留推栏展示值；但派生写入 `role_identities.name` 时必须按“仅当最后一个 `·` 右侧等于当前 `server` 才拆分”的规则规范化为纯角色名。
 
 索引：
 
@@ -414,6 +415,7 @@
 
 - 历史对局详情是“对局当时快照”，不要直接改成从角色当前画像表读取装备、奇穴、分数等动态状态，否则会把历史对局展示成当前角色状态。
 - 可以把角色身份字段（如 `global_role_id`、`role_id`、`person_id`、服务器、角色名）与已有 `role_identities` 关联，但对局时的 `kungfu`、`mmr`、`score`、`total_score`、`equip_score`、`max_hp`、`mvp`、`fight_seconds` 等仍属于对局快照。
+- `players_info[].role_name` 可继续保留推栏原始展示名，例如 `角色名·服务器`；运行时若要派生写入 `role_identities` 或 `jjc_sync_role_queue`，必须先规范化为纯角色名，不直接回写快照源数据。
 - 第一阶段拆表已完成：`jjc_equipment_snapshot` 保存完整 `armors` 数组，`jjc_talent_snapshot` 保存完整 `talents` 数组，`jjc_match_detail` 的玩家节点保存对应 `*_snapshot_hash`。读取详情时由 `JjcInspectRepo` 批量查快照并拼回原 API 结构。历史详情缓存不做兼容迁移，必要时通过 `scripts/clear_jjc_match_detail_snapshot_cache.py` 清空后重新按新格式写入。
 - `snapshot_hash` 必须基于规范化后的完整数组生成：装备按稳定字段（优先 `pos`，再 `ui_id`/`name`）排序，奇穴按稳定字段（优先 `level`，再 `id`/`name`）排序，JSON 序列化使用固定 key 顺序和固定分隔符。
 - 后续若需要“点了某个奇穴的对局数”“有 CW 的对局数”等统计，可在 snapshot 表补充可查询索引字段（如 `talent_ids`、`talent_names`、`item_ui_ids`、`item_names`、`has_cw`），或再建 `jjc_match_player_fact` 事实表。事实表应视为可重建的查询索引，不应替代完整详情与快照源数据。
@@ -490,7 +492,7 @@
 | `_id` | ObjectId | MongoDB 自动主键 |
 | `identity_key` | string | 角色身份键，优先 `global:{global_role_id}`，其次 `game:{zone}:{role_id}`，最后 `name:{normalized_server}:{normalized_name}`，业务唯一 |
 | `server` | string | 服务器名 |
-| `name` | string | 角色名 |
+| `name` | string | 角色名，只保存纯角色名；对局详情自动发现链路写入前必须先去掉可判定的服务器展示后缀 |
 | `normalized_server` | string | 规范化服务器名 |
 | `normalized_name` | string | 规范化角色名 |
 | `global_role_id` | string/null | 推栏全局角色 ID |
@@ -622,3 +624,4 @@
 | `scripts/migrate_jjc_role_recent.py` | `data/cache/jjc_ranking_inspect/role_recent/` | `jjc_role_recent` | `server`, `name` |
 | `scripts/migrate_jjc_match_detail.py` | `data/cache/jjc_ranking_inspect/match_detail/` | `jjc_match_detail` | `match_id` |
 | `scripts/migrate_role_identity_and_jjc_cache.py` | `kungfu_cache` | `role_identities`, `role_jjc_cache` | `identity_key` |
+| `scripts/fix_jjc_match_detail_role_names.py` | `role_identities`, `jjc_sync_role_queue` 中被 `match_detail` 污染的角色名 | 原集合就地修复，备份写入独立 backup collection | `batch_id`, `source_collection`, `original_id` |
