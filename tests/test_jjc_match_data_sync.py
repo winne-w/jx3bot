@@ -8,6 +8,7 @@ from src.services.jx3.jjc_match_data_sync import (
     extract_identity_from_person_history,
     extract_history_items,
     extract_players_from_detail,
+    normalize_role_name,
 )
 
 
@@ -217,6 +218,39 @@ class TestExtractHistoryItems(unittest.TestCase):
         self.assertEqual(players[0]["role_id"], "r1")
         self.assertEqual(players[1]["role_name"], "B")
 
+    def test_normalize_role_name(self) -> None:
+        self.assertEqual(
+            normalize_role_name("奈川寺·梦江南", "梦江南"),
+            "奈川寺",
+        )
+        self.assertEqual(
+            normalize_role_name("奈川寺", "梦江南"),
+            "奈川寺",
+        )
+        self.assertEqual(
+            normalize_role_name("发神鲸@龙争虎斗·龙争虎斗", "龙争虎斗"),
+            "发神鲸@龙争虎斗",
+        )
+        self.assertEqual(
+            normalize_role_name("角色A·别的服", "梦江南"),
+            "角色A·别的服",
+        )
+
+    def test_extract_players_normalizes_role_name_by_server_suffix(self) -> None:
+        players = extract_players_from_detail({
+            "team1": {
+                "players_info": [
+                    {"role_name": "奈川寺·梦江南", "server": "梦江南"},
+                    {"role_name": "奈川寺", "server": "梦江南"},
+                    {"role_name": "角色A·别的服", "server": "梦江南"},
+                ]
+            }
+        })
+
+        self.assertEqual(len(players), 2)
+        self.assertEqual(players[0]["role_name"], "奈川寺")
+        self.assertEqual(players[1]["role_name"], "角色A·别的服")
+
     def test_extract_identity_from_person_history_prefers_matching_person(self) -> None:
         identity = extract_identity_from_person_history(
             {
@@ -237,6 +271,24 @@ class TestExtractHistoryItems(unittest.TestCase):
         self.assertEqual(identity["global_role_id"], "gid-a")
         self.assertEqual(identity["role_name"], "角色A")
         self.assertEqual(identity["source"], "person_history")
+
+    def test_extract_identity_from_person_history_normalizes_role_name(self) -> None:
+        identity = extract_identity_from_person_history(
+            {
+                "data": [
+                    {
+                        "person_id": "pid-a",
+                        "global_role_id": "gid-a",
+                        "role_name": "发神鲸@龙争虎斗·龙争虎斗",
+                        "server": "龙争虎斗",
+                        "zone": "电信区",
+                    },
+                ]
+            },
+            "pid-a",
+        )
+
+        self.assertEqual(identity["role_name"], "发神鲸@龙争虎斗")
 
 
 class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
@@ -435,6 +487,36 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repo.upserted_roles[0]["person_id"], "pid-a")
         self.assertEqual(identity_repo.upserted[0]["global_role_id"], "gid-a")
         self.assertEqual(identity_repo.upserted[0]["person_id"], "pid-a")
+
+    async def test_enqueue_players_from_detail_normalizes_written_role_name(self) -> None:
+        repo = FakeRepo()
+        identity_repo = FakeIdentityRepo()
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            identity_repo=identity_repo,
+            sleep_func=_noop_sleep,
+        )
+
+        await service._enqueue_players_from_detail({
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "发神鲸@龙争虎斗·龙争虎斗",
+                        "global_role_id": "gid-a",
+                        "role_id": "rid-a",
+                        "zone": "zone-a",
+                        "server": "龙争虎斗",
+                    }
+                ]
+            },
+            "team2": {"players_info": []},
+        })
+
+        self.assertEqual(repo.upserted_roles[0]["name"], "发神鲸@龙争虎斗")
+        self.assertEqual(repo.upserted_roles[0]["normalized_name"], "发神鲸@龙争虎斗")
+        self.assertEqual(identity_repo.upserted[0]["name"], "发神鲸@龙争虎斗")
 
     async def test_full_sync_reaches_season_start_and_releases_success(self) -> None:
         repo = FakeRepo()
@@ -1170,6 +1252,54 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(person_history.calls[0]["person_id"], "pid-a")
         self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-ph")
         self.assertEqual(repo.upserted_roles[0]["person_id"], "pid-a")
+
+    async def test_backfill_player_normalizes_role_name(self) -> None:
+        player: Dict[str, Any] = {"server": "梦江南"}
+        identity = {
+            "role_name": "奈川寺·梦江南",
+            "server": "梦江南",
+            "global_role_id": "gid-a",
+        }
+        JjcMatchDataSyncService._backfill_player_from_identity(player, identity)
+        self.assertEqual(player["role_name"], "奈川寺")
+
+    async def test_backfill_player_keeps_existing_role_name(self) -> None:
+        player: Dict[str, Any] = {
+            "role_name": "已有角色名",
+            "server": "梦江南",
+        }
+        identity = {"role_name": "奈川寺·梦江南", "server": "梦江南"}
+        JjcMatchDataSyncService._backfill_player_from_identity(player, identity)
+        self.assertEqual(player["role_name"], "已有角色名")
+
+    async def test_enqueue_normalizes_role_name_in_identity_repo_and_queue(self) -> None:
+        repo = FakeRepo()
+        identity_repo = FakeIdentityRepo()
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            identity_repo=identity_repo,
+            sleep_func=_noop_sleep,
+        )
+
+        await service._enqueue_players_from_detail({
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "奈川寺·梦江南",
+                        "global_role_id": "gid-a",
+                        "role_id": "rid-a",
+                        "server": "梦江南",
+                    }
+                ]
+            },
+            "team2": {"players_info": []},
+        })
+
+        self.assertEqual(identity_repo.upserted[0]["name"], "奈川寺")
+        self.assertEqual(repo.upserted_roles[0]["name"], "奈川寺")
+        self.assertEqual(repo.upserted_roles[0]["normalized_name"], "奈川寺")
 
 
 if __name__ == "__main__":
