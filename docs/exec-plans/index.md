@@ -5,7 +5,6 @@
 ## Active
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
-- `active/jjc-match-detail-role-name-normalization-plan.md`: JJC 对局详情角色名规范化与历史数据修复计划
 - `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
 - `active/jjc-role-recent-indicator-summary-plan.md`: JJC 角色 indicator 指标接口与 Mongo 缓存计划
 - `active/jjc-weapon-quality-classification-plan.md`: JJC 橙武名称白名单、紫武模式与橙武占比口径统一计划
@@ -26,3 +25,4 @@
 - `completed/mongo-migration-plan.md`: MongoDB 迁移总体计划与阶段性落地记录
 - `completed/role-identity-jjc-cache-plan.md`: 角色身份模型、JJC 缓存拆分、旧 `kungfu_cache` 迁移、运行时切换与最终清理计划
 - `completed/skill-rework-api-plan.md`: 技改查询与推送接口切换到 JX3API `skill/rework` 计划
+- `completed/jjc-match-detail-role-name-normalization-plan.md`: JJC 对局详情角色名规范化与历史数据修复计划
