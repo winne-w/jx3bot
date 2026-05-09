@@ -575,6 +575,7 @@ class JjcMatchDataSyncService:
         }
 
         try:
+            logger.info("JJC 开始同步角色: {} / {}", server, name)
             while page_index < self._max_pages_per_role:
                 await self._sleep_func()
                 payload = await asyncio.to_thread(
@@ -635,6 +636,8 @@ class JjcMatchDataSyncService:
                         match_id=match_id,
                         match_time=match_time,
                         lease_owner=lease_owner,
+                        server=server,
+                        name=name,
                     )
                     if detail_result == "saved":
                         result["saved_details"] += 1
@@ -901,8 +904,22 @@ class JjcMatchDataSyncService:
         match_id: int,
         match_time: Optional[int],
         lease_owner: str,
+        server: str = "",
+        name: str = "",
         max_attempts: int = 3,
     ) -> str:
+        match_time_str = (
+            datetime.fromtimestamp(match_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            if match_time
+            else "unknown"
+        )
+        logger.info(
+            "JJC 同步对局详情: match_id={} match_time={} server={} name={}",
+            match_id,
+            match_time_str,
+            server,
+            name,
+        )
         claim = await self._repo.claim_match_detail(
             match_id=match_id,
             lease_owner=lease_owner,
