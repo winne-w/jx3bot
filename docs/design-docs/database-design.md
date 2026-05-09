@@ -598,7 +598,7 @@
 以下数据当前仍不是 MongoDB schema，但会影响运行状态，修改时也要确认是否需要纳入本文：
 
 - `runtime_config.json`: `/修改配置` 等运行时配置写入文件，包含可覆盖的 `MONGO_URI` 等配置。
-- `data/jjc_ranking_stats/<timestamp>/summary.json` 与 `details/`: JJC 统计产物，属于文件型统计快照，不在 Mongo 中。
+- `data/jjc_ranking_stats/<timestamp>/summary.json` 与 `details/`: JJC 统计产物，属于文件型统计快照，不在 Mongo 中。details 成员包含 `weapon_name` 字段用于橙武白名单判定。
 - `data/baizhan_images/baizhan_data.json`、图片缓存和 `mpimg/`: 静态或缓存资源。
 
 ## 已清理的未使用 Mongo 集合
@@ -625,3 +625,4 @@
 | `scripts/migrate_jjc_match_detail.py` | `data/cache/jjc_ranking_inspect/match_detail/` | `jjc_match_detail` | `match_id` |
 | `scripts/migrate_role_identity_and_jjc_cache.py` | `kungfu_cache` | `role_identities`, `role_jjc_cache` | `identity_key` |
 | `scripts/fix_jjc_match_detail_role_names.py` | `role_identities`, `jjc_sync_role_queue` 中被 `match_detail` 污染的角色名 | 原集合就地修复，备份写入独立 backup collection | `batch_id`, `source_collection`, `original_id` |
+| `scripts/fix_jjc_ranking_weapon_names.py` | `data/jjc_ranking_stats/` 历史快照 details 缺少 `weapon_name` | 就地补齐 `weapon_name` 并重算 `summary.json` 的 `legendary_count_map` | `timestamp`, `range`, `lane`, `kungfu` |
