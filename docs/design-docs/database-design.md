@@ -1,6 +1,6 @@
 # 数据库设计
 
-更新时间：2026-04-30
+更新时间：2026-05-11
 
 本文是当前项目数据库结构的维护文档。以后新增、删除、重命名集合或字段，调整索引、TTL、迁移脚本、存储归属时，必须同步更新本文。
 
@@ -365,6 +365,38 @@
 | `idx_server_name` | `server`, `name` | unique |
 | `idx_cached_at` | `cached_at` | TTL 600 秒（⚠ float 类型，TTL 实际不生效） |
 
+### `jjc_role_indicator`
+
+用途：JJC 角色推栏 indicator 指标缓存，用于排行榜角色弹窗顶部指标展示。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_inspect_repo.py`
+- 业务逻辑：`src/services/jx3/jjc_ranking_inspect.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `cache_key` | string | 缓存键，使用 `identity_key`（如 `global:<global_role_id>`），业务唯一 |
+| `identity_key` | string | 关联 `role_identities.identity_key` |
+| `server` | string | 服务器名 |
+| `name` | string | 角色名 |
+| `game_role_id` | string/null | 游戏角色 ID |
+| `global_role_id` | string/null | 推栏全局角色 ID |
+| `zone` | string/null | 区服分区 |
+| `indicator` | object | 规整后的 3v3 指标：`source`、`type`、`total_matches`、`win_rate`、`score`、`best_score`、`grade` |
+| `raw` | object | `role/indicator` 原始响应 |
+| `cached_at` | float | 缓存时间 Unix 秒（⚠ float 类型，TTL 索引不生效；过期由 repo 业务 TTL=600 秒判断） |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_cache_key` | `cache_key` | unique |
+| `idx_cached_at` | `cached_at` | 普通索引（用于排查和后续清理；过期判断由业务逻辑完成，不依赖 TTL 索引） |
+
 ### `jjc_match_detail`
 
 用途：JJC 对局详情缓存，替代旧 `data/cache/jjc_ranking_inspect/match_detail/`。
@@ -592,6 +624,35 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_key` | `key` | unique |
+
+### `announcements`
+
+用途：系统公告与更新说明，通过前端 SPA 展示并支持 QQ 机器人管理员命令维护。
+
+读写归属：
+
+- `src/storage/mongo_repos/announcement_repo.py`
+- API 入口：`src/api/routers/announcements.py`
+- QQ 管理命令：`src/plugins/announcement_admin.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `announcement_id` | string | UUID 十六进制字符串，业务唯一键 |
+| `title` | string | 公告标题 |
+| `content` | string | 公告正文 |
+| `date` | string | 日期键如 `2026-05-11`，用于分组和最新日期比较 |
+| `created_at` | float | 创建时间 Unix 秒 |
+| `created_by` | string | 创建者 QQ 号 |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_announcement_id` | `announcement_id` | unique |
+| `idx_date_created_at` | `date` (降序), `created_at` (降序) | 普通复合索引 |
 
 ## 文件型持久化与非 Mongo 数据
 

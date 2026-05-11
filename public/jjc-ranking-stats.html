@@ -1061,6 +1061,7 @@
         const readApiBase = params.get("api") || DEFAULT_READ_API;
         const detailsApiBase = params.get("details_api") || `${BASE_API}/details`;
         const roleRecentApiBase = params.get("role_recent_api") || `${BASE_API}/role-recent`;
+        const roleIndicatorApiBase = params.get("role_indicator_api") || `${BASE_API}/role-indicator`;
         const matchDetailApiBase = params.get("match_detail_api") || `${BASE_API}/match-detail`;
 
         const rangeConfigs = [
@@ -1090,6 +1091,7 @@
         let currentRoleInspect = null;
         const detailCache = new Map();
         const roleRecentCache = new Map();
+        const roleIndicatorCache = new Map();
         const matchDetailCache = new Map();
 
         let currentPagination = {
@@ -1269,6 +1271,25 @@
             if (cursor > 0) {
                 url.searchParams.set("cursor", String(cursor));
             }
+            if (identityHints.game_role_id) {
+                url.searchParams.set("game_role_id", identityHints.game_role_id);
+            }
+            if (identityHints.global_role_id) {
+                url.searchParams.set("global_role_id", identityHints.global_role_id);
+            }
+            if (identityHints.role_id) {
+                url.searchParams.set("role_id", identityHints.role_id);
+            }
+            if (identityHints.zone) {
+                url.searchParams.set("zone", identityHints.zone);
+            }
+            return url.toString();
+        }
+
+        function buildRoleIndicatorUrl(server, name, identityHints = {}) {
+            const url = new URL(roleIndicatorApiBase, window.location.origin);
+            url.searchParams.set("server", server);
+            url.searchParams.set("name", name);
             if (identityHints.game_role_id) {
                 url.searchParams.set("game_role_id", identityHints.game_role_id);
             }
@@ -1661,8 +1682,7 @@
             `;
         }
 
-        function renderRoleRecentModal(data, isAppend = false) {
-            const summary = data.summary || {};
+        function renderRoleRecentModal(data, isAppend = false, indicatorData = null) {
             const matches = Array.isArray(data.recent_matches) ? data.recent_matches : [];
             const cacheText = data.cache?.cached_at ? `缓存时间：${formatTime(data.cache.cached_at)}` : "实时请求";
             const pagination = data.pagination || {};
@@ -1698,33 +1718,66 @@
                 return;
             }
 
-            const summaryCards = [
-                { label: "最近场次", value: summary.total_matches ?? 0 },
-                { label: "胜场", value: summary.wins ?? 0 },
-                { label: "负场", value: summary.losses ?? 0 },
-                { label: "胜率", value: summary.win_rate != null ? `${summary.win_rate}%` : "-" },
-                { label: "当前分数", value: summary.score ?? "-" },
-                { label: "当前段位", value: formatGrade(summary.grade) },
-            ];
+            let overviewHtml = "";
+            if (indicatorData && !indicatorData.error) {
+                const ind = indicatorData.indicator || {};
+                const indicatorCards = [
+                    { label: "场次", value: ind.total_matches ?? "-" },
+                    { label: "胜率", value: ind.win_rate != null ? `${ind.win_rate}%` : "-" },
+                    { label: "评分", value: ind.score ?? "-" },
+                    { label: "最佳", value: ind.best_score ?? "-" },
+                    { label: "当前段位", value: formatGrade(ind.grade) },
+                ];
+                overviewHtml = indicatorCards.map((item) => `
+                    <div class="role-overview-card">
+                        <strong>${escapeHtml(item.value)}</strong>
+                        <span>${escapeHtml(item.label)}</span>
+                    </div>
+                `).join("");
+            } else if (indicatorData && indicatorData.error) {
+                overviewHtml = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">指标加载失败</strong><span>${escapeHtml(indicatorData.message || "indicator_unavailable")}</span></div>`;
+            } else {
+                overviewHtml = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">正在加载指标...</strong><span>等待 indicator 接口</span></div>`;
+            }
 
             const matchListHtml = matches.length
                 ? matches.map((match) => renderRoleRecentMatchItem(match, playerName, playerServer)).join("")
                 : "<div class='modal-empty'>暂无最近 3v3 对局数据</div>";
 
             roleModalBody.innerHTML = `
-                <div class="role-overview">
-                    ${summaryCards.map((item) => `
-                        <div class="role-overview-card">
-                            <strong>${escapeHtml(item.value)}</strong>
-                            <span>${escapeHtml(item.label)}</span>
-                        </div>
-                    `).join("")}
+                <div class="role-overview" id="role-overview">
+                    ${overviewHtml}
                 </div>
                 <div class="match-list-panel">
                     ${matchListHtml}
                     ${renderLoadMoreButton()}
                 </div>
             `;
+        }
+
+        function updateRoleOverviewIndicator(indicatorData) {
+            const overview = document.getElementById("role-overview");
+            if (!overview) {
+                return;
+            }
+            if (indicatorData && !indicatorData.error) {
+                const ind = indicatorData.indicator || {};
+                const indicatorCards = [
+                    { label: "场次", value: ind.total_matches ?? "-" },
+                    { label: "胜率", value: ind.win_rate != null ? `${ind.win_rate}%` : "-" },
+                    { label: "评分", value: ind.score ?? "-" },
+                    { label: "最佳", value: ind.best_score ?? "-" },
+                    { label: "当前段位", value: formatGrade(ind.grade) },
+                ];
+                overview.innerHTML = indicatorCards.map((item) => `
+                    <div class="role-overview-card">
+                        <strong>${escapeHtml(item.value)}</strong>
+                        <span>${escapeHtml(item.label)}</span>
+                    </div>
+                `).join("");
+            } else if (indicatorData && indicatorData.error) {
+                overview.innerHTML = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">指标加载失败</strong><span>${escapeHtml(indicatorData.message || "indicator_unavailable")}</span></div>`;
+            }
         }
 
         function renderIconGrid(items, emptyText) {
@@ -1842,6 +1895,22 @@
             `;
         }
 
+        async function fetchRoleIndicator(server, name, identityHints, cacheKey) {
+            try {
+                const response = await fetch(buildRoleIndicatorUrl(server, name, identityHints), { cache: "no-store" });
+                if (response.ok) {
+                    const payload = await response.json();
+                    const data = unwrapResponse(payload);
+                    roleIndicatorCache.set(cacheKey, { fetchedAt: Date.now(), data });
+                    updateRoleOverviewIndicator(data);
+                } else {
+                    updateRoleOverviewIndicator({ error: true, message: "indicator_unavailable" });
+                }
+            } catch (e) {
+                updateRoleOverviewIndicator({ error: true, message: "indicator_unavailable" });
+            }
+        }
+
         async function loadRoleRecent(server, name, identityHints = {}) {
             const cacheKey = `${server}::${name}::${identityHints.global_role_id || ""}::${identityHints.game_role_id || ""}::${identityHints.zone || ""}`;
             openModal(roleModal);
@@ -1852,20 +1921,42 @@
             const cached = roleRecentCache.get(cacheKey);
             if (cached && Date.now() - cached.fetchedAt < 600000) {
                 currentRoleInspect = { server, name };
-                renderRoleRecentModal(cached.data);
+                const cachedIndicator = roleIndicatorCache.get(cacheKey);
+                const validIndicator = (cachedIndicator && Date.now() - cachedIndicator.fetchedAt < 600000) ? cachedIndicator.data : null;
+                renderRoleRecentModal(cached.data, false, validIndicator);
+                if (!validIndicator) {
+                    fetchRoleIndicator(server, name, identityHints, cacheKey);
+                }
                 return;
             }
 
             try {
-                const response = await fetch(buildRoleRecentUrl(server, name, identityHints), { cache: "no-store" });
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                const [recentResponse, indicatorResponse] = await Promise.all([
+                    fetch(buildRoleRecentUrl(server, name, identityHints), { cache: "no-store" }),
+                    fetch(buildRoleIndicatorUrl(server, name, identityHints), { cache: "no-store" }).catch(function () { return null; }),
+                ]);
+                if (!recentResponse.ok) {
+                    throw new Error(`HTTP ${recentResponse.status}`);
                 }
-                const payload = await response.json();
-                const data = unwrapResponse(payload);
-                roleRecentCache.set(cacheKey, { fetchedAt: Date.now(), data });
+                const recentPayload = await recentResponse.json();
+                const recentData = unwrapResponse(recentPayload);
+                roleRecentCache.set(cacheKey, { fetchedAt: Date.now(), data: recentData });
+
+                var indicatorData = null;
+                if (indicatorResponse && indicatorResponse.ok) {
+                    try {
+                        var indicatorPayload = await indicatorResponse.json();
+                        indicatorData = unwrapResponse(indicatorPayload);
+                        roleIndicatorCache.set(cacheKey, { fetchedAt: Date.now(), data: indicatorData });
+                    } catch (e) {
+                        indicatorData = { error: true, message: "indicator_parse_failed" };
+                    }
+                } else {
+                    indicatorData = { error: true, message: "indicator_unavailable" };
+                }
+
                 currentRoleInspect = { server, name };
-                renderRoleRecentModal(data);
+                renderRoleRecentModal(recentData, false, indicatorData);
             } catch (error) {
                 roleModalBody.innerHTML = `<div class='modal-loading error'>加载角色近期战绩失败：${escapeHtml(error.message || error)}</div>`;
             }

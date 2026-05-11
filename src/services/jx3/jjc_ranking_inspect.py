@@ -116,6 +116,74 @@ def _extract_total_mmr(match: dict[str, Any]) -> Optional[int]:
     )
 
 
+def _parse_3v3_indicator(raw: dict[str, Any]) -> dict[str, Any]:
+    data = raw.get("data")
+    if not isinstance(data, dict):
+        return {"error": "indicator_data_missing"}
+    indicators = data.get("indicator") or []
+    if not isinstance(indicators, list):
+        return {"error": "indicator_array_missing"}
+
+    target = None
+    for ind in indicators:
+        if isinstance(ind, dict) and ind.get("type") == "3c":
+            target = ind
+            break
+    if target is None:
+        return {"error": "indicator_3c_missing"}
+
+    total_matches = _coerce_int(
+        target.get("total_matches")
+        or target.get("total_count")
+        or target.get("total")
+        or target.get("match_count")
+    )
+    win_rate = None
+    raw_win_rate = target.get("win_rate") or target.get("winRate") or target.get("win_percent")
+    if raw_win_rate is not None:
+        try:
+            win_rate = round(float(raw_win_rate), 1)
+        except (ValueError, TypeError):
+            pass
+    if win_rate is None:
+        win_count = _coerce_int(target.get("win_count") or target.get("wins"))
+        if win_count is not None and total_matches is not None and total_matches > 0:
+            win_rate = round((win_count / total_matches) * 100, 1)
+
+    score = _coerce_int(
+        target.get("score")
+        or target.get("rating")
+        or target.get("mmr")
+        or target.get("current_score")
+    )
+    best_score = _coerce_int(
+        target.get("best_score")
+        or target.get("bestScore")
+        or target.get("best_rating")
+        or target.get("max_score")
+        or target.get("max_rating")
+    )
+    grade = _coerce_int(
+        target.get("grade")
+        or target.get("rank")
+        or target.get("segment")
+        or target.get("level")
+    )
+
+    if total_matches is None and score is None and grade is None:
+        return {"error": "indicator_3c_empty_fields"}
+
+    return {
+        "source": "indicator",
+        "type": "3c",
+        "total_matches": total_matches,
+        "win_rate": win_rate,
+        "score": score,
+        "best_score": best_score,
+        "grade": grade,
+    }
+
+
 @dataclass(frozen=True)
 class JjcRankingInspectService:
     ranking_service: JjcRankingService
@@ -215,6 +283,107 @@ class JjcRankingInspectService:
             )
             payload["cache"] = {"hit": False, "cached_at": time.time()}
         return payload
+
+    async def get_role_indicator(
+        self,
+        *,
+        server: str,
+        name: str,
+        game_role_id: Optional[str] = None,
+        global_role_id: Optional[str] = None,
+        role_id: Optional[str] = None,
+        zone: Optional[str] = None,
+    ) -> dict[str, Any]:
+        identity = await self._resolve_role_identity(
+            server=server,
+            name=name,
+            identity_hints={
+                "game_role_id": game_role_id or None,
+                "global_role_id": global_role_id or None,
+                "role_id": role_id or None,
+                "zone": zone or None,
+            },
+        )
+        if identity.get("error"):
+            return identity
+
+        identity_key = identity.get("identity_key") or ""
+        if not identity_key:
+            return {"error": True, "message": "identity_key_missing", "identity": identity}
+
+        cached = await self.cache_repo.load_role_indicator(identity_key, ttl_seconds=600)
+        if cached:
+            logger.info(
+                "JJC 角色 indicator 缓存命中: server={} name={} identity_key={}",
+                server,
+                name,
+                identity_key,
+            )
+            return {
+                "player": {"server": server, "name": _normalize_name(name)},
+                "identity": identity,
+                "indicator": cached.get("indicator") or {},
+                "raw": cached.get("raw") or {},
+                "cache": {"hit": True, "cached_at": cached.get("cached_at"), "ttl_seconds": 600},
+            }
+
+        resolved_game_role_id = _pick_str(identity.get("game_role_id"))
+        resolved_zone = _pick_str(identity.get("zone"))
+        if not resolved_game_role_id or not resolved_zone:
+            return {"error": True, "message": "indicator_params_missing", "identity": identity}
+
+        logger.info(
+            "JJC 角色 indicator 实时请求: server={} name={} game_role_id={} zone={}",
+            server,
+            name,
+            resolved_game_role_id,
+            resolved_zone,
+        )
+        raw = await self._run_serialized_tuilan_query(
+            f"role_indicator:{server}:{name}",
+            self.role_indicator_fetcher,
+            resolved_game_role_id,
+            resolved_zone,
+            server,
+            tuilan_request=self.tuilan_request,
+            rank=None,
+            name=name,
+        )
+        if not isinstance(raw, dict):
+            return {"error": True, "message": "indicator_unavailable", "identity": identity}
+        if raw.get("error"):
+            return {"error": True, "message": "indicator_unavailable", "identity": identity}
+
+        parsed = _parse_3v3_indicator(raw)
+        if parsed.get("error"):
+            return {
+                "error": True,
+                "message": parsed.get("error") or "indicator_parse_failed",
+                "identity": identity,
+                "raw": raw,
+            }
+
+        cached_at = time.time()
+        cache_payload = {
+            "identity_key": identity_key,
+            "server": server,
+            "name": _normalize_name(name),
+            "game_role_id": resolved_game_role_id,
+            "global_role_id": _pick_str(identity.get("global_role_id")),
+            "zone": resolved_zone,
+            "indicator": parsed,
+            "raw": raw,
+            "cached_at": cached_at,
+        }
+        await self.cache_repo.save_role_indicator(identity_key, cache_payload)
+
+        return {
+            "player": {"server": server, "name": _normalize_name(name)},
+            "identity": identity,
+            "indicator": parsed,
+            "raw": raw,
+            "cache": {"hit": False, "cached_at": cached_at, "ttl_seconds": 600},
+        }
 
     async def _resolve_role_identity(
         self,
@@ -502,8 +671,6 @@ class JjcRankingInspectService:
 
         history_3v3.sort(key=lambda item: item.get("match_time") or item.get("start_time") or 0, reverse=True)
         recent_matches = history_3v3[: self.max_recent_matches]
-        wins = sum(1 for item in recent_matches if item.get("won"))
-        total = len(recent_matches)
         missing_match_id_count = sum(1 for item in recent_matches if not item.get("match_id"))
         missing_avg_grade_count = sum(1 for item in recent_matches if item.get("avg_grade") is None)
 
@@ -512,7 +679,7 @@ class JjcRankingInspectService:
             server,
             name,
             len(history_3v3),
-            total,
+            len(recent_matches),
             missing_match_id_count,
             missing_avg_grade_count,
             identity.get("source"),
@@ -588,18 +755,6 @@ class JjcRankingInspectService:
                 "cursor": cursor,
                 "has_more": has_more,
                 "next_cursor": next_cursor,
-            },
-            "summary": {
-                "total_matches": total,
-                "wins": wins,
-                "losses": total - wins,
-                "win_rate": round((wins / total) * 100, 1) if total else None,
-                "score": recent_matches[0].get("total_mmr") if recent_matches else None,
-                "ranking": None,
-                "grade": recent_matches[0].get("avg_grade") if recent_matches else None,
-                "mvp_count": sum(1 for item in recent_matches if item.get("mvp")),
-                "window_start": recent_matches[-1].get("match_time") if recent_matches else None,
-                "window_end": recent_matches[0].get("match_time") if recent_matches else None,
             },
             "recent_matches": recent_matches,
         }

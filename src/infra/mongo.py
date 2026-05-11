@@ -191,4 +191,14 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     # jjc_sync_state
     await _safe_index("jjc_sync_state", "key", name="idx_key", unique=True)
 
+    # announcements
+    await _safe_index("announcements", "announcement_id", name="idx_announcement_id", unique=True)
+    await _safe_index(
+        "announcements", [("date", -1), ("created_at", -1)], name="idx_date_created_at"
+    )
+
+    # jjc_role_indicator
+    await _safe_index("jjc_role_indicator", "cache_key", name="idx_cache_key", unique=True)
+    await _safe_index("jjc_role_indicator", "cached_at", name="idx_cached_at")
+
     logger.info("MongoDB 索引初始化完成")

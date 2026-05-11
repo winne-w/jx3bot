@@ -212,7 +212,6 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(payload["recent_matches"]), 20)
         self.assertEqual(payload["recent_matches"][0]["match_id"], 1039)
         self.assertEqual(payload["recent_matches"][0]["kungfu"], "花间游")
-        self.assertEqual(payload["summary"]["total_matches"], 20)
         self.assertTrue(payload["pagination"]["has_more"])
 
     async def test_role_recent_cache_hit_hydrates_cached_details(self) -> None:
@@ -233,7 +232,6 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
                     {"match_id": 1001, "won": True, "kungfu": "花间游"},
                     {"match_id": 1002, "won": False, "kungfu": "冰心诀"},
                 ],
-                "summary": {"total_matches": 2, "wins": 1},
             },
         }
         service = DirectJjcRankingInspectService(
@@ -262,7 +260,6 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
                 "recent_matches": [
                     {"match_id": 1001, "won": True, "cached_detail_summary": {"stale": True}},
                 ],
-                "summary": {"total_matches": 1, "wins": 1},
             },
         }
         service = DirectJjcRankingInspectService(
@@ -321,6 +318,45 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         self.assertIn("cached_detail_summary", result["recent_matches"][0])
         saved_data = cache_repo.saved_role_recent[0][2]["data"]
         self.assertNotIn("cached_detail_summary", saved_data["recent_matches"][0])
+
+    async def test_role_recent_late_hydration_when_detail_cached_after_initial_request(self) -> None:
+        cache_repo = FakeJjcInspectRepo(summaries={})
+        cache_repo.load_role_recent_result = {
+            "cached_at": 1778000000,
+            "data": {
+                "recent_matches": [
+                    {"match_id": 1001, "won": True, "kungfu": "花间游"},
+                    {"match_id": 1002, "won": False, "kungfu": "冰心诀"},
+                ],
+            },
+        }
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=cache_repo,
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+        )
+        result1 = await service.get_role_recent(server="梦江南", name="示例角色")
+        recent1 = result1["recent_matches"]
+        self.assertNotIn("cached_detail_summary", recent1[0])
+        self.assertNotIn("cached_detail_summary", recent1[1])
+
+        cache_repo.summaries[1001] = {
+            "match_id": 1001,
+            "cached_at": 1779000000,
+            "team1": {"won": True, "players": [{"kungfu_id": 10021, "kungfu": "花间游", "role_name": "角色A"}]},
+            "team2": {"won": False, "players": [{"kungfu_id": 10081, "kungfu": "冰心诀", "role_name": "角色B"}]},
+        }
+
+        result2 = await service.get_role_recent(server="梦江南", name="示例角色")
+        recent2 = result2["recent_matches"]
+        self.assertIn("cached_detail_summary", recent2[0])
+        self.assertEqual(recent2[0]["cached_detail_summary"]["match_id"], 1001)
+        self.assertNotIn("cached_detail_summary", recent2[1])
 
 
 if __name__ == "__main__":

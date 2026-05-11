@@ -229,6 +229,33 @@ async def get_ranking_stats_role_recent(
     return success_response(result)
 
 
+@router.get("/ranking-stats/role-indicator")
+async def get_ranking_stats_role_indicator(
+    server: str = Query(..., description="服务器名"),
+    name: str = Query(..., description="角色名"),
+    game_role_id: Optional[str] = Query(None, description="榜单角色 ID"),
+    global_role_id: Optional[str] = Query(None, description="推栏全局角色 ID"),
+    role_id: Optional[str] = Query(None, description="推栏角色 ID"),
+    zone: Optional[str] = Query(None, description="区服分区"),
+) -> dict[str, Any]:
+    server = server.strip()
+    name = name.strip()
+    if not server or not name:
+        return error_response("invalid_params")
+
+    result = await jjc_ranking_inspect_service.get_role_indicator(
+        server=server,
+        name=name,
+        game_role_id=(game_role_id or "").strip() or None,
+        global_role_id=(global_role_id or "").strip() or None,
+        role_id=(role_id or "").strip() or None,
+        zone=(zone or "").strip() or None,
+    )
+    if result.get("error"):
+        return error_response(result.get("message") or result.get("error") or "unknown_error", data=result)
+    return success_response(result)
+
+
 @router.get("/ranking-stats/match-detail")
 async def get_ranking_stats_match_detail(
     match_id: str = Query(..., description="对局 ID"),
