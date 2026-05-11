@@ -233,6 +233,56 @@ class JjcInspectRepo:
             "team2": teams.get("team2", {"won": False, "players": []}),
         }
 
+    async def save_role_indicator(self, cache_key: str, payload: dict[str, Any]) -> None:
+        db = self.db if self.db is not None else _get_db()
+        try:
+            await db.jjc_role_indicator.update_one(
+                {"cache_key": cache_key},
+                {"$set": {
+                    "cache_key": cache_key,
+                    "identity_key": payload.get("identity_key"),
+                    "server": payload.get("server"),
+                    "name": payload.get("name"),
+                    "game_role_id": payload.get("game_role_id"),
+                    "global_role_id": payload.get("global_role_id"),
+                    "zone": payload.get("zone"),
+                    "indicator": payload.get("indicator") or {},
+                    "raw": payload.get("raw") or {},
+                    "cached_at": payload.get("cached_at") or time.time(),
+                }},
+                upsert=True,
+            )
+        except Exception as exc:
+            logger.warning(f"保存 JJC 角色 indicator 缓存失败: cache_key={cache_key} error={exc}")
+
+    async def load_role_indicator(self, cache_key: str, *, ttl_seconds: int = 600) -> Optional[dict[str, Any]]:
+        db = self.db if self.db is not None else _get_db()
+        try:
+            doc = await db.jjc_role_indicator.find_one({"cache_key": cache_key})
+        except Exception as exc:
+            logger.warning(f"读取 JJC 角色 indicator 缓存失败: cache_key={cache_key} error={exc}")
+            return None
+        if doc is None:
+            return None
+        cached_at = doc.get("cached_at")
+        if not isinstance(cached_at, (int, float)):
+            return None
+        if time.time() - float(cached_at) > ttl_seconds:
+            logger.info(f"JJC 角色 indicator 缓存已过期: cache_key={cache_key}")
+            return None
+        return {
+            "cache_key": doc.get("cache_key"),
+            "identity_key": doc.get("identity_key"),
+            "server": doc.get("server"),
+            "name": doc.get("name"),
+            "game_role_id": doc.get("game_role_id"),
+            "global_role_id": doc.get("global_role_id"),
+            "zone": doc.get("zone"),
+            "indicator": doc.get("indicator") or {},
+            "raw": doc.get("raw") or {},
+            "cached_at": cached_at,
+        }
+
     async def _extract_snapshots(self, data: dict[str, Any], cached_at: Optional[float] = None) -> None:
         """For each player with armors/talents, save to snapshot collections and replace with hashes.
 
