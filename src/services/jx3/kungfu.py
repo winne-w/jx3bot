@@ -4,6 +4,8 @@ import json
 from collections import Counter
 from typing import Any, Callable
 
+from src.services.jx3.indicator_utils import find_3v3_indicator, find_3v3_metrics
+
 try:
     from nonebot import logger  # type: ignore
 except Exception:  # pragma: no cover
@@ -244,58 +246,48 @@ def get_kungfu_detail_by_role_info(
     indicator_kungfu_pinyin = None
     indicator_kungfu_name = None
 
-    indicators = data.get("indicator") or []
-    if isinstance(indicators, list):
-        for indicator in indicators:
-            if not isinstance(indicator, dict):
+    indicator = find_3v3_indicator(data.get("indicator") or [])
+    if indicator:
+        max_win_count = -1
+        max_total_count = -1
+        best_win_metric = None
+        best_total_metric = None
+
+        for metric in find_3v3_metrics(indicator):
+            if not metric.get("items"):
                 continue
-            if indicator.get("type") not in {"3c", "3d"}:
-                continue
+            win_count = metric.get("win_count", 0) or 0
+            total_count = metric.get("total_count", 0) or 0
 
-            metrics = indicator.get("metrics") or []
-            if not isinstance(metrics, list) or not metrics:
-                continue
+            if win_count > max_win_count:
+                max_win_count = win_count
+                best_win_metric = metric
+            if total_count > max_total_count:
+                max_total_count = total_count
+                best_total_metric = metric
 
-            max_win_count = -1
-            max_total_count = -1
-            best_win_metric = None
-            best_total_metric = None
+        if best_win_metric:
+            indicator_kungfu_pinyin = best_win_metric.get("kungfu")
+            indicator_kungfu_name = kungfu_pinyin_to_chinese.get(
+                indicator_kungfu_pinyin, indicator_kungfu_pinyin
+            )
 
-            for metric in metrics:
-                if metric and metric.get("items"):
-                    win_count = metric.get("win_count", 0) or 0
-                    total_count = metric.get("total_count", 0) or 0
-
-                    if win_count > max_win_count:
-                        max_win_count = win_count
-                        best_win_metric = metric
-                    if total_count > max_total_count:
-                        max_total_count = total_count
-                        best_total_metric = metric
-
-            if best_win_metric:
-                indicator_kungfu_pinyin = best_win_metric.get("kungfu")
-                indicator_kungfu_name = kungfu_pinyin_to_chinese.get(
-                    indicator_kungfu_pinyin, indicator_kungfu_pinyin
+            if best_total_metric:
+                total_kungfu = kungfu_pinyin_to_chinese.get(
+                    best_total_metric.get("kungfu"), best_total_metric.get("kungfu")
                 )
-
-                if best_total_metric:
-                    total_kungfu = kungfu_pinyin_to_chinese.get(
-                        best_total_metric.get("kungfu"), best_total_metric.get("kungfu")
+                if indicator_kungfu_name != total_kungfu:
+                    logger.info(
+                        "⚠️ 胜场/场次心法不一致: role_id={} zone={} server={} "
+                        "win_count={}({}) total_count={}({})",
+                        game_role_id,
+                        zone,
+                        server,
+                        indicator_kungfu_name,
+                        max_win_count,
+                        total_kungfu,
+                        max_total_count,
                     )
-                    if indicator_kungfu_name != total_kungfu:
-                        logger.info(
-                            "⚠️ 胜场/场次心法不一致: role_id={} zone={} server={} "
-                            "win_count={}({}) total_count={}({})",
-                            game_role_id,
-                            zone,
-                            server,
-                            indicator_kungfu_name,
-                            max_win_count,
-                            total_kungfu,
-                            max_total_count,
-                        )
-                break
 
     match_history_kungfu_pinyin = None
     match_history_kungfu_name = None

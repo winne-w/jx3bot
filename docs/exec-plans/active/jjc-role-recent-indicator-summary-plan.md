@@ -1,7 +1,7 @@
 # JJC 角色 indicator 指标接口与缓存计划
 
-状态：计划中
-更新时间：2026-05-08
+状态：修复中
+更新时间：2026-05-12
 
 ## 背景
 
@@ -147,6 +147,65 @@ indicator 缓存落 MongoDB，不落文件。原因：
 6. 修改前端顶部卡片为调用新接口，展示场次、胜率、评分、最佳、当前段位，并处理 indicator 错误态。
 7. 增加单测覆盖缓存命中、缓存写入、indicator 失败不回退、`role-recent` 不再返回 `summary`。
 8. 执行自动化验证和手工回归。
+
+## 2026-05-12 排查补充
+
+线上反馈：
+
+- 排行榜页面点击角色查看近期对局时，未观察到 `role-indicator` 请求。
+- 直接调用 `/api/jjc/ranking-stats/role-indicator` 时，每次都会请求推栏，没有命中后端缓存。
+
+本地复现结论：
+
+- `role-indicator` 已发起实时请求，但欧闲闲样本的推栏返回字段位于 `indicator[type=3c].metrics[]` 与 `indicator[type=3c].performance` 内。
+- 当前 `_parse_3v3_indicator` 只读取 `indicator[type=3c]` 顶层字段，解析结果为 `indicator_3c_empty_fields`。
+- 解析失败时不会写入 `jjc_role_indicator`，因此后续调用仍会继续请求推栏，表现为“没有缓存”。
+
+修复项：
+
+1. 扩展 3v3 indicator 解析逻辑，支持真实推栏结构：
+   - `performance.total_count/win_count/mmr/grade`
+   - `metrics[]` 中 `pvp_type=3` 的 `total_count/win_count/level`
+2. 增加 `get_role_indicator` 缓存命中、实时写缓存、失败不写缓存的单测。
+3. 调整前端弹窗加载流程：打开角色弹窗后立即触发 indicator 请求，避免近期列表失败或页面缓存路径导致 indicator 不发起。
+
+### 统一解析方案设计
+
+问题复盘：
+
+- 排名统计链路已经在 `src/services/jx3/kungfu.py` 中处理过推栏 `role/indicator` 的 `3c` / `3d` 差异。
+- 本计划实现 `role-indicator` API 时没有先盘点既有 indicator 解析逻辑，导致在 `src/services/jx3/jjc_ranking_inspect.py` 中重复写了一套只认 `3c` 的解析。
+- 结果是遇到 `type=3d`、但 `metrics[].pvp_type=3` 的真实返回时，后端误判为 `indicator_3c_missing`，前端无法展示数值，且失败结果不写缓存，造成每次都请求推栏。
+
+设计目标：
+
+- 推栏 `role/indicator` 的 3v3 定位规则只维护一份。
+- 排名统计心法判断与角色弹窗 indicator 指标展示共用同一个 3v3 indicator 选择入口。
+- 业务模块只表达各自字段映射和展示/缓存策略，不重复判断 `3c`、`3d`、`metrics[].pvp_type`。
+
+方案：
+
+1. 新增 `src/services/jx3/indicator_utils.py` 作为推栏 indicator 纯解析工具模块。
+2. 在该模块中提供：
+   - `find_3v3_indicator(indicators)`：统一识别 `type in {"3c", "3d"}`，并兼容 `metrics[].pvp_type == 3`。
+   - `find_3v3_metrics(indicator)`：统一筛出 3v3 metrics，缺少 `pvp_type` 时按历史兼容策略保留。
+   - `select_best_3v3_metric(indicator, require_items=False)`：保留排名统计“按胜场优先、场次次之”选择心法 metric 的规则。
+3. `src/services/jx3/kungfu.py` 改为调用共享 helper，不再本地维护 `3c` / `3d` 判断。
+4. `src/services/jx3/jjc_ranking_inspect.py` 的 `_parse_3v3_indicator` 改为调用共享 helper，再在本模块内完成指标字段映射：
+   - 场次/胜场优先读取 `performance`，再读取 3v3 metric。
+   - 评分、段位读取 `performance.mmr` / `performance.grade`。
+   - 胜率由 `win_count / total_count` 计算。
+5. 测试补齐：
+   - `3c + metrics/performance` 样本。
+   - `3d + metrics[].pvp_type=3` 样本。
+   - 缓存命中后不再调用推栏。
+   - 解析失败不写缓存。
+   - 共享 helper 的 `3c` / `3d` / `pvp_type=3` 识别规则。
+
+后续约束：
+
+- 新增或修改任何推栏 `role/indicator` 3v3 解析逻辑时，必须优先复用 `src/services/jx3/indicator_utils.py`。
+- 不允许在 service、router、前端或脚本中重新散写 `type == "3c"` / `type == "3d"` / `pvp_type == 3` 的组合判断；确有新字段形态时先扩展共享 helper 和测试。
 
 ## 验证
 
