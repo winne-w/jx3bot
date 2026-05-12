@@ -992,6 +992,115 @@
             margin: 0 2px;
         }
 
+        /* ---- Announcement Popup ---- */
+        .announcement-hero {
+            background: linear-gradient(135deg, rgba(91, 124, 250, 0.06), rgba(255, 121, 176, 0.05));
+            border-radius: 16px;
+            padding: 18px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(137, 196, 244, 0.18);
+        }
+
+        .announcement-hero .announcement-date {
+            font-size: 0.78rem;
+            color: #fff;
+            background: var(--accent);
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+        }
+
+        .announcement-hero .announcement-title {
+            font-size: 1.12rem;
+            font-weight: 700;
+            margin: 0 0 6px;
+        }
+
+        .announcement-hero .announcement-body {
+            font-size: 0.92rem;
+            color: var(--muted);
+            line-height: 1.65;
+            white-space: pre-wrap;
+        }
+
+        .announcement-list-title {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: var(--muted);
+            margin-bottom: 10px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(137, 196, 244, 0.18);
+        }
+
+        .announcement-list-item {
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(137, 196, 244, 0.1);
+        }
+
+        .announcement-list-item:last-of-type {
+            border-bottom: none;
+        }
+
+        .announcement-list-item .item-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .announcement-list-item .item-date {
+            font-size: 0.76rem;
+            color: var(--muted);
+            background: rgba(137, 196, 244, 0.1);
+            padding: 1px 8px;
+            border-radius: 8px;
+            flex-shrink: 0;
+        }
+
+        .announcement-list-item .item-title {
+            font-size: 0.94rem;
+            font-weight: 600;
+        }
+
+        .announcement-list-item .item-body {
+            font-size: 0.86rem;
+            color: var(--muted);
+            line-height: 1.55;
+            white-space: pre-wrap;
+        }
+
+        .announcement-modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            padding-top: 14px;
+            margin-top: 10px;
+            border-top: 1px solid rgba(137, 196, 244, 0.14);
+        }
+
+        .announcement-dismiss-btn {
+            border: none;
+            border-radius: 10px;
+            padding: 10px 28px;
+            font-size: 0.94rem;
+            font-family: inherit;
+            cursor: pointer;
+            background: var(--accent);
+            color: #fff;
+            transition: opacity 0.15s;
+        }
+
+        .announcement-dismiss-btn:hover {
+            opacity: 0.85;
+        }
+
+        .announcement-modal-loading {
+            text-align: center;
+            padding: 14px;
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
         @media (max-width: 700px) {
             body {
                 padding: 20px 14px 40px;
@@ -1012,7 +1121,6 @@
     <div class="page">
         <header>
             <div class="title">竞技场心法排名统计</div>
-            <div class="announcement">现在点击心法名称可展开查看角色分数；点击角色可查看最近 3v3 战绩和对局列表，并继续点击对局查看对局详情；右侧分享按钮可生成该统计卡片图片；页面有问题或数据不更新可以联系贴吧周报贴楼主。</div>
             <div class="subtitle" id="subtitle">
                 <span class="muted">正在加载实时数据...</span>
             </div>
@@ -1049,6 +1157,21 @@
                 <button class="modal-close" type="button" data-close-modal="match" aria-label="关闭">×</button>
             </div>
             <div id="match-modal-body"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="announcement-modal" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title">公告 / 更新说明</h3>
+                </div>
+                <button class="modal-close" type="button" data-close-modal="announcement" aria-label="关闭">×</button>
+            </div>
+            <div id="announcement-modal-body"></div>
+            <div class="announcement-modal-footer">
+                <button class="announcement-dismiss-btn" id="announcement-dismiss-btn">知道了</button>
+            </div>
         </div>
     </div>
 
@@ -1102,6 +1225,26 @@
             identityHints: {},
             isLoading: false,
         };
+
+        // ---- Announcement State ----
+        const ANNOUNCEMENT_API = "/jx3bot/api/announcements";
+        const ANNOUNCEMENT_SEEN_KEY = "announcement_seen_at";
+        let announcementCursor = null;
+        let announcementHasMore = true;
+        let announcementLoading = false;
+        let announcementObserver = null;
+        let currentPopupSeenAt = null;
+
+        const announcementModal = document.getElementById("announcement-modal");
+        const announcementBody = document.getElementById("announcement-modal-body");
+        const announcementDismissBtn = document.getElementById("announcement-dismiss-btn");
+
+        function safeGetAnnouncementSeen() {
+            try { return localStorage.getItem(ANNOUNCEMENT_SEEN_KEY); } catch (e) { return null; }
+        }
+        function safeSetAnnouncementSeen(value) {
+            try { localStorage.setItem(ANNOUNCEMENT_SEEN_KEY, value); } catch (e) { /* ignore */ }
+        }
 
         const LEGENDARY_WEAPON_NAMES = new Set([
             "钗蝶语双", "七月嘉树", "万象金声", "幽微夜", "蜕骨", "伏魔悲音", "意真",
@@ -1326,7 +1469,7 @@
             }
             modal.classList.remove("show");
             modal.setAttribute("aria-hidden", "true");
-            if (!roleModal.classList.contains("show") && !matchModal.classList.contains("show")) {
+            if (!roleModal.classList.contains("show") && !matchModal.classList.contains("show") && !announcementModal.classList.contains("show")) {
                 document.body.style.overflow = "";
             }
         }
@@ -2131,6 +2274,153 @@
             });
         }
 
+        // ---- Announcement Popup ----
+
+        async function checkAnnouncements() {
+            try {
+                const resp = await fetch(ANNOUNCEMENT_API + "/latest-date", { cache: "no-store" });
+                if (!resp.ok) return;
+                const payload = await resp.json();
+                const data = unwrapResponse(payload);
+                if (!data.latest_date || !data.announcement) return;
+
+                const latestCreatedAt = String(data.announcement.created_at || "");
+                const seenAt = safeGetAnnouncementSeen();
+                if (seenAt === latestCreatedAt) return;
+
+                showAnnouncementPopup(data.announcement, latestCreatedAt);
+            } catch (e) {
+                // announcement check is non-critical, silently ignore
+            }
+        }
+
+        function renderAnnouncementPopup(heroAnnouncement, listItems) {
+            var html = '<div class="announcement-hero">';
+            html += '<div class="announcement-date">' + escapeHtml(heroAnnouncement.date || "") + '</div>';
+            html += '<h3 class="announcement-title">' + escapeHtml(heroAnnouncement.title || "") + '</h3>';
+            html += '<div class="announcement-body">' + escapeHtml(heroAnnouncement.content || "") + '</div>';
+            html += '</div>';
+
+            if (listItems.length > 0) {
+                html += '<div class="announcement-list-title">历史公告</div>';
+                for (var i = 0; i < listItems.length; i++) {
+                    var item = listItems[i];
+                    html += '<div class="announcement-list-item">';
+                    html += '<div class="item-header">';
+                    html += '<span class="item-date">' + escapeHtml(item.date || "") + '</span>';
+                    html += '<span class="item-title">' + escapeHtml(item.title || "") + '</span>';
+                    html += '</div>';
+                    html += '<div class="item-body">' + escapeHtml(item.content || "") + '</div>';
+                    html += '</div>';
+                }
+            }
+
+            if (announcementHasMore) {
+                html += '<div id="announcement-sentinel" style="height:1px;"></div>';
+                html += '<div id="announcement-loading" class="announcement-modal-loading" style="display:none;">加载中...</div>';
+            }
+
+            announcementBody.innerHTML = html;
+
+            if (announcementHasMore) {
+                var sentinel = document.getElementById("announcement-sentinel");
+                if (sentinel) {
+                    if (announcementObserver) announcementObserver.disconnect();
+                    var modalCard = announcementModal.querySelector(".modal-card");
+                    announcementObserver = new IntersectionObserver(function (entries) {
+                        if (entries[0].isIntersecting && announcementHasMore && !announcementLoading) {
+                            loadMoreAnnouncements();
+                        }
+                    }, { root: modalCard, rootMargin: "80px" });
+                    announcementObserver.observe(sentinel);
+                }
+            }
+        }
+
+        function showAnnouncementPopup(heroAnnouncement, seenAt) {
+            currentPopupSeenAt = seenAt;
+            announcementCursor = null;
+            announcementHasMore = true;
+            announcementLoading = false;
+
+            loadAnnouncementPage(heroAnnouncement);
+            openModal(announcementModal);
+        }
+
+        async function loadAnnouncementPage(heroAnnouncement) {
+            announcementBody.innerHTML = '<div class="modal-loading">加载公告...</div>';
+            announcementLoading = true;
+            try {
+                var url = ANNOUNCEMENT_API + "/list?limit=5";
+                if (announcementCursor !== null) url += "&cursor=" + announcementCursor;
+                var resp = await fetch(url, { cache: "no-store" });
+                if (!resp.ok) throw new Error("HTTP " + resp.status);
+                var payload = await resp.json();
+                var data = unwrapResponse(payload);
+                var listItems = data.announcements || [];
+                announcementCursor = data.next_cursor;
+                announcementHasMore = data.has_more;
+                renderAnnouncementPopup(heroAnnouncement, listItems);
+            } catch (e) {
+                announcementBody.innerHTML = '<div class="modal-loading error">加载公告失败</div>';
+            } finally {
+                announcementLoading = false;
+            }
+        }
+
+        async function loadMoreAnnouncements() {
+            announcementLoading = true;
+            var loadingEl = document.getElementById("announcement-loading");
+            if (loadingEl) loadingEl.style.display = "block";
+            try {
+                var url = ANNOUNCEMENT_API + "/list?limit=5";
+                if (announcementCursor !== null) url += "&cursor=" + announcementCursor;
+                var resp = await fetch(url, { cache: "no-store" });
+                if (!resp.ok) throw new Error("HTTP " + resp.status);
+                var payload = await resp.json();
+                var data = unwrapResponse(payload);
+                var items = data.announcements || [];
+                announcementCursor = data.next_cursor;
+                announcementHasMore = data.hasMore;
+
+                var sentinel = document.getElementById("announcement-sentinel");
+                var container = sentinel ? sentinel.parentNode : announcementBody;
+                for (var i = 0; i < items.length; i++) {
+                    var item = items[i];
+                    var div = document.createElement("div");
+                    div.className = "announcement-list-item";
+                    div.innerHTML =
+                        '<div class="item-header">' +
+                        '<span class="item-date">' + escapeHtml(item.date || "") + '</span>' +
+                        '<span class="item-title">' + escapeHtml(item.title || "") + '</span>' +
+                        '</div>' +
+                        '<div class="item-body">' + escapeHtml(item.content || "") + '</div>';
+                    container.insertBefore(div, sentinel);
+                }
+
+                if (!announcementHasMore && sentinel) {
+                    sentinel.remove();
+                }
+            } catch (e) {
+                if (loadingEl) loadingEl.textContent = "加载失败";
+            } finally {
+                announcementLoading = false;
+                if (loadingEl && announcementHasMore) loadingEl.style.display = "none";
+            }
+        }
+
+        function dismissAnnouncement() {
+            if (currentPopupSeenAt) safeSetAnnouncementSeen(currentPopupSeenAt);
+            currentPopupSeenAt = null;
+            if (announcementObserver) announcementObserver.disconnect();
+            closeModal(announcementModal);
+        }
+
+        if (announcementDismissBtn) {
+            announcementDismissBtn.addEventListener("click", dismissAnnouncement);
+        }
+
+        checkAnnouncements();
         loadDateList();
 
         if (dateSelect) {
@@ -2224,6 +2514,16 @@
             }
         });
 
+        announcementModal.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target === announcementModal || target.closest("[data-close-modal='announcement']")) {
+                dismissAnnouncement();
+            }
+        });
+
         document.addEventListener("keydown", (event) => {
             if (event.key !== "Escape") {
                 return;
@@ -2234,6 +2534,10 @@
             }
             if (roleModal.classList.contains("show")) {
                 closeModal(roleModal);
+                return;
+            }
+            if (announcementModal.classList.contains("show")) {
+                dismissAnnouncement();
             }
         });
 
