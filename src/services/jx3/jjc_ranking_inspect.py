@@ -12,6 +12,7 @@ from nonebot import logger
 
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.jjc_ranking import JjcRankingService
+from src.services.jx3.indicator_utils import find_3v3_indicator, find_3v3_metrics
 from src.services.jx3.match_history import MatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient, MatchDetailResponse
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
@@ -124,29 +125,68 @@ def _parse_3v3_indicator(raw: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(indicators, list):
         return {"error": "indicator_array_missing"}
 
-    target = None
-    for ind in indicators:
-        if isinstance(ind, dict) and ind.get("type") == "3c":
-            target = ind
-            break
+    target = find_3v3_indicator(indicators)
     if target is None:
         return {"error": "indicator_3c_missing"}
+
+    performance = target.get("performance")
+    if not isinstance(performance, dict):
+        performance = {}
+    metrics = find_3v3_metrics(target)
+    metric_3v3 = next(
+        (
+            item
+            for item in metrics
+            if isinstance(item, dict)
+            and (_coerce_int(item.get("pvp_type") or item.get("pvpType") or item.get("type")) in (None, 3))
+            and (
+                item.get("total_count") is not None
+                or item.get("win_count") is not None
+                or item.get("level") is not None
+                or item.get("total") is not None
+            )
+        ),
+        {},
+    )
 
     total_matches = _coerce_int(
         target.get("total_matches")
         or target.get("total_count")
         or target.get("total")
         or target.get("match_count")
+        or performance.get("total_count")
+        or performance.get("total")
+        or performance.get("match_count")
+        or metric_3v3.get("total_count")
+        or metric_3v3.get("total")
+        or metric_3v3.get("match_count")
     )
     win_rate = None
-    raw_win_rate = target.get("win_rate") or target.get("winRate") or target.get("win_percent")
+    raw_win_rate = (
+        target.get("win_rate")
+        or target.get("winRate")
+        or target.get("win_percent")
+        or performance.get("win_rate")
+        or performance.get("winRate")
+        or performance.get("win_percent")
+        or metric_3v3.get("win_rate")
+        or metric_3v3.get("winRate")
+        or metric_3v3.get("win_percent")
+    )
     if raw_win_rate is not None:
         try:
             win_rate = round(float(raw_win_rate), 1)
         except (ValueError, TypeError):
             pass
     if win_rate is None:
-        win_count = _coerce_int(target.get("win_count") or target.get("wins"))
+        win_count = _coerce_int(
+            target.get("win_count")
+            or target.get("wins")
+            or performance.get("win_count")
+            or performance.get("wins")
+            or metric_3v3.get("win_count")
+            or metric_3v3.get("wins")
+        )
         if win_count is not None and total_matches is not None and total_matches > 0:
             win_rate = round((win_count / total_matches) * 100, 1)
 
@@ -155,6 +195,13 @@ def _parse_3v3_indicator(raw: dict[str, Any]) -> dict[str, Any]:
         or target.get("rating")
         or target.get("mmr")
         or target.get("current_score")
+        or performance.get("score")
+        or performance.get("rating")
+        or performance.get("mmr")
+        or performance.get("current_score")
+        or metric_3v3.get("score")
+        or metric_3v3.get("rating")
+        or metric_3v3.get("mmr")
     )
     best_score = _coerce_int(
         target.get("best_score")
@@ -162,12 +209,29 @@ def _parse_3v3_indicator(raw: dict[str, Any]) -> dict[str, Any]:
         or target.get("best_rating")
         or target.get("max_score")
         or target.get("max_rating")
+        or performance.get("best_score")
+        or performance.get("bestScore")
+        or performance.get("best_rating")
+        or performance.get("max_score")
+        or performance.get("max_rating")
+        or metric_3v3.get("best_score")
+        or metric_3v3.get("bestScore")
+        or metric_3v3.get("best_rating")
+        or metric_3v3.get("max_score")
     )
     grade = _coerce_int(
         target.get("grade")
         or target.get("rank")
         or target.get("segment")
         or target.get("level")
+        or performance.get("grade")
+        or performance.get("rank")
+        or performance.get("segment")
+        or performance.get("level")
+        or metric_3v3.get("grade")
+        or metric_3v3.get("rank")
+        or metric_3v3.get("segment")
+        or metric_3v3.get("level")
     )
 
     if total_matches is None and score is None and grade is None:
@@ -175,7 +239,7 @@ def _parse_3v3_indicator(raw: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "source": "indicator",
-        "type": "3c",
+        "type": str(target.get("type") or "3c"),
         "total_matches": total_matches,
         "win_rate": win_rate,
         "score": score,
