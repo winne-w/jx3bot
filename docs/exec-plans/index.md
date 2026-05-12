@@ -6,14 +6,15 @@
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
-- `active/jjc-role-recent-indicator-summary-plan.md`: JJC 角色 indicator 指标接口与 Mongo 缓存计划
 - `active/jjc-role-recent-hydration-plan.md`: JJC 角色近期列表返回前统一按对局详情缓存补水计划
 - `active/frontend-github-link-plan.md`: 前端页面添加 GitHub 链接与 issue 入口计划
+- `active/announcement-system-plan.md`: 系统公告功能（数据库、API、QQ 管理命令、前端页面）实现计划
 
 ## Completed
 
 - `completed/admin-command-help-plan.md`: 管理员命令帮助入口计划
 - `completed/found-field-deprecation-plan.md`: `found` 字段降级与 `kungfu` 主判定改造计划
+- `completed/jjc-role-recent-indicator-summary-plan.md`: JJC 角色 indicator 指标接口与 Mongo 缓存计划
 - `completed/jjc-match-data-sync-person-history-cache-plan.md`: JJC 对局同步先查 Mongo 身份、减少 person-history 请求计划
 - `completed/jjc-match-detail-failure-policy-plan.md`: JJC 对局详情失败重试、不中断角色同步与 no data found 终态缓存计划
 - `completed/jjc-match-data-sync-batch-plan.md`: JJC 对局同步批量领取、多轮执行与后台运行计划
