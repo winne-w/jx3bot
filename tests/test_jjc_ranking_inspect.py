@@ -1,8 +1,11 @@
+import asyncio
+import time
 import unittest
 from typing import Any, Callable, Dict, List
 from unittest.mock import MagicMock
 
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
+from src.services.jx3.jjc_ranking import JjcRankingService
 
 
 class FakeMatchHistoryClient:
@@ -18,6 +21,7 @@ class FakeMatchHistoryClient:
 class DirectJjcRankingInspectService(JjcRankingInspectService):
     async def _run_serialized_tuilan_query(
         self,
+        endpoint_key: str,
         label: str,
         func: Callable[..., Any],
         *args: Any,
@@ -26,17 +30,37 @@ class DirectJjcRankingInspectService(JjcRankingInspectService):
         return func(*args, **kwargs)
 
 
+def make_service(
+    *,
+    cache_repo: Any = None,
+    service_cls: Any = JjcRankingInspectService,
+) -> JjcRankingInspectService:
+    return service_cls(
+        ranking_service=MagicMock(),
+        kungfu_cache_repo=MagicMock(),
+        match_history_client=MagicMock(),
+        match_detail_client=MagicMock(),
+        cache_repo=cache_repo or FakeJjcInspectRepo(),
+        tuilan_request=MagicMock(),
+        role_indicator_fetcher=MagicMock(),
+        kungfu_pinyin_to_chinese={},
+    )
+
+
 class FakeJjcInspectRepo:
     """Fake repo that returns preconfigured cached_detail_summaries without Mongo."""
 
     def __init__(self, summaries=None):
         self.summaries = summaries or {}
         self.load_role_recent_result: Any = None
+        self.load_role_recent_calls: list = []
         self.saved_role_recent: list = []
         self.role_indicator_cache: Dict[str, Dict[str, Any]] = {}
         self.saved_role_indicator: list = []
+        self.loaded_role_indicator_ttls: list = []
 
     async def load_role_recent(self, server, name, *, ttl_seconds):
+        self.load_role_recent_calls.append((server, name, ttl_seconds))
         return self.load_role_recent_result
 
     async def save_role_recent(self, server, name, payload):
@@ -61,7 +85,181 @@ class FakeJjcInspectRepo:
         self.role_indicator_cache[cache_key] = payload
 
     async def load_role_indicator(self, cache_key, *, ttl_seconds):
+        self.loaded_role_indicator_ttls.append(ttl_seconds)
         return self.role_indicator_cache.get(cache_key)
+
+
+class FakeWarmupInspectRepo:
+    def __init__(self) -> None:
+        self.saved_role_indicator: list = []
+        self.saved_match_detail: list = []
+
+    async def save_role_indicator(self, cache_key, payload):
+        self.saved_role_indicator.append((cache_key, payload))
+
+    async def save_match_detail(self, match_id, payload):
+        self.saved_match_detail.append((match_id, payload))
+
+
+class WarmupJjcRankingService(JjcRankingService):
+    def __init__(self, inspect_repo: FakeWarmupInspectRepo) -> None:
+        super().__init__(
+            token="",
+            ticket="",
+            jjc_query_url="",
+            arena_time_tag_url="",
+            arena_ranking_url="",
+            match_detail_url="",
+            jjc_ranking_cache_duration=1,
+            kungfu_cache_duration=1,
+            current_season="",
+            current_season_start="",
+            kungfu_healer_list=[],
+            kungfu_dps_list=[],
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+            tuilan_request=MagicMock(),
+            defget_get=MagicMock(),
+        )
+        object.__setattr__(self, "inspect_repo", inspect_repo)
+
+    def _inspect_cache(self):
+        return self.inspect_repo
+
+
+class TestTuilanEndpointLocks(unittest.IsolatedAsyncioTestCase):
+    async def test_same_endpoint_uses_same_lock(self):
+        service = make_service()
+
+        lock1 = service._get_tuilan_query_lock("match_detail")
+        lock2 = service._get_tuilan_query_lock("match_detail")
+
+        self.assertIs(lock1, lock2)
+
+    async def test_different_endpoint_uses_different_locks(self):
+        service = make_service()
+
+        match_detail_lock = service._get_tuilan_query_lock("match_detail")
+        role_indicator_lock = service._get_tuilan_query_lock("role_indicator")
+
+        self.assertIsNot(match_detail_lock, role_indicator_lock)
+        async with match_detail_lock:
+            self.assertTrue(match_detail_lock.locked())
+            self.assertFalse(role_indicator_lock.locked())
+
+    async def test_same_endpoint_serializes_concurrent_requests(self):
+        service = make_service(service_cls=JjcRankingInspectService)
+        running = 0
+        max_concurrent = 0
+
+        def slow_func() -> str:
+            nonlocal running, max_concurrent
+            running += 1
+            max_concurrent = max(max_concurrent, running)
+            time.sleep(0.15)
+            running -= 1
+            return "ok"
+
+        t1 = asyncio.create_task(
+            service._run_serialized_tuilan_query("match_detail", "t1", slow_func)
+        )
+        await asyncio.sleep(0.03)
+        t2 = asyncio.create_task(
+            service._run_serialized_tuilan_query("match_detail", "t2", slow_func)
+        )
+        await asyncio.sleep(0.03)
+
+        self.assertFalse(t2.done(), "t2 应等待锁，尚未完成")
+        self.assertEqual(max_concurrent, 1, "同一端点不应并发执行")
+
+        await asyncio.gather(t1, t2)
+        self.assertEqual(max_concurrent, 1)
+
+    async def test_different_endpoints_run_concurrently(self):
+        service = make_service(service_cls=JjcRankingInspectService)
+        running = 0
+        max_concurrent = 0
+
+        def slow_func() -> str:
+            nonlocal running, max_concurrent
+            running += 1
+            max_concurrent = max(max_concurrent, running)
+            time.sleep(0.15)
+            running -= 1
+            return "ok"
+
+        t1 = asyncio.create_task(
+            service._run_serialized_tuilan_query("match_detail", "t1", slow_func)
+        )
+        await asyncio.sleep(0.03)
+        t2 = asyncio.create_task(
+            service._run_serialized_tuilan_query("role_indicator", "t2", slow_func)
+        )
+        await asyncio.sleep(0.03)
+
+        self.assertEqual(max_concurrent, 2, "不同端点应可并发执行")
+
+        await asyncio.gather(t1, t2)
+
+
+class TestRankingWarmupInspectCache(unittest.IsolatedAsyncioTestCase):
+    async def test_warmup_writes_indicator_and_match_detail_cache(self):
+        inspect_repo = FakeWarmupInspectRepo()
+        service = WarmupJjcRankingService(inspect_repo)
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_indicator": {
+                        "game_role_id": "100",
+                        "global_role_id": "global-100",
+                        "zone": "电信区",
+                        "raw": {
+                            "code": 0,
+                            "msg": "success",
+                            "data": {
+                                "role_info": {"global_role_id": "global-100"},
+                                "indicator": [
+                                    {
+                                        "type": "3c",
+                                        "metrics": [{"pvp_type": 3, "win_count": 6, "total_count": 10}],
+                                        "performance": {"mmr": 2500, "grade": 14},
+                                    }
+                                ],
+                            },
+                        },
+                    },
+                    "match_detail": {
+                        "match_id": 12345,
+                        "raw": {
+                            "code": 0,
+                            "msg": "success",
+                            "data": {
+                                "match_id": 12345,
+                                "team1": {
+                                    "players_info": [
+                                        {"role_name": "示例角色", "server": "梦江南", "kungfu": "huajian"}
+                                    ]
+                                },
+                                "team2": {"players_info": []},
+                            },
+                        },
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(len(inspect_repo.saved_role_indicator), 1)
+        cache_key, indicator_payload = inspect_repo.saved_role_indicator[0]
+        self.assertEqual(cache_key, "global:global-100")
+        self.assertEqual(indicator_payload["indicator"]["score"], 2500)
+
+        self.assertEqual(len(inspect_repo.saved_match_detail), 1)
+        match_id, detail_payload = inspect_repo.saved_match_detail[0]
+        self.assertEqual(match_id, 12345)
+        detail = detail_payload["data"]["detail"]
+        self.assertEqual(detail["team1"]["players_info"][0]["kungfu"], "花间游")
 
 
 class TestHydrateRecentMatchesWithCachedDetails(unittest.IsolatedAsyncioTestCase):
@@ -261,6 +459,50 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("cached_detail_summary", recent_matches[1])
         self.assertTrue(result["cache"]["hit"])
 
+    async def test_role_recent_force_refresh_bypasses_cached_first_page(self) -> None:
+        cache_repo = FakeJjcInspectRepo()
+        cache_repo.load_role_recent_result = {
+            "cached_at": 1778000000,
+            "data": {
+                "recent_matches": [
+                    {"match_id": 1001, "won": True, "kungfu": "花间游"},
+                ],
+            },
+        }
+        match_history_client = FakeMatchHistoryClient(
+            [
+                {
+                    "pvpType": 3,
+                    "match_id": 2001,
+                    "won": False,
+                    "kungfu": "huajian",
+                    "avgGrade": 12,
+                    "match_time": 1779000000,
+                }
+            ]
+        )
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=match_history_client,
+            match_detail_client=MagicMock(),
+            cache_repo=cache_repo,
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+        )
+        result = await service.get_role_recent(
+            server="梦江南",
+            name="示例角色",
+            identity_hints={"global_role_id": "global-1"},
+            force_refresh=True,
+        )
+        self.assertEqual(cache_repo.load_role_recent_calls, [])
+        self.assertEqual(result["recent_matches"][0]["match_id"], 2001)
+        self.assertFalse(result["cache"]["hit"])
+        self.assertTrue(result["cache"]["force_refresh"])
+        self.assertEqual(len(cache_repo.saved_role_recent), 1)
+
     async def test_role_recent_cache_hit_removes_stale_cached_detail_summary(self) -> None:
         cache_repo = FakeJjcInspectRepo(summaries={})
         cache_repo.load_role_recent_result = {
@@ -418,7 +660,23 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(result2.get("error"))
         self.assertEqual(result2["cache"]["hit"], True)
+        self.assertEqual(result2["cache"]["ttl_seconds"], 86400)
+        self.assertEqual(cache_repo.loaded_role_indicator_ttls[-1], 86400)
         self.assertEqual(len(fetch_calls), 1)
+
+        result3 = await service.get_role_indicator(
+            server="梦江南",
+            name="示例角色",
+            game_role_id="30284767",
+            global_role_id="16648966321772809985",
+            zone="电信区",
+            force_refresh=True,
+        )
+        self.assertFalse(result3.get("error"))
+        self.assertEqual(result3["cache"]["hit"], False)
+        self.assertEqual(result3["cache"]["ttl_seconds"], 86400)
+        self.assertEqual(result3["cache"]["force_refresh"], True)
+        self.assertEqual(len(fetch_calls), 2)
 
     async def test_role_indicator_accepts_3d_indicator_type(self) -> None:
         cache_repo = FakeJjcInspectRepo()

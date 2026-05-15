@@ -388,7 +388,7 @@
 | `zone` | string/null | 区服分区 |
 | `indicator` | object | 规整后的 3v3 指标：`source`、`type`、`total_matches`、`win_rate`、`score`、`best_score`、`grade` |
 | `raw` | object | `role/indicator` 原始响应 |
-| `cached_at` | float | 缓存时间 Unix 秒（⚠ float 类型，TTL 索引不生效；过期由 repo 业务 TTL=600 秒判断） |
+| `cached_at` | float | 缓存时间 Unix 秒（⚠ float 类型，TTL 索引不生效；过期由 repo 业务 TTL=86400 秒判断；页面主动刷新可绕过缓存） |
 
 索引：
 
@@ -397,6 +397,11 @@
 | `idx_cache_key` | `cache_key` | unique |
 | `idx_cached_at` | `cached_at` | 普通索引（用于排查和后续清理；过期判断由业务逻辑完成，不依赖 TTL 索引） |
 
+写入来源：
+
+- 排行榜页面角色 indicator 接口按需读取推栏并写入。
+- 每日/手动 JJC 排名统计在心法判定过程中已请求到 `role/indicator` 时，会同步预热写入本集合。
+
 ### `jjc_match_detail`
 
 用途：JJC 对局详情缓存，替代旧 `data/cache/jjc_ranking_inspect/match_detail/`。
@@ -404,7 +409,7 @@
 读写归属：
 
 - `src/storage/mongo_repos/jjc_inspect_repo.py`
-- 业务逻辑：`src/services/jx3/jjc_ranking_inspect.py`
+- 业务逻辑：`src/services/jx3/jjc_ranking_inspect.py`、`src/services/jx3/jjc_ranking.py`
 - 迁移脚本：`scripts/migrate_jjc_match_detail.py`
 
 字段：
@@ -428,6 +433,12 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_match_id` | `match_id` | unique |
+
+写入来源：
+
+- 排行榜页面对局详情接口按需读取推栏并写入。
+- JJC 对局同步通过排行榜 inspect service 写入。
+- 每日/手动 JJC 排名统计在心法判定过程中已请求到最近胜场 `match/detail` 时，会同步预热写入本集合，并复用装备/奇穴快照拆分逻辑。
 
 当前存储形态：
 

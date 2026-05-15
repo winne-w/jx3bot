@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import time
@@ -11,12 +12,14 @@ from urllib.parse import quote
 
 from nonebot import logger
 
+from src.services.jx3.indicator_utils import parse_3v3_indicator
 from src.services.jx3.kungfu import get_kungfu_detail_by_role_info
 from src.services.jx3.weapon_quality import extract_member_weapon_name, extract_weapon_name, is_jjc_legendary_weapon
 from src.infra.mongo import get_db
 from src.services.jx3.jjc_api_client import JjcApiClient
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.tuilan_rate_limit import fixed_sleep, random_sleep
+from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,121 @@ class JjcRankingService:
             kungfu_cache_duration=self.kungfu_cache_duration,
             db=get_db(),
         )
+
+    def _inspect_cache(self) -> JjcInspectRepo:
+        return JjcInspectRepo()
+
+    def _translate_detail_kungfu_names(self, detail: dict[str, Any]) -> None:
+        for team_key in ("team1", "team2"):
+            team = detail.get(team_key)
+            if not isinstance(team, dict):
+                continue
+            players = team.get("players_info") or []
+            if not isinstance(players, list):
+                continue
+            for player in players:
+                if not isinstance(player, dict):
+                    continue
+                kungfu = player.get("kungfu")
+                if isinstance(kungfu, str) and kungfu:
+                    player["kungfu"] = self.kungfu_pinyin_to_chinese.get(kungfu, kungfu)
+
+    async def _warmup_inspect_cache_from_kungfu_detail(
+        self,
+        *,
+        server: str,
+        name: str,
+        kungfu_detail: dict[str, Any] | None,
+    ) -> None:
+        if not isinstance(kungfu_detail, dict):
+            return
+        cache_warmup = kungfu_detail.get("_cache_warmup")
+        if not isinstance(cache_warmup, dict):
+            return
+
+        repo = self._inspect_cache()
+        cached_at = time.time()
+
+        role_indicator = cache_warmup.get("role_indicator")
+        if isinstance(role_indicator, dict):
+            raw = role_indicator.get("raw")
+            if isinstance(raw, dict):
+                parsed = parse_3v3_indicator(raw)
+                if parsed.get("error"):
+                    logger.warning(
+                        "定时统计预热 role_indicator 缓存失败: server={} name={} reason={}",
+                        server,
+                        name,
+                        parsed.get("error"),
+                    )
+                else:
+                    role_info = (raw.get("data") or {}).get("role_info") or {}
+                    global_role_id = (
+                        role_indicator.get("global_role_id")
+                        or role_info.get("global_role_id")
+                        or role_info.get("globalRoleId")
+                    )
+                    identity_key = f"global:{global_role_id}" if global_role_id else None
+                    if identity_key:
+                        await repo.save_role_indicator(
+                            identity_key,
+                            {
+                                "identity_key": identity_key,
+                                "server": server,
+                                "name": name,
+                                "game_role_id": role_indicator.get("game_role_id"),
+                                "global_role_id": global_role_id,
+                                "zone": role_indicator.get("zone"),
+                                "indicator": parsed,
+                                "raw": raw,
+                                "cached_at": cached_at,
+                            },
+                        )
+                    else:
+                        logger.warning(
+                            "定时统计预热 role_indicator 缓存失败: server={} name={} reason=global_role_id_missing",
+                            server,
+                            name,
+                        )
+
+        match_detail = cache_warmup.get("match_detail")
+        if isinstance(match_detail, dict):
+            match_id = match_detail.get("match_id")
+            raw = match_detail.get("raw")
+            if isinstance(raw, dict) and match_id is not None:
+                try:
+                    normalized_match_id = int(match_id)
+                except (TypeError, ValueError):
+                    normalized_match_id = None
+                if normalized_match_id is not None:
+                    payload = None
+                    if raw.get("code") == -1 and str(raw.get("msg") or "").strip() == "no data found" and raw.get("data") is None:
+                        payload = {
+                            "match_id": normalized_match_id,
+                            "unavailable": True,
+                            "code": -1,
+                            "message": "no data found",
+                            "detail": None,
+                        }
+                    elif raw.get("code") == 0 and isinstance(raw.get("data"), dict):
+                        detail = copy.deepcopy(raw.get("data") or {})
+                        self._translate_detail_kungfu_names(detail)
+                        payload = {
+                            "match_id": normalized_match_id,
+                            "detail": detail,
+                        }
+                    if payload is not None:
+                        try:
+                            await repo.save_match_detail(
+                                normalized_match_id,
+                                {"cached_at": cached_at, "data": payload},
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "定时统计预热 match_detail 缓存失败: match_id={} error={}",
+                                normalized_match_id,
+                                exc,
+                            )
 
     async def _merge_cached_weapon(self, server: str, name: str, result: dict[str, Any]) -> None:
         cached = await self._cache().load_kungfu_cache_raw(server, name)
@@ -245,8 +363,18 @@ class JjcRankingService:
                             if kungfu_name:
                                 logger.info(f"心法查询成功: server={server} name={name} kungfu={kungfu_name}")
                                 kungfu_info = kungfu_name
+                                await self._warmup_inspect_cache_from_kungfu_detail(
+                                    server=server,
+                                    name=name,
+                                    kungfu_detail=kungfu_detail,
+                                )
                                 break
                             logger.info("心法查询失败: 未找到心法信息")
+                            await self._warmup_inspect_cache_from_kungfu_detail(
+                                server=server,
+                                name=name,
+                                kungfu_detail=kungfu_detail,
+                            )
                             break
 
                 if not kungfu_info:
@@ -461,9 +589,19 @@ class JjcRankingService:
 
                             await self._cache().save_kungfu_cache(server, name, result)
                             if result["found"]:
+                                await self._warmup_inspect_cache_from_kungfu_detail(
+                                    server=server,
+                                    name=name,
+                                    kungfu_detail=kungfu_detail,
+                                )
                                 return result
 
                             logger.info("心法查询失败: 未找到心法信息")
+                            await self._warmup_inspect_cache_from_kungfu_detail(
+                                server=server,
+                                name=name,
+                                kungfu_detail=kungfu_detail,
+                            )
                             break
 
                 logger.info(f"在排行榜中未找到匹配的角色: server={server} name={name}")

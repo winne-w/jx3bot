@@ -194,6 +194,7 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=read&timestamp=<时间戳>"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/details?timestamp=<时间戳>&range=top_50&lane=healer&kungfu=云裳心经"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/role-recent?server=梦江南&name=示例角色"
+curl "http://127.0.0.1:5288/api/jjc/ranking-stats/role-indicator?server=梦江南&name=示例角色&force_refresh=true"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局ID>"
 ```
 
@@ -204,8 +205,10 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局I
 - `action=read` 首屏摘要不再返回全量 `members`
 - `details` 接口可按需返回单个心法成员明细
 - 统计页点击角色时可按需返回最近 3v3 胜负和最近对局列表
+- 统计页角色指标默认使用 1 天内 `jjc_role_indicator` 缓存；页面刷新按钮或 `force_refresh=true` 会绕过缓存并写回最新结果
 - 统计页点击对局时可按需返回单局详情
 - 不可用对局详情返回 `unavailable=true`、`code=-1`、`message=no data found`、`detail=null`，统计页应显示“该对局查询不到数据”
+- 每日/手动 JJC 排名统计后，若统计过程已请求到 `role/indicator` 或最近胜场 `match/detail`，Mongo 中应可看到对应 `jjc_role_indicator`、`jjc_match_detail` 预热缓存；页面再次查看对应角色或对局时应命中缓存
 
 ## 故障排查
 
