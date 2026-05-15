@@ -256,6 +256,36 @@ class JjcSyncRepo:
 
         return claimed
 
+    async def claim_specific_role(
+        self,
+        identity_key: str,
+        lease_owner: str = 'default',
+        lease_seconds: int = 600,
+    ) -> Optional[Dict[str, Any]]:
+        """原子领取指定角色。
+
+        仅当角色处于 pending/cooldown/exhausted（且 next_sync_after <= now）时领取成功，
+        返回更新后的文档；否则返回 None。
+        """
+        db = self._db()
+        now = time.time()
+        return await db.jjc_sync_role_queue.find_one_and_update(
+            filter={
+                "identity_key": identity_key,
+                "status": {"$in": ["pending", "cooldown", "exhausted"]},
+                "$or": [
+                    {"next_sync_after": None},
+                    {"next_sync_after": {"$lte": now}},
+                ],
+            },
+            update={"$set": {
+                "status": "syncing",
+                "lease_owner": lease_owner,
+                "lease_expires_at": now + lease_seconds,
+            }},
+            return_document=ReturnDocument.AFTER,
+        )
+
     async def release_role_success(
         self,
         identity_key: str,

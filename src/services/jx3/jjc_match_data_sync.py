@@ -1050,6 +1050,76 @@ class JjcMatchDataSyncService:
             logger.warning("add_role 失败: server={} name={} error={}", server, name, exc)
             return {"error": True, "message": f"添加角色失败: {exc}"}
 
+    async def sync_single_role(
+        self,
+        server: str,
+        name: str,
+        global_role_id: Optional[str] = None,
+        role_id: Optional[str] = None,
+        zone: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """直接同步单个角色的对局数据，不入队列排队，立即执行。"""
+        normalized_server = server.strip()
+        normalized_name = name.strip()
+        if not normalized_server or not normalized_name:
+            return {"error": True, "message": "服务器和角色名不能为空"}
+
+        if self._match_history_client is None or self._inspect_service is None:
+            return {"error": True, "message": "sync_dependencies_not_configured"}
+
+        try:
+            await self._upsert_role_identity_from_resolved(
+                normalized_server,
+                normalized_name,
+                {
+                    "global_role_id": global_role_id or "",
+                    "role_id": role_id or "",
+                    "game_role_id": role_id or "",
+                    "zone": zone or "",
+                },
+            )
+            identity_key = await self._repo.upsert_role(
+                server=server,
+                name=name,
+                normalized_server=normalized_server,
+                normalized_name=normalized_name,
+                global_role_id=global_role_id,
+                role_id=role_id,
+                zone=zone,
+                source="manual",
+                season_id=self._current_season,
+                season_start_time=self._season_start_time,
+            )
+            if not identity_key:
+                return {"error": True, "message": "添加角色失败"}
+
+            lease_owner = f"jjc-sync-single:{uuid.uuid4()}"
+            claimed = await self._repo.claim_specific_role(
+                identity_key=identity_key,
+                lease_owner=lease_owner,
+                lease_seconds=self._lease_seconds,
+            )
+            if claimed is None:
+                return {"error": True, "message": f"角色 {server}/{name} 正在冷却中或被其他任务同步，请稍后再试"}
+
+            role: Dict[str, Any] = {
+                "identity_key": identity_key,
+                "server": normalized_server,
+                "name": normalized_name,
+                "global_role_id": global_role_id or "",
+                "role_id": role_id or "",
+                "zone": zone or "",
+            }
+            result = await self._sync_one_role(
+                role=role,
+                mode="incremental_or_full",
+                lease_owner=lease_owner,
+            )
+            return result
+        except Exception as exc:
+            logger.warning("sync_single_role 失败: server={} name={} error={}", server, name, exc)
+            return {"error": True, "message": f"单人同步失败: {exc}"}
+
     async def pause(self, reason: str = '') -> Dict[str, Any]:
         """暂停全局同步。"""
         success = await self._repo.set_paused(True, reason)

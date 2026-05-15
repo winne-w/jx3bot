@@ -8,8 +8,8 @@ from nonebot import logger
 
 
 async def random_sleep(
-    min_seconds: float = 3.0,
-    max_seconds: float = 5.0,
+    min_seconds: float = 1.0,
+    max_seconds: float = 3.0,
     sleep_func: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> None:
     delay = random.uniform(min_seconds, max_seconds)
