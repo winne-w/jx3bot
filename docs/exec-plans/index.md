@@ -9,6 +9,9 @@
 - `active/jjc-role-recent-hydration-plan.md`: JJC 角色近期列表返回前统一按对局详情缓存补水计划
 - `active/frontend-github-link-plan.md`: 前端页面添加 GitHub 链接与 issue 入口计划
 - `active/announcement-system-plan.md`: 系统公告功能（数据库、API、QQ 管理命令、前端页面）实现计划
+- `active/tuilan-endpoint-lock-plan.md`: 推栏接口按端点互斥、不同端点并发计划
+- `active/jjc-ranking-scheduled-cache-warmup-plan.md`: JJC 定时统计预热页面 Mongo 缓存与 indicator 主动刷新计划
+- `active/jjc-ranking-cache-label-clarity-plan.md`: JJC 排名角色弹窗缓存文案澄清计划
 
 ## Completed
 

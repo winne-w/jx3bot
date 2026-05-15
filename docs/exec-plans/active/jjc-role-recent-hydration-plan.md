@@ -1,6 +1,6 @@
 # JJC 角色近期列表返回前统一详情补水计划
 
-状态：待开发
+状态：已实现/待提交
 更新时间：2026-05-09
 
 ## 背景
@@ -65,7 +65,7 @@
 ## 实施步骤
 
 1. 复核 `get_role_recent` 现有所有返回分支和 helper 调用链，列出会返回 `recent_matches` 的路径。
-2. 在 service 层把“返回前补水”收敛为明确规则，避免遗漏某个分支只返回旧列表数据。
+2. 在 service 层把”返回前补水”收敛为明确规则，避免遗漏某个分支只返回旧列表数据。
 3. 复核 `batch_load_cached_detail_summaries` 的摘要字段和 unavailable 过滤逻辑，确保补水只读取本地缓存。
 4. 补齐单测，分别验证：
    - recent 来自缓存时的补水
@@ -73,6 +73,13 @@
    - recent 初次生成后、详情缓存后补，再次请求时的补水
 5. 执行后端测试和语法检查。
 6. 手工联调确认：只要前端重新请求了 `jjc_role_recent`，就能看到最新已缓存的对战心法。
+
+## 实现状态
+
+- 步骤 1-3：已完成。`get_role_recent` 三条返回路径（缓存命中 / 首页实时 / 翻页）均已调用 `_hydrate_recent_matches_with_cached_details`；`batch_load_cached_detail_summaries` 已过滤 unavailable 文档；缓存写入使用 `copy.deepcopy` 确保不反写补水结果。
+- 步骤 4：已完成。单测覆盖 10 条用例，含缓存命中补水、staleness 清理、实时构建后不反写缓存、详情缓存后补再次请求即生效（`test_role_recent_late_hydration_when_detail_cached_after_initial_request`）。
+- 步骤 5：已完成。`python -m unittest tests.test_jjc_ranking_inspect` 10/10 通过，py_compile 无语法错误。
+- 步骤 6：待手工联调。
 
 ## 验证
 

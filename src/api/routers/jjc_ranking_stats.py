@@ -207,6 +207,7 @@ async def get_ranking_stats_role_recent(
     role_id: Optional[str] = Query(None, description="推栏角色 ID"),
     zone: Optional[str] = Query(None, description="区服分区"),
     cursor: int = Query(0, description="分页游标，0 表示第一页"),
+    force_refresh: bool = Query(False, description="是否绕过缓存实时刷新第一页"),
 ) -> dict[str, Any]:
     server = server.strip()
     name = name.strip()
@@ -223,6 +224,7 @@ async def get_ranking_stats_role_recent(
             "role_id": (role_id or "").strip() or None,
             "zone": (zone or "").strip() or None,
         },
+        force_refresh=force_refresh,
     )
     if result.get("error"):
         return error_response(result.get("message") or result.get("error") or "unknown_error", data=result)
@@ -237,6 +239,7 @@ async def get_ranking_stats_role_indicator(
     global_role_id: Optional[str] = Query(None, description="推栏全局角色 ID"),
     role_id: Optional[str] = Query(None, description="推栏角色 ID"),
     zone: Optional[str] = Query(None, description="区服分区"),
+    force_refresh: bool = Query(False, description="是否绕过缓存实时刷新"),
 ) -> dict[str, Any]:
     server = server.strip()
     name = name.strip()
@@ -250,6 +253,7 @@ async def get_ranking_stats_role_indicator(
         global_role_id=(global_role_id or "").strip() or None,
         role_id=(role_id or "").strip() or None,
         zone=(zone or "").strip() or None,
+        force_refresh=force_refresh,
     )
     if result.get("error"):
         return error_response(result.get("message") or result.get("error") or "unknown_error", data=result)

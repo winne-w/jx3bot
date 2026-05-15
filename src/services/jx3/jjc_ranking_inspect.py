@@ -12,7 +12,7 @@ from nonebot import logger
 
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.jjc_ranking import JjcRankingService
-from src.services.jx3.indicator_utils import find_3v3_indicator, find_3v3_metrics
+from src.services.jx3.indicator_utils import parse_3v3_indicator
 from src.services.jx3.match_history import MatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient, MatchDetailResponse
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
@@ -118,134 +118,7 @@ def _extract_total_mmr(match: dict[str, Any]) -> Optional[int]:
 
 
 def _parse_3v3_indicator(raw: dict[str, Any]) -> dict[str, Any]:
-    data = raw.get("data")
-    if not isinstance(data, dict):
-        return {"error": "indicator_data_missing"}
-    indicators = data.get("indicator") or []
-    if not isinstance(indicators, list):
-        return {"error": "indicator_array_missing"}
-
-    target = find_3v3_indicator(indicators)
-    if target is None:
-        return {"error": "indicator_3c_missing"}
-
-    performance = target.get("performance")
-    if not isinstance(performance, dict):
-        performance = {}
-    metrics = find_3v3_metrics(target)
-    metric_3v3 = next(
-        (
-            item
-            for item in metrics
-            if isinstance(item, dict)
-            and (_coerce_int(item.get("pvp_type") or item.get("pvpType") or item.get("type")) in (None, 3))
-            and (
-                item.get("total_count") is not None
-                or item.get("win_count") is not None
-                or item.get("level") is not None
-                or item.get("total") is not None
-            )
-        ),
-        {},
-    )
-
-    total_matches = _coerce_int(
-        target.get("total_matches")
-        or target.get("total_count")
-        or target.get("total")
-        or target.get("match_count")
-        or performance.get("total_count")
-        or performance.get("total")
-        or performance.get("match_count")
-        or metric_3v3.get("total_count")
-        or metric_3v3.get("total")
-        or metric_3v3.get("match_count")
-    )
-    win_rate = None
-    raw_win_rate = (
-        target.get("win_rate")
-        or target.get("winRate")
-        or target.get("win_percent")
-        or performance.get("win_rate")
-        or performance.get("winRate")
-        or performance.get("win_percent")
-        or metric_3v3.get("win_rate")
-        or metric_3v3.get("winRate")
-        or metric_3v3.get("win_percent")
-    )
-    if raw_win_rate is not None:
-        try:
-            win_rate = round(float(raw_win_rate), 1)
-        except (ValueError, TypeError):
-            pass
-    if win_rate is None:
-        win_count = _coerce_int(
-            target.get("win_count")
-            or target.get("wins")
-            or performance.get("win_count")
-            or performance.get("wins")
-            or metric_3v3.get("win_count")
-            or metric_3v3.get("wins")
-        )
-        if win_count is not None and total_matches is not None and total_matches > 0:
-            win_rate = round((win_count / total_matches) * 100, 1)
-
-    score = _coerce_int(
-        target.get("score")
-        or target.get("rating")
-        or target.get("mmr")
-        or target.get("current_score")
-        or performance.get("score")
-        or performance.get("rating")
-        or performance.get("mmr")
-        or performance.get("current_score")
-        or metric_3v3.get("score")
-        or metric_3v3.get("rating")
-        or metric_3v3.get("mmr")
-    )
-    best_score = _coerce_int(
-        target.get("best_score")
-        or target.get("bestScore")
-        or target.get("best_rating")
-        or target.get("max_score")
-        or target.get("max_rating")
-        or performance.get("best_score")
-        or performance.get("bestScore")
-        or performance.get("best_rating")
-        or performance.get("max_score")
-        or performance.get("max_rating")
-        or metric_3v3.get("best_score")
-        or metric_3v3.get("bestScore")
-        or metric_3v3.get("best_rating")
-        or metric_3v3.get("max_score")
-    )
-    grade = _coerce_int(
-        target.get("grade")
-        or target.get("rank")
-        or target.get("segment")
-        or target.get("level")
-        or performance.get("grade")
-        or performance.get("rank")
-        or performance.get("segment")
-        or performance.get("level")
-        or metric_3v3.get("grade")
-        or metric_3v3.get("rank")
-        or metric_3v3.get("segment")
-        or metric_3v3.get("level")
-    )
-
-    if total_matches is None and score is None and grade is None:
-        return {"error": "indicator_3c_empty_fields"}
-
-    return {
-        "source": "indicator",
-        "type": str(target.get("type") or "3c"),
-        "total_matches": total_matches,
-        "win_rate": win_rate,
-        "score": score,
-        "best_score": best_score,
-        "grade": grade,
-    }
+    return parse_3v3_indicator(raw)
 
 
 @dataclass(frozen=True)
@@ -259,17 +132,22 @@ class JjcRankingInspectService:
     role_indicator_fetcher: Callable[..., Optional[dict[str, Any]]]
     kungfu_pinyin_to_chinese: dict[str, str]
     role_recent_ttl_seconds: int = 600
+    role_indicator_ttl_seconds: int = 86400
     max_recent_matches: int = 20
     _tuilan_query_locks: WeakKeyDictionary = field(default_factory=WeakKeyDictionary, init=False, repr=False)
     _tuilan_query_locks_guard: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
-    def _get_tuilan_query_lock(self) -> asyncio.Lock:
+    def _get_tuilan_query_lock(self, endpoint_key: str) -> asyncio.Lock:
         loop = asyncio.get_running_loop()
         with self._tuilan_query_locks_guard:
-            lock = self._tuilan_query_locks.get(loop)
+            locks = self._tuilan_query_locks.get(loop)
+            if locks is None:
+                locks = {}
+                self._tuilan_query_locks[loop] = locks
+            lock = locks.get(endpoint_key)
             if lock is None:
                 lock = asyncio.Lock()
-                self._tuilan_query_locks[loop] = lock
+                locks[endpoint_key] = lock
         return lock
 
     def _translate_kungfu_name(self, value: Any) -> str:
@@ -280,18 +158,19 @@ class JjcRankingInspectService:
 
     async def _run_serialized_tuilan_query(
         self,
+        endpoint_key: str,
         label: str,
         func: Callable[..., Any],
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        logger.info("等待推栏查询锁: label={}", label)
-        async with self._get_tuilan_query_lock():
-            logger.info("获取推栏查询锁: label={}", label)
+        logger.info("等待推栏查询锁: endpoint={} label={}", endpoint_key, label)
+        async with self._get_tuilan_query_lock(endpoint_key):
+            logger.info("获取推栏查询锁: endpoint={} label={}", endpoint_key, label)
             try:
                 return await asyncio.to_thread(func, *args, **kwargs)
             finally:
-                logger.info("释放推栏查询锁: label={}", label)
+                logger.info("释放推栏查询锁: endpoint={} label={}", endpoint_key, label)
 
     async def get_role_recent(
         self,
@@ -300,9 +179,10 @@ class JjcRankingInspectService:
         name: str,
         identity_hints: Optional[dict[str, Any]] = None,
         cursor: int = 0,
+        force_refresh: bool = False,
     ) -> dict[str, Any]:
         is_first_page = cursor <= 0
-        if is_first_page:
+        if is_first_page and not force_refresh:
             cached = await self.cache_repo.load_role_recent(
                 server,
                 name,
@@ -323,10 +203,22 @@ class JjcRankingInspectService:
                 )
                 await self._hydrate_recent_matches_with_cached_details(recent_matches)
                 data["recent_matches"] = recent_matches
-                data["cache"] = {"hit": True, "cached_at": cached.get("cached_at"), "ttl_seconds": self.role_recent_ttl_seconds}
+                data["cache"] = {
+                    "hit": True,
+                    "cached_at": cached.get("cached_at"),
+                    "ttl_seconds": self.role_recent_ttl_seconds,
+                    "force_refresh": False,
+                }
                 return data
 
-        logger.info("加载 JJC 角色近期数据: server={} name={} hints={} cursor={}", server, name, identity_hints or {}, cursor)
+        logger.info(
+            "加载 JJC 角色近期数据: server={} name={} hints={} cursor={} force_refresh={}",
+            server,
+            name,
+            identity_hints or {},
+            cursor,
+            force_refresh,
+        )
         identity = await self._resolve_role_identity(server=server, name=name, identity_hints=identity_hints or {})
         if identity.get("error"):
             return identity
@@ -340,12 +232,17 @@ class JjcRankingInspectService:
             await self._hydrate_recent_matches_with_cached_details(
                 payload.get("recent_matches") or []
             )
-            payload["cache"] = {"hit": False, "cached_at": cached_at, "ttl_seconds": self.role_recent_ttl_seconds}
+            payload["cache"] = {
+                "hit": False,
+                "cached_at": cached_at,
+                "ttl_seconds": self.role_recent_ttl_seconds,
+                "force_refresh": bool(force_refresh),
+            }
         else:
             await self._hydrate_recent_matches_with_cached_details(
                 payload.get("recent_matches") or []
             )
-            payload["cache"] = {"hit": False, "cached_at": time.time()}
+            payload["cache"] = {"hit": False, "cached_at": time.time(), "force_refresh": bool(force_refresh)}
         return payload
 
     async def get_role_indicator(
@@ -357,6 +254,7 @@ class JjcRankingInspectService:
         global_role_id: Optional[str] = None,
         role_id: Optional[str] = None,
         zone: Optional[str] = None,
+        force_refresh: bool = False,
     ) -> dict[str, Any]:
         identity = await self._resolve_role_identity(
             server=server,
@@ -375,7 +273,12 @@ class JjcRankingInspectService:
         if not identity_key:
             return {"error": True, "message": "identity_key_missing", "identity": identity}
 
-        cached = await self.cache_repo.load_role_indicator(identity_key, ttl_seconds=600)
+        cached = None
+        if not force_refresh:
+            cached = await self.cache_repo.load_role_indicator(
+                identity_key,
+                ttl_seconds=self.role_indicator_ttl_seconds,
+            )
         if cached:
             logger.info(
                 "JJC 角色 indicator 缓存命中: server={} name={} identity_key={}",
@@ -388,7 +291,11 @@ class JjcRankingInspectService:
                 "identity": identity,
                 "indicator": cached.get("indicator") or {},
                 "raw": cached.get("raw") or {},
-                "cache": {"hit": True, "cached_at": cached.get("cached_at"), "ttl_seconds": 600},
+                "cache": {
+                    "hit": True,
+                    "cached_at": cached.get("cached_at"),
+                    "ttl_seconds": self.role_indicator_ttl_seconds,
+                },
             }
 
         resolved_game_role_id = _pick_str(identity.get("game_role_id"))
@@ -404,6 +311,7 @@ class JjcRankingInspectService:
             resolved_zone,
         )
         raw = await self._run_serialized_tuilan_query(
+            "role_indicator",
             f"role_indicator:{server}:{name}",
             self.role_indicator_fetcher,
             resolved_game_role_id,
@@ -446,7 +354,12 @@ class JjcRankingInspectService:
             "identity": identity,
             "indicator": parsed,
             "raw": raw,
-            "cache": {"hit": False, "cached_at": cached_at, "ttl_seconds": 600},
+            "cache": {
+                "hit": False,
+                "cached_at": cached_at,
+                "ttl_seconds": self.role_indicator_ttl_seconds,
+                "force_refresh": bool(force_refresh),
+            },
         }
 
     async def _resolve_role_identity(
@@ -578,13 +491,13 @@ class JjcRankingInspectService:
                     return identity
 
         # ---- 5. 实时排行榜查询 ----
-        logger.info("等待推栏查询锁: label=live_ranking:{}:{}", server, name)
-        async with self._get_tuilan_query_lock():
-            logger.info("获取推栏查询锁: label=live_ranking:{}:{}", server, name)
+        logger.info("等待推栏查询锁: endpoint=live_ranking label=live_ranking:{}:{}", server, name)
+        async with self._get_tuilan_query_lock("live_ranking"):
+            logger.info("获取推栏查询锁: endpoint=live_ranking label=live_ranking:{}:{}", server, name)
             try:
                 ranking_result = await self.ranking_service.query_jjc_ranking()
             finally:
-                logger.info("释放推栏查询锁: label=live_ranking:{}:{}", server, name)
+                logger.info("释放推栏查询锁: endpoint=live_ranking label=live_ranking:{}:{}", server, name)
         if not ranking_result.get("error") and ranking_result.get("code") == 0:
             for player in ranking_result.get("data", []):
                 if not isinstance(player, dict):
@@ -643,6 +556,7 @@ class JjcRankingInspectService:
             source,
         )
         result = await self._run_serialized_tuilan_query(
+            "role_indicator",
             f"role_indicator:{server}:{name}",
             self.role_indicator_fetcher,
             game_role_id,
@@ -693,6 +607,7 @@ class JjcRankingInspectService:
             return {"error": True, "message": "global_role_id_missing", "identity": identity}
 
         raw = await self._run_serialized_tuilan_query(
+            "match_history",
             f"match_history:{server}:{name}",
             self.match_history_client.get_mine_match_history,
             global_role_id=global_role_id,
@@ -864,6 +779,7 @@ class JjcRankingInspectService:
 
         logger.info("加载 JJC 对局详情: match_id={}", normalized_match_id)
         detail = await self._run_serialized_tuilan_query(
+            "match_detail",
             f"match_detail:{normalized_match_id}",
             self.match_detail_client.get_match_detail_obj,
             match_id=normalized_match_id,

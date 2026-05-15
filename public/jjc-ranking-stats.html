@@ -636,6 +636,59 @@
             margin-bottom: 16px;
         }
 
+        .role-overview-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .match-list-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin: 2px 0 10px;
+        }
+
+        .match-list-title {
+            font-weight: 700;
+            color: var(--ink);
+            font-size: 0.95rem;
+        }
+
+        .match-list-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .role-overview-toolbar .cache-label,
+        .match-list-toolbar .cache-label {
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        .role-refresh-btn,
+        .match-refresh-btn {
+            border: 1px solid rgba(137, 196, 244, 0.35);
+            background: rgba(255, 255, 255, 0.92);
+            color: var(--ink);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.86rem;
+            cursor: pointer;
+        }
+
+        .role-refresh-btn:disabled,
+        .match-refresh-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
         .role-overview-card {
             padding: 14px 16px;
             border-radius: 16px;
@@ -1407,7 +1460,7 @@
             return url.toString();
         }
 
-        function buildRoleRecentUrl(server, name, identityHints = {}, cursor = 0) {
+        function buildRoleRecentUrl(server, name, identityHints = {}, cursor = 0, options = {}) {
             const url = new URL(roleRecentApiBase, window.location.origin);
             url.searchParams.set("server", server);
             url.searchParams.set("name", name);
@@ -1426,10 +1479,13 @@
             if (identityHints.zone) {
                 url.searchParams.set("zone", identityHints.zone);
             }
+            if (options.forceRefresh) {
+                url.searchParams.set("force_refresh", "true");
+            }
             return url.toString();
         }
 
-        function buildRoleIndicatorUrl(server, name, identityHints = {}) {
+        function buildRoleIndicatorUrl(server, name, identityHints = {}, options = {}) {
             const url = new URL(roleIndicatorApiBase, window.location.origin);
             url.searchParams.set("server", server);
             url.searchParams.set("name", name);
@@ -1444,6 +1500,9 @@
             }
             if (identityHints.zone) {
                 url.searchParams.set("zone", identityHints.zone);
+            }
+            if (options.forceRefresh) {
+                url.searchParams.set("force_refresh", "true");
             }
             return url.toString();
         }
@@ -1827,13 +1886,12 @@
 
         function renderRoleRecentModal(data, isAppend = false, indicatorData = null) {
             const matches = Array.isArray(data.recent_matches) ? data.recent_matches : [];
-            const cacheText = data.cache?.cached_at ? `缓存时间：${formatTime(data.cache.cached_at)}` : "实时请求";
             const pagination = data.pagination || {};
             const playerName = data.player?.name || "未知角色";
             const playerServer = data.player?.server || "未知服务器";
 
             roleModalTitle.textContent = `${playerName}·${playerServer}`;
-            roleModalSubtitle.textContent = `最近 3v3 战绩窗口 | ${cacheText}`;
+            roleModalSubtitle.textContent = "";
 
             currentPagination = {
                 hasMore: !!pagination.has_more,
@@ -1878,9 +1936,9 @@
                     </div>
                 `).join("");
             } else if (indicatorData && indicatorData.error) {
-                overviewHtml = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">指标加载失败</strong><span>${escapeHtml(indicatorData.message || "indicator_unavailable")}</span></div>`;
+                overviewHtml = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">赛季战绩加载失败</strong><span>${escapeHtml(indicatorData.message || "indicator_unavailable")}</span></div>`;
             } else {
-                overviewHtml = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">正在加载指标...</strong><span>等待 indicator 接口</span></div>`;
+                overviewHtml = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">正在加载赛季战绩...</strong><span>等待战绩数据</span></div>`;
             }
 
             const matchListHtml = matches.length
@@ -1888,8 +1946,19 @@
                 : "<div class='modal-empty'>暂无最近 3v3 对局数据</div>";
 
             roleModalBody.innerHTML = `
+                <div class="role-overview-toolbar">
+                    <span class="cache-label" id="role-indicator-cache-label">${renderIndicatorCacheLabel(indicatorData)}</span>
+                    <button class="role-refresh-btn" id="refresh-role-indicator-btn" type="button">刷新战绩</button>
+                </div>
                 <div class="role-overview" id="role-overview">
                     ${overviewHtml}
+                </div>
+                <div class="match-list-toolbar">
+                    <span class="match-list-title">近期对局</span>
+                    <div class="match-list-actions">
+                        <span class="cache-label" id="role-recent-cache-label">${renderRoleRecentCacheLabel(data)}</span>
+                        <button class="match-refresh-btn" id="refresh-role-recent-btn" type="button">刷新对局</button>
+                    </div>
                 </div>
                 <div class="match-list-panel">
                     ${matchListHtml}
@@ -1898,10 +1967,30 @@
             `;
         }
 
+        function renderRoleRecentCacheLabel(data) {
+            const cache = data && data.cache;
+            if (!cache || !cache.cached_at) {
+                return "对局列表：实时获取";
+            }
+            return `对局列表：${cache.hit ? "缓存于" : "刚更新于"} ${formatTime(cache.cached_at)}`;
+        }
+
+        function renderIndicatorCacheLabel(indicatorData) {
+            const cache = indicatorData && indicatorData.cache;
+            if (!cache || !cache.cached_at) {
+                return "";
+            }
+            return `赛季战绩：${cache.hit ? "缓存于" : "刚更新于"} ${formatTime(cache.cached_at)}`;
+        }
+
         function updateRoleOverviewIndicator(indicatorData) {
             const overview = document.getElementById("role-overview");
             if (!overview) {
                 return;
+            }
+            const cacheLabel = document.getElementById("role-indicator-cache-label");
+            if (cacheLabel) {
+                cacheLabel.textContent = renderIndicatorCacheLabel(indicatorData);
             }
             if (indicatorData && !indicatorData.error) {
                 const ind = indicatorData.indicator || {};
@@ -1919,7 +2008,7 @@
                     </div>
                 `).join("");
             } else if (indicatorData && indicatorData.error) {
-                overview.innerHTML = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">指标加载失败</strong><span>${escapeHtml(indicatorData.message || "indicator_unavailable")}</span></div>`;
+                overview.innerHTML = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">赛季战绩加载失败</strong><span>${escapeHtml(indicatorData.message || "indicator_unavailable")}</span></div>`;
             }
         }
 
@@ -2007,8 +2096,8 @@
             if (payload.unavailable) {
                 matchModalTitle.textContent = "对局详情";
                 matchModalSubtitle.textContent = payload.cache?.cached_at
-                    ? `缓存时间：${formatTime(payload.cache.cached_at)}`
-                    : "实时请求";
+                    ? `对局详情数据：缓存于 ${formatTime(payload.cache.cached_at)}`
+                    : "对局详情数据：实时获取";
                 matchModalBody.innerHTML = `
                     <div class="modal-loading">
                         该对局查询不到数据
@@ -2022,8 +2111,8 @@
             const basicInfo = detail.basic_info || {};
             matchModalTitle.textContent = "对局详情";
             matchModalSubtitle.textContent = payload.cache?.cached_at
-                ? `缓存时间：${formatTime(payload.cache.cached_at)}`
-                : "实时请求";
+                ? `对局详情数据：缓存于 ${formatTime(payload.cache.cached_at)}`
+                : "对局详情数据：实时获取";
             matchModalBody.innerHTML = `
                 <div class="detail-summary-grid">
                     <div class="detail-summary-card"><strong>${escapeHtml(basicInfo.map || "-")}</strong><span class="player-meta">地图</span></div>
@@ -2038,19 +2127,103 @@
             `;
         }
 
-        async function fetchRoleIndicator(server, name, identityHints, cacheKey) {
+        async function fetchRoleIndicator(server, name, identityHints, cacheKey, forceRefresh = false) {
             try {
-                const response = await fetch(buildRoleIndicatorUrl(server, name, identityHints), { cache: "no-store" });
+                const response = await fetch(
+                    buildRoleIndicatorUrl(server, name, identityHints, { forceRefresh }),
+                    { cache: "no-store" },
+                );
                 if (response.ok) {
                     const payload = await response.json();
                     const data = unwrapResponse(payload);
                     roleIndicatorCache.set(cacheKey, { fetchedAt: Date.now(), data });
                     updateRoleOverviewIndicator(data);
+                    return data;
                 } else {
-                    updateRoleOverviewIndicator({ error: true, message: "indicator_unavailable" });
+                    const data = { error: true, message: "indicator_unavailable" };
+                    updateRoleOverviewIndicator(data);
+                    return data;
                 }
             } catch (e) {
-                updateRoleOverviewIndicator({ error: true, message: "indicator_unavailable" });
+                const data = { error: true, message: "indicator_unavailable" };
+                updateRoleOverviewIndicator(data);
+                return data;
+            }
+        }
+
+        async function refreshRoleIndicator() {
+            if (!currentRoleInspect || !currentRoleInspect.cacheKey) {
+                return;
+            }
+            const button = document.getElementById("refresh-role-indicator-btn");
+            if (button) {
+                button.disabled = true;
+                button.textContent = "刷新中...";
+            }
+            const previous = roleIndicatorCache.get(currentRoleInspect.cacheKey)?.data || null;
+            const data = await fetchRoleIndicator(
+                currentRoleInspect.server,
+                currentRoleInspect.name,
+                currentRoleInspect.identityHints || {},
+                currentRoleInspect.cacheKey,
+                true,
+            );
+            if (data && data.error && previous && !previous.error) {
+                updateRoleOverviewIndicator(previous);
+                const cacheLabel = document.getElementById("role-indicator-cache-label");
+                if (cacheLabel) {
+                    cacheLabel.textContent = `刷新失败，保留${renderIndicatorCacheLabel(previous) || "现有数据"}`;
+                }
+            }
+            if (button) {
+                button.disabled = false;
+                button.textContent = "刷新战绩";
+            }
+        }
+
+        async function fetchRoleRecent(server, name, identityHints, cacheKey, forceRefresh = false) {
+            const response = await fetch(
+                buildRoleRecentUrl(server, name, identityHints, 0, { forceRefresh }),
+                { cache: "no-store" },
+            );
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const recentPayload = await response.json();
+            const recentData = unwrapResponse(recentPayload);
+            roleRecentCache.set(cacheKey, { fetchedAt: Date.now(), data: recentData });
+            return recentData;
+        }
+
+        async function refreshRoleRecent() {
+            if (!currentRoleInspect || !currentRoleInspect.cacheKey) {
+                return;
+            }
+            const button = document.getElementById("refresh-role-recent-btn");
+            if (button) {
+                button.disabled = true;
+                button.textContent = "刷新中...";
+            }
+            try {
+                const recentData = await fetchRoleRecent(
+                    currentRoleInspect.server,
+                    currentRoleInspect.name,
+                    currentRoleInspect.identityHints || {},
+                    currentRoleInspect.cacheKey,
+                    true,
+                );
+                const cachedIndicator = roleIndicatorCache.get(currentRoleInspect.cacheKey);
+                const indicatorData = cachedIndicator ? cachedIndicator.data : null;
+                renderRoleRecentModal(recentData, false, indicatorData);
+            } catch (error) {
+                const cacheLabel = document.getElementById("role-recent-cache-label");
+                if (cacheLabel) {
+                    cacheLabel.textContent = `对局刷新失败：${error.message || error}`;
+                }
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = "点击重试";
+                }
             }
         }
 
@@ -2058,52 +2231,37 @@
             const cacheKey = `${server}::${name}::${identityHints.global_role_id || ""}::${identityHints.game_role_id || ""}::${identityHints.zone || ""}`;
             openModal(roleModal);
             roleModalTitle.textContent = `${name}·${server}`;
-            roleModalSubtitle.textContent = "最近 3v3 战绩窗口";
+            roleModalSubtitle.textContent = "";
             roleModalBody.innerHTML = "<div class='modal-loading'>正在加载角色近期战绩...</div>";
-
-            const indicatorRequest = fetchRoleIndicator(server, name, identityHints, cacheKey);
 
             const cached = roleRecentCache.get(cacheKey);
             if (cached && Date.now() - cached.fetchedAt < 600000) {
-                currentRoleInspect = { server, name };
+                currentRoleInspect = { server, name, identityHints, cacheKey };
                 const cachedIndicator = roleIndicatorCache.get(cacheKey);
-                const validIndicator = (cachedIndicator && Date.now() - cachedIndicator.fetchedAt < 600000) ? cachedIndicator.data : null;
+                const validIndicator = (cachedIndicator && Date.now() - cachedIndicator.fetchedAt < 86400000) ? cachedIndicator.data : null;
                 renderRoleRecentModal(cached.data, false, validIndicator);
                 if (!validIndicator) {
+                    const indicatorRequest = fetchRoleIndicator(server, name, identityHints, cacheKey);
                     indicatorRequest.catch(function () {});
                 }
                 return;
             }
 
             try {
-                const [recentResponse, indicatorResponse] = await Promise.all([
-                    fetch(buildRoleRecentUrl(server, name, identityHints), { cache: "no-store" }),
-                    indicatorRequest.then(function () {
-                        const cachedIndicator = roleIndicatorCache.get(cacheKey);
-                        return cachedIndicator ? { ok: true, json: async function () { return cachedIndicator.data; } } : null;
-                    }).catch(function () { return null; }),
+                const indicatorRequest = fetchRoleIndicator(server, name, identityHints, cacheKey);
+                const [recentData, indicatorResponse] = await Promise.all([
+                    fetchRoleRecent(server, name, identityHints, cacheKey),
+                    indicatorRequest.catch(function () { return null; }),
                 ]);
-                if (!recentResponse.ok) {
-                    throw new Error(`HTTP ${recentResponse.status}`);
-                }
-                const recentPayload = await recentResponse.json();
-                const recentData = unwrapResponse(recentPayload);
-                roleRecentCache.set(cacheKey, { fetchedAt: Date.now(), data: recentData });
 
                 var indicatorData = null;
-                if (indicatorResponse && indicatorResponse.ok) {
-                    try {
-                        var indicatorPayload = await indicatorResponse.json();
-                        indicatorData = unwrapResponse(indicatorPayload);
-                        roleIndicatorCache.set(cacheKey, { fetchedAt: Date.now(), data: indicatorData });
-                    } catch (e) {
-                        indicatorData = { error: true, message: "indicator_parse_failed" };
-                    }
+                if (indicatorResponse) {
+                    indicatorData = indicatorResponse;
                 } else {
                     indicatorData = { error: true, message: "indicator_unavailable" };
                 }
 
-                currentRoleInspect = { server, name };
+                currentRoleInspect = { server, name, identityHints, cacheKey };
                 renderRoleRecentModal(recentData, false, indicatorData);
             } catch (error) {
                 roleModalBody.innerHTML = `<div class='modal-loading error'>加载角色近期战绩失败：${escapeHtml(error.message || error)}</div>`;
@@ -2487,6 +2645,16 @@
             const loadMoreBtn = target.closest("#load-more-btn");
             if (loadMoreBtn) {
                 loadMoreMatches();
+                return;
+            }
+            const refreshIndicatorBtn = target.closest("#refresh-role-indicator-btn");
+            if (refreshIndicatorBtn) {
+                refreshRoleIndicator();
+                return;
+            }
+            const refreshRecentBtn = target.closest("#refresh-role-recent-btn");
+            if (refreshRecentBtn) {
+                refreshRoleRecent();
                 return;
             }
             const matchButton = target.closest(".match-row-btn");

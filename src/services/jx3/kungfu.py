@@ -298,6 +298,8 @@ def get_kungfu_detail_by_role_info(
     kungfu_id: int | str | None = None
     teammates: list[dict[str, Any]] = []
     weapon_checked = False
+    latest_win_match_id: int | None = None
+    latest_win_detail_resp: dict[str, Any] | None = None
 
     if global_role_id:
         matches: list[dict[str, Any]] = []
@@ -326,6 +328,8 @@ def get_kungfu_detail_by_role_info(
         if latest_win_match_id and match_detail_url:
             try:
                 detail_resp = tuilan_request(match_detail_url, {"match_id": latest_win_match_id})
+                if isinstance(detail_resp, dict):
+                    latest_win_detail_resp = detail_resp
                 if isinstance(detail_resp, dict) and detail_resp.get("code") == 0:
                     weapon_info, kungfu_id, teammates = _match_player_and_teammates(
                         detail_resp,
@@ -390,6 +394,24 @@ def get_kungfu_detail_by_role_info(
         result["teammates"] = teammates
     result["weapon_checked"] = weapon_checked
     result["teammates_checked"] = weapon_checked
+    cache_warmup: dict[str, Any] = {}
+    if isinstance(role_detail, dict):
+        cache_warmup["role_indicator"] = {
+            "raw": role_detail,
+            "server": server,
+            "name": role_name,
+            "game_role_id": game_role_id,
+            "global_role_id": global_role_id,
+            "role_id": role_id,
+            "zone": zone,
+        }
+    if latest_win_match_id and latest_win_detail_resp:
+        cache_warmup["match_detail"] = {
+            "match_id": latest_win_match_id,
+            "raw": latest_win_detail_resp,
+        }
+    if cache_warmup:
+        result["_cache_warmup"] = cache_warmup
     return result
 
 
