@@ -1125,10 +1125,30 @@
 
         .announcement-modal-footer {
             display: flex;
-            justify-content: flex-end;
+            justify-content: space-between;
+            align-items: center;
             padding-top: 14px;
             margin-top: 10px;
             border-top: 1px solid rgba(137, 196, 244, 0.14);
+        }
+
+        .announcement-feedback-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            color: var(--accent);
+            font-size: 0.88rem;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(137, 196, 244, 0.25);
+            background: rgba(137, 196, 244, 0.08);
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .announcement-feedback-link:hover {
+            background: rgba(137, 196, 244, 0.16);
+            border-color: var(--accent);
         }
 
         .announcement-dismiss-btn {
@@ -1152,6 +1172,75 @@
             padding: 14px;
             color: var(--muted);
             font-size: 0.86rem;
+        }
+
+        /* ---- Floating Feedback Circle ---- */
+
+        .floating-feedback {
+            position: fixed;
+            bottom: 40px;
+            right: 40px;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 999;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            transition: opacity 0.15s, box-shadow 0.15s;
+        }
+
+        .floating-feedback:hover {
+            box-shadow: 0 6px 28px rgba(0, 0, 0, 0.45);
+        }
+
+        .floating-feedback.dragging {
+            opacity: 0.75;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .floating-feedback.hidden {
+            display: none;
+        }
+
+        .floating-feedback-text {
+            font-size: 0.82rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            pointer-events: none;
+        }
+
+        .floating-feedback-close {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.55);
+            border: none;
+            color: #fff;
+            font-size: 11px;
+            line-height: 20px;
+            text-align: center;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .floating-feedback:hover .floating-feedback-close {
+            opacity: 1;
+        }
+
+        .floating-feedback-close:hover {
+            background: rgba(0, 0, 0, 0.8);
         }
 
         @media (max-width: 700px) {
@@ -1183,7 +1272,6 @@
         <section class="grid" id="grid"></section>
         <footer style="text-align:center; padding: 24px 0 8px; color: var(--muted); font-size: 0.92rem;">
             数据来源：<a href="https://qike.rickchen.cn/jx3/jjc-ranking-stats.html" target="_blank" rel="noopener" style="color: var(--accent);">https://qike.rickchen.cn/jx3/jjc-ranking-stats.html</a>
-            &nbsp;|&nbsp; 遇到问题？<a href="https://github.com/winne-w/jx3bot/issues" target="_blank" rel="noopener" style="color: var(--accent);">在 GitHub 提 issue</a>
         </footer>
     </div>
 
@@ -1223,9 +1311,15 @@
             </div>
             <div id="announcement-modal-body"></div>
             <div class="announcement-modal-footer">
+                <a href="https://github.com/winne-w/jx3bot/issues" target="_blank" rel="noopener" class="announcement-feedback-link">反馈 & 交流</a>
                 <button class="announcement-dismiss-btn" id="announcement-dismiss-btn">知道了</button>
             </div>
         </div>
+    </div>
+
+    <div class="floating-feedback hidden" id="floating-feedback">
+        <button class="floating-feedback-close" id="floating-feedback-close" aria-label="关闭">×</button>
+        <span class="floating-feedback-text">反馈</span>
     </div>
 
     <script>
@@ -2434,30 +2528,29 @@
 
         // ---- Announcement Popup ----
 
-        async function checkAnnouncements() {
+        async function openAnnouncementFromCircle() {
             try {
                 const resp = await fetch(ANNOUNCEMENT_API + "/latest-date", { cache: "no-store" });
                 if (!resp.ok) return;
                 const payload = await resp.json();
                 const data = unwrapResponse(payload);
-                if (!data.latest_date || !data.announcement) return;
-
-                const latestCreatedAt = String(data.announcement.created_at || "");
-                const seenAt = safeGetAnnouncementSeen();
-                if (seenAt === latestCreatedAt) return;
-
-                showAnnouncementPopup(data.announcement, latestCreatedAt);
+                const hero = data.announcement || null;
+                const seenAt = hero ? String(hero.created_at || "") : null;
+                showAnnouncementPopup(hero, seenAt);
             } catch (e) {
-                // announcement check is non-critical, silently ignore
+                // non-critical, silently ignore
             }
         }
 
         function renderAnnouncementPopup(heroAnnouncement, listItems) {
-            var html = '<div class="announcement-hero">';
-            html += '<div class="announcement-date">' + escapeHtml(heroAnnouncement.date || "") + '</div>';
-            html += '<h3 class="announcement-title">' + escapeHtml(heroAnnouncement.title || "") + '</h3>';
-            html += '<div class="announcement-body">' + escapeHtml(heroAnnouncement.content || "") + '</div>';
-            html += '</div>';
+            var html = '';
+            if (heroAnnouncement) {
+                html += '<div class="announcement-hero">';
+                html += '<div class="announcement-date">' + escapeHtml(heroAnnouncement.date || "") + '</div>';
+                html += '<h3 class="announcement-title">' + escapeHtml(heroAnnouncement.title || "") + '</h3>';
+                html += '<div class="announcement-body">' + escapeHtml(heroAnnouncement.content || "") + '</div>';
+                html += '</div>';
+            }
 
             if (listItems.length > 0) {
                 html += '<div class="announcement-list-title">历史公告</div>';
@@ -2578,7 +2671,72 @@
             announcementDismissBtn.addEventListener("click", dismissAnnouncement);
         }
 
-        checkAnnouncements();
+        // ---- Floating Feedback Circle ----
+        (function () {
+            const circle = document.getElementById("floating-feedback");
+            const closeBtn = document.getElementById("floating-feedback-close");
+            if (!circle) return;
+
+            const HIDDEN_KEY = "feedback_circle_hidden";
+
+            if (!sessionStorage.getItem(HIDDEN_KEY)) {
+                circle.classList.remove("hidden");
+            }
+
+            let dragState = null;
+
+            function setPos(left, top) {
+                circle.style.left = left + "px";
+                circle.style.top = top + "px";
+                circle.style.right = "auto";
+                circle.style.bottom = "auto";
+            }
+
+            circle.addEventListener("pointerdown", function (e) {
+                if (e.target === closeBtn) return;
+                const rect = circle.getBoundingClientRect();
+                dragState = {
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    startLeft: rect.left,
+                    startTop: rect.top
+                };
+                circle.setPointerCapture(e.pointerId);
+                circle.classList.add("dragging");
+            });
+
+            circle.addEventListener("pointermove", function (e) {
+                if (!dragState) return;
+                setPos(
+                    dragState.startLeft + e.clientX - dragState.startX,
+                    dragState.startTop + e.clientY - dragState.startY
+                );
+            });
+
+            circle.addEventListener("pointerup", function (e) {
+                if (!dragState) return;
+                const dx = e.clientX - dragState.startX;
+                const dy = e.clientY - dragState.startY;
+                const wasDrag = Math.abs(dx) > 3 || Math.abs(dy) > 3;
+                dragState = null;
+                circle.classList.remove("dragging");
+                if (!wasDrag) {
+                    openAnnouncementFromCircle();
+                }
+            });
+
+            circle.addEventListener("pointercancel", function () {
+                dragState = null;
+                circle.classList.remove("dragging");
+            });
+
+            closeBtn.addEventListener("click", function (e) {
+                e.stopPropagation();
+                circle.classList.add("hidden");
+                try { sessionStorage.setItem(HIDDEN_KEY, "1"); } catch (ignored) {}
+            });
+        })();
+
         loadDateList();
 
         if (dateSelect) {
