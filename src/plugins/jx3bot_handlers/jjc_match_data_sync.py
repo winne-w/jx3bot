@@ -27,8 +27,10 @@ def register(matcher: Any, sync_service: Any, admin_qq: List[int]) -> None:
             await _cmd_resume(bot, event, sync_service)
         elif text.startswith("/jjc同步重置"):
             await _cmd_reset(bot, event, sync_service, text)
+        elif text.startswith("/jjc同步单人"):
+            await _cmd_sync_single(bot, event, sync_service, text)
         else:
-            await bot.send(event, "未知命令。支持: /jjc同步添加 /jjc同步开始 /jjc同步状态 /jjc同步暂停 /jjc同步恢复 /jjc同步重置")
+            await bot.send(event, "未知命令。支持: /jjc同步添加 /jjc同步开始 /jjc同步状态 /jjc同步暂停 /jjc同步恢复 /jjc同步重置 /jjc同步单人")
 
 
 async def _parse_add_args(text: str):
@@ -303,3 +305,29 @@ async def _cmd_reset(bot: Bot, event: Event, svc: Any, text: str) -> None:
         await bot.send(event, f"重置失败：{result['message']}")
     else:
         await bot.send(event, result["message"])
+
+
+async def _cmd_sync_single(bot: Bot, event: Event, svc: Any, text: str) -> None:
+    server, name, kwargs = await _parse_add_args(text)
+    if not server or not name:
+        await bot.send(event, "用法: /jjc同步单人 <服务器> <角色名> [global_role_id=...] [role_id=...] [zone=...]")
+        return
+    await bot.send(event, f"开始同步 {server}/{name} ...")
+    result = await svc.sync_single_role(
+        server=server,
+        name=name,
+        global_role_id=kwargs.get("global_role_id"),
+        role_id=kwargs.get("role_id"),
+        zone=kwargs.get("zone"),
+    )
+    if result.get("error"):
+        await bot.send(event, f"单人同步失败：{result.get('message', 'unknown_error')}")
+        return
+
+    lines: List[str] = [f"JJC 单人同步完成: {server}/{name}"]
+    lines.append(f"发现对局: {result.get('discovered_matches', 0)}")
+    lines.append(f"保存详情: {result.get('saved_details', 0)}")
+    lines.append(f"跳过详情: {result.get('skipped_details', 0)}")
+    lines.append(f"详情失败: {result.get('failed_details', 0)}")
+    lines.append(f"详情不可用: {result.get('unavailable_details', 0)}")
+    await bot.send(event, "\n".join(lines))
