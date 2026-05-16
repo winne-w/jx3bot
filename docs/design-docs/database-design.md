@@ -261,6 +261,31 @@
 | `idx_normalized_server_name` | `normalized_server`, `normalized_name` | 普通索引（用于按名称查询入口） |
 | `idx_last_seen_at` | `last_seen_at` | 普通索引 |
 
+### `role_identities_history`
+
+用途：归档被合并的 `role_identities` 历史文档。当同一角色存在多条 `role_identities` 记录持有不同 `global_role_id` 时，审计脚本以 person-history 为准保留当前有效 ID，旧文档移入本集合。
+
+读写归属：
+
+- `scripts/audit_jjc_person_history_identity.py`（写入）
+- 只读查询按需使用 `identity_key` 或 `global_role_id`
+
+字段：继承 `role_identities` 全部字段，外加：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `archived_at` | datetime | 归档时间 |
+| `archive_reason` | string | 归档原因，当前固定为 `"duplicate_global_role_id_merged"` |
+| `replaced_by_identity_key` | string | 保留文档的 `identity_key` |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_identity_key` | `identity_key` | 普通索引 |
+| `idx_global_role_id` | `global_role_id` | 普通索引 |
+| `idx_archived_at` | `archived_at` | 普通索引 |
+
 ### `role_jjc_cache`
 
 用途：JJC 角色画像缓存，关联 `identity_key`。从 `kungfu_cache` 中拆分出心法、武器、队友等可变缓存信息，与角色身份模型解耦。

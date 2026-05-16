@@ -27,3 +27,7 @@
 ## 回滚
 
 直接 revert 相关改动即可。
+
+## 执行状态
+
+- 2026-05-17：已完成。`templates/qun.html` 此前已有 GitHub 地址；`public/jjc-ranking-stats.html` 的 `<footer>` 已添加 "遇到问题？在 GitHub 提 issue" 链接指向 `https://github.com/winne-w/jx3bot/issues`。

@@ -142,6 +142,11 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     )
     await _safe_index("role_identities", "last_seen_at", name="idx_last_seen_at")
 
+    # role_identities_history
+    await _safe_index("role_identities_history", "identity_key", name="idx_identity_key")
+    await _safe_index("role_identities_history", "global_role_id", name="idx_global_role_id")
+    await _safe_index("role_identities_history", "archived_at", name="idx_archived_at")
+
     # jjc_equipment_snapshot
     await _safe_index("jjc_equipment_snapshot", "snapshot_hash", name="idx_snapshot_hash", unique=True)
     await _safe_index("jjc_equipment_snapshot", "last_seen_at", name="idx_last_seen_at")
