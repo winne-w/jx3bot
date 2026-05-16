@@ -14,6 +14,7 @@
 - `active/jjc-ranking-cache-label-clarity-plan.md`: JJC 排名角色弹窗缓存文案澄清计划
 - `active/jjc-person-history-role-match-plan.md`: JJC person-history 身份补全增加角色级校验计划
 - `active/jjc-role-identity-governance-plan.md`: JJC 角色身份匹配规则收敛、数据治理与防回流计划
+- `active/jjc-match-qixue-tooltip-plan.md`: JJC 对局详情奇穴改为文字标签展示，悬浮浮窗显示奇穴描述
 
 ## Completed
 
