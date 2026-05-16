@@ -42,6 +42,19 @@ def _normalized_key(value: Any) -> str:
     return _text(value).lower()
 
 
+def _log(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
+def _format_expected(expected: Dict[str, str]) -> str:
+    role = "{}/{}".format(expected.get("server") or "-", expected.get("role_name") or "-")
+    return "{} person_id={} global_role_id={}".format(
+        role,
+        expected.get("person_id") or "-",
+        expected.get("global_role_id") or "-",
+    )
+
+
 def _expected_fields(doc: Dict[str, Any]) -> Dict[str, str]:
     server = _text(doc.get("server"))
     name = _text(doc.get("role_name") or doc.get("name"))
@@ -471,28 +484,79 @@ async def run_audit(
     applied = 0
 
     for collection in _collection_names(args.collection):
+        total_count = await db[collection].count_documents(query)
+        process_count = min(total_count, int(args.limit)) if args.limit else total_count
+        _log("[{}] 待审计数据: total={} process={} filter={}".format(
+            collection,
+            total_count,
+            process_count,
+            json.dumps(query, ensure_ascii=False, default=str),
+        ))
         cursor = db[collection].find(query)
         if args.limit:
             cursor = cursor.limit(int(args.limit))
         docs = await cursor.to_list(length=args.limit or None)
-        for doc in docs:
+        for index, doc in enumerate(docs, start=1):
             person_id = _text(doc.get("person_id"))
+            expected = _expected_fields(doc)
+            _log("[{}] ({}/{}) 开始审计: {}".format(
+                collection,
+                index,
+                process_count,
+                _format_expected(expected),
+            ))
             try:
+                _log("[{}] ({}/{}) 开始查找 person-history: person_id={}".format(
+                    collection,
+                    index,
+                    process_count,
+                    person_id or "-",
+                ))
                 payload = await _fetch_payload(
                     person_history_client,
                     person_id,
-                    expected=_expected_fields(doc),
+                    expected=expected,
                 )
                 api_error = not isinstance(payload, dict) or bool(payload.get("error"))
+                if api_error:
+                    _log("[{}] ({}/{}) person-history 查询失败: {}".format(
+                        collection,
+                        index,
+                        process_count,
+                        _text(payload.get("error") if isinstance(payload, dict) else ""),
+                    ))
+                else:
+                    _log("[{}] ({}/{}) person-history 已读取候选数: {}".format(
+                        collection,
+                        index,
+                        process_count,
+                        len(extract_history_items(payload)),
+                    ))
             except Exception as exc:
                 payload = {"error": str(exc)}
                 api_error = True
+                _log("[{}] ({}/{}) person-history 查询异常: {}".format(
+                    collection,
+                    index,
+                    process_count,
+                    exc,
+                ))
 
-            expected = _expected_fields(doc)
             correct_candidate = find_expected_role_candidate(
                 payload if isinstance(payload, dict) else {},
                 expected,
             )
+            if correct_candidate:
+                _log("[{}] ({}/{}) 查找到匹配角色: global_role_id={} server={} role_name={}".format(
+                    collection,
+                    index,
+                    process_count,
+                    correct_candidate.get("global_role_id") or "-",
+                    correct_candidate.get("server") or "-",
+                    correct_candidate.get("role_name") or "-",
+                ))
+            else:
+                _log("[{}] ({}/{}) 未查找到匹配角色".format(collection, index, process_count))
             repair_update = build_correct_global_repair_update(doc, collection, correct_candidate)
             repair_key = _text(repair_update.get("$set", {}).get("identity_key"))
             target_key_exists = False
@@ -510,11 +574,59 @@ async def run_audit(
                 target_key_exists=target_key_exists,
                 api_error=api_error,
             )
+            if result["category"] == "confirmed_valid":
+                _log("[{}] ({}/{}) 匹配: category={} reason={}".format(
+                    collection,
+                    index,
+                    process_count,
+                    result["category"],
+                    result.get("reason", ""),
+                ))
+            else:
+                _log("[{}] ({}/{}) 不匹配/需关注: category={} reason={}".format(
+                    collection,
+                    index,
+                    process_count,
+                    result["category"],
+                    result.get("reason", ""),
+                ))
             if result["category"] == "confirmed_dirty" and repair_update:
                 result["repair_update"] = repair_update
                 if args.apply:
+                    _log("[{}] ({}/{}) 开始修改: {} -> {}".format(
+                        collection,
+                        index,
+                        process_count,
+                        _text(doc.get("identity_key")),
+                        repair_key,
+                    ))
                     await db[collection].update_one({"_id": doc.get("_id")}, repair_update)
                     applied += 1
+                    _log("[{}] ({}/{}) 修改完成: new_global_role_id={}".format(
+                        collection,
+                        index,
+                        process_count,
+                        _text(repair_update.get("$set", {}).get("global_role_id")),
+                    ))
+                else:
+                    _log("[{}] ({}/{}) dry-run: 将修复为 {}".format(
+                        collection,
+                        index,
+                        process_count,
+                        repair_key or "-",
+                    ))
+            elif result["category"] == "confirmed_dirty":
+                _log("[{}] ({}/{}) 跳过修改: 未找到可写入的正确 global_role_id".format(
+                    collection,
+                    index,
+                    process_count,
+                ))
+            elif result["category"] == "conflict_needs_manual_merge":
+                _log("[{}] ({}/{}) 跳过修改: 目标 identity_key 已存在，需要人工合并".format(
+                    collection,
+                    index,
+                    process_count,
+                ))
             details[result["category"]].append(result)
 
     summary = {

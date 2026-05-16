@@ -160,6 +160,7 @@
   - 连接 MongoDB。
   - 扫描目标集合。
   - 分页调用 person-history 进行校验。
+  - 向 stderr 输出执行进度：集合待处理数量、当前处理序号、person-history 查询开始与结果、是否匹配、是否执行修改。
   - 输出 JSON 报告到 `data/jjc_identity_audit/<timestamp>/summary.json` 和明细文件。
   - 不写数据库。
 - 参数：
@@ -211,6 +212,7 @@ python -m py_compile scripts/audit_jjc_person_history_identity.py
 - 审计脚本 dry-run 对明确脏数据只输出修复建议，不写 MongoDB。
 - 审计脚本 `--apply --yes` 或 `--repair` 对明确脏数据写入正确 `global_role_id`，并将 `identity_key` 修正为 `global:{correct_global_role_id}`。
 - 审计脚本遇到目标 `identity_key` 冲突时不自动合并，输出 `conflict_needs_manual_merge`。
+- 审计脚本执行时在 stderr 中输出每个集合总数、当前第几条、匹配/不匹配、正确候选命中、dry-run 或实际修改状态。
 
 手工回归：
 
