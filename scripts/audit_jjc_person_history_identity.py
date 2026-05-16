@@ -176,6 +176,85 @@ def build_repair_update(
     }
 
 
+def find_expected_role_candidate(payload: Dict[str, Any], expected: Dict[str, str]) -> Optional[Dict[str, str]]:
+    if not isinstance(payload, dict) or payload.get("error"):
+        return None
+    for item in extract_history_items(payload):
+        candidate = _candidate_fields(item)
+        if expected["person_id"] and candidate["person_id"] and candidate["person_id"] != expected["person_id"]:
+            continue
+        if role_fields_match(expected, candidate) and candidate.get("global_role_id"):
+            return candidate
+    return None
+
+
+def build_correct_global_repair_update(
+    doc: Dict[str, Any],
+    collection: str,
+    candidate: Optional[Dict[str, str]],
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    if not candidate:
+        return {}
+    global_role_id = _text(candidate.get("global_role_id"))
+    if not global_role_id:
+        return {}
+
+    repaired_at = now or datetime.now(timezone.utc)
+    identity_key = "global:{}".format(global_role_id)
+    server = _text(candidate.get("server")) or _text(doc.get("server"))
+    role_name = _text(candidate.get("role_name")) or _text(doc.get("role_name") or doc.get("name"))
+    role_id = _text(candidate.get("role_id")) or _text(doc.get("role_id") or doc.get("game_role_id"))
+    zone = _text(candidate.get("zone")) or _text(doc.get("zone"))
+
+    set_fields: Dict[str, Any] = {
+        "identity_key": identity_key,
+        "global_role_id": global_role_id,
+        "identity_source": "person_history_corrected_global_role_id",
+        "updated_at": repaired_at,
+        "person_history_audit": {
+            "action": "replace_mismatched_global_role_id",
+            "original_identity_key": _text(doc.get("identity_key")),
+            "original_global_role_id": _text(doc.get("global_role_id")),
+            "corrected_identity_key": identity_key,
+            "corrected_global_role_id": global_role_id,
+            "repaired_at": repaired_at.isoformat(),
+        },
+    }
+    if collection == "role_identities":
+        set_fields["identity_level"] = "global"
+    if server:
+        set_fields["server"] = server
+        set_fields["normalized_server"] = server.lower()
+    if role_name:
+        set_fields["name"] = role_name
+        set_fields["role_name"] = role_name
+        set_fields["normalized_name"] = role_name.lower()
+    if zone:
+        set_fields["zone"] = zone
+    if role_id:
+        set_fields["role_id"] = role_id
+        set_fields["game_role_id"] = role_id
+    if _text(doc.get("person_id")):
+        set_fields["person_id"] = _text(doc.get("person_id"))
+
+    if collection == "jjc_sync_role_queue":
+        set_fields.update({
+            "status": "pending",
+            "full_synced_until_time": None,
+            "oldest_synced_match_time": None,
+            "latest_seen_match_time": None,
+            "history_exhausted": None,
+            "lease_owner": None,
+            "lease_expires_at": None,
+            "fail_count": 0,
+            "last_cursor": 0,
+            "next_sync_after": None,
+        })
+
+    return {"$set": set_fields}
+
+
 def classify_identity_doc(
     doc: Dict[str, Any],
     payload: Dict[str, Any],
@@ -196,11 +275,14 @@ def classify_identity_doc(
 
     same_person: List[Dict[str, str]] = []
     same_global: List[Dict[str, str]] = []
+    correct_candidate: Optional[Dict[str, str]] = None
     for item in extract_history_items(payload):
         candidate = _candidate_fields(item)
         if expected["person_id"] and candidate["person_id"] and candidate["person_id"] != expected["person_id"]:
             continue
         same_person.append(candidate)
+        if correct_candidate is None and role_fields_match(expected, candidate) and candidate.get("global_role_id"):
+            correct_candidate = candidate
         if candidate["global_role_id"] == expected["global_role_id"]:
             same_global.append(candidate)
 
@@ -212,6 +294,22 @@ def classify_identity_doc(
             base.update({"category": "confirmed_valid", "reason": "role_fields_match", "candidate": candidate})
             return base
 
+    if (
+        correct_candidate
+        and expected.get("global_role_id")
+        and correct_candidate.get("global_role_id")
+        and correct_candidate["global_role_id"] != expected["global_role_id"]
+    ):
+        new_key = "global:{}".format(correct_candidate["global_role_id"])
+        category = "conflict_needs_manual_merge" if target_key_exists else "confirmed_dirty"
+        base.update({
+            "category": category,
+            "reason": "expected_role_has_different_global_role_id",
+            "correct_candidate": correct_candidate,
+            "repair_identity_key": new_key,
+        })
+        return base
+
     dirty_candidate: Optional[Dict[str, str]] = None
     for candidate in same_global:
         if role_fields_conflict(expected, candidate):
@@ -219,8 +317,7 @@ def classify_identity_doc(
             break
 
     if dirty_candidate:
-        repair_update = build_repair_update(doc, collection)
-        new_key = _text(repair_update.get("$set", {}).get("identity_key"))
+        new_key = "global:{}".format(correct_candidate["global_role_id"]) if correct_candidate else ""
         category = "conflict_needs_manual_merge" if target_key_exists else "confirmed_dirty"
         base.update({
             "category": category,
@@ -228,6 +325,10 @@ def classify_identity_doc(
             "candidate": dirty_candidate,
             "repair_identity_key": new_key,
         })
+        if correct_candidate:
+            base["correct_candidate"] = correct_candidate
+        else:
+            base["reason"] = "same_global_role_id_conflicts_but_correct_role_not_found"
         return base
 
     if not same_global and same_person:
@@ -241,6 +342,12 @@ def classify_identity_doc(
 def ensure_apply_allowed(apply: bool, yes: bool) -> None:
     if apply and not yes:
         raise ValueError("--apply requires --yes")
+
+
+def normalize_repair_flags(args: argparse.Namespace) -> None:
+    if bool(getattr(args, "repair", False)):
+        args.apply = True
+        args.yes = True
 
 
 def get_mongo_uri() -> str:
@@ -273,6 +380,14 @@ def _collection_names(value: str) -> List[str]:
     return [value]
 
 
+def _append_and(query: Dict[str, Any], condition: Dict[str, Any]) -> None:
+    existing = query.pop("$and", [])
+    if not isinstance(existing, list):
+        existing = [existing]
+    existing.append(condition)
+    query["$and"] = existing
+
+
 def _base_filter(args: argparse.Namespace) -> Dict[str, Any]:
     query: Dict[str, Any] = {
         "person_id": {"$exists": True, "$nin": ["", None]},
@@ -282,6 +397,24 @@ def _base_filter(args: argparse.Namespace) -> Dict[str, Any]:
         query["person_id"] = args.person_id
     if args.global_role_id:
         query["global_role_id"] = args.global_role_id
+    server = _text(getattr(args, "server", ""))
+    name = _text(getattr(args, "name", ""))
+    if server:
+        _append_and(query, {
+            "$or": [
+                {"server": server},
+                {"normalized_server": server.lower()},
+            ]
+        })
+    if name:
+        normalized_name = normalize_role_name(name, server).lower() if server else name.lower()
+        _append_and(query, {
+            "$or": [
+                {"name": name},
+                {"role_name": name},
+                {"normalized_name": normalized_name},
+            ]
+        })
     return query
 
 
@@ -326,6 +459,7 @@ async def run_audit(
     person_history_client: Any,
     args: argparse.Namespace,
 ) -> Dict[str, Any]:
+    normalize_repair_flags(args)
     ensure_apply_allowed(bool(args.apply), bool(args.yes))
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     report_dir = ROOT / "data" / "jjc_identity_audit" / timestamp
@@ -354,7 +488,12 @@ async def run_audit(
                 payload = {"error": str(exc)}
                 api_error = True
 
-            repair_update = build_repair_update(doc, collection)
+            expected = _expected_fields(doc)
+            correct_candidate = find_expected_role_candidate(
+                payload if isinstance(payload, dict) else {},
+                expected,
+            )
+            repair_update = build_correct_global_repair_update(doc, collection, correct_candidate)
             repair_key = _text(repair_update.get("$set", {}).get("identity_key"))
             target_key_exists = False
             if repair_key:
@@ -394,6 +533,7 @@ async def run_audit(
 
 
 async def main_async(args: argparse.Namespace) -> int:
+    normalize_repair_flags(args)
     ensure_apply_allowed(bool(args.apply), bool(args.yes))
     from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -419,10 +559,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="审计 JJC person-history 身份错绑")
     parser.add_argument("--collection", choices=("role_identities", "jjc_sync_role_queue", "all"), default="all")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--server", default="", help="按问题角色区服筛选")
+    parser.add_argument("--name", default="", help="按问题角色名筛选")
     parser.add_argument("--person-id", default="")
     parser.add_argument("--global-role-id", default="")
     parser.add_argument("--apply", action="store_true", help="执行明确脏数据修复")
     parser.add_argument("--yes", action="store_true", help="与 --apply 配合确认写库")
+    parser.add_argument("--repair", action="store_true", help="便捷修复模式，等价于 --apply --yes")
     return parser
 
 

@@ -138,20 +138,19 @@
 
 ### 修复动作
 
-对明确脏数据，修复脚本在 `--apply` 模式下执行：
+对明确脏数据，修复脚本在 `--apply` 或 `--repair` 模式下执行：
 
-1. 清空错误的 `global_role_id`。
-2. 保留 `person_id`、`zone`、`role_id/game_role_id`、`server`、`name/role_name` 等仍可信字段。
-3. 重新计算 `identity_key`：
-   - 有 `zone + role_id/game_role_id` 时降级为 `game:{zone}:{role_id}`。
-   - 否则降级为 `name:{normalized_server}:{normalized_name}`。
-4. 写入修复来源：
-   - `identity_source = "person_history_mismatch_cleaned"`。
-   - 如集合已有错误字段或备注字段，记录原 `global_role_id`、修复时间和原因。
-5. 对 `jjc_sync_role_queue` 额外处理同步水位：
-   - 清空错误 `global_role_id` 后，不能继续沿用基于错误身份产生的 `full_synced_until_time`、`oldest_synced_match_time`、`latest_seen_match_time`。
+1. 先在 `person-history` 已读取页中查找与库中 `server + name`（或 `zone + role_id`）匹配的正确角色候选。
+2. 若找到正确候选且候选带 `global_role_id`，将库内错误 `global_role_id` 替换为该正确值。
+3. 将 `identity_key` 升级或修正为 `global:{correct_global_role_id}`，并保留/回填 `person_id`、`zone`、`role_id/game_role_id`、`server`、`name/role_name` 等可信字段。
+4. 若找不到正确候选、候选缺少 `global_role_id`，或目标 `global:{correct_global_role_id}` 已存在冲突，则不写库，只输出报告。
+5. 写入修复来源：
+   - `identity_source = "person_history_corrected_global_role_id"`。
+   - 记录原 `global_role_id`、正确 `global_role_id`、原 `identity_key`、新 `identity_key`、修复时间和原因。
+6. 对 `jjc_sync_role_queue` 额外处理同步水位：
+   - 替换错误 `global_role_id` 后，不能继续沿用基于错误身份产生的 `full_synced_until_time`、`oldest_synced_match_time`、`latest_seen_match_time`。
    - 将角色状态重置为可重新同步，保留最近错误信息或写入修复备注。
-   - 若队列实现要求 `identity_key` 唯一，修复前检查目标降级 key 是否已存在；存在冲突时不自动合并，只输出人工处理项。
+   - 若队列实现要求 `identity_key` 唯一，修复前检查目标 `global:{correct_global_role_id}` 是否已存在；存在冲突时不自动合并，只输出人工处理项。
 
 ### 脚本设计
 
@@ -166,10 +165,12 @@
 - 参数：
   - `--collection role_identities|jjc_sync_role_queue|all`
   - `--limit <n>`
+  - `--server <server> --name <role>`：按问题角色的区服和角色名筛选库内记录。
   - `--person-id <id>`：只审计指定 person_id。
   - `--global-role-id <id>`：只审计指定 global_role_id。
   - `--apply`：执行明确脏数据修复。
   - `--yes`：与 `--apply` 配合，避免误触发；未传 `--yes` 时拒绝写库。
+  - `--repair`：面向明确目标角色的便捷修复模式，等价于 `--apply --yes`，仍只会写入 `confirmed_dirty`。
 - 输出分类：
   - `confirmed_valid`
   - `confirmed_dirty`
@@ -208,7 +209,7 @@ python -m py_compile scripts/audit_jjc_person_history_identity.py
 - `_enqueue_players_from_detail` 中，`person-history` 返回其他角色时，不写入错误 `global_role_id` 到 `role_identities` 或 `jjc_sync_role_queue`。
 - `_sync_one_role` 中，队列角色通过 `person-history` 返回其他角色时，应继续进入 inspect resolver fallback；若 fallback 也失败，则保持原失败处理。
 - 审计脚本 dry-run 对明确脏数据只输出修复建议，不写 MongoDB。
-- 审计脚本 `--apply --yes` 对明确脏数据清空错误 `global_role_id`，并按 `zone + role_id` 或 `server + name` 降级重建身份键。
+- 审计脚本 `--apply --yes` 或 `--repair` 对明确脏数据写入正确 `global_role_id`，并将 `identity_key` 修正为 `global:{correct_global_role_id}`。
 - 审计脚本遇到目标 `identity_key` 冲突时不自动合并，输出 `conflict_needs_manual_merge`。
 
 手工回归：
@@ -224,7 +225,7 @@ python -m py_compile scripts/audit_jjc_person_history_identity.py
 - 风险：推栏返回记录缺少 `server/role_name/zone/role_id`，导致原本能补全的身份现在被拒绝。该行为符合保守策略，避免错绑；可通过 inspect resolver fallback 或手工补充 `global_role_id` 解决。
 - 风险：服务器名存在别名或格式差异，导致名称匹配失败。缓解方式是优先使用 `zone + role_id`；如后续发现稳定别名规则，再单独引入服务器规范化。
 - 风险：历史已污染身份不会被本次改动自动纠正。需要通过单独脚本排查 `role_identities` 和 `jjc_sync_role_queue`。
-- 风险：自动修复时目标降级 `identity_key` 已存在，可能需要人工合并历史水位和队列状态。脚本不得自动合并冲突记录。
-- 风险：清空错误 `global_role_id` 后，相关角色会重新进入身份补全或同步失败状态，短期内可能增加 inspect resolver 或人工补充需求。
+- 风险：自动修复时目标 `global:{correct_global_role_id}` 已存在，可能需要人工合并历史水位和队列状态。脚本不得自动合并冲突记录。
+- 风险：替换错误 `global_role_id` 后，相关角色会重新进入待同步状态，短期内可能触发重新拉取对局历史。
 - 回滚代码改动：恢复 `extract_identity_from_person_history(payload, person_id)` 只按 `person_id` 提取的旧行为，并移除两个调用点传入 expected 字段的改动。
 - 回滚数据修复：审计脚本在 `--apply` 前必须输出原值。若误修，按报告中的原 `global_role_id` 和原 `identity_key` 手工恢复；对已经重置的同步水位，需要重新触发该角色同步。

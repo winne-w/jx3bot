@@ -5,11 +5,14 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 from scripts.audit_jjc_person_history_identity import (
+    _base_filter,
     _fetch_payload,
+    build_correct_global_repair_update,
     build_degraded_identity_key,
     build_repair_update,
     classify_identity_doc,
     ensure_apply_allowed,
+    normalize_repair_flags,
 )
 
 
@@ -63,6 +66,14 @@ class TestAuditJjcPersonHistoryIdentity(unittest.TestCase):
                         "role_name": "角色B",
                         "zone": "zone-b",
                         "role_id": "rid-b",
+                    },
+                    {
+                        "person_id": "pid-a",
+                        "global_role_id": "gid-correct",
+                        "server": "梦江南",
+                        "role_name": "角色A",
+                        "zone": "zone-a",
+                        "role_id": "rid-a",
                     }
                 ]
             },
@@ -70,7 +81,8 @@ class TestAuditJjcPersonHistoryIdentity(unittest.TestCase):
         )
 
         self.assertEqual(result["category"], "confirmed_dirty")
-        self.assertEqual(result["repair_identity_key"], "game:zone-a:rid-a")
+        self.assertEqual(result["repair_identity_key"], "global:gid-correct")
+        self.assertEqual(result["correct_candidate"]["global_role_id"], "gid-correct")
 
     def test_classifies_suspected_dirty_when_global_missing_but_same_person_exists(self) -> None:
         result = classify_identity_doc(
@@ -96,6 +108,32 @@ class TestAuditJjcPersonHistoryIdentity(unittest.TestCase):
 
         self.assertEqual(result["category"], "suspected_dirty")
 
+    def test_classifies_confirmed_dirty_when_expected_role_has_different_global(self) -> None:
+        result = classify_identity_doc(
+            {
+                "identity_key": "global:gid-wrong",
+                "person_id": "pid-a",
+                "global_role_id": "gid-wrong",
+                "server": "梦江南",
+                "name": "角色A",
+            },
+            {
+                "data": [
+                    {
+                        "person_id": "pid-a",
+                        "global_role_id": "gid-correct",
+                        "server": "梦江南",
+                        "role_name": "角色A",
+                    }
+                ]
+            },
+            "role_identities",
+        )
+
+        self.assertEqual(result["category"], "confirmed_dirty")
+        self.assertEqual(result["reason"], "expected_role_has_different_global_role_id")
+        self.assertEqual(result["repair_identity_key"], "global:gid-correct")
+
     def test_classifies_conflict_when_repair_key_already_exists(self) -> None:
         result = classify_identity_doc(
             {
@@ -116,6 +154,14 @@ class TestAuditJjcPersonHistoryIdentity(unittest.TestCase):
                         "role_name": "角色B",
                         "zone": "zone-b",
                         "role_id": "rid-b",
+                    },
+                    {
+                        "person_id": "pid-a",
+                        "global_role_id": "gid-correct",
+                        "server": "梦江南",
+                        "role_name": "角色A",
+                        "zone": "zone-a",
+                        "role_id": "rid-a",
                     }
                 ]
             },
@@ -124,6 +170,60 @@ class TestAuditJjcPersonHistoryIdentity(unittest.TestCase):
         )
 
         self.assertEqual(result["category"], "conflict_needs_manual_merge")
+
+    def test_builds_correct_global_repair_update(self) -> None:
+        now = datetime(2026, 5, 15, tzinfo=timezone.utc)
+        update = build_correct_global_repair_update(
+            {
+                "identity_key": "global:gid-wrong",
+                "global_role_id": "gid-wrong",
+                "server": "梦江南",
+                "name": "角色A",
+                "person_id": "pid-a",
+            },
+            "role_identities",
+            {
+                "person_id": "pid-a",
+                "global_role_id": "gid-correct",
+                "server": "梦江南",
+                "role_name": "角色A",
+                "zone": "zone-a",
+                "role_id": "rid-a",
+            },
+            now=now,
+        )
+
+        self.assertEqual(update["$set"]["identity_key"], "global:gid-correct")
+        self.assertEqual(update["$set"]["global_role_id"], "gid-correct")
+        self.assertEqual(update["$set"]["identity_level"], "global")
+        self.assertEqual(update["$set"]["identity_source"], "person_history_corrected_global_role_id")
+        self.assertEqual(update["$set"]["person_history_audit"]["original_global_role_id"], "gid-wrong")
+        self.assertEqual(update["$set"]["person_history_audit"]["corrected_global_role_id"], "gid-correct")
+        self.assertNotIn("$unset", update)
+
+    def test_builds_correct_global_queue_update_and_resets_waterline(self) -> None:
+        update = build_correct_global_repair_update(
+            {
+                "identity_key": "global:gid-wrong",
+                "global_role_id": "gid-wrong",
+                "server": "梦江南",
+                "name": "角色A",
+                "person_id": "pid-a",
+                "full_synced_until_time": 123,
+            },
+            "jjc_sync_role_queue",
+            {
+                "person_id": "pid-a",
+                "global_role_id": "gid-correct",
+                "server": "梦江南",
+                "role_name": "角色A",
+            },
+        )
+
+        self.assertEqual(update["$set"]["identity_key"], "global:gid-correct")
+        self.assertEqual(update["$set"]["global_role_id"], "gid-correct")
+        self.assertEqual(update["$set"]["status"], "pending")
+        self.assertIsNone(update["$set"]["full_synced_until_time"])
 
     def test_builds_role_identity_repair_update(self) -> None:
         now = datetime(2026, 5, 15, tzinfo=timezone.utc)
@@ -180,6 +280,33 @@ class TestAuditJjcPersonHistoryIdentity(unittest.TestCase):
 
         ensure_apply_allowed(args.apply, args.yes)
         self.assertFalse(args.apply)
+
+    def test_repair_flag_enables_apply_and_yes(self) -> None:
+        args = Namespace(repair=True, apply=False, yes=False)
+
+        normalize_repair_flags(args)
+
+        self.assertTrue(args.apply)
+        self.assertTrue(args.yes)
+        ensure_apply_allowed(args.apply, args.yes)
+
+    def test_base_filter_supports_server_and_name(self) -> None:
+        query = _base_filter(Namespace(
+            person_id="",
+            global_role_id="",
+            server="梦江南",
+            name="角色A·梦江南",
+        ))
+
+        self.assertEqual(query["person_id"], {"$exists": True, "$nin": ["", None]})
+        self.assertEqual(query["global_role_id"], {"$exists": True, "$nin": ["", None]})
+        self.assertEqual(
+            query["$and"],
+            [
+                {"$or": [{"server": "梦江南"}, {"normalized_server": "梦江南"}]},
+                {"$or": [{"name": "角色A·梦江南"}, {"role_name": "角色A·梦江南"}, {"normalized_name": "角色a"}]},
+            ],
+        )
 
     def test_classifies_api_failed_when_api_error_flag(self) -> None:
         result = classify_identity_doc(
