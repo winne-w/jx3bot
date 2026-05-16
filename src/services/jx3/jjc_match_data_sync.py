@@ -239,18 +239,37 @@ def extract_history_items(payload: dict) -> List[dict]:
     return []
 
 
-def extract_identity_from_person_history(payload: dict, person_id: Optional[str] = None) -> Dict[str, Any]:
+def extract_identity_from_person_history(
+    payload: dict,
+    person_id: Optional[str] = None,
+    expected_zone: Optional[str] = None,
+    expected_role_id: Optional[str] = None,
+    expected_server: Optional[str] = None,
+    expected_role_name: Optional[str] = None,
+) -> Dict[str, Any]:
     """从 person-history 响应中提取身份字段。
 
     推栏该接口按时间倒序返回对局记录；每条记录通常包含 global_role_id、
-    person_id、role_name、server、zone。优先选择 person_id 匹配的第一条。
+    person_id、role_name、server、zone。若传入 expected_* 字段则对候选行做角色级
+    校验：强匹配为 zone + role_id 一致，fallback 为 server + 规范化角色名一致。
+    未传入 expected_* 时保持旧行为（person_id 匹配的首条记录）。
     """
     items = extract_history_items(payload)
     expected_person_id = str(person_id or "").strip()
+
+    exp_zone = str(expected_zone or "").strip()
+    exp_role_id = str(expected_role_id or "").strip()
+    exp_server = str(expected_server or "").strip()
+    exp_name = str(expected_role_name or "").strip()
+    has_expected_fields = bool(exp_zone or exp_role_id or exp_server or exp_name)
+    matched_person_candidates = 0
+    role_mismatch_candidates = 0
+
     for item in items:
         item_person_id = str(item.get("person_id") or "").strip()
         if expected_person_id and item_person_id and item_person_id != expected_person_id:
             continue
+        matched_person_candidates += 1
         global_role_id = str(item.get("global_role_id") or item.get("globalRoleId") or "").strip()
         role_id = str(item.get("role_id") or item.get("roleId") or "").strip()
         zone = str(item.get("zone") or "").strip()
@@ -259,17 +278,59 @@ def extract_identity_from_person_history(payload: dict, person_id: Optional[str]
             item.get("role_name") or item.get("roleName"),
             server,
         )
-        if global_role_id or role_id or zone or server or role_name:
-            return {
-                "global_role_id": global_role_id,
-                "role_id": role_id,
-                "game_role_id": role_id,
-                "zone": zone,
-                "server": server,
-                "role_name": role_name,
-                "person_id": item_person_id,
-                "source": "person_history",
-            }
+        if not (global_role_id or role_id or zone or server or role_name):
+            continue
+
+        if has_expected_fields:
+            if exp_zone and exp_role_id and exp_zone == zone and exp_role_id == role_id:
+                return {
+                    "global_role_id": global_role_id,
+                    "role_id": role_id,
+                    "game_role_id": role_id,
+                    "zone": zone,
+                    "server": server,
+                    "role_name": role_name,
+                    "person_id": item_person_id,
+                    "source": "person_history",
+                }
+            normalized_expected_name = (
+                normalize_role_name(exp_name, exp_server) if exp_server and exp_name else ""
+            )
+            if exp_server and exp_name and exp_server == server and normalized_expected_name == role_name:
+                return {
+                    "global_role_id": global_role_id,
+                    "role_id": role_id,
+                    "game_role_id": role_id,
+                    "zone": zone,
+                    "server": server,
+                    "role_name": role_name,
+                    "person_id": item_person_id,
+                    "source": "person_history",
+                }
+            role_mismatch_candidates += 1
+            continue
+
+        return {
+            "global_role_id": global_role_id,
+            "role_id": role_id,
+            "game_role_id": role_id,
+            "zone": zone,
+            "server": server,
+            "role_name": role_name,
+            "person_id": item_person_id,
+            "source": "person_history",
+        }
+    if has_expected_fields and matched_person_candidates and role_mismatch_candidates:
+        logger.debug(
+            "JJC person-history 候选身份角色校验未命中: person_id={} expected_server={} expected_role_name={} expected_zone={} expected_role_id={} candidates={} skipped={}",
+            expected_person_id,
+            exp_server,
+            exp_name,
+            exp_zone,
+            exp_role_id,
+            matched_person_candidates,
+            role_mismatch_candidates,
+        )
     return {}
 
 
@@ -721,26 +782,14 @@ class JjcMatchDataSyncService:
         person_id = str(role.get("person_id") or "").strip()
         if not person_id or self._person_match_history_client is None:
             return {}
-
-        try:
-            await self._sleep_func()
-            payload = await asyncio.to_thread(
-                self._person_match_history_client.get_person_match_history,
-                person_id=person_id,
-                size=20,
-                cursor=0,
-            )
-        except Exception as exc:
-            logger.warning(
-                "JJC 同步通过 person-history 补全身份失败: person_id={} error={}",
-                person_id,
-                exc,
-            )
-            return {}
-
-        if not isinstance(payload, dict) or payload.get("error"):
-            return {}
-        identity = extract_identity_from_person_history(payload, person_id)
+        identity = await self._resolve_identity_from_person_history_pages(
+            person_id=person_id,
+            expected_zone=str(role.get("zone") or "").strip(),
+            expected_role_id=str(role.get("role_id") or role.get("game_role_id") or "").strip(),
+            expected_server=str(role.get("server") or "").strip(),
+            expected_role_name=str(role.get("name") or "").strip(),
+            log_context="同步角色",
+        )
         if not identity:
             return {}
 
@@ -830,25 +879,75 @@ class JjcMatchDataSyncService:
         if not person_id or self._person_match_history_client is None:
             return {}
 
-        try:
-            await self._sleep_func()
-            payload = await asyncio.to_thread(
-                self._person_match_history_client.get_person_match_history,
-                person_id=person_id,
-                size=20,
-                cursor=0,
-            )
-        except Exception as exc:
-            logger.warning(
-                "JJC 同步通过 person-history 补全对局玩家身份失败: person_id={} error={}",
-                person_id,
-                exc,
-            )
+        return await self._resolve_identity_from_person_history_pages(
+            person_id=person_id,
+            expected_zone=str(player.get("zone") or "").strip(),
+            expected_role_id=str(player.get("role_id") or "").strip(),
+            expected_server=str(player.get("server") or "").strip(),
+            expected_role_name=str(player.get("role_name") or "").strip(),
+            log_context="对局玩家",
+        )
+
+    async def _resolve_identity_from_person_history_pages(
+        self,
+        *,
+        person_id: str,
+        expected_zone: str = "",
+        expected_role_id: str = "",
+        expected_server: str = "",
+        expected_role_name: str = "",
+        log_context: str = "",
+        page_size: int = 20,
+    ) -> Dict[str, Any]:
+        if self._person_match_history_client is None:
             return {}
 
-        if not isinstance(payload, dict) or payload.get("error"):
-            return {}
-        return extract_identity_from_person_history(payload, person_id)
+        cursor = 0
+        while True:
+            payload: Dict[str, Any]
+            try:
+                if cursor > 0:
+                    await self._sleep_func()
+                payload = await asyncio.to_thread(
+                    self._person_match_history_client.get_person_match_history,
+                    person_id=person_id,
+                    size=page_size,
+                    cursor=cursor,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "JJC 同步通过 person-history 补全{}身份失败: person_id={} cursor={} error={}",
+                    log_context,
+                    person_id,
+                    cursor,
+                    exc,
+                )
+                return {}
+
+            if not isinstance(payload, dict) or payload.get("error"):
+                return {}
+            items = extract_history_items(payload)
+            if not items:
+                return {}
+            identity = extract_identity_from_person_history(
+                {"data": items},
+                person_id,
+                expected_zone=expected_zone,
+                expected_role_id=expected_role_id,
+                expected_server=expected_server,
+                expected_role_name=expected_role_name,
+            )
+            if identity:
+                logger.debug(
+                    "JJC person-history 分页补全{}身份命中: person_id={} cursor={} expected_server={} expected_role_name={}",
+                    log_context,
+                    person_id,
+                    cursor,
+                    expected_server,
+                    expected_role_name,
+                )
+                return identity
+            cursor += page_size
 
     async def _upsert_role_identity_from_resolved(
         self,

@@ -12,6 +12,8 @@
 - `active/tuilan-endpoint-lock-plan.md`: 推栏接口按端点互斥、不同端点并发计划
 - `active/jjc-ranking-scheduled-cache-warmup-plan.md`: JJC 定时统计预热页面 Mongo 缓存与 indicator 主动刷新计划
 - `active/jjc-ranking-cache-label-clarity-plan.md`: JJC 排名角色弹窗缓存文案澄清计划
+- `active/jjc-person-history-role-match-plan.md`: JJC person-history 身份补全增加角色级校验计划
+- `active/jjc-role-identity-governance-plan.md`: JJC 角色身份匹配规则收敛、数据治理与防回流计划
 
 ## Completed
 
