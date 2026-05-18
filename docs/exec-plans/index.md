@@ -1,18 +1,12 @@
 # 执行计划索引
 
-这里存放阶段性计划和技术债推进记录，按“进行中 / 已完成”组织。实现和验证完成但相关代码尚未提交时，计划仍放在 `active/`；代码提交后才移动到 `completed/`。
+这里存放阶段性计划和技术债推进记录，按"进行中 / 已完成"组织。实现和验证完成但相关代码尚未提交时，计划仍放在 `active/`；代码提交后才移动到 `completed/`。
 
 ## Active
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
-- `active/jjc-role-recent-hydration-plan.md`: JJC 角色近期列表返回前统一按对局详情缓存补水计划
-- `active/tuilan-endpoint-lock-plan.md`: 推栏接口按端点互斥、不同端点并发计划
-- `active/jjc-ranking-scheduled-cache-warmup-plan.md`: JJC 定时统计预热页面 Mongo 缓存与 indicator 主动刷新计划
-- `active/jjc-ranking-cache-label-clarity-plan.md`: JJC 排名角色弹窗缓存文案澄清计划
-- `active/jjc-person-history-role-match-plan.md`: JJC person-history 身份补全增加角色级校验计划
 - `active/jjc-role-identity-governance-plan.md`: JJC 角色身份匹配规则收敛、数据治理与防回流计划
-- `active/jjc-audit-duplicate-global-role-id-merge-plan.md`: JJC 审计脚本：同角色多 global_role_id 检测、合并与历史归档计划
 
 ## Completed
 
@@ -37,3 +31,9 @@
 - `completed/announcement-system-plan.md`: 系统公告功能（数据库、API、QQ 管理命令、前端页面）实现计划
 - `completed/jjc-match-qixue-tooltip-plan.md`: JJC 对局详情奇穴改为文字标签展示，悬浮浮窗显示奇穴描述
 - `completed/frontend-github-link-plan.md`: 前端页面添加 GitHub 链接与 issue 入口计划
+- `completed/jjc-role-recent-hydration-plan.md`: JJC 角色近期列表返回前统一按对局详情缓存补水计划
+- `completed/jjc-ranking-scheduled-cache-warmup-plan.md`: JJC 定时统计预热页面 Mongo 缓存与 indicator 主动刷新计划
+- `completed/tuilan-endpoint-lock-plan.md`: 推栏接口按端点互斥、不同端点并发计划
+- `completed/jjc-ranking-cache-label-clarity-plan.md`: JJC 排名角色弹窗缓存文案澄清计划
+- `completed/jjc-person-history-role-match-plan.md`: JJC person-history 身份补全增加角色级校验计划
+- `completed/jjc-audit-duplicate-global-role-id-merge-plan.md`: JJC 审计脚本：同角色多 global_role_id 检测、合并与历史归档计划
