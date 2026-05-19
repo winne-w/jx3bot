@@ -279,6 +279,157 @@ async def _mark_audited(db: Any, collection: str, doc_id: Any, now: Optional[dat
     )
 
 
+def _audit_temp_identity_key(collection: str, doc: Dict[str, Any], now: datetime) -> str:
+    """生成环路换位时用于短暂释放唯一键的临时 identity_key。"""
+    return "audit-temp:{}:{}:{}".format(
+        collection,
+        _text(doc.get("_id")) or _text(doc.get("identity_key")) or "unknown",
+        int(now.timestamp() * 1000000),
+    )
+
+
+def _mark_chain_manual(chain: List[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]], reason: str) -> None:
+    chain_keys = [_text(doc.get("identity_key")) for doc, _, _ in chain]
+    chain_gids = [_text(doc.get("global_role_id")) for doc, _, _ in chain]
+    for _, repair_update, chain_result in chain:
+        if chain_result.get("category") not in ("confirmed_dirty", "conflict_needs_manual_merge"):
+            continue
+        chain_result["category"] = "conflict_needs_manual_merge"
+        chain_result["reason"] = reason
+        chain_result["repair_update"] = repair_update if repair_update else None
+        chain_result["chain_identity_keys"] = chain_keys
+        chain_result["chain_global_role_ids"] = chain_gids
+
+
+async def _apply_chain_cycle_rotation(
+    db: Any,
+    collection: str,
+    chain: List[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]],
+) -> int:
+    """对 A->B、B->A 这类 global_role_id 环路做两阶段换位修复。"""
+    rotation_items = [
+        (doc, repair_update, result)
+        for doc, repair_update, result in chain
+        if repair_update
+        and result.get("category") in ("confirmed_dirty", "conflict_needs_manual_merge")
+        and _text(repair_update.get("$set", {}).get("identity_key"))
+        and _text(repair_update.get("$set", {}).get("global_role_id"))
+    ]
+    if len(rotation_items) < 2:
+        return 0
+
+    chain_doc_ids = [doc.get("_id") for doc, _, _ in rotation_items]
+    chain_identity_keys = {
+        _text(doc.get("identity_key")) for doc, _, _ in rotation_items
+    }
+    chain_global_role_ids = {
+        _text(doc.get("global_role_id")) for doc, _, _ in rotation_items
+    }
+    target_identity_keys = {
+        _text(repair_update.get("$set", {}).get("identity_key"))
+        for _, repair_update, _ in rotation_items
+    }
+    target_global_role_ids = {
+        _text(repair_update.get("$set", {}).get("global_role_id"))
+        for _, repair_update, _ in rotation_items
+    }
+    if not target_identity_keys.issubset(chain_identity_keys):
+        return 0
+    if not target_global_role_ids.issubset(chain_global_role_ids):
+        return 0
+
+    for doc, repair_update, _ in rotation_items:
+        target_key = _text(repair_update.get("$set", {}).get("identity_key"))
+        target_gid = _text(repair_update.get("$set", {}).get("global_role_id"))
+        external_conflict = await db[collection].find_one({
+            "$or": [
+                {"identity_key": target_key},
+                {"global_role_id": target_gid},
+            ],
+            "_id": {"$nin": chain_doc_ids},
+        })
+        if external_conflict:
+            _log("[CHAIN_CYCLE_SKIP] 环路换位存在链外冲突: {} -> {}".format(
+                _text(doc.get("identity_key")),
+                target_key,
+            ))
+            return 0
+
+    now = datetime.now(timezone.utc)
+    temp_updates: List[Tuple[Dict[str, Any], str]] = []
+    for doc, _, _ in rotation_items:
+        temp_key = _audit_temp_identity_key(collection, doc, now)
+        temp_set: Dict[str, Any] = {
+            "identity_key": temp_key,
+            "identity_source": "person_history_conflict_chain_cycle_temp",
+            "updated_at": now,
+        }
+        if collection == "role_identities":
+            temp_set["identity_level"] = "audit_temp"
+        try:
+            await db[collection].update_one(
+                {"_id": doc.get("_id")},
+                {"$set": temp_set, "$unset": {"global_role_id": ""}},
+            )
+            temp_updates.append((doc, temp_key))
+        except Exception as exc:
+            _log("[CHAIN_CYCLE_FAIL] 环路临时释放失败: {} ({})".format(
+                _text(doc.get("identity_key")),
+                exc,
+            ))
+            for rollback_doc, _ in temp_updates:
+                rollback_set: Dict[str, Any] = {
+                    "identity_key": _text(rollback_doc.get("identity_key")),
+                    "updated_at": now,
+                }
+                rollback_unset: Dict[str, str] = {}
+                if _text(rollback_doc.get("global_role_id")):
+                    rollback_set["global_role_id"] = _text(rollback_doc.get("global_role_id"))
+                else:
+                    rollback_unset["global_role_id"] = ""
+                if _text(rollback_doc.get("identity_source")):
+                    rollback_set["identity_source"] = _text(rollback_doc.get("identity_source"))
+                else:
+                    rollback_unset["identity_source"] = ""
+                if collection == "role_identities" and _text(rollback_doc.get("identity_level")):
+                    rollback_set["identity_level"] = _text(rollback_doc.get("identity_level"))
+                rollback_update: Dict[str, Any] = {"$set": rollback_set}
+                if rollback_unset:
+                    rollback_update["$unset"] = rollback_unset
+                try:
+                    await db[collection].update_one(
+                        {"_id": rollback_doc.get("_id")},
+                        rollback_update,
+                    )
+                except Exception as rollback_exc:
+                    _log("[CHAIN_CYCLE_FAIL] 环路临时释放回滚失败: {} ({})".format(
+                        _text(rollback_doc.get("identity_key")),
+                        rollback_exc,
+                    ))
+            return 0
+
+    applied = 0
+    for doc, repair_update, result in rotation_items:
+        try:
+            await db[collection].update_one({"_id": doc.get("_id")}, repair_update)
+            applied += 1
+            result["category"] = "confirmed_dirty"
+            result["reason"] = "conflict_chain_cycle_rotated_inline"
+            _log("[CHAIN_CYCLE_FIX] 环路换位修复: {} -> {}".format(
+                _text(doc.get("identity_key")),
+                _text(repair_update.get("$set", {}).get("identity_key")),
+            ))
+        except Exception as exc:
+            _log("[CHAIN_CYCLE_FAIL] 环路最终写入失败: {} ({})".format(
+                _text(doc.get("identity_key")),
+                exc,
+            ))
+            _mark_chain_manual(chain, "conflict_chain_cycle_partial_failure")
+            break
+
+    return applied
+
+
 def classify_identity_doc(
     doc: Dict[str, Any],
     payload: Dict[str, Any],
@@ -769,18 +920,49 @@ async def _resolve_conflict_chain(
     chain: List[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]] = [
         (doc, repair_update, result)
     ]
-    visited: set = {str(doc.get("_id"))}
+    visited_ids = {doc.get("_id")}
+    visited_id_text = {_text(doc.get("_id"))}
+    seen_global_role_ids = {_text(doc.get("global_role_id"))}
+    cycle_detected = False
+    chain_too_deep = False
+    max_chain_depth = 50
 
     # 1. 追溯冲突链
     target_gid = _text(repair_update.get("$set", {}).get("global_role_id"))
     while target_gid:
+        if target_gid in seen_global_role_ids:
+            cycle_detected = True
+            _log("[CHAIN_CYCLE] 冲突链出现环路: target_global_role_id={} chain={}".format(
+                target_gid,
+                " -> ".join(_text(d.get("identity_key")) for d, _, _ in chain),
+            ))
+            break
+        if len(chain) >= max_chain_depth:
+            chain_too_deep = True
+            _log("[CHAIN_CYCLE] 冲突链超过最大深度 {}，停止追溯: target_global_role_id={}".format(
+                max_chain_depth,
+                target_gid,
+            ))
+            break
+
         conflict_doc = await db[collection].find_one({
             "global_role_id": target_gid,
-            "_id": {"$nin": list(visited)},
+            "_id": {"$nin": list(visited_ids)},
         })
         if not conflict_doc:
             break
-        visited.add(str(conflict_doc.get("_id")))
+        conflict_id = conflict_doc.get("_id")
+        conflict_id_text = _text(conflict_id)
+        if conflict_id_text in visited_id_text:
+            cycle_detected = True
+            _log("[CHAIN_CYCLE] 冲突链重复命中文档: identity_key={} global_role_id={}".format(
+                _text(conflict_doc.get("identity_key")),
+                _text(conflict_doc.get("global_role_id")),
+            ))
+            break
+        visited_ids.add(conflict_id)
+        visited_id_text.add(conflict_id_text)
+        seen_global_role_ids.add(_text(conflict_doc.get("global_role_id")))
 
         already_audited = bool(
             (conflict_doc.get("person_history_audit") or {}).get("audited_at")
@@ -879,9 +1061,25 @@ async def _resolve_conflict_chain(
                             detail["archived_identity_key"], detail["replaced_by"],
                         ))
 
+    if cycle_detected and not merged:
+        cycle_applied = await _apply_chain_cycle_rotation(db, collection, chain)
+        applied += cycle_applied
+        if not cycle_applied:
+            _mark_chain_manual(chain, "conflict_chain_cycle_detected")
+
+    if chain_too_deep:
+        _mark_chain_manual(chain, "conflict_chain_too_deep")
+
     # 3. 尝试策略：从叶子到根链式修复
     for chain_doc, chain_repair, chain_result in reversed(chain):
         if chain_result["category"] not in ("confirmed_dirty", "conflict_needs_manual_merge"):
+            continue
+        if chain_result.get("reason") in (
+            "conflict_chain_cycle_rotated_inline",
+            "conflict_chain_cycle_detected",
+            "conflict_chain_too_deep",
+            "conflict_chain_cycle_partial_failure",
+        ):
             continue
         if not chain_repair:
             continue
@@ -910,7 +1108,13 @@ async def _resolve_conflict_chain(
     # 4. 标记链上所有文档已审计（已通过 repair_update 写过的也不会重复写）
     if args.apply:
         for chain_doc, chain_repair, chain_result in chain:
-            if not chain_repair or chain_result["category"] not in (
+            if chain_result.get("reason") in (
+                "conflict_chain_cycle_detected",
+                "conflict_chain_too_deep",
+                "conflict_chain_cycle_partial_failure",
+            ):
+                await _mark_audited(db, collection, chain_doc.get("_id"))
+            elif not chain_repair or chain_result["category"] not in (
                 "confirmed_dirty", "conflict_needs_manual_merge",
             ):
                 await _mark_audited(db, collection, chain_doc.get("_id"))

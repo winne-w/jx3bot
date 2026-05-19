@@ -7,6 +7,7 @@
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
 - `active/jjc-role-identity-governance-plan.md`: JJC 角色身份匹配规则收敛、数据治理与防回流计划
+- `active/jjc-audit-conflict-chain-cycle-plan.md`: JJC 审计冲突链环路检测、去重修复与保守退出计划
 
 ## Completed
 
