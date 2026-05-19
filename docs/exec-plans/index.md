@@ -7,10 +7,10 @@
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
 - `active/jjc-role-identity-governance-plan.md`: JJC 角色身份匹配规则收敛、数据治理与防回流计划
-- `active/html-py-commit-ignore-plan.md`: 提交指定 HTML/Python 改动并忽略 JJC 审计输出目录计划
 
 ## Completed
 
+- `completed/html-py-commit-ignore-plan.md`: 提交指定 HTML/Python 改动并忽略 JJC 审计输出目录计划
 - `completed/admin-command-help-plan.md`: 管理员命令帮助入口计划
 - `completed/found-field-deprecation-plan.md`: `found` 字段降级与 `kungfu` 主判定改造计划
 - `completed/jjc-role-recent-indicator-summary-plan.md`: JJC 角色 indicator 指标接口与 Mongo 缓存计划

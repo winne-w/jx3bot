@@ -34,3 +34,8 @@
 - 风险：误把其他本地修改一起提交
 - 控制：只对明确文件执行 `git add`
 - 回滚：如提交内容有误，后续使用 `git revert <commit>` 回退本次提交
+
+## 完成记录
+
+- 代码提交：`bc39606`
+- 收尾状态：已提交指定 HTML/Python 改动，已忽略 `data/jjc_identity_audit/`，本计划归档至 completed。
