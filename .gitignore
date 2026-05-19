@@ -5,4 +5,5 @@ __pycache__/
 *.pyc
 data/cache/kungfu/
 data/jjc_ranking_stats/
+data/jjc_identity_audit/
 mpimg/img/baizhan/skills/

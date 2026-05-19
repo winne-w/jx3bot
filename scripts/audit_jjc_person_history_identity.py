@@ -165,6 +165,7 @@ def build_repair_update(
             "original_identity_key": _text(doc.get("identity_key")),
             "original_global_role_id": _text(doc.get("global_role_id")),
             "repaired_at": repaired_at.isoformat(),
+            "audited_at": repaired_at.isoformat(),
         },
     }
     if collection == "role_identities":
@@ -232,6 +233,7 @@ def build_correct_global_repair_update(
             "corrected_identity_key": identity_key,
             "corrected_global_role_id": global_role_id,
             "repaired_at": repaired_at.isoformat(),
+            "audited_at": repaired_at.isoformat(),
         },
     }
     if collection == "role_identities":
@@ -266,6 +268,15 @@ def build_correct_global_repair_update(
         })
 
     return {"$set": set_fields}
+
+
+async def _mark_audited(db: Any, collection: str, doc_id: Any, now: Optional[datetime] = None) -> None:
+    """标记文档已审计，用于断点续跑。"""
+    ts = (now or datetime.now(timezone.utc)).isoformat()
+    await db[collection].update_one(
+        {"_id": doc_id},
+        {"$set": {"person_history_audit.audited_at": ts}},
+    )
 
 
 def classify_identity_doc(
@@ -406,6 +417,8 @@ def _base_filter(args: argparse.Namespace) -> Dict[str, Any]:
         "person_id": {"$exists": True, "$nin": ["", None]},
         "global_role_id": {"$exists": True, "$nin": ["", None]},
     }
+    if not getattr(args, "reprocess", False):
+        query["person_history_audit.audited_at"] = {"$exists": False}
     if args.person_id:
         query["person_id"] = args.person_id
     if args.global_role_id:
@@ -736,6 +749,176 @@ async def resolve_duplicate_merge(
     return merged, merged_details
 
 
+async def _resolve_conflict_chain(
+    db: Any,
+    person_history_client: Any,
+    match_history_client: Any,
+    collection: str,
+    doc: Dict[str, Any],
+    repair_update: Dict[str, Any],
+    result: Dict[str, Any],
+    args: argparse.Namespace,
+) -> Tuple[int, int, int, List[Dict[str, Any]]]:
+    """追溯冲突链：从 DB 查出所有冲突关联文档，逐条审计，一次性解决后继续。
+
+    返回 (applied, merged, discovered, chain_results)。
+    """
+    applied = 0
+    merged = 0
+    discovered = 0
+    chain: List[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]] = [
+        (doc, repair_update, result)
+    ]
+    visited: set = {str(doc.get("_id"))}
+
+    # 1. 追溯冲突链
+    target_gid = _text(repair_update.get("$set", {}).get("global_role_id"))
+    while target_gid:
+        conflict_doc = await db[collection].find_one({
+            "global_role_id": target_gid,
+            "_id": {"$nin": list(visited)},
+        })
+        if not conflict_doc:
+            break
+        visited.add(str(conflict_doc.get("_id")))
+
+        already_audited = bool(
+            (conflict_doc.get("person_history_audit") or {}).get("audited_at")
+        )
+        if already_audited:
+            _log("[CHAIN_TRACE] 关联文档已审计: identity_key={} global_role_id={}".format(
+                _text(conflict_doc.get("identity_key")),
+                _text(conflict_doc.get("global_role_id")),
+            ))
+            chain.append((conflict_doc, {}, {
+                "collection": collection,
+                "identity_key": _text(conflict_doc.get("identity_key")),
+                "category": "confirmed_valid",
+                "reason": "already_audited_chain_member",
+            }))
+            break
+
+        _log("[CHAIN_TRACE] 追溯冲突链: 审计关联文档 identity_key={} global_role_id={}".format(
+            _text(conflict_doc.get("identity_key")),
+            _text(conflict_doc.get("global_role_id")),
+        ))
+
+        # 审计冲突文档（复用主循环相同逻辑）
+        c_person_id = _text(conflict_doc.get("person_id"))
+        c_expected = _expected_fields(conflict_doc)
+        try:
+            c_payload = await _fetch_payload(
+                person_history_client, c_person_id, expected=c_expected,
+            )
+            c_api_error = not isinstance(c_payload, dict) or bool(c_payload.get("error"))
+            if not c_api_error and c_person_id:
+                discovered += await discover_new_roles_from_person_history(
+                    db, c_payload, c_person_id,
+                )
+        except Exception as exc:
+            c_payload = {"error": str(exc)}
+            c_api_error = True
+
+        c_correct = find_expected_role_candidate(
+            c_payload if isinstance(c_payload, dict) else {}, c_expected,
+        )
+        c_repair = build_correct_global_repair_update(conflict_doc, collection, c_correct)
+        c_repair_key = _text(c_repair.get("$set", {}).get("identity_key"))
+        c_target_key_exists = False
+        if c_repair_key:
+            c_conflict = await db[collection].find_one({
+                "$or": [
+                    {"identity_key": c_repair_key},
+                    {"global_role_id": _text(c_repair.get("$set", {}).get("global_role_id"))},
+                ],
+                "_id": {"$ne": conflict_doc.get("_id")},
+            })
+            c_target_key_exists = c_conflict is not None
+
+        c_result = classify_identity_doc(
+            conflict_doc,
+            c_payload if isinstance(c_payload, dict) else {},
+            collection,
+            target_key_exists=c_target_key_exists,
+            api_error=c_api_error,
+        )
+        if c_result["category"] in ("confirmed_dirty", "conflict_needs_manual_merge"):
+            c_result["repair_update"] = c_repair if c_repair else None
+        chain.append((conflict_doc, c_repair, c_result))
+
+        if (
+            c_result["category"] in ("confirmed_dirty", "conflict_needs_manual_merge")
+            and c_repair
+        ):
+            target_gid = _text(c_repair.get("$set", {}).get("global_role_id"))
+        else:
+            break
+
+    _log("[CHAIN_TRACE] 冲突链完整: {} 条文档".format(len(chain)))
+
+    # 2. 尝试策略：同角色重复合并
+    if len(chain) >= 2:
+        chain_items = [
+            (collection, d, u, r, 0, 0) for d, u, r in chain if u
+        ]
+        if chain_items:
+            duplicate_groups = detect_same_role_duplicates(chain_items)
+            for grp_collection, group in duplicate_groups:
+                g_merged, g_details = await resolve_duplicate_merge(
+                    db, grp_collection, group, match_history_client,
+                )
+                merged += g_merged
+                if g_merged:
+                    archived_keys = {d["archived_identity_key"] for d in g_details}
+                    chain[:] = [
+                        (d, u, r) for d, u, r in chain
+                        if _text(d.get("identity_key")) not in archived_keys
+                    ]
+                    for detail in g_details:
+                        _log("[CHAIN_MERGE] 冲突链合并归档: {} -> {}".format(
+                            detail["archived_identity_key"], detail["replaced_by"],
+                        ))
+
+    # 3. 尝试策略：从叶子到根链式修复
+    for chain_doc, chain_repair, chain_result in reversed(chain):
+        if chain_result["category"] not in ("confirmed_dirty", "conflict_needs_manual_merge"):
+            continue
+        if not chain_repair:
+            continue
+        target_gid = _text(chain_repair.get("$set", {}).get("global_role_id"))
+        exists = await db[collection].find_one({
+            "global_role_id": target_gid,
+            "_id": {"$ne": chain_doc.get("_id")},
+        })
+        if not exists:
+            try:
+                await db[collection].update_one(
+                    {"_id": chain_doc.get("_id")}, chain_repair,
+                )
+                applied += 1
+                chain_result["category"] = "confirmed_dirty"
+                chain_result["reason"] = "chain_resolved_inline"
+                _log("[CHAIN_FIX] 链式修复: {} -> {}".format(
+                    _text(chain_doc.get("identity_key")),
+                    _text(chain_repair.get("$set", {}).get("identity_key")),
+                ))
+            except Exception as exc:
+                _log("[CHAIN_FAIL] 链式修复失败: {} ({})".format(
+                    _text(chain_doc.get("identity_key")), exc,
+                ))
+
+    # 4. 标记链上所有文档已审计（已通过 repair_update 写过的也不会重复写）
+    if args.apply:
+        for chain_doc, chain_repair, chain_result in chain:
+            if not chain_repair or chain_result["category"] not in (
+                "confirmed_dirty", "conflict_needs_manual_merge",
+            ):
+                await _mark_audited(db, collection, chain_doc.get("_id"))
+
+    chain_results = [r for _, _, r in chain]
+    return applied, merged, discovered, chain_results
+
+
 async def run_audit(
     db: Any,
     person_history_client: Any,
@@ -785,6 +968,7 @@ async def run_audit(
                     process_count,
                     person_id or "-",
                 ))
+                await random_sleep()
                 payload = await _fetch_payload(
                     person_history_client,
                     person_id,
@@ -894,134 +1078,75 @@ async def run_audit(
             all_items.append((collection, doc, repair_update, result, index, process_count))
             details[result["category"]].append(result)
 
-    # Phase 2: chain resolution and apply
-    if args.apply:
-        _log("========== 开始应用修复 ==========")
-        dirty_items = [
-            (coll, d, r, res, idx, total)
-            for coll, d, r, res, idx, total in all_items
-            if res["category"] == "confirmed_dirty" and r
-        ]
-        conflict_items = [
-            (coll, d, r, res, idx, total)
-            for coll, d, r, res, idx, total in all_items
-            if res["category"] == "conflict_needs_manual_merge" and r
-        ]
-
-        # Phase 2a: duplicate merge
-        duplicate_groups = detect_same_role_duplicates(all_items)
-        if duplicate_groups:
-            _log("========== 合并同角色重复文档: {} 组 ==========".format(len(duplicate_groups)))
-            for collection, group in duplicate_groups:
-                g_merged, g_details = await resolve_duplicate_merge(
-                    db, collection, group, match_history_client,
-                )
-                merged += g_merged
-                if g_merged:
-                    # 从 all_items 中移除已归档的项，避免后续重复处理
-                    archived_keys = {
-                        d["archived_identity_key"] for d in g_details
-                    }
-                    all_items[:] = [
-                        item for item in all_items
-                        if _text(item[1].get("identity_key")) not in archived_keys
-                    ]
-                    # 从 details 中迁移分类
-                    for detail in g_details:
-                        for cat_items in details.values():
-                            cat_items[:] = [
-                                d for d in cat_items
-                                if d.get("identity_key") != detail["archived_identity_key"]
+            # 逐条立即修复 / 标记已审计
+            if args.apply:
+                if result["category"] == "confirmed_dirty" and repair_update:
+                    try:
+                        await db[collection].update_one({"_id": doc.get("_id")}, repair_update)
+                        applied += 1
+                        _log("[{}] ({}/{}) 立即修复完成: {} -> {}".format(
+                            collection, index, process_count,
+                            _text(doc.get("identity_key")),
+                            _text(repair_update.get("$set", {}).get("identity_key")),
+                        ))
+                    except Exception as exc:
+                        _log("[{}] ({}/{}) 立即修复Mongo错误: {} -> 追溯冲突链解决".format(
+                            collection, index, process_count, exc,
+                        ))
+                        details["confirmed_dirty"][:] = [
+                            d for d in details["confirmed_dirty"]
+                            if d.get("identity_key") != result.get("identity_key")
+                            or d.get("collection") != result.get("collection")
+                        ]
+                        result["category"] = "conflict_needs_manual_merge"
+                        result["reason"] = "immediate_repair_duplicate_key"
+                        details["conflict_needs_manual_merge"].append(result)
+                        chain_applied, chain_merged, chain_discovered, chain_results = \
+                            await _resolve_conflict_chain(
+                                db, person_history_client, match_history_client,
+                                collection, doc, repair_update, result, args,
+                            )
+                        applied += chain_applied
+                        merged += chain_merged
+                        discovered += chain_discovered
+                        for cr in chain_results:
+                            if cr.get("identity_key") != result.get("identity_key") or cr.get("collection") != result.get("collection"):
+                                details[cr["category"]].append(cr)
+                            elif cr.get("reason") != result.get("reason"):
+                                details[result["category"]][:] = [
+                                    d for d in details[result["category"]]
+                                    if d.get("identity_key") != result.get("identity_key")
+                                    or d.get("collection") != result.get("collection")
+                                ]
+                                result.update(cr)
+                                details[cr["category"]].append(result)
+                elif result["category"] == "conflict_needs_manual_merge" and repair_update:
+                    # 当场追溯冲突链，一次性解决
+                    chain_applied, chain_merged, chain_discovered, chain_results = \
+                        await _resolve_conflict_chain(
+                            db, person_history_client, match_history_client,
+                            collection, doc, repair_update, result, args,
+                        )
+                    applied += chain_applied
+                    merged += chain_merged
+                    discovered += chain_discovered
+                    # 将链上各文档的审计结果并入 details（当前 doc 已在 details 中）
+                    for cr in chain_results:
+                        if cr.get("identity_key") != result.get("identity_key") or cr.get("collection") != result.get("collection"):
+                            details[cr["category"]].append(cr)
+                        elif cr.get("reason") != result.get("reason"):
+                            # 同一文档分类变化，更新 details
+                            details[result["category"]][:] = [
+                                d for d in details[result["category"]]
+                                if d.get("identity_key") != result.get("identity_key")
+                                or d.get("collection") != result.get("collection")
                             ]
-                        details["confirmed_valid"].append({
-                            "collection": collection,
-                            "identity_key": detail["replaced_by"],
-                            "category": "confirmed_valid",
-                            "reason": "merged_from_duplicate",
-                            "merged_detail": detail,
-                        })
-            # 刷新 dirty/conflict 列表（因为 all_items 变了）
-            dirty_items = [
-                (coll, d, r, res, idx, total)
-                for coll, d, r, res, idx, total in all_items
-                if res["category"] == "confirmed_dirty" and r
-            ]
-            conflict_items = [
-                (coll, d, r, res, idx, total)
-                for coll, d, r, res, idx, total in all_items
-                if res["category"] == "conflict_needs_manual_merge" and r
-            ]
-
-        # Phase 2b: apply confirmed_dirty
-        for collection, doc, repair_update, result, index, process_count in dirty_items:
-            repair_key = _text(repair_update.get("$set", {}).get("identity_key"))
-            _log("[{}] ({}/{}) 开始修改: {} -> {}".format(
-                collection,
-                index,
-                process_count,
-                _text(doc.get("identity_key")),
-                repair_key,
-            ))
-            await db[collection].update_one({"_id": doc.get("_id")}, repair_update)
-            applied += 1
-            _log("[{}] ({}/{}) 修改完成: new_global_role_id={}".format(
-                collection,
-                index,
-                process_count,
-                _text(repair_update.get("$set", {}).get("global_role_id")),
-            ))
-
-        _log("已应用 confirmed_dirty: {} 条，剩余冲突待解析: {} 条".format(
-            applied, len(conflict_items),
-        ))
-
-        # Iteratively resolve conflict chains
-        iteration = 0
-        while conflict_items:
-            iteration += 1
-            progress = False
-            still_conflict: List[
-                Tuple[str, Dict[str, Any], Dict[str, Any], Dict[str, Any], int, int]
-            ] = []
-            for collection, doc, repair_update, result, index, process_count in conflict_items:
-                target_gid = _text(repair_update.get("$set", {}).get("global_role_id"))
-                exists = await db[collection].find_one({
-                    "global_role_id": target_gid,
-                    "_id": {"$ne": doc.get("_id")},
-                })
-                if not exists:
-                    repair_key = _text(repair_update.get("$set", {}).get("identity_key"))
-                    _log("[CHAIN_FIX] 迭代{} collection={} ({}/{}) 链式修复: {} -> {} (目标已释放)".format(
-                        iteration,
-                        collection,
-                        index,
-                        process_count,
-                        _text(doc.get("identity_key")),
-                        repair_key,
-                    ))
-                    await db[collection].update_one({"_id": doc.get("_id")}, repair_update)
-                    applied += 1
-                    # Update classification in details
-                    details["conflict_needs_manual_merge"][:] = [
-                        d for d in details["conflict_needs_manual_merge"]
-                        if d.get("identity_key") != result.get("identity_key")
-                        or d.get("collection") != result.get("collection")
-                    ]
-                    result["category"] = "confirmed_dirty"
-                    result["reason"] = "chain_resolved_iteration_{}".format(iteration)
-                    details["confirmed_dirty"].append(result)
-                    progress = True
-                else:
-                    still_conflict.append(
-                        (collection, doc, repair_update, result, index, process_count)
-                    )
-            if not progress:
-                _log("迭代{} 无新进展，剩余 {} 条冲突需人工处理".format(
-                    iteration, len(still_conflict),
-                ))
-                break
-            conflict_items = still_conflict
-            _log("迭代{} 完成，剩余冲突: {} 条".format(iteration, len(conflict_items)))
+                            result.update(cr)
+                            details[cr["category"]].append(result)
+                elif result["category"] == "confirmed_dirty" and not repair_update:
+                    await _mark_audited(db, collection, doc.get("_id"))
+                elif result["category"] not in ("confirmed_dirty", "conflict_needs_manual_merge"):
+                    await _mark_audited(db, collection, doc.get("_id"))
 
     # Dry-run log for confirmed_dirty items that weren't applied
     if not args.apply:
@@ -1100,6 +1225,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--apply", action="store_true", help="执行明确脏数据修复")
     parser.add_argument("--yes", action="store_true", help="与 --apply 配合确认写库")
     parser.add_argument("--repair", action="store_true", help="便捷修复模式，等价于 --apply --yes")
+    parser.add_argument("--reprocess", action="store_true", help="忽略已审计标记，强制重审全部文档")
     return parser
 
 
