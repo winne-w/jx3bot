@@ -10,6 +10,10 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from src.infra.mongo import get_db as _get_db
+from src.services.jx3.role_identity_matching import (
+    build_identity_key as _build_role_identity_key,
+    legacy_identity_keys,
+)
 
 
 @dataclass(frozen=True)
@@ -34,23 +38,21 @@ class JjcSyncRepo:
         role_id: Optional[str] = None,
         normalized_server: Optional[str] = None,
         normalized_name: Optional[str] = None,
+        global_id: Optional[str] = None,
     ) -> str:
         """按优先级构建 identity_key。
 
-        优先级：global:{global_role_id} > game:{zone}:{role_id} > name:{normalized_server}:{normalized_name}
+        优先级：global_id:{global_id} > global:{global_role_id} > game:{zone}:{role_id} > name:{normalized_server}:{normalized_name}
         """
-        gid = (global_role_id or "").strip()
-        if gid:
-            return f"global:{gid}"
-
-        z = (zone or "").strip()
-        rid = (role_id or "").strip()
-        if z and rid:
-            return f"game:{z}:{rid}"
-
-        ns = (normalized_server or "").strip()
-        nn = (normalized_name or "").strip()
-        return f"name:{ns}:{nn}"
+        key, _ = _build_role_identity_key(
+            global_id=global_id,
+            global_role_id=global_role_id,
+            zone=zone,
+            game_role_id=role_id,
+            server=normalized_server,
+            name=normalized_name,
+        )
+        return key
 
     @staticmethod
     def _coerce_int(value: object) -> Optional[int]:
@@ -79,6 +81,7 @@ class JjcSyncRepo:
         priority: int = 0,
         season_id: Optional[str] = None,
         season_start_time: int = 0,
+        global_id: Optional[str] = None,
     ) -> str:
         """将角色加入同步队列，已存在时更新身份字段但**不重置**同步水位。
 
@@ -88,6 +91,7 @@ class JjcSyncRepo:
         """
         db = self._db()
         identity_key = self._build_identity_key(
+            global_id=global_id,
             global_role_id=global_role_id,
             zone=zone,
             role_id=role_id,
@@ -96,7 +100,19 @@ class JjcSyncRepo:
         )
         now = time.time()
 
+        legacy_keys = legacy_identity_keys(
+            global_role_id=global_role_id,
+            zone=zone,
+            game_role_id=role_id,
+            server=normalized_server,
+            name=normalized_name,
+        )
         existing = await db.jjc_sync_role_queue.find_one({"identity_key": identity_key})
+        existing_key = identity_key
+        if existing is None and global_id and legacy_keys:
+            existing = await db.jjc_sync_role_queue.find_one({"identity_key": {"$in": legacy_keys}})
+            if existing is not None:
+                existing_key = existing.get("identity_key") or identity_key
 
         if existing:
             # 已有角色：更新身份字段，不重置同步水位
@@ -117,9 +133,13 @@ class JjcSyncRepo:
                 set_fields["person_id"] = person_id
             if global_role_id is not None:
                 set_fields["global_role_id"] = global_role_id
+            if global_id is not None:
+                set_fields["global_id"] = global_id
             if season_id is not None:
                 set_fields["season_id"] = season_id
             set_fields["season_start_time"] = season_start_time
+            if existing_key != identity_key:
+                set_fields["identity_key"] = identity_key
 
             # 来源：仅 manual 覆盖
             if source == 'manual':
@@ -129,10 +149,14 @@ class JjcSyncRepo:
                 "$set": set_fields,
                 "$max": {"priority": priority},
             }
+            if existing_key != identity_key:
+                aliases = list(legacy_keys)
+                aliases.append(existing_key)
+                update_op["$addToSet"] = {"aliases": {"$each": sorted(set(aliases))}}
 
             try:
                 await db.jjc_sync_role_queue.update_one(
-                    {"identity_key": identity_key},
+                    {"identity_key": existing_key},
                     update_op,
                 )
                 return identity_key
@@ -169,6 +193,8 @@ class JjcSyncRepo:
                 doc["person_id"] = person_id
             if global_role_id is not None:
                 doc["global_role_id"] = global_role_id
+            if global_id is not None:
+                doc["global_id"] = global_id
             if season_id is not None:
                 doc["season_id"] = season_id
 
@@ -192,6 +218,8 @@ class JjcSyncRepo:
                     set_fields["person_id"] = person_id
                 if global_role_id is not None:
                     set_fields["global_role_id"] = global_role_id
+                if global_id is not None:
+                    set_fields["global_id"] = global_id
                 if season_id is not None:
                     set_fields["season_id"] = season_id
                 set_fields["season_start_time"] = season_start_time
@@ -396,6 +424,7 @@ class JjcSyncRepo:
         person_id: Optional[str] = None,
         zone: Optional[str] = None,
         identity_source: Optional[str] = None,
+        global_id: Optional[str] = None,
     ) -> bool:
         """补充同步队列角色的外部身份字段，不改变同步水位或 identity_key。"""
         db = self._db()
@@ -404,6 +433,8 @@ class JjcSyncRepo:
 
         if global_role_id:
             set_fields["global_role_id"] = global_role_id
+        if global_id:
+            set_fields["global_id"] = global_id
         if role_id:
             set_fields["role_id"] = role_id
         if person_id:
@@ -428,6 +459,77 @@ class JjcSyncRepo:
                 identity_key, exc,
             )
             return False
+
+    async def update_role_identity_fields_and_key(
+        self,
+        identity_key: str,
+        global_role_id: Optional[str] = None,
+        role_id: Optional[str] = None,
+        person_id: Optional[str] = None,
+        zone: Optional[str] = None,
+        identity_source: Optional[str] = None,
+        global_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """补充同步队列身份字段；拿到 global_id 时迁移 identity_key 并保留水位。"""
+        db = self._db()
+        now = time.time()
+        existing = await db.jjc_sync_role_queue.find_one({"identity_key": identity_key})
+        if not existing:
+            return None
+
+        new_key = identity_key
+        if global_id:
+            new_key = self._build_identity_key(
+                global_id=global_id,
+                global_role_id=global_role_id or existing.get("global_role_id"),
+                zone=zone or existing.get("zone"),
+                role_id=role_id or existing.get("role_id"),
+                normalized_server=existing.get("normalized_server"),
+                normalized_name=existing.get("normalized_name"),
+            )
+
+        set_fields: Dict[str, Any] = {"updated_at": now}
+        if new_key != identity_key:
+            set_fields["identity_key"] = new_key
+        if global_role_id:
+            set_fields["global_role_id"] = global_role_id
+        if global_id:
+            set_fields["global_id"] = global_id
+        if role_id:
+            set_fields["role_id"] = role_id
+        if person_id:
+            set_fields["person_id"] = person_id
+        if zone:
+            set_fields["zone"] = zone
+        if identity_source:
+            set_fields["identity_source"] = identity_source
+
+        update_op: Dict[str, Any] = {"$set": set_fields}
+        if new_key != identity_key:
+            legacy_keys = legacy_identity_keys(
+                global_role_id=global_role_id or existing.get("global_role_id"),
+                zone=zone or existing.get("zone"),
+                game_role_id=role_id or existing.get("role_id"),
+                server=existing.get("normalized_server"),
+                name=existing.get("normalized_name"),
+            )
+            aliases = sorted(set([identity_key] + legacy_keys))
+            update_op["$addToSet"] = {"aliases": {"$each": aliases}}
+
+        try:
+            await db.jjc_sync_role_queue.update_one(
+                {"identity_key": identity_key},
+                update_op,
+            )
+            return new_key
+        except Exception as exc:
+            logger.warning(
+                "补充同步角色身份字段并迁移 key 失败: identity_key={} new_key={} error={}",
+                identity_key,
+                new_key,
+                exc,
+            )
+            return None
 
     async def reset_role_progress(self, identity_key: str) -> bool:
         """重置角色同步进度。

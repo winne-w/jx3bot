@@ -13,6 +13,8 @@ from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.kungfu import get_role_indicator
 from src.services.jx3.match_history import MatchHistoryClient, PersonMatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient
+from src.services.jx3.match_replay import MatchReplayClient
+from src.services.jx3.role_indicator import RoleIndicatorClient
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 from src.storage.mongo_repos.jjc_match_snapshot_repo import JjcMatchSnapshotRepo
 from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
@@ -46,6 +48,7 @@ jjc_ranking_service = JjcRankingService(
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
     tuilan_request=tuilan_request,
     defget_get=get,
+    match_replay_url=cfg.API_URLS["竞技场战局回放"],
 )
 
 match_detail_client = MatchDetailClient(
@@ -63,6 +66,16 @@ person_match_history_client = PersonMatchHistoryClient(
     tuilan_request=tuilan_request,
 )
 
+match_replay_client = MatchReplayClient(
+    match_replay_url=cfg.API_URLS["竞技场战局回放"],
+    tuilan_request=tuilan_request,
+)
+
+role_indicator_client = RoleIndicatorClient(
+    role_indicator_url=cfg.API_URLS["推栏角色指标"],
+    tuilan_request=tuilan_request,
+)
+
 jjc_ranking_inspect_service = JjcRankingInspectService(
     ranking_service=jjc_ranking_service,
     kungfu_cache_repo=JjcCacheRepo(
@@ -71,6 +84,7 @@ jjc_ranking_inspect_service = JjcRankingInspectService(
     ),
     match_history_client=match_history_client,
     match_detail_client=match_detail_client,
+    match_replay_client=match_replay_client,
     cache_repo=JjcInspectRepo(snapshot_repo=JjcMatchSnapshotRepo()),
     tuilan_request=tuilan_request,
     role_indicator_fetcher=get_role_indicator,
@@ -84,6 +98,8 @@ jjc_match_data_sync_service = JjcMatchDataSyncService(
     current_season_start=cfg.CURRENT_SEASON_START,
     match_history_client=match_history_client,
     person_match_history_client=person_match_history_client,
+    match_replay_client=match_replay_client,
+    role_indicator_client=role_indicator_client,
     inspect_service=jjc_ranking_inspect_service,
     identity_repo=RoleIdentityRepo(),
 )

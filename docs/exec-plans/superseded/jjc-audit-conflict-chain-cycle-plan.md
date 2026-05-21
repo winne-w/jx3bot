@@ -1,5 +1,7 @@
 # JJC 审计冲突链环路修复计划
 
+> 已合并至 `docs/exec-plans/active/jjc-role-global-id-governance-plan.md`，本文仅作历史参考。
+
 ## 背景
 
 `scripts/audit_jjc_person_history_identity.py` 在 `--apply` 修复 `role_identities` / `jjc_sync_role_queue` 时，会追溯 `global_role_id` 冲突链。当前日志 `/tmp/repair.log` 显示两个 `global_role_id` 在链路追溯中交替出现，脚本未能退出。

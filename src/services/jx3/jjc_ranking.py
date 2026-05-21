@@ -7,7 +7,7 @@ import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 from urllib.parse import quote
 
 from nonebot import logger
@@ -20,6 +20,7 @@ from src.services.jx3.jjc_api_client import JjcApiClient
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.tuilan_rate_limit import fixed_sleep, random_sleep
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
+from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class JjcRankingService:
     kungfu_pinyin_to_chinese: dict[str, str]
     tuilan_request: Callable[[str, dict[str, Any]], Any]
     defget_get: Callable[..., Awaitable[dict[str, Any]]]
+    match_replay_url: Optional[str] = None
 
     def _api(self) -> JjcApiClient:
         return JjcApiClient(
@@ -77,7 +79,7 @@ class JjcRankingService:
         *,
         server: str,
         name: str,
-        kungfu_detail: dict[str, Any] | None,
+        kungfu_detail: Optional[dict[str, Any]],
     ) -> None:
         if not isinstance(kungfu_detail, dict):
             return
@@ -107,7 +109,12 @@ class JjcRankingService:
                         or role_info.get("global_role_id")
                         or role_info.get("globalRoleId")
                     )
-                    identity_key = f"global:{global_role_id}" if global_role_id else None
+                    global_id = role_indicator.get("global_id")
+                    identity_key = (
+                        f"global_id:{global_id}"
+                        if global_id
+                        else (f"global:{global_role_id}" if global_role_id else None)
+                    )
                     if identity_key:
                         await repo.save_role_indicator(
                             identity_key,
@@ -117,6 +124,7 @@ class JjcRankingService:
                                 "name": name,
                                 "game_role_id": role_indicator.get("game_role_id"),
                                 "global_role_id": global_role_id,
+                                "global_id": global_id,
                                 "zone": role_indicator.get("zone"),
                                 "indicator": parsed,
                                 "raw": raw,
@@ -190,7 +198,7 @@ class JjcRankingService:
             result["teammates_checked"] = cached_teammates_checked
 
     @staticmethod
-    def _coerce_score(value: Any) -> int | None:
+    def _coerce_score(value: Any) -> Optional[int]:
         if value is None:
             return None
         if isinstance(value, bool):
@@ -210,7 +218,7 @@ class JjcRankingService:
         return None
 
     @classmethod
-    def _extract_score(cls, player: dict[str, Any], person_info: dict[str, Any]) -> int | None:
+    def _extract_score(cls, player: dict[str, Any], person_info: dict[str, Any]) -> Optional[int]:
         candidates = [
             person_info.get("score"),
             player.get("score"),
@@ -323,7 +331,7 @@ class JjcRankingService:
         logger.info(f"优先使用心法查询接口更新心法信息: server={server} name={name}")
 
         kungfu_info = None
-        kungfu_detail: dict[str, Any] | None = None
+        kungfu_detail: Optional[dict[str, Any]] = None
         captured_game_role_id = None
         captured_zone = None
         try:
@@ -356,6 +364,7 @@ class JjcRankingService:
                                 tuilan_request=self.tuilan_request,
                                 kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
                                 match_detail_url=self.match_detail_url,
+                                match_replay_url=self.match_replay_url,
                                 role_name=name,
                                 rank=None,
                             )
@@ -416,7 +425,7 @@ class JjcRankingService:
         ranking_result: dict[str, Any],
         stats: dict[str, Any],
         week_info: str,
-        payload: dict[str, Any] | None = None,
+        payload: Optional[dict[str, Any]] = None,
     ) -> None:
         stats_dir = os.path.join("data", "jjc_ranking_stats")
         ranking_timestamp = int(ranking_result.get("cache_time") or time.time())
@@ -440,6 +449,12 @@ class JjcRankingService:
                 json.dump(summary_payload, file_handle, ensure_ascii=False, indent=2)
 
             self._write_details_files(details_root_dir, stats)
+            detail_payloads = self._build_detail_payloads(stats)
+            self._save_ranking_stats_to_mongo(
+                timestamp=ranking_timestamp,
+                summary_payload=summary_payload,
+                detail_payloads=detail_payloads,
+            )
 
             logger.info("保存竞技场统计摘要: %s", summary_path)
             logger.info("保存竞技场统计详情目录: %s", details_root_dir)
@@ -495,6 +510,50 @@ class JjcRankingService:
 
         return summary_payload
 
+    def _build_detail_payloads(self, stats: Dict[str, Any]) -> List[Dict[str, Any]]:
+        detail_payloads: List[Dict[str, Any]] = []
+        for range_key, range_stats in (stats or {}).items():
+            if not isinstance(range_stats, dict):
+                continue
+            for lane_name in ("healer", "dps"):
+                lane = range_stats.get(lane_name) or {}
+                members_map = lane.get("members") or {}
+                if not isinstance(members_map, dict):
+                    continue
+                for kungfu, members in members_map.items():
+                    detail_payloads.append({
+                        "range": range_key,
+                        "lane": lane_name,
+                        "kungfu": kungfu,
+                        "members": members or [],
+                    })
+        return detail_payloads
+
+    def _save_ranking_stats_to_mongo(
+        self,
+        *,
+        timestamp: int,
+        summary_payload: Dict[str, Any],
+        detail_payloads: List[Dict[str, Any]],
+    ) -> None:
+        async def _save() -> None:
+            try:
+                await JjcRankingStatsRepo().save_snapshot(
+                    timestamp=timestamp,
+                    summary_payload=summary_payload,
+                    detail_payloads=detail_payloads,
+                    source="ranking_job",
+                )
+            except Exception as exc:
+                logger.warning("保存竞技场统计到 Mongo 失败: timestamp={} error={}", timestamp, exc)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError as exc:
+            logger.warning("保存竞技场统计到 Mongo 失败: 无可用事件循环 timestamp={} error={}", timestamp, exc)
+            return
+        loop.create_task(_save())
+
     def _write_details_files(self, details_root_dir: str, stats: dict[str, Any]) -> None:
         for range_key, range_stats in (stats or {}).items():
             if not isinstance(range_stats, dict):
@@ -523,8 +582,8 @@ class JjcRankingService:
         self,
         server: str,
         name: str,
-        ranking_data: dict[str, Any] | None = None,
-        rank: int | None = None,
+        ranking_data: Optional[dict[str, Any]] = None,
+        rank: Optional[int] = None,
     ) -> dict[str, Any]:
         cached = await self._cache().load_kungfu_cache(server, name)
         if cached:
@@ -566,6 +625,7 @@ class JjcRankingService:
                                 tuilan_request=self.tuilan_request,
                                 kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
                                 match_detail_url=self.match_detail_url,
+                                match_replay_url=self.match_replay_url,
                                 role_name=name,
                                 rank=rank,
                             )
@@ -723,6 +783,7 @@ class JjcRankingService:
                             kungfu_info.get("global_role_id")
                             or person_info.get("globalRoleId")
                         ),
+                        "global_id": kungfu_info.get("global_id"),
                         "role_id": kungfu_info.get("role_id") or person_info.get("gameRoleId"),
                         "zone": person_info.get("zone"),
                         "teammates": kungfu_info.get("teammates"),
@@ -802,6 +863,7 @@ class JjcRankingService:
                                     "kungfu_id": player_item.get("kungfu_id"),
                                     "game_role_id": player_item.get("game_role_id"),
                                     "global_role_id": player_item.get("global_role_id"),
+                                    "global_id": player_item.get("global_id"),
                                     "role_id": player_item.get("role_id"),
                                     "zone": player_item.get("zone"),
                                     "teammates": player_item.get("teammates"),
@@ -824,6 +886,7 @@ class JjcRankingService:
                                     "kungfu_id": player_item.get("kungfu_id"),
                                     "game_role_id": player_item.get("game_role_id"),
                                     "global_role_id": player_item.get("global_role_id"),
+                                    "global_id": player_item.get("global_id"),
                                     "role_id": player_item.get("role_id"),
                                     "zone": player_item.get("zone"),
                                     "teammates": player_item.get("teammates"),
@@ -960,7 +1023,7 @@ class JjcRankingService:
             logger.exception(f"获取心法分布数据失败: {exc}")
             return {"error": True, "message": f"获取心法分布数据失败: {exc}"}
 
-    def calculate_season_week_info(self, default_week: int, cache_time: float | None = None) -> str:
+    def calculate_season_week_info(self, default_week: int, cache_time: Optional[float] = None) -> str:
         try:
             now = datetime.fromtimestamp(cache_time) if cache_time else datetime.now()
             season_start = datetime.strptime(self.current_season_start, "%Y-%m-%d")

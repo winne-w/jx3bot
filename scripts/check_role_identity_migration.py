@@ -49,6 +49,67 @@ async def _collect_keys(db: AsyncIOMotorDatabase, collection: str) -> Set[str]:
     return {row["_id"] for row in rows if row["_id"] is not None}
 
 
+def _non_empty(field: str) -> Dict[str, Any]:
+    return {field: {"$exists": True, "$nin": [None, ""]}}
+
+
+async def _duplicate_field(
+    db: AsyncIOMotorDatabase,
+    collection: str,
+    field: str,
+) -> List[Dict[str, Any]]:
+    return await db[collection].aggregate([
+        {"$match": _non_empty(field)},
+        {"$group": {
+            "_id": "${}".format(field),
+            "keys": {"$addToSet": "$identity_key"},
+            "count": {"$sum": 1},
+        }},
+        {"$match": {"count": {"$gt": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 20},
+    ]).to_list(None)
+
+
+async def _legacy_key_prefixes(
+    db: AsyncIOMotorDatabase,
+    collection: str,
+) -> Dict[str, int]:
+    return {
+        "global": await db[collection].count_documents({"identity_key": {"$regex": "^global:"}}),
+        "name": await db[collection].count_documents({"identity_key": {"$regex": "^name:"}}),
+    }
+
+
+async def _zone_role_multi_global_id(
+    db: AsyncIOMotorDatabase,
+    collection: str,
+    role_field: str,
+) -> List[Dict[str, Any]]:
+    return await db[collection].aggregate([
+        {"$match": {
+            "zone": {"$exists": True, "$nin": [None, ""]},
+            role_field: {"$exists": True, "$nin": [None, ""]},
+            "global_id": {"$exists": True, "$nin": [None, ""]},
+        }},
+        {"$group": {
+            "_id": {"zone": "$zone", "role_id": "${}".format(role_field)},
+            "global_ids": {"$addToSet": "$global_id"},
+            "keys": {"$addToSet": "$identity_key"},
+            "count": {"$sum": 1},
+        }},
+        {"$project": {
+            "global_ids": 1,
+            "keys": 1,
+            "count": 1,
+            "global_id_count": {"$size": "$global_ids"},
+        }},
+        {"$match": {"global_id_count": {"$gt": 1}}},
+        {"$sort": {"global_id_count": -1, "count": -1}},
+        {"$limit": 20},
+    ]).to_list(None)
+
+
 async def check(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
     """执行全部核验查询，返回结果字典。"""
 
@@ -122,17 +183,7 @@ async def check(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
     # ---- 5. 潜在异常检查 ----
 
     # 5a. role_identities 同一 global_role_id 多记录
-    dup_global = await db.role_identities.aggregate([
-        {"$match": {"global_role_id": {"$exists": True, "$ne": None, "$ne": ""}}},
-        {"$group": {
-            "_id": "$global_role_id",
-            "keys": {"$push": "$identity_key"},
-            "count": {"$sum": 1},
-        }},
-        {"$match": {"count": {"$gt": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 20},
-    ]).to_list(None)
+    dup_global = await _duplicate_field(db, "role_identities", "global_role_id")
     print("=" * 60)
     print("5a. role_identities 同一 global_role_id 多记录")
     print("=" * 60)
@@ -170,17 +221,7 @@ async def check(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
     print()
 
     # 5c. role_jjc_cache 同一 global_role_id 多记录
-    dup_global_jjc = await db.role_jjc_cache.aggregate([
-        {"$match": {"global_role_id": {"$exists": True, "$ne": None, "$ne": ""}}},
-        {"$group": {
-            "_id": "$global_role_id",
-            "keys": {"$push": "$identity_key"},
-            "count": {"$sum": 1},
-        }},
-        {"$match": {"count": {"$gt": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 20},
-    ]).to_list(None)
+    dup_global_jjc = await _duplicate_field(db, "role_jjc_cache", "global_role_id")
     print("=" * 60)
     print("5c. role_jjc_cache 同一 global_role_id 多记录")
     print("=" * 60)
@@ -217,6 +258,50 @@ async def check(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
         ))
     print()
 
+    # 5e. global_id 唯一性与旧 key 残留
+    dup_global_id_identity = await _duplicate_field(db, "role_identities", "global_id")
+    dup_global_id_queue = await _duplicate_field(db, "jjc_sync_role_queue", "global_id")
+    legacy_identity = await _legacy_key_prefixes(db, "role_identities")
+    legacy_queue = await _legacy_key_prefixes(db, "jjc_sync_role_queue")
+    print("=" * 60)
+    print("5e. global_id 唯一性与旧 identity_key 残留")
+    print("=" * 60)
+    print("  role_identities 重复 global_id 组数: {}".format(len(dup_global_id_identity)))
+    for item in dup_global_id_identity[:10]:
+        print("    global_id={}  count={}  keys={}".format(
+            item["_id"], item["count"], item["keys"][:5],
+        ))
+    print("  jjc_sync_role_queue 重复 global_id 组数: {}".format(len(dup_global_id_queue)))
+    for item in dup_global_id_queue[:10]:
+        print("    global_id={}  count={}  keys={}".format(
+            item["_id"], item["count"], item["keys"][:5],
+        ))
+    print("  role_identities 旧 global:* key: {}".format(legacy_identity["global"]))
+    print("  role_identities 旧 name:* key:   {}".format(legacy_identity["name"]))
+    print("  jjc_sync_role_queue 旧 global:* key: {}".format(legacy_queue["global"]))
+    print("  jjc_sync_role_queue 旧 name:* key:   {}".format(legacy_queue["name"]))
+    print()
+
+    # 5f. 同一 zone+role_id 对应多个 global_id
+    multi_global_identity = await _zone_role_multi_global_id(db, "role_identities", "game_role_id")
+    multi_global_queue = await _zone_role_multi_global_id(db, "jjc_sync_role_queue", "role_id")
+    print("=" * 60)
+    print("5f. 同一 zone+role_id 对应多个 global_id")
+    print("=" * 60)
+    print("  role_identities 异常组数: {}".format(len(multi_global_identity)))
+    for item in multi_global_identity[:10]:
+        zid = item["_id"]
+        print("    zone={}  role_id={}  global_ids={}  keys={}".format(
+            zid["zone"], zid["role_id"], item["global_ids"][:5], item["keys"][:5],
+        ))
+    print("  jjc_sync_role_queue 异常组数: {}".format(len(multi_global_queue)))
+    for item in multi_global_queue[:10]:
+        zid = item["_id"]
+        print("    zone={}  role_id={}  global_ids={}  keys={}".format(
+            zid["zone"], zid["role_id"], item["global_ids"][:5], item["keys"][:5],
+        ))
+    print()
+
     # ---- 汇总 ----
     print("=" * 60)
     print("核验摘要")
@@ -233,6 +318,12 @@ async def check(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
     print("  zone+game_role_id 重复 (identity): {} 组".format(len(dup_zone_game)))
     print("  global_role_id 重复 (jjc):         {} 组".format(len(dup_global_jjc)))
     print("  zone+game_role_id 重复 (jjc):      {} 组".format(len(dup_zone_game_jjc)))
+    print("  global_id 重复 (identity):         {} 组".format(len(dup_global_id_identity)))
+    print("  global_id 重复 (queue):            {} 组".format(len(dup_global_id_queue)))
+    print("  旧 global/name key (identity):     {}/{}".format(legacy_identity["global"], legacy_identity["name"]))
+    print("  旧 global/name key (queue):        {}/{}".format(legacy_queue["global"], legacy_queue["name"]))
+    print("  zone+role_id 多 global_id(identity): {} 组".format(len(multi_global_identity)))
+    print("  zone+role_id 多 global_id(queue):    {} 组".format(len(multi_global_queue)))
 
     return {
         "role_identities_count": identity_count,
@@ -246,6 +337,14 @@ async def check(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
         "duplicate_zone_game_role_id_count": len(dup_zone_game),
         "duplicate_global_role_id_jjc_count": len(dup_global_jjc),
         "duplicate_zone_game_role_id_jjc_count": len(dup_zone_game_jjc),
+        "duplicate_global_id_identity_count": len(dup_global_id_identity),
+        "duplicate_global_id_queue_count": len(dup_global_id_queue),
+        "legacy_global_key_identity_count": legacy_identity["global"],
+        "legacy_name_key_identity_count": legacy_identity["name"],
+        "legacy_global_key_queue_count": legacy_queue["global"],
+        "legacy_name_key_queue_count": legacy_queue["name"],
+        "zone_role_multi_global_id_identity_count": len(multi_global_identity),
+        "zone_role_multi_global_id_queue_count": len(multi_global_queue),
     }
 
 

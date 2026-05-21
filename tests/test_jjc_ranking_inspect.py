@@ -2,7 +2,7 @@ import asyncio
 import time
 import unittest
 from typing import Any, Callable, Dict, List
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
@@ -16,6 +16,16 @@ class FakeMatchHistoryClient:
     def get_mine_match_history(self, **kwargs: Any) -> Dict[str, Any]:
         self.calls.append(kwargs)
         return {"code": 0, "msg": "success", "data": self.history}
+
+
+class FakeMatchReplayClient:
+    def __init__(self, replay: Dict[str, Any]) -> None:
+        self.replay = replay
+        self.calls: List[int] = []
+
+    def get_match_replay(self, *, match_id: int) -> Dict[str, Any]:
+        self.calls.append(match_id)
+        return self.replay
 
 
 class DirectJjcRankingInspectService(JjcRankingInspectService):
@@ -58,6 +68,7 @@ class FakeJjcInspectRepo:
         self.role_indicator_cache: Dict[str, Dict[str, Any]] = {}
         self.saved_role_indicator: list = []
         self.loaded_role_indicator_ttls: list = []
+        self.saved_match_detail: list = []
 
     async def load_role_recent(self, server, name, *, ttl_seconds):
         self.load_role_recent_calls.append((server, name, ttl_seconds))
@@ -70,7 +81,7 @@ class FakeJjcInspectRepo:
         return None
 
     async def save_match_detail(self, match_id, payload):
-        pass
+        self.saved_match_detail.append((match_id, payload))
 
     async def batch_load_cached_detail_summaries(self, match_ids):
         result = {}
@@ -421,6 +432,62 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["recent_matches"][0]["kungfu"], "花间游")
         self.assertTrue(payload["pagination"]["has_more"])
 
+    async def test_role_recent_resolves_replay_global_id_into_identity_hints(self) -> None:
+        match_history_client = FakeMatchHistoryClient(
+            [
+                {
+                    "pvpType": 3,
+                    "match_id": 1001,
+                    "won": True,
+                    "kungfu": "huajian",
+                    "avgGrade": 12,
+                    "match_time": 1778000000,
+                }
+            ]
+        )
+        replay_client = FakeMatchReplayClient(
+            {
+                "code": 0,
+                "msg": "success",
+                "data": {
+                    "players": [
+                        {
+                            "role_id": "30284767",
+                            "role_name": "示例角色·梦江南",
+                            "global_role_id": "987654321",
+                        }
+                    ]
+                },
+            }
+        )
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=match_history_client,
+            match_detail_client=MagicMock(),
+            cache_repo=MagicMock(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+            match_replay_client=replay_client,
+        )
+
+        payload = await service._build_role_recent_payload(
+            server="梦江南",
+            name="示例角色",
+            identity={
+                "global_role_id": "SK01-a",
+                "role_id": "30284767",
+                "source": "test",
+                "identity_key": "global:SK01-a",
+            },
+        )
+
+        self.assertEqual(replay_client.calls, [1001])
+        self.assertEqual(payload["identity"]["global_id"], "987654321")
+        self.assertEqual(payload["identity"]["identity_hints"]["global_id"], "987654321")
+        self.assertEqual(payload["identity"]["global_role_id"], "SK01-a")
+
     async def test_role_recent_cache_hit_hydrates_cached_details(self) -> None:
         cache_repo = FakeJjcInspectRepo(
             summaries={
@@ -458,6 +525,116 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(recent_matches[0]["cached_detail_summary"]["match_id"], 1001)
         self.assertNotIn("cached_detail_summary", recent_matches[1])
         self.assertTrue(result["cache"]["hit"])
+
+    async def test_cached_match_detail_is_enriched_with_replay_global_id(self) -> None:
+        cache_repo = FakeJjcInspectRepo()
+        cache_repo.load_match_detail = AsyncMock(
+            return_value={
+                "cached_at": 1778000000,
+                "data": {
+                    "match_id": 1001,
+                    "detail": {
+                        "team1": {
+                            "players_info": [
+                                {"role_name": "示例角色", "server": "梦江南", "role_id": "30284767"}
+                            ]
+                        },
+                        "team2": {"players_info": []},
+                    },
+                },
+            }
+        )
+        replay_client = FakeMatchReplayClient(
+            {
+                "code": 0,
+                "msg": "success",
+                "data": {
+                    "players": [
+                        {
+                            "role_id": "30284767",
+                            "role_name": "示例角色·梦江南",
+                            "global_role_id": "987654321",
+                        }
+                    ]
+                },
+            }
+        )
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=cache_repo,
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            match_replay_client=replay_client,
+        )
+
+        result = await service.get_match_detail(match_id=1001)
+
+        player = result["detail"]["team1"]["players_info"][0]
+        self.assertEqual(player["global_id"], "987654321")
+        self.assertNotEqual(player.get("global_role_id"), "987654321")
+        self.assertTrue(result["cache"]["hit"])
+        self.assertEqual(len(cache_repo.saved_match_detail), 1)
+        self.assertEqual(cache_repo.saved_match_detail[0][0], 1001)
+        saved_player = cache_repo.saved_match_detail[0][1]["data"]["detail"]["team1"]["players_info"][0]
+        self.assertEqual(saved_player["global_id"], "987654321")
+        self.assertEqual(cache_repo.saved_match_detail[0][1]["data"]["replay"]["data"]["players"][0]["global_role_id"], "987654321")
+
+    async def test_cached_match_detail_uses_saved_replay_without_requesting_replay_api(self) -> None:
+        cache_repo = FakeJjcInspectRepo()
+        cache_repo.load_match_detail = AsyncMock(
+            return_value={
+                "cached_at": 1778000000,
+                "data": {
+                    "match_id": 1001,
+                    "detail": {
+                        "team1": {
+                            "players_info": [
+                                {"role_name": "示例角色", "server": "梦江南", "role_id": "30284767"}
+                            ]
+                        },
+                        "team2": {"players_info": []},
+                    },
+                    "replay": {
+                        "code": 0,
+                        "msg": "success",
+                        "data": {
+                            "players": [
+                                {
+                                    "role_id": "30284767",
+                                    "role_name": "示例角色·梦江南",
+                                    "global_role_id": "987654321",
+                                }
+                            ]
+                        },
+                    },
+                },
+            }
+        )
+        replay_client = FakeMatchReplayClient({"error": "should_not_call"})
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=cache_repo,
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            match_replay_client=replay_client,
+        )
+
+        result = await service.get_match_detail(match_id=1001)
+
+        player = result["detail"]["team1"]["players_info"][0]
+        self.assertEqual(player["global_id"], "987654321")
+        self.assertEqual(replay_client.calls, [])
+        self.assertEqual(len(cache_repo.saved_match_detail), 1)
+        saved_player = cache_repo.saved_match_detail[0][1]["data"]["detail"]["team1"]["players_info"][0]
+        self.assertEqual(saved_player["global_id"], "987654321")
 
     async def test_role_recent_force_refresh_bypasses_cached_first_page(self) -> None:
         cache_repo = FakeJjcInspectRepo()

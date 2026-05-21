@@ -64,6 +64,10 @@ def _iter_detail_files(timestamp: str) -> Iterable[Path]:
 
 def _member_lookup_keys(member: Dict[str, Any]) -> List[Dict[str, Any]]:
     queries: List[Dict[str, Any]] = []
+    global_id = str(member.get("global_id") or "").strip()
+    if global_id:
+        queries.append({"global_id": global_id})
+
     global_role_id = str(member.get("global_role_id") or "").strip()
     if global_role_id:
         queries.append({"global_role_id": global_role_id})
@@ -72,11 +76,6 @@ def _member_lookup_keys(member: Dict[str, Any]) -> List[Dict[str, Any]]:
     game_role_id = str(member.get("game_role_id") or "").strip()
     if zone and game_role_id:
         queries.append({"zone": zone, "game_role_id": game_role_id})
-
-    server = _normalize(member.get("server"))
-    name = _normalize(member.get("name"))
-    if server and name:
-        queries.append({"normalized_server": server, "normalized_name": name})
 
     return queries
 

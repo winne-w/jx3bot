@@ -156,11 +156,12 @@ python test_tuilan_match_history.py
   - 历史兼容阶段可能仍存在旧的 `data/jjc_ranking_stats/<timestamp>.json`
 - JJC 同步命令只有 `config.py` 中 `ADMIN_QQ` 管理员可执行
 - `/jjc同步开始` 只触发一轮同步，不会启动常驻任务
-- 角色缺少 `global_role_id` 且队列中已有 `person_id` 时，同步前会先调用推栏 `mine/match/person-history` 补全；补全失败再走现有角色身份解析链路
-- 同步详情应写入现有 `jjc_match_detail`，并从详情玩家回填 `jjc_sync_role_queue`；详情玩家缺 `global_role_id` 但有 `person_id` 时，会尝试通过 `person-history` 补齐后再入队
+- JJC 最终身份主键为 replay 数字 ID：`global_id:{global_id}`；`global_id` 来自 `/3c/mine/match/replay` 的 `players[].global_role_id`，不要与 SK01 `global_role_id` 混用。
+- `global_role_id` 专指 `/role/indicator` 返回的 `SK01-...`，用于请求 `match/history`；角色缺少 SK01 且队列中已有 `person_id` 时，同步前仍保留 `mine/match/person-history` 兼容兜底。
+- 同步详情应写入现有 `jjc_match_detail`，并从详情玩家回填 `jjc_sync_role_queue`；详情玩家身份补全主链路为 `match/detail + match/replay + role/indicator`，成功拿到 replay `global_id` 与 SK01 `global_role_id` 后才写入可执行同步队列。
 - 单条详情临时失败不会中断当前角色同步，`/jjc同步开始` 输出中的 `详情失败` 表示对局详情已写入失败状态并等待 `detail_retry_after` 后重试
 - 推栏返回 `code=-1`、`msg=no data found`、`data=null` 时，对局写入 `detail_unavailable` 终态；`/jjc同步开始` 输出中的 `详情不可用` 表示后续不会重复请求该对局详情
-- 若状态中最近错误出现 `role_identity_not_found` 或缺少 `global_role_id`，优先用带 `global_role_id=...` 的添加命令补充身份
+- 若状态中最近错误出现 `role_identity_not_found`，优先检查目标角色是否已能通过最近对局 replay 补到 `global_id`；仅缺 SK01 `global_role_id` 时再用带 `global_role_id=...` 的添加命令补充 history 请求字段。
 - 若服务中断后状态长期存在 `syncing` 或 `detail_syncing`，再次执行 `/jjc同步开始` 会先恢复过期租约再领取角色
 
 离线自动验证：
@@ -172,6 +173,67 @@ python -m py_compile src/services/jx3/jjc_match_data_sync.py src/storage/mongo_r
 ```
 
 在线手工回归需要真实 QQ/推栏环境：先 `/jjc同步添加 <服务器> <角色名>`，再 `/jjc同步状态`、`/jjc同步开始 incremental`、`/jjc同步状态`，确认角色被领取、对局详情写入、单条详情失败时仍继续处理后续对局和后续页。
+
+JJC 身份治理备份 / 恢复：
+
+```bash
+# 备份前 dry-run，默认覆盖 role_identities / jjc_sync_role_queue / role_jjc_cache / jjc_role_indicator / jjc_match_detail
+python scripts/backup_jjc_role_identity_collections.py
+
+# 执行备份，tag 不传则使用当前时间戳
+python scripts/backup_jjc_role_identity_collections.py --tag before_global_id_20260521 --apply --yes
+
+# 恢复前 dry-run
+python scripts/restore_jjc_role_identity_collections.py --tag before_global_id_20260521
+
+# 执行恢复；恢复前会先把当前目标集合备份为 *_pre_restore_backup_<时间戳>
+python scripts/restore_jjc_role_identity_collections.py --tag before_global_id_20260521 --apply --yes
+
+# 清理前 dry-run，默认只清 role_identities / jjc_sync_role_queue
+python scripts/clear_jjc_role_identity_collections.py --backup-tag before_global_id_20260521
+
+# 执行清理，要求备份集合已存在
+python scripts/clear_jjc_role_identity_collections.py --backup-tag before_global_id_20260521 --apply --yes
+```
+
+预期:
+
+- 备份集合命名为 `<原集合>_backup_<tag>`，保留原 `_id`。
+- 恢复前会自动创建 `<原集合>_pre_restore_backup_<tag>`，再 drop 目标集合并从备份集合复制回来。
+- 清理脚本默认只清空 `role_identities` 与 `jjc_sync_role_queue`；如需清缓存集合，必须显式传 `--collections`。
+- 备份、恢复和清理都会写入 `jjc_backup_metadata`，用于核对 tag、集合名和文档数。
+
+JJC replay 角色 ID / global_id 回填：
+
+```bash
+# 默认 dry-run，只处理最近 20 场 detail_saved 对局
+python scripts/backfill_jjc_role_id_from_match_replay.py --limit 20 --dry-run
+
+# 指定单场 dry-run
+python scripts/backfill_jjc_role_id_from_match_replay.py --match-id <对局ID> --dry-run
+
+# 确认写库
+python scripts/backfill_jjc_role_id_from_match_replay.py --limit 20 --apply --yes
+```
+
+预期:
+
+- 脚本请求推栏 `/3c/mine/match/replay`，从 `players[].role_id` 补齐 `role_id`，从 `players[].global_role_id` 补齐 replay 数字 `global_id`。
+- 脚本默认每场对局后随机 sleep 1 到 3 秒；可用 `--sleep-min` / `--sleep-max` 调整，或用 `--sleep` 指定固定间隔。
+- 当目标文档已有 `zone` 时，脚本会继续请求 `/role/indicator`，用 `role_id + zone + server` 补齐 `SK01-... global_role_id` 和 `person_id`。
+- 脚本按 `role_info_observed_match_time` 判断是否更新：旧对局只补缺失字段，不覆盖已有完整字段。
+- 若已有 `role_id` 与 replay 不一致、已有 `global_id` 与 replay 数字 ID 不一致，或已有 SK01 `global_role_id` 与 indicator 返回不一致，脚本跳过并记录 conflict。
+
+JJC 身份治理只读核验：
+
+```bash
+python scripts/check_role_identity_migration.py
+```
+
+预期：
+
+- 输出 `role_identities` / `role_jjc_cache` 的基础差异，以及 `role_identities` / `jjc_sync_role_queue` 中 `global_id` 重复、旧 `global:*` / `name:*` 主键残留、同一 `zone+role_id` 对应多个 `global_id` 的样本。
+- 新数据应优先为 `global_id:{global_id}`；旧 `global:*` / `name:*` 记录需要通过重建或后续同步迁移，不在核验脚本中自动修改。
 
 ### 6. 资历 / 百战 / 骗子查询
 

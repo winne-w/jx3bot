@@ -13,8 +13,13 @@ from nonebot import logger
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.jjc_ranking import JjcRankingService
 from src.services.jx3.indicator_utils import parse_3v3_indicator
+from src.services.jx3.kungfu import (
+    extract_global_id_from_match_replay,
+    merge_replay_global_ids_into_match_detail,
+)
 from src.services.jx3.match_history import MatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient, MatchDetailResponse
+from src.services.jx3.match_replay import MatchReplayClient
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 
 
@@ -131,6 +136,7 @@ class JjcRankingInspectService:
     tuilan_request: Callable[[str, dict[str, Any]], Any]
     role_indicator_fetcher: Callable[..., Optional[dict[str, Any]]]
     kungfu_pinyin_to_chinese: dict[str, str]
+    match_replay_client: Optional[MatchReplayClient] = None
     role_recent_ttl_seconds: int = 600
     role_indicator_ttl_seconds: int = 86400
     max_recent_matches: int = 20
@@ -155,6 +161,54 @@ class JjcRankingInspectService:
         if not text:
             return ""
         return self.kungfu_pinyin_to_chinese.get(text, text)
+
+    async def _fetch_match_replay(self, match_id: int) -> Optional[dict[str, Any]]:
+        if self.match_replay_client is None:
+            return None
+        replay = await self._run_serialized_tuilan_query(
+            "match_replay",
+            f"match_replay:{match_id}",
+            self.match_replay_client.get_match_replay,
+            match_id=match_id,
+        )
+        if not isinstance(replay, dict) or replay.get("error"):
+            return None
+        return replay
+
+    async def _resolve_global_id_from_match(
+        self,
+        *,
+        match_id: int,
+        identity: dict[str, Any],
+        server: str,
+        name: str,
+    ) -> Optional[str]:
+        if _pick_str(identity.get("global_id")):
+            return _pick_str(identity.get("global_id"))
+        replay = await self._fetch_match_replay(match_id)
+        if not replay:
+            return None
+        return extract_global_id_from_match_replay(
+            replay,
+            role_id=_pick_str(identity.get("role_id"), identity.get("game_role_id")),
+            role_name=_normalize_name(name),
+            server=server,
+        )
+
+    async def _enrich_detail_payload_with_replay(self, payload: dict[str, Any]) -> bool:
+        match_id = _coerce_int(payload.get("match_id"))
+        detail = payload.get("detail")
+        if match_id is None or not isinstance(detail, dict):
+            return False
+        replay = payload.get("replay")
+        if not isinstance(replay, dict) or replay.get("error"):
+            replay = await self._fetch_match_replay(match_id)
+            if replay:
+                payload["replay"] = replay
+        if not replay:
+            return False
+        merge_replay_global_ids_into_match_detail({"data": detail}, replay)
+        return True
 
     async def _run_serialized_tuilan_query(
         self,
@@ -252,6 +306,7 @@ class JjcRankingInspectService:
         name: str,
         game_role_id: Optional[str] = None,
         global_role_id: Optional[str] = None,
+        global_id: Optional[str] = None,
         role_id: Optional[str] = None,
         zone: Optional[str] = None,
         force_refresh: bool = False,
@@ -262,6 +317,7 @@ class JjcRankingInspectService:
             identity_hints={
                 "game_role_id": game_role_id or None,
                 "global_role_id": global_role_id or None,
+                "global_id": global_id or None,
                 "role_id": role_id or None,
                 "zone": zone or None,
             },
@@ -342,6 +398,7 @@ class JjcRankingInspectService:
             "name": _normalize_name(name),
             "game_role_id": resolved_game_role_id,
             "global_role_id": _pick_str(identity.get("global_role_id")),
+            "global_id": _pick_str(identity.get("global_id")),
             "zone": resolved_zone,
             "indicator": parsed,
             "raw": raw,
@@ -371,6 +428,7 @@ class JjcRankingInspectService:
     ) -> dict[str, Any]:
         """按优先级解析角色身份：role_identities → role_jjc_cache → live ranking。"""
         display_name = _normalize_name(name)
+        hint_global_id = _pick_str(identity_hints.get("global_id"))
         hint_global_role_id = _pick_str(identity_hints.get("global_role_id"))
         hint_role_id = _pick_str(identity_hints.get("role_id"))
         hint_game_role_id = _pick_str(identity_hints.get("game_role_id"))
@@ -379,15 +437,17 @@ class JjcRankingInspectService:
         # ---- 1. 前端直接传入 global_role_id ----
         if hint_global_role_id:
             logger.info("JJC 角色标识解析: 直接使用前端传入 global_role_id server={} name={}", server, name)
+            identity_key = f"global_id:{hint_global_id}" if hint_global_id else f"global:{hint_global_role_id}"
             return {
                 "server": server,
                 "name": display_name,
                 "global_role_id": hint_global_role_id,
+                "global_id": hint_global_id,
                 "role_id": hint_role_id,
                 "game_role_id": hint_game_role_id or hint_role_id,
                 "zone": hint_zone,
                 "source": "detail_hint_global_role_id",
-                "identity_key": f"global:{hint_global_role_id}",
+                "identity_key": identity_key,
             }
 
         # ---- 2. 有 game_role_id + zone → 先查 role_identities，再走 indicator 补 global ----
@@ -397,6 +457,7 @@ class JjcRankingInspectService:
                 name=name,
                 zone=hint_zone,
                 game_role_id=hint_game_role_id,
+                global_id=hint_global_id,
             )
             if identity:
                 gid = _pick_str(identity.get("global_role_id"))
@@ -406,6 +467,7 @@ class JjcRankingInspectService:
                         "server": server,
                         "name": display_name,
                         "global_role_id": gid,
+                        "global_id": _pick_str(identity.get("global_id")) or hint_global_id,
                         "role_id": _pick_str(identity.get("role_id")) or hint_role_id,
                         "game_role_id": _pick_str(identity.get("game_role_id")) or hint_game_role_id,
                         "zone": _pick_str(identity.get("zone")) or hint_zone,
@@ -418,6 +480,7 @@ class JjcRankingInspectService:
                 game_role_id=hint_game_role_id,
                 zone=hint_zone,
                 role_id=hint_role_id,
+                global_id=hint_global_id,
                 source="detail_hint_game_role_id",
             )
             if identity:
@@ -427,6 +490,7 @@ class JjcRankingInspectService:
         identity = await self.kungfu_cache_repo.resolve_role_identity(
             server=server,
             name=name,
+            global_id=hint_global_id,
         )
         if identity:
             gid = _pick_str(identity.get("global_role_id"))
@@ -436,6 +500,7 @@ class JjcRankingInspectService:
                     "server": server,
                     "name": display_name,
                     "global_role_id": gid,
+                    "global_id": _pick_str(identity.get("global_id")) or hint_global_id,
                     "role_id": _pick_str(identity.get("role_id")),
                     "game_role_id": _pick_str(identity.get("game_role_id")),
                     "zone": _pick_str(identity.get("zone")),
@@ -451,6 +516,7 @@ class JjcRankingInspectService:
                     game_role_id=grid,
                     zone=z,
                     role_id=_pick_str(identity.get("role_id")),
+                    global_id=_pick_str(identity.get("global_id")) or hint_global_id,
                     source="role_identity_indicator",
                 )
                 if identity_result:
@@ -463,6 +529,7 @@ class JjcRankingInspectService:
         )
         if jjc_cache:
             cache_global_role_id = _pick_str(jjc_cache.get("global_role_id"))
+            cache_global_id = _pick_str(jjc_cache.get("global_id")) or hint_global_id
             cache_game_role_id = _pick_str(jjc_cache.get("game_role_id"))
             cache_zone = _pick_str(jjc_cache.get("zone"))
             cache_role_id = _pick_str(jjc_cache.get("role_id"))
@@ -472,6 +539,7 @@ class JjcRankingInspectService:
                     "server": server,
                     "name": display_name,
                     "global_role_id": cache_global_role_id,
+                    "global_id": cache_global_id,
                     "role_id": cache_role_id,
                     "game_role_id": cache_game_role_id or cache_role_id,
                     "zone": cache_zone,
@@ -485,6 +553,7 @@ class JjcRankingInspectService:
                     game_role_id=cache_game_role_id,
                     zone=cache_zone,
                     role_id=cache_role_id,
+                    global_id=cache_global_id,
                     source="new_cache_game_role_id",
                 )
                 if identity:
@@ -529,6 +598,7 @@ class JjcRankingInspectService:
                         game_role_id=ranking_game_role_id,
                         zone=ranking_zone,
                         role_id=ranking_game_role_id,
+                        global_id=None,
                         source="live_ranking_game_role_id",
                     )
                     if identity:
@@ -545,6 +615,7 @@ class JjcRankingInspectService:
         game_role_id: str,
         zone: str,
         role_id: Optional[str],
+        global_id: Optional[str],
         source: str,
     ) -> Optional[dict[str, Any]]:
         logger.info(
@@ -587,6 +658,7 @@ class JjcRankingInspectService:
                 game_role_id=game_role_id,
                 global_role_id=global_role_id,
                 role_id=resolved_role_id,
+                global_id=global_id,
             )
         except Exception as exc:
             logger.warning("JJC 角色标识解析: 写入 role_identities 失败 server={} name={} error={}", server, name, exc)
@@ -594,11 +666,12 @@ class JjcRankingInspectService:
             "server": server,
             "name": _normalize_name(name),
             "global_role_id": global_role_id,
+            "global_id": global_id,
             "role_id": resolved_role_id,
             "game_role_id": game_role_id,
             "zone": zone,
             "source": source,
-            "identity_key": f"global:{global_role_id}",
+            "identity_key": f"global_id:{global_id}" if global_id else f"global:{global_role_id}",
         }
 
     async def _build_role_recent_payload(self, *, server: str, name: str, identity: dict[str, Any], cursor: int = 0) -> dict[str, Any]:
@@ -652,6 +725,30 @@ class JjcRankingInspectService:
         recent_matches = history_3v3[: self.max_recent_matches]
         missing_match_id_count = sum(1 for item in recent_matches if not item.get("match_id"))
         missing_avg_grade_count = sum(1 for item in recent_matches if item.get("avg_grade") is None)
+        if not _pick_str(identity.get("global_id")):
+            first_match_id = next(
+                (
+                    _coerce_int(item.get("match_id"))
+                    for item in recent_matches
+                    if isinstance(item, dict) and _coerce_int(item.get("match_id")) is not None
+                ),
+                None,
+            )
+            if first_match_id is not None:
+                global_id = await self._resolve_global_id_from_match(
+                    match_id=first_match_id,
+                    identity=identity,
+                    server=server,
+                    name=name,
+                )
+                if global_id:
+                    identity = dict(identity)
+                    identity["global_id"] = global_id
+                    identity["identity_hints"] = {
+                        **(identity.get("identity_hints") or {}),
+                        "global_id": global_id,
+                        "source_match_id": first_match_id,
+                    }
 
         logger.info(
             "JJC 角色近期构建完成: server={} name={} history_total={} recent_total={} missing_match_id_count={} missing_avg_grade_count={} identity_source={}",
@@ -774,6 +871,13 @@ class JjcRankingInspectService:
         cached = await self.cache_repo.load_match_detail(normalized_match_id)
         if cached:
             data = dict(cached.get("data") or {})
+            before = repr(data)
+            await self._enrich_detail_payload_with_replay(data)
+            if repr(data) != before:
+                await self.cache_repo.save_match_detail(
+                    normalized_match_id,
+                    {"cached_at": cached.get("cached_at") or time.time(), "data": data},
+                )
             data["cache"] = {"hit": True, "cached_at": cached.get("cached_at")}
             return data
 
@@ -816,6 +920,7 @@ class JjcRankingInspectService:
                 if not isinstance(player, dict):
                     continue
                 player["kungfu"] = self._translate_kungfu_name(player.get("kungfu"))
+        await self._enrich_detail_payload_with_replay(payload)
         cached_at = time.time()
         await self.cache_repo.save_match_detail(normalized_match_id, {"cached_at": cached_at, "data": payload})
         payload["cache"] = {"hit": False, "cached_at": cached_at}

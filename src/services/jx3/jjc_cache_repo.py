@@ -40,6 +40,7 @@ class JjcCacheRepo:
         name: str,
         zone: Optional[str] = None,
         game_role_id: Optional[str] = None,
+        global_id: Optional[str] = None,
     ) -> Optional[dict[str, Any]]:
         identity_repo = self._get_identity_repo()
         return await identity_repo.resolve_best_identity(
@@ -47,6 +48,7 @@ class JjcCacheRepo:
             name=name,
             zone=zone,
             game_role_id=game_role_id,
+            global_id=global_id,
         )
 
     async def upsert_role_identity_from_indicator(
@@ -58,6 +60,7 @@ class JjcCacheRepo:
         game_role_id: Optional[str],
         global_role_id: Optional[str],
         role_id: Optional[str],
+        global_id: Optional[str] = None,
     ) -> dict[str, Any]:
         identity_repo = self._get_identity_repo()
         jjc_repo = self._get_jjc_cache_repo()
@@ -68,6 +71,7 @@ class JjcCacheRepo:
             game_role_id=game_role_id,
             global_role_id=global_role_id,
             role_id=role_id,
+            global_id=global_id,
             cache_repo=jjc_repo,
         )
 
@@ -292,6 +296,7 @@ class JjcCacheRepo:
             zone = result.get("zone")
             game_role_id = result.get("game_role_id")
             global_role_id = result.get("global_role_id")
+            global_id = result.get("global_id")
             role_id = result.get("role_id")
 
             identity = await self.upsert_role_identity_from_indicator(
@@ -301,6 +306,7 @@ class JjcCacheRepo:
                 game_role_id=game_role_id,
                 global_role_id=global_role_id,
                 role_id=role_id,
+                global_id=global_id,
             )
             identity_key = identity["identity_key"]
 
@@ -310,7 +316,7 @@ class JjcCacheRepo:
                 "source": "ranking",
             }
             _copy_if_present(result, cache_data, [
-                "zone", "game_role_id", "role_id", "global_role_id",
+                "zone", "game_role_id", "role_id", "global_id", "global_role_id",
                 "kungfu", "kungfu_id", "kungfu_pinyin",
                 "kungfu_indicator", "kungfu_match_history",
                 "kungfu_selected_source",

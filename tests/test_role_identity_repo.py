@@ -62,7 +62,8 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("name", update["$set"])
         self.assertEqual(update["$set"]["global_role_id"], "gid")
         self.assertEqual(update["$set"]["role_id"], "rid")
-        self.assertEqual(update["$addToSet"], {"sources": "match_detail"})
+        self.assertEqual(update["$addToSet"]["sources"], "match_detail")
+        self.assertEqual(update["$addToSet"]["profile_history"]["source"], "match_detail")
 
     async def test_match_detail_overwrites_profile_when_match_time_is_newer(self) -> None:
         db = FakeDb()
@@ -130,6 +131,61 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["$set"]["normalized_server"], "新服")
         self.assertEqual(update["$set"]["normalized_name"], "新名")
         self.assertIn("profile_observed_at", update["$set"])
+
+    async def test_global_id_is_preferred_over_sk01_global_role_id(self) -> None:
+        db = FakeDb()
+        repo = RoleIdentityRepo(db=db)
+
+        result = await repo.upsert_from_match_detail(
+            server="梦江南",
+            name="角色A",
+            zone="电信区",
+            game_role_id="rid-a",
+            global_role_id="SK01-abc",
+            global_id="99999",
+            role_id="rid-a",
+            person_id="person-a",
+        )
+
+        self.assertEqual(result["identity_key"], "global_id:99999")
+        self.assertEqual(result["identity_level"], "global_id")
+        self.assertEqual(result["global_id"], "99999")
+        self.assertEqual(result["global_role_id"], "SK01-abc")
+        self.assertEqual(result["profile_history"][0]["global_id"], "99999")
+
+    async def test_legacy_global_role_identity_upgrades_to_global_id(self) -> None:
+        db = FakeDb()
+        existing = {
+            "identity_key": "global:SK01-abc",
+            "identity_level": "global",
+            "server": "梦江南",
+            "normalized_server": "梦江南",
+            "name": "角色A",
+            "normalized_name": "角色A",
+            "global_role_id": "SK01-abc",
+        }
+        db.role_identities.find_one.side_effect = [
+            None,
+            dict(existing),
+            dict(existing, identity_key="global_id:99999", identity_level="global_id", global_id="99999"),
+        ]
+        repo = RoleIdentityRepo(db=db)
+
+        await repo.upsert_from_match_detail(
+            server="梦江南",
+            name="角色A",
+            zone="电信区",
+            game_role_id="rid-a",
+            global_role_id="SK01-abc",
+            global_id="99999",
+        )
+
+        filter_doc, update = db.role_identities.update_one.call_args.args
+        self.assertEqual(filter_doc, {"identity_key": "global:SK01-abc"})
+        self.assertEqual(update["$set"]["identity_key"], "global_id:99999")
+        self.assertEqual(update["$set"]["identity_level"], "global_id")
+        self.assertEqual(update["$set"]["global_id"], "99999")
+        self.assertIn("global:SK01-abc", update["$addToSet"]["aliases"]["$each"])
 
 
 if __name__ == "__main__":

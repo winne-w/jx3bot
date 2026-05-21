@@ -215,8 +215,8 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `_id` | ObjectId | MongoDB 自动主键 |
-| `identity_key` | string | 内部主键，按 `identity_key` 生成规则计算，业务唯一 |
-| `identity_level` | string | 身份级别：`global`（有 `global_role_id`）、`game_role`（有 `zone + game_role_id`）、`name`（仅 `server + name`） |
+| `identity_key` | string | 内部主键，按 `identity_key` 生成规则计算，业务唯一；JJC 新数据优先使用 `global_id:{global_id}` |
+| `identity_level` | string | 身份级别：新 JJC 身份固定优先 `global_id`；历史兼容值包括 `global`（旧 SK01 `global_role_id` 主键）、`game_role`（`zone + game_role_id`）、`name`（仅 `server + name`） |
 | `server` | string | 当前服务器名 |
 | `normalized_server` | string | 规范化服务器名（去除空格、统一大小写等） |
 | `name` | string | 当前角色名，只保存纯角色名；推栏对局详情里的 `角色名·服务器` 展示名在派生写入时必须先拆掉服务器后缀 |
@@ -224,8 +224,12 @@
 | `zone` | string/null | 大区，来源于排行榜或 indicator |
 | `game_role_id` | string/null | 排行榜常见的角色 ID（`gameRoleId`） |
 | `role_id` | string/null | 角色详情或对局详情中的角色 ID |
-| `global_role_id` | string/null | 推栏战局历史所需的全局角色 ID |
+| `global_id` | string/null | JJC 稳定角色身份 ID，来自 `match/replay.players[].global_role_id`；不得与 SK01 `global_role_id` 混用 |
+| `global_role_id` | string/null | SK01 全局角色 ID，来自 `role/indicator.role_info.global_role_id`，用于请求推栏战局历史 |
 | `person_id` | string/null | 对局详情中的 person ID |
+| `role_info_observed_match_time` | int/null | 最近一次用于补充角色身份字段的对局时间 Unix 秒；用于判断旧对局是否允许覆盖角色信息 |
+| `role_info_source` | string/null | 最近一次角色信息补充来源，如 `match_replay_indicator_backfill`、`match_replay_backfill`、`match_replay_indicator` |
+| `role_info_updated_at` | float/null | 最近一次角色信息补充写入时间 Unix 秒 |
 | `aliases` | array | 历史名称、历史服务器名、旧 `identity_key` 等，支持改名/转服后的回溯查询 |
 | `sources` | array | 数据来源列表，取值：`ranking`、`indicator`、`match_detail`、`migrated_kungfu_cache` |
 | `profile_observed_at` | datetime/null | 当前 `server` / `name` 所依据的资料观测时间；排行榜/indicator 用查询时间，对局详情用 `match_time` |
@@ -238,16 +242,18 @@
 
 | 优先级 | 条件 | key 格式 | identity_level |
 |---|---|---|---|
-| 1 | 有 `global_role_id` | `global:{global_role_id}` | `global` |
-| 2 | 无 global，有 `zone + game_role_id` | `game:{zone}:{game_role_id}` | `game_role` |
-| 3 | 只有名称入口 | `name:{normalized_server}:{normalized_name}` | `name` |
+| 1 | 有 replay `global_id` | `global_id:{global_id}` | `global_id` |
+| 2 | 无 `global_id`，有 SK01 `global_role_id` | `global:{global_role_id}` | `global`（历史兼容，待迁移） |
+| 3 | 无 global，有 `zone + game_role_id` | `game:{zone}:{game_role_id}` | `game_role`（弱身份兼容） |
+| 4 | 只有名称入口 | `name:{normalized_server}:{normalized_name}` | `name`（弱身份兼容） |
 
 **身份升级规则**：当一条较低级别身份（如 `name` 或 `game_role`）后来获得了更高级别的外部 ID 时，执行升级：
 
 - `name` → `game_role`：从排行榜拿到 `zone + game_role_id` 后，重新计算 `identity_key` 为 `game:{zone}:{game_role_id}`，将旧 `identity_key` 推入 `aliases`。
-- `game_role` → `global`：通过 indicator 或对局详情拿到 `global_role_id` 后，重新计算 `identity_key` 为 `global:{global_role_id}`，将旧 `identity_key` 推入 `aliases`。
+- 任意弱身份 → `global_id`：通过 `match/history + match/replay` 或同步详情 replay 拿到数字 `global_id` 后，重新计算 `identity_key` 为 `global_id:{global_id}`，将旧 `identity_key` 推入 `aliases`。
+- `game_role` → `global`：仅作为历史兼容；通过 indicator 拿到 SK01 `global_role_id` 后可补字段，但后续仍应继续补 replay `global_id`。
 - 升级后旧 `identity_key` 记录不删除，但标记或合并到新记录。
-- 同一 `global_role_id` 不得出现多条记录；同一 `zone + game_role_id` 组合同理。
+- 同一 `global_id` 不得出现多条 `global_id:{global_id}` 记录；同一 SK01 `global_role_id` 或同一 `zone + game_role_id` 对应多个 `global_id` 时只输出冲突样本，不按 SK01 或旧 role_id 自动合并。
 - `match_detail` 属于历史对局来源，只有当对局 `match_time` 晚于现有 `profile_observed_at` 时才更新当前 `server` / `name`，避免用旧对局覆盖转服/改名后的当前资料。
 - 对于 `match_detail` 来源，原始详情里的 `players_info[].role_name` 可以保留推栏展示值；但派生写入 `role_identities.name` 时必须按“仅当最后一个 `·` 右侧等于当前 `server` 才拆分”的规则规范化为纯角色名。
 
@@ -256,8 +262,9 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_identity_key` | `identity_key` | unique |
-| `idx_global_role_id` | `global_role_id` | unique, partial（仅 `global_role_id` 不为 null 时） |
-| `idx_zone_game_role_id` | `zone`, `game_role_id` | unique, partial（仅 `zone` 与 `game_role_id` 均不为 null 时） |
+| `idx_global_id` | `global_id` | unique, partial（仅 `global_id` 不为 null 时） |
+| `idx_global_role_id` | `global_role_id` | 普通索引；SK01 不再作为最终唯一身份 |
+| `idx_zone_game_role_id` | `zone`, `game_role_id` | 普通复合索引；用于弱身份 fallback 与冲突审计 |
 | `idx_normalized_server_name` | `normalized_server`, `normalized_name` | 普通索引（用于按名称查询入口） |
 | `idx_last_seen_at` | `last_seen_at` | 普通索引 |
 
@@ -308,7 +315,8 @@
 | `zone` | string/null | 查询与展示冗余字段 |
 | `game_role_id` | string/null | 外部 ID 冗余，便于调试和查询 |
 | `role_id` | string/null | 外部 ID 冗余 |
-| `global_role_id` | string/null | 外部 ID 冗余 |
+| `global_id` | string/null | JJC 稳定角色身份 ID 冗余，缓存查询优先使用 |
+| `global_role_id` | string/null | SK01 全局角色 ID 冗余，用于请求战局历史 |
 | `kungfu` | string/null | 最终判定的心法中文名 |
 | `kungfu_id` | string/int/null | 最终判定的心法 ID |
 | `kungfu_pinyin` | string/null | 心法拼音 |
@@ -333,6 +341,7 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_identity_key` | `identity_key` | unique |
+| `idx_global_id` | `global_id` | 普通索引 |
 | `idx_global_role_id` | `global_role_id` | 普通索引 |
 | `idx_zone_game_role_id` | `zone`, `game_role_id` | 普通索引 |
 | `idx_normalized_server_name` | `normalized_server`, `normalized_name` | 普通索引 |
@@ -404,12 +413,13 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `_id` | ObjectId | MongoDB 自动主键 |
-| `cache_key` | string | 缓存键，使用 `identity_key`（如 `global:<global_role_id>`），业务唯一 |
+| `cache_key` | string | 缓存键，使用 `identity_key`（新数据如 `global_id:<global_id>`，历史兼容 `global:<global_role_id>`），业务唯一 |
 | `identity_key` | string | 关联 `role_identities.identity_key` |
 | `server` | string | 服务器名 |
 | `name` | string | 角色名 |
 | `game_role_id` | string/null | 游戏角色 ID |
-| `global_role_id` | string/null | 推栏全局角色 ID |
+| `global_id` | string/null | JJC 稳定角色身份 ID，来自 replay 数字 ID |
+| `global_role_id` | string/null | SK01 全局角色 ID，用于请求战局历史 |
 | `zone` | string/null | 区服分区 |
 | `indicator` | object | 规整后的 3v3 指标：`source`、`type`、`total_matches`、`win_rate`、`score`、`best_score`、`grade` |
 | `raw` | object | `role/indicator` 原始响应 |
@@ -444,7 +454,14 @@
 | `_id` | ObjectId | MongoDB 自动主键 |
 | `match_id` | int | 对局 ID，业务唯一键 |
 | `cached_at` | float | 缓存时间 Unix 秒 |
-| `data` | object | 对局详情原始或规整后的结果 |
+| `data` | object | 对局详情原始或规整后的结果；包含 `detail` 与可选完整 `replay` 原始响应 |
+
+`data` 顶层字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `detail` | object/null | 推栏 `match/detail` 详情数据；不可用终态为 null |
+| `replay` | object/null | 推栏 `match/replay` 完整原始响应，用于后续页面点击和身份补齐复用，避免重复请求 replay |
 
 `data` 内部玩家节点字段（拆表后）：
 
@@ -471,6 +488,7 @@
 - 不应把 `data` 改成 JSON 字符串。JSON 字符串会让 Mongo 只能按普通字符串处理，无法直接索引或查询 `data.detail.*` 子字段。
 - 现有 API 返回结构依赖 `data.detail.basic_info`、`team1`、`team2`、`players_info[].armors`、`players_info[].talents` 等字段。前端 `public/jjc-ranking-stats.html` 当前展示基础对局信息、双方玩家、分数/血量/装分、装备图标和奇穴图标。
 - 推栏明确返回 `code=-1`、`msg=no data found`、`data=null` 时，`data` 保存轻量不可用终态：`{"match_id": <int>, "unavailable": true, "code": -1, "message": "no data found", "detail": null}`。这类文档不进入装备/奇穴快照拆表，读取时原样返回并带缓存命中信息。
+- 可用详情会尽量保存 `data.replay` 完整原始响应。读取缓存时若已存在 `data.replay`，直接用它回填 `players_info[].global_id`；仅历史缓存缺失 replay 时才补请求并写回本集合。
 
 2026-04-30 只读抽样观察：
 
@@ -558,16 +576,20 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `_id` | ObjectId | MongoDB 自动主键 |
-| `identity_key` | string | 角色身份键，优先 `global:{global_role_id}`，其次 `game:{zone}:{role_id}`，最后 `name:{normalized_server}:{normalized_name}`，业务唯一 |
+| `identity_key` | string | 角色身份键，优先 `global_id:{global_id}`；旧 `global:{global_role_id}`、`game:{zone}:{role_id}`、`name:{normalized_server}:{normalized_name}` 仅作迁移期兼容，业务唯一 |
 | `server` | string | 服务器名 |
 | `name` | string | 角色名，只保存纯角色名；对局详情自动发现链路写入前必须先去掉可判定的服务器展示后缀 |
 | `normalized_server` | string | 规范化服务器名 |
 | `normalized_name` | string | 规范化角色名 |
-| `global_role_id` | string/null | 推栏全局角色 ID |
+| `global_id` | string/null | JJC 稳定角色身份 ID，来自 `match/replay.players[].global_role_id` |
+| `global_role_id` | string/null | SK01 全局角色 ID，来自 `role/indicator.role_info.global_role_id`，用于请求推栏战局历史 |
 | `role_id` | string/null | 角色 ID |
-| `person_id` | string/null | 推栏个人 ID；对局详情缺 `global_role_id` 时可用于 `person-history` 补全 |
+| `person_id` | string/null | 推栏个人 ID；对局详情或 indicator 可提供，入口兜底时仍可用于 `person-history` 兼容补全 |
 | `zone` | string/null | 区服分区 |
 | `identity_source` | string/null | 同步前身份补全来源，如 `role_identity_name_match`、`live_ranking_global_role_id`、`person_history` |
+| `role_info_observed_match_time` | int/null | 最近一次用于补充角色身份字段的对局时间 Unix 秒；用于判断旧对局是否允许覆盖角色信息 |
+| `role_info_source` | string/null | 最近一次角色信息补充来源，如 `match_replay_indicator_backfill`、`match_replay_backfill`、`match_replay_indicator` |
+| `role_info_updated_at` | float/null | 最近一次角色信息补充写入时间 Unix 秒 |
 | `source` | string | 来源：`manual`、`ranking`、`match_detail` |
 | `priority` | int | 调度优先级，手动添加高于自动发现 |
 | `status` | string | 状态：`pending`、`syncing`、`exhausted`、`cooldown`、`failed`、`disabled` |
@@ -594,6 +616,7 @@
 | `idx_identity_key` | `identity_key` | unique |
 | `idx_status_priority_next_sync_after` | `status`, `priority`, `next_sync_after` | 普通复合索引 |
 | `idx_normalized_server_name` | `normalized_server`, `normalized_name` | 普通复合索引 |
+| `idx_global_id` | `global_id` | 普通索引 |
 | `idx_global_role_id` | `global_role_id` | 普通索引 |
 | `idx_lease_expires_at` | `lease_expires_at` | 普通索引 |
 

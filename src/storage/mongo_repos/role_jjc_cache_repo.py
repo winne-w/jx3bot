@@ -44,9 +44,17 @@ class RoleJjcCacheRepo:
         name: Optional[str] = None,
         zone: Optional[str] = None,
         game_role_id: Optional[str] = None,
+        global_id: Optional[str] = None,
         global_role_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """按可用 ID 优先级查找 JJC 缓存：global_role_id > zone+game_role_id > server+name。"""
+        """按可用 ID 优先级查找 JJC 缓存：global_id > global_role_id > zone+game_role_id > server+name。"""
+        replay_gid = (global_id or "").strip()
+        if replay_gid:
+            doc = await self._col().find_one({"global_id": replay_gid})
+            if doc:
+                doc.pop("_id", None)
+                return doc
+
         gid = (global_role_id or "").strip()
         if gid:
             doc = await self._col().find_one({"global_role_id": gid})
@@ -77,7 +85,7 @@ class RoleJjcCacheRepo:
     async def save(self, identity_key: str, cache_data: Dict[str, Any]) -> None:
         """写入或更新 JJC 缓存。cache_data 中的字段会直接 $set 到文档。
 
-        cache_data 可选包含：server, name, zone, game_role_id, role_id, global_role_id,
+        cache_data 可选包含：server, name, zone, game_role_id, role_id, global_id, global_role_id,
         kungfu, kungfu_id, kungfu_pinyin, kungfu_indicator, kungfu_match_history,
         kungfu_selected_source, weapon, weapon_icon, weapon_quality, weapon_checked,
         teammates, teammates_checked, match_history_checked, match_history_win_samples,
@@ -120,7 +128,7 @@ class RoleJjcCacheRepo:
             if new_doc:
                 _PROTECTED = {
                     "_id", "identity_key", "server", "name", "zone",
-                    "game_role_id", "global_role_id", "normalized_server",
+                    "game_role_id", "global_id", "global_role_id", "normalized_server",
                     "normalized_name", "role_id",
                 }
                 merge = {

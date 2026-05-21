@@ -9,10 +9,15 @@ from nonebot import logger
 from pymongo.errors import DuplicateKeyError
 
 from src.infra.mongo import get_db as _get_db
+from src.services.jx3.role_identity_matching import (
+    build_identity_key as _build_role_identity_key,
+    build_profile_history_entry,
+    legacy_identity_keys,
+)
 
 SCHEMA_VERSION = 1
 
-_LEVEL_ORDER = {"name": 0, "game_role": 1, "global": 2}
+_LEVEL_ORDER = {"name": 0, "game_role": 1, "global": 2, "global_id": 3}
 
 
 def _normalize(value: str) -> str:
@@ -35,23 +40,20 @@ def build_identity_key(
     game_role_id: Optional[str] = None,
     server: Optional[str] = None,
     name: Optional[str] = None,
+    global_id: Optional[str] = None,
 ) -> Tuple[str, str]:
     """根据可用外部 ID 生成 (identity_key, identity_level)。
 
-    优先级：global_role_id > zone + game_role_id > server + name。
+    优先级：global_id > global_role_id > zone + game_role_id > server + name。
     """
-    gid = (global_role_id or "").strip()
-    if gid:
-        return f"global:{gid}", "global"
-
-    z = (zone or "").strip()
-    grid = (game_role_id or "").strip()
-    if z and grid:
-        return f"game:{z}:{grid}", "game_role"
-
-    ns = _normalize(server or "")
-    nn = _normalize(name or "")
-    return f"name:{ns}:{nn}", "name"
+    return _build_role_identity_key(
+        global_role_id=global_role_id,
+        zone=zone,
+        game_role_id=game_role_id,
+        server=server,
+        name=name,
+        global_id=global_id,
+    )
 
 
 @dataclass(frozen=True)
@@ -70,13 +72,35 @@ class RoleIdentityRepo:
     # ---- 查询 ----
 
     async def find_by_global_role_id(self, global_role_id: str) -> Optional[Dict[str, Any]]:
-        doc = await self._col().find_one({"global_role_id": global_role_id})
+        doc = await self._col().find_one({
+            "$or": [
+                {"global_role_id": global_role_id},
+                {"identity_key": f"global:{global_role_id}"},
+            ]
+        })
+        if doc:
+            doc.pop("_id", None)
+        return doc
+
+    async def find_by_global_id(self, global_id: str) -> Optional[Dict[str, Any]]:
+        doc = await self._col().find_one({
+            "$or": [
+                {"global_id": global_id},
+                {"identity_key": f"global_id:{global_id}"},
+            ]
+        })
         if doc:
             doc.pop("_id", None)
         return doc
 
     async def find_by_game_role_id(self, zone: str, game_role_id: str) -> Optional[Dict[str, Any]]:
-        doc = await self._col().find_one({"zone": zone, "game_role_id": game_role_id})
+        doc = await self._col().find_one({
+            "$or": [
+                {"zone": zone, "game_role_id": game_role_id},
+                {"zone": zone, "role_id": game_role_id},
+                {"identity_key": f"game:{zone}:{game_role_id}"},
+            ]
+        })
         if doc:
             doc.pop("_id", None)
         return doc
@@ -98,8 +122,15 @@ class RoleIdentityRepo:
         zone: Optional[str] = None,
         game_role_id: Optional[str] = None,
         global_role_id: Optional[str] = None,
+        global_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """按优先级查找最佳匹配身份：global_role_id > zone+game_role_id > server+name。"""
+        """按优先级查找最佳匹配身份：global_id > global_role_id > zone+game_role_id > server+name。"""
+        replay_gid = (global_id or "").strip()
+        if replay_gid:
+            doc = await self.find_by_global_id(replay_gid)
+            if doc:
+                return doc
+
         gid = (global_role_id or "").strip()
         if gid:
             doc = await self.find_by_global_role_id(gid)
@@ -127,13 +158,14 @@ class RoleIdentityRepo:
         global_role_id: Optional[str] = None,
         role_id: Optional[str] = None,
         person_id: Optional[str] = None,
+        global_id: Optional[str] = None,
         cache_repo: Any = None,
     ) -> Dict[str, Any]:
         """从排行榜数据写入或升级身份。"""
         return await self._upsert_identity(
             server=server, name=name, zone=zone, game_role_id=game_role_id,
             global_role_id=global_role_id, role_id=role_id, person_id=person_id,
-            source="ranking", cache_repo=cache_repo,
+            global_id=global_id, source="ranking", cache_repo=cache_repo,
         )
 
     async def upsert_from_indicator(
@@ -144,12 +176,13 @@ class RoleIdentityRepo:
         game_role_id: Optional[str] = None,
         global_role_id: Optional[str] = None,
         role_id: Optional[str] = None,
+        global_id: Optional[str] = None,
         cache_repo: Any = None,
     ) -> Dict[str, Any]:
         """从 indicator 接口数据写入或升级身份。"""
         return await self._upsert_identity(
             server=server, name=name, zone=zone, game_role_id=game_role_id,
-            global_role_id=global_role_id, role_id=role_id,
+            global_role_id=global_role_id, role_id=role_id, global_id=global_id,
             source="indicator", cache_repo=cache_repo,
         )
 
@@ -163,13 +196,14 @@ class RoleIdentityRepo:
         role_id: Optional[str] = None,
         person_id: Optional[str] = None,
         observed_at: Optional[datetime] = None,
+        global_id: Optional[str] = None,
         cache_repo: Any = None,
     ) -> Dict[str, Any]:
         """从对局详情数据写入或升级身份。"""
         return await self._upsert_identity(
             server=server, name=name, zone=zone, game_role_id=game_role_id,
             global_role_id=global_role_id, role_id=role_id, person_id=person_id,
-            source="match_detail", observed_at=observed_at, cache_repo=cache_repo,
+            global_id=global_id, source="match_detail", observed_at=observed_at, cache_repo=cache_repo,
         )
 
     # ---- 显式升级 ----
@@ -180,6 +214,7 @@ class RoleIdentityRepo:
         global_role_id: Optional[str] = None,
         zone: Optional[str] = None,
         game_role_id: Optional[str] = None,
+        global_id: Optional[str] = None,
         cache_repo: Any = None,
     ) -> Optional[Dict[str, Any]]:
         """显式升级身份：当获得更高级别外部 ID 时调用。
@@ -193,6 +228,7 @@ class RoleIdentityRepo:
             return None
 
         new_key, new_level = build_identity_key(
+            global_id=global_id,
             global_role_id=global_role_id,
             zone=zone or existing.get("zone"),
             game_role_id=game_role_id or existing.get("game_role_id"),
@@ -213,6 +249,8 @@ class RoleIdentityRepo:
         }
         if global_role_id:
             set_fields["global_role_id"] = global_role_id
+        if global_id:
+            set_fields["global_id"] = global_id
         if zone:
             set_fields["zone"] = zone
         if game_role_id:
@@ -252,6 +290,7 @@ class RoleIdentityRepo:
         zone: Optional[str] = None,
         game_role_id: Optional[str] = None,
         global_role_id: Optional[str] = None,
+        global_id: Optional[str] = None,
         role_id: Optional[str] = None,
         person_id: Optional[str] = None,
         observed_at: Optional[datetime] = None,
@@ -266,20 +305,26 @@ class RoleIdentityRepo:
         existing = await self.resolve_best_identity(
             server=server, name=name,
             zone=zone, game_role_id=game_role_id,
-            global_role_id=global_role_id,
+            global_role_id=global_role_id, global_id=global_id,
         )
 
         if existing:
             return await self._update_existing(
                 existing, server, name, ns, nn,
-                zone, game_role_id, global_role_id, role_id, person_id,
+                zone, game_role_id, global_role_id, global_id, role_id, person_id,
                 source, now, profile_observed_at, cache_repo=cache_repo,
             )
 
         # 无已有身份 → 新建
         identity_key, identity_level = build_identity_key(
             global_role_id=global_role_id, zone=zone, game_role_id=game_role_id,
-            server=server, name=name,
+            server=server, name=name, global_id=global_id,
+        )
+        history_entry = build_profile_history_entry(
+            server=server, name=name, zone=zone, role_id=role_id,
+            game_role_id=game_role_id, global_role_id=global_role_id,
+            global_id=global_id, person_id=person_id, source=source,
+            observed_at=profile_observed_at,
         )
 
         doc = {
@@ -294,6 +339,7 @@ class RoleIdentityRepo:
             "aliases": [],
             "sources": [source],
             "profile_observed_at": profile_observed_at,
+            "profile_history": [history_entry],
             "first_seen_at": now,
             "last_seen_at": now,
             "updated_at": now,
@@ -306,6 +352,8 @@ class RoleIdentityRepo:
             doc["game_role_id"] = game_role_id
         if global_role_id:
             doc["global_role_id"] = global_role_id
+        if global_id:
+            doc["global_id"] = global_id
 
         try:
             await self._col().insert_one(doc)
@@ -316,7 +364,7 @@ class RoleIdentityRepo:
                 existing.pop("_id", None)
                 return await self._update_existing(
                     existing, server, name, ns, nn,
-                    zone, game_role_id, global_role_id, role_id, person_id,
+                    zone, game_role_id, global_role_id, global_id, role_id, person_id,
                     source, now, profile_observed_at, cache_repo=cache_repo,
                 )
             raise
@@ -334,6 +382,7 @@ class RoleIdentityRepo:
         zone: Optional[str],
         game_role_id: Optional[str],
         global_role_id: Optional[str],
+        global_id: Optional[str],
         role_id: Optional[str],
         person_id: Optional[str],
         source: str,
@@ -346,7 +395,7 @@ class RoleIdentityRepo:
         current_level: str = existing.get("identity_level", "name")
 
         new_key, new_level = build_identity_key(
-            global_role_id=global_role_id, zone=zone, game_role_id=game_role_id,
+            global_id=global_id, global_role_id=global_role_id, zone=zone, game_role_id=game_role_id,
             server=server, name=name,
         )
 
@@ -379,6 +428,7 @@ class RoleIdentityRepo:
         for field_name, value in [
             ("zone", zone),
             ("game_role_id", game_role_id),
+            ("global_id", global_id),
             ("global_role_id", global_role_id),
             ("role_id", role_id),
             ("person_id", person_id),
@@ -392,10 +442,26 @@ class RoleIdentityRepo:
 
         update_op: Dict[str, Any] = {
             "$set": set_fields,
-            "$addToSet": {"sources": source},
+            "$addToSet": {
+                "sources": source,
+                "profile_history": build_profile_history_entry(
+                    server=server, name=name, zone=zone, role_id=role_id,
+                    game_role_id=game_role_id, global_role_id=global_role_id,
+                    global_id=global_id, person_id=person_id, source=source,
+                    observed_at=profile_observed_at,
+                ),
+            },
         }
         if needs_upgrade:
-            update_op["$push"] = {"aliases": current_key}
+            aliases = [current_key]
+            aliases.extend(legacy_identity_keys(
+                global_role_id=global_role_id,
+                zone=zone,
+                game_role_id=game_role_id,
+                server=server,
+                name=name,
+            ))
+            update_op["$addToSet"]["aliases"] = {"$each": sorted(set(aliases))}
 
         try:
             await self._col().update_one(

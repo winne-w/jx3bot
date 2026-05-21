@@ -4,8 +4,10 @@ import asyncio
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
+from src.services.jx3.match_replay import MatchReplayClient
+from src.services.jx3.role_indicator import RoleIndicatorClient
 from src.services.jx3.tuilan_rate_limit import random_sleep
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
 
@@ -29,6 +31,7 @@ def _coerce_int(value: Any) -> Optional[int]:
 
 def build_identity_key(
     *,
+    global_id: Optional[str] = None,
     global_role_id: Optional[str] = None,
     zone: Optional[str] = None,
     role_id: Optional[str] = None,
@@ -38,13 +41,16 @@ def build_identity_key(
     """构建角色身份键。
 
     优先级:
-      1. global:{global_role_id}
-      2. game:{zone}:{role_id}
-      3. name:{server}:{name}
+      1. global_id:{global_id}
+      2. global:{global_role_id}
+      3. game:{zone}:{role_id}
+      4. name:{server}:{name}
 
     Raises:
         ValueError: 无法从提供的参数构建任何有效 key。
     """
+    if global_id:
+        return f"global_id:{global_id}"
     if global_role_id:
         return f"global:{global_role_id}"
     if zone and role_id:
@@ -52,7 +58,7 @@ def build_identity_key(
     if server and name:
         return f"name:{server}:{name}"
     raise ValueError(
-        "无法构建 identity_key：至少需要 global_role_id，或 zone+role_id，或 server+name"
+        "无法构建 identity_key：至少需要 global_id、global_role_id，或 zone+role_id，或 server+name"
     )
 
 
@@ -120,18 +126,44 @@ def normalize_role_name(role_name: Any, server: Any) -> str:
     return normalize_match_detail_role_name(role_name, server)
 
 
+def split_replay_role_name(role_name: Any, server: Any = "") -> Tuple[str, str]:
+    """从 replay 玩家名中解析 (server, name)。
+
+    replay 实测通常把服务器拼在 role_name 里，格式为 `角色名·服务器`，且没有独立
+    server 字段。若调用方传入 server，则优先使用传入值。
+    """
+    raw_name = str(role_name or "").strip()
+    raw_server = str(server or "").strip()
+    if raw_server:
+        return raw_server, normalize_role_name(raw_name, raw_server)
+    if "·" not in raw_name:
+        return "", raw_name
+    name_part, server_part = raw_name.rsplit("·", 1)
+    parsed_server = server_part.strip()
+    parsed_name = normalize_role_name(name_part.strip(), parsed_server)
+    return parsed_server, parsed_name
+
+
+def build_player_match_key(role_name: Any, server: Any) -> Optional[Tuple[str, str]]:
+    parsed_server, parsed_name = split_replay_role_name(role_name, server)
+    if not parsed_server or not parsed_name:
+        return None
+    return parsed_server.lower(), parsed_name.lower()
+
+
 def extract_players_from_detail(detail_data: dict) -> list[dict]:
     """从对局详情 payload 提取双方所有角色。
 
     从 team1.players_info 和 team2.players_info 提取，每个玩家返回包含以下字段的 dict：
       - role_name
+      - global_id
       - global_role_id
       - role_id
       - person_id
       - zone
       - server
 
-    按 global_role_id、zone+role_id、server+role_name 逐级构建去重键。
+    按 global_id、global_role_id、zone+role_id、server+role_name 逐级构建去重键。
     """
     seen: set[str] = set()
     players: list[dict] = []
@@ -146,13 +178,16 @@ def extract_players_from_detail(detail_data: dict) -> list[dict]:
         for player in players_info:
             if not isinstance(player, dict):
                 continue
+            global_id = str(player.get("global_id") or "").strip()
             global_role_id = str(player.get("global_role_id") or "").strip()
             role_id = str(player.get("role_id") or "").strip()
             person_id = str(player.get("person_id") or "").strip()
             zone = str(player.get("zone") or "").strip()
             server = str(player.get("server") or "").strip()
             role_name = normalize_role_name(player.get("role_name"), server)
-            if global_role_id:
+            if global_id:
+                dedupe_key = f"global_id:{global_id}"
+            elif global_role_id:
                 dedupe_key = f"global:{global_role_id}"
             elif zone and role_id:
                 dedupe_key = f"game:{zone}:{role_id}"
@@ -165,6 +200,7 @@ def extract_players_from_detail(detail_data: dict) -> list[dict]:
             seen.add(dedupe_key)
             players.append({
                 "role_name": role_name,
+                "global_id": global_id,
                 "global_role_id": global_role_id,
                 "role_id": role_id,
                 "person_id": person_id,
@@ -359,6 +395,8 @@ class JjcMatchDataSyncService:
         inspect_service: Optional[Any] = None,
         identity_repo: Optional[Any] = None,
         person_match_history_client: Optional[Any] = None,
+        match_replay_client: Optional[MatchReplayClient] = None,
+        role_indicator_client: Optional[RoleIndicatorClient] = None,
         sleep_func: Callable[[], Awaitable[None]] = random_sleep,
         page_size: int = 20,
         max_pages_per_role: int = 300,
@@ -371,6 +409,8 @@ class JjcMatchDataSyncService:
         self._inspect_service = inspect_service
         self._identity_repo = identity_repo
         self._person_match_history_client = person_match_history_client
+        self._match_replay_client = match_replay_client
+        self._role_indicator_client = role_indicator_client
         self._sleep_func = sleep_func
         self._page_size = page_size
         self._max_pages_per_role = max_pages_per_role
@@ -606,14 +646,17 @@ class JjcMatchDataSyncService:
                 message = f"{server}/{name} 缺少 global_role_id，无法同步推栏战局历史"
                 await self._repo.release_role_failure(identity_key, message)
                 return {"error": True, "message": message}
-            await self._repo.update_role_identity_fields(
+            migrated_identity_key = await self._repo.update_role_identity_fields_and_key(
                 identity_key=identity_key,
+                global_id=str(identity.get("global_id") or role.get("global_id") or "").strip() or None,
                 global_role_id=global_role_id,
                 role_id=str(identity.get("role_id") or identity.get("game_role_id") or "").strip() or None,
                 person_id=str(identity.get("person_id") or role.get("person_id") or "").strip() or None,
                 zone=str(identity.get("zone") or "").strip() or None,
                 identity_source=str(identity.get("source") or "").strip() or None,
             )
+            if migrated_identity_key:
+                identity_key = migrated_identity_key
             await self._upsert_role_identity_from_resolved(server, name, identity)
 
         run_upper_time = int(time.time())
@@ -752,6 +795,7 @@ class JjcMatchDataSyncService:
         role_id = str(role.get("role_id") or "").strip()
         zone = str(role.get("zone") or "").strip()
         hints: Dict[str, Any] = {
+            "global_id": str(role.get("global_id") or "").strip(),
             "global_role_id": str(role.get("global_role_id") or "").strip(),
             "role_id": role_id,
             "game_role_id": str(role.get("game_role_id") or role_id).strip(),
@@ -808,8 +852,9 @@ class JjcMatchDataSyncService:
         name = str(player.get("role_name") or "").strip()
         zone = str(player.get("zone") or "").strip()
         role_id = str(player.get("role_id") or "").strip()
+        global_id = str(player.get("global_id") or "").strip()
         global_role_id = str(player.get("global_role_id") or "").strip()
-        if not ((server and name) or (zone and role_id) or global_role_id):
+        if not ((server and name) or (zone and role_id) or global_id or global_role_id):
             return {}
         try:
             doc = await self._identity_repo.resolve_best_identity(
@@ -817,6 +862,7 @@ class JjcMatchDataSyncService:
                 name=name,
                 zone=zone or None,
                 game_role_id=role_id or None,
+                global_id=global_id or None,
                 global_role_id=global_role_id or None,
             )
         except Exception as exc:
@@ -834,6 +880,7 @@ class JjcMatchDataSyncService:
             if doc_zone != zone or doc_role_id != role_id:
                 return {}
         return {
+            "global_id": str(doc.get("global_id") or "").strip(),
             "global_role_id": str(doc.get("global_role_id") or "").strip(),
             "role_id": str(doc.get("role_id") or doc.get("game_role_id") or "").strip(),
             "game_role_id": str(doc.get("game_role_id") or doc.get("role_id") or "").strip(),
@@ -847,6 +894,7 @@ class JjcMatchDataSyncService:
     @staticmethod
     def _backfill_player_from_identity(player: Dict[str, Any], identity: Dict[str, Any]) -> None:
         for source_key, target_key in (
+            ("global_id", "global_id"),
             ("global_role_id", "global_role_id"),
             ("role_id", "role_id"),
             ("game_role_id", "role_id"),
@@ -959,11 +1007,12 @@ class JjcMatchDataSyncService:
         if self._identity_repo is None:
             return
 
+        global_id = str(identity.get("global_id") or "").strip() or None
         global_role_id = str(identity.get("global_role_id") or "").strip() or None
         role_id = str(identity.get("role_id") or identity.get("game_role_id") or "").strip() or None
         person_id = str(identity.get("person_id") or "").strip() or None
         zone = str(identity.get("zone") or "").strip() or None
-        if not global_role_id and not role_id and not zone and not person_id:
+        if not global_id and not global_role_id and not role_id and not zone and not person_id:
             return
         observed_at = (
             datetime.fromtimestamp(observed_match_time, tz=timezone.utc)
@@ -977,6 +1026,7 @@ class JjcMatchDataSyncService:
                 name=name,
                 zone=zone,
                 game_role_id=role_id,
+                global_id=global_id,
                 global_role_id=global_role_id,
                 role_id=role_id,
                 person_id=person_id,
@@ -1044,6 +1094,8 @@ class JjcMatchDataSyncService:
                         return "unavailable"
                     await self._repo.mark_match_detail_saved(match_id)
                     if isinstance(detail, dict):
+                        await self._enrich_detail_with_replay(detail, match_id, replay_data=payload.get("replay"))
+                        await self._enrich_detail_with_indicator(detail)
                         await self._enqueue_players_from_detail(detail, fallback_match_time=match_time)
                     return "saved"
             except Exception as exc:
@@ -1051,6 +1103,213 @@ class JjcMatchDataSyncService:
 
         await self._repo.mark_match_detail_failed(match_id, last_error)
         return "failed"
+
+    async def _enrich_detail_with_replay(
+        self,
+        detail: dict,
+        match_id: int,
+        replay_data: Optional[dict] = None,
+    ) -> None:
+        """从 replay 接口获取回放数据，按 global_id / role_id / normalized name 合并到 detail players。
+
+        replay players[].global_role_id 是数字字符串，只写入 detail player.global_id，
+        绝不写入 SK01 字段 global_role_id。
+        """
+        if replay_data is None and self._match_replay_client is None:
+            return
+        if replay_data is None:
+            try:
+                replay_data = await asyncio.to_thread(
+                    self._match_replay_client.get_match_replay,
+                    match_id=match_id,
+                )
+            except Exception:
+                logger.warning(f"JJC replay 请求异常: match_id={match_id}")
+                return
+
+        if not isinstance(replay_data, dict) or replay_data.get("error"):
+            return
+
+        data = replay_data.get("data")
+        replay_players: list[dict] = []
+        if isinstance(data, dict):
+            players_raw = data.get("players")
+            if isinstance(players_raw, list):
+                replay_players = [p for p in players_raw if isinstance(p, dict)]
+
+        if not replay_players:
+            return
+
+        replay_by_global_id: Dict[str, Optional[Dict[str, Any]]] = {}
+        replay_by_role_id: Dict[str, Optional[Dict[str, Any]]] = {}
+        replay_by_name: Dict[Tuple[str, str], Optional[Dict[str, Any]]] = {}
+
+        def _put_unique(
+            lookup: Dict[Any, Optional[Dict[str, Any]]],
+            key: Any,
+            replay_player: Dict[str, Any],
+        ) -> None:
+            if key in lookup:
+                existing = lookup.get(key)
+                if existing is not None and existing is not replay_player:
+                    lookup[key] = None
+                return
+            lookup[key] = replay_player
+
+        for rp in replay_players:
+            replay_global_id = str(rp.get("global_role_id") or "").strip()
+            replay_role_id = str(rp.get("role_id") or "").strip()
+            replay_name_key = build_player_match_key(rp.get("role_name"), rp.get("server"))
+            if replay_global_id:
+                _put_unique(replay_by_global_id, replay_global_id, rp)
+            if replay_role_id:
+                _put_unique(replay_by_role_id, replay_role_id, rp)
+            if replay_name_key is not None:
+                _put_unique(replay_by_name, replay_name_key, rp)
+
+        for team_key in ("team1", "team2"):
+            team = detail.get(team_key)
+            if not isinstance(team, dict):
+                continue
+            players_info = team.get("players_info")
+            if not isinstance(players_info, list):
+                continue
+            for player in players_info:
+                if not isinstance(player, dict):
+                    continue
+                player_global_id = str(player.get("global_id") or "").strip()
+                player_role_id = str(player.get("role_id") or "").strip()
+                key = build_player_match_key(player.get("role_name"), player.get("server"))
+                rp: Optional[Dict[str, Any]] = None
+                if player_global_id:
+                    rp = replay_by_global_id.get(player_global_id)
+                if rp is None and player_role_id:
+                    candidate = replay_by_role_id.get(player_role_id)
+                    if candidate is not None and self._replay_candidate_matches_detail_player(candidate, player):
+                        rp = candidate
+                if rp is None and key is not None:
+                    rp = replay_by_name.get(key)
+                if rp is None:
+                    continue
+                # 从 replay 回填 global_id / role_id / zone / server，绝不回填 SK01 global_role_id
+                replay_server, _ = split_replay_role_name(rp.get("role_name"), rp.get("server"))
+                replay_global_id = str(rp.get("global_role_id") or "").strip()
+                if replay_global_id and not str(player.get("global_id") or "").strip():
+                    player["global_id"] = replay_global_id
+                for field_name in ("role_id", "zone"):
+                    rp_val = str(rp.get(field_name) or "").strip()
+                    if rp_val and not str(player.get(field_name) or "").strip():
+                        player[field_name] = rp_val
+                if replay_server and not str(player.get("server") or "").strip():
+                    player["server"] = replay_server
+
+    @staticmethod
+    def _replay_candidate_matches_detail_player(
+        replay_player: Dict[str, Any],
+        detail_player: Dict[str, Any],
+    ) -> bool:
+        """Role ID 命中时，若两边都有可比对的 server/name，也必须一致。"""
+        replay_server, replay_name = split_replay_role_name(
+            replay_player.get("role_name"),
+            replay_player.get("server"),
+        )
+        detail_server, detail_name = split_replay_role_name(
+            detail_player.get("role_name"),
+            detail_player.get("server"),
+        )
+        if replay_name and detail_name and replay_name.lower() != detail_name.lower():
+            return False
+        if replay_server and detail_server and replay_server.lower() != detail_server.lower():
+            return False
+        return True
+
+    async def _enrich_detail_with_indicator(self, detail: dict) -> None:
+        """对 detail 中有 role_id + zone + server 且缺少 SK01 global_role_id 的玩家
+        请求 indicator 接口，回填 SK01 global_role_id 和 person_id。
+
+        若 detail 已有 person_id 且与 indicator 返回的不一致，保留 detail 的并 log warning。
+        """
+        if self._role_indicator_client is None:
+            return
+
+        for team_key in ("team1", "team2"):
+            team = detail.get(team_key)
+            if not isinstance(team, dict):
+                continue
+            players_info = team.get("players_info")
+            if not isinstance(players_info, list):
+                continue
+            for player in players_info:
+                if not isinstance(player, dict):
+                    continue
+                role_id = str(player.get("role_id") or "").strip()
+                zone = str(player.get("zone") or "").strip()
+                server = str(player.get("server") or "").strip()
+                existing_global = str(player.get("global_role_id") or "").strip()
+
+                if existing_global:
+                    continue
+                if not (role_id and zone and server):
+                    continue
+
+                await self._sleep_func()
+                try:
+                    indicator_data = await asyncio.to_thread(
+                        self._role_indicator_client.get_role_indicator,
+                        role_id=role_id,
+                        zone=zone,
+                        server=server,
+                    )
+                except Exception:
+                    continue
+
+                if not isinstance(indicator_data, dict) or indicator_data.get("error"):
+                    continue
+
+                indicator_payload = indicator_data.get("data")
+                if not isinstance(indicator_payload, dict):
+                    indicator_payload = indicator_data
+
+                role_info = indicator_payload.get("role_info")
+                if isinstance(role_info, dict):
+                    sk01_global = str(role_info.get("global_role_id") or "").strip()
+                    ind_role_id = str(role_info.get("role_id") or "").strip()
+                    if ind_role_id and ind_role_id != role_id:
+                        logger.warning(
+                            "JJC indicator role_id 冲突: requested={} indicator={} server={}".format(
+                                role_id,
+                                ind_role_id,
+                                server,
+                            )
+                        )
+                        continue
+                    if sk01_global.startswith("SK01-"):
+                        player["global_role_id"] = sk01_global
+                    if ind_role_id and not str(player.get("role_id") or "").strip():
+                        player["role_id"] = ind_role_id
+                    ind_zone = str(role_info.get("zone") or "").strip()
+                    if ind_zone and not str(player.get("zone") or "").strip():
+                        player["zone"] = ind_zone
+                    ind_server = str(role_info.get("server") or "").strip()
+                    if ind_server and not str(player.get("server") or "").strip():
+                        player["server"] = ind_server
+
+                person_info = indicator_payload.get("person_info")
+                if isinstance(person_info, dict):
+                    ind_person_id = str(person_info.get("person_id") or "").strip()
+                    existing_person_id = str(player.get("person_id") or "").strip()
+                    if ind_person_id:
+                        if not existing_person_id:
+                            player["person_id"] = ind_person_id
+                        elif existing_person_id != ind_person_id:
+                            logger.warning(
+                                "JJC indicator person_id 冲突: detail={} indicator={} role_id={} server={}".format(
+                                    existing_person_id,
+                                    ind_person_id,
+                                    role_id,
+                                    server,
+                                )
+                            )
 
     async def _enqueue_players_from_detail(
         self,
@@ -1078,6 +1337,7 @@ class JjcMatchDataSyncService:
                 name,
                 {
                     "global_role_id": str(player.get("global_role_id") or "").strip(),
+                    "global_id": str(player.get("global_id") or "").strip(),
                     "role_id": str(player.get("role_id") or "").strip(),
                     "game_role_id": str(player.get("role_id") or "").strip(),
                     "person_id": str(player.get("person_id") or "").strip(),
@@ -1085,12 +1345,22 @@ class JjcMatchDataSyncService:
                 },
                 observed_match_time=detail_match_time,
             )
+            global_role_id = str(player.get("global_role_id") or "").strip()
+            if not global_role_id:
+                logger.warning(
+                    "JJC 对局玩家缺少 SK01 global_role_id，跳过写入可执行同步队列: server={} name={}".format(
+                        server,
+                        name,
+                    )
+                )
+                continue
             await self._repo.upsert_role(
                 server=server,
                 name=name,
                 normalized_server=server,
                 normalized_name=name,
-                global_role_id=str(player.get("global_role_id") or "").strip() or None,
+                global_id=str(player.get("global_id") or "").strip() or None,
+                global_role_id=global_role_id,
                 role_id=str(player.get("role_id") or "").strip() or None,
                 person_id=str(player.get("person_id") or "").strip() or None,
                 zone=str(player.get("zone") or "").strip() or None,
@@ -1108,6 +1378,7 @@ class JjcMatchDataSyncService:
         role_id: Optional[str] = None,
         zone: Optional[str] = None,
         source: str = 'manual',
+        global_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """添加角色到同步队列。"""
         normalized_server = server.strip()
@@ -1120,6 +1391,7 @@ class JjcMatchDataSyncService:
                 normalized_server,
                 normalized_name,
                 {
+                    "global_id": global_id or "",
                     "global_role_id": global_role_id or "",
                     "role_id": role_id or "",
                     "game_role_id": role_id or "",
@@ -1131,6 +1403,7 @@ class JjcMatchDataSyncService:
                 name=name,
                 normalized_server=normalized_server,
                 normalized_name=normalized_name,
+                global_id=global_id,
                 global_role_id=global_role_id,
                 role_id=role_id,
                 zone=zone,
@@ -1156,6 +1429,7 @@ class JjcMatchDataSyncService:
         global_role_id: Optional[str] = None,
         role_id: Optional[str] = None,
         zone: Optional[str] = None,
+        global_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """直接同步单个角色的对局数据，不入队列排队，立即执行。"""
         normalized_server = server.strip()
@@ -1171,6 +1445,7 @@ class JjcMatchDataSyncService:
                 normalized_server,
                 normalized_name,
                 {
+                    "global_id": global_id or "",
                     "global_role_id": global_role_id or "",
                     "role_id": role_id or "",
                     "game_role_id": role_id or "",
@@ -1182,6 +1457,7 @@ class JjcMatchDataSyncService:
                 name=name,
                 normalized_server=normalized_server,
                 normalized_name=normalized_name,
+                global_id=global_id,
                 global_role_id=global_role_id,
                 role_id=role_id,
                 zone=zone,
@@ -1205,6 +1481,7 @@ class JjcMatchDataSyncService:
                 "identity_key": identity_key,
                 "server": normalized_server,
                 "name": normalized_name,
+                "global_id": global_id or "",
                 "global_role_id": global_role_id or "",
                 "role_id": role_id or "",
                 "zone": zone or "",

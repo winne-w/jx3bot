@@ -244,6 +244,7 @@ class JjcInspectRepo:
                     "server": payload.get("server"),
                     "name": payload.get("name"),
                     "game_role_id": payload.get("game_role_id"),
+                    "global_id": payload.get("global_id"),
                     "global_role_id": payload.get("global_role_id"),
                     "zone": payload.get("zone"),
                     "indicator": payload.get("indicator") or {},

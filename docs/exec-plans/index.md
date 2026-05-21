@@ -6,8 +6,16 @@
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
-- `active/jjc-role-identity-governance-plan.md`: JJC 角色身份匹配规则收敛、数据治理与防回流计划
-- `active/jjc-audit-conflict-chain-cycle-plan.md`: JJC 审计冲突链环路检测、去重修复与保守退出计划
+- `active/jjc-role-global-id-governance-plan.md`: JJC 角色 replay `global_id` 主键治理、防回流、重建与审计收敛总体计划
+
+## Superseded
+
+以下计划已合并进 `active/jjc-role-global-id-governance-plan.md`，原文保留作历史参考：
+
+- `superseded/jjc-role-identity-governance-plan.md`: JJC 角色身份匹配规则收敛、数据治理与防回流计划
+- `superseded/jjc-audit-conflict-chain-cycle-plan.md`: JJC 审计冲突链环路检测、去重修复与保守退出计划
+- `superseded/jjc-match-replay-role-id-backfill-plan.md`: JJC 对局回放补充角色 role_id、在线同步与离线回填计划
+- `superseded/jjc-rebuild-role-identity-from-synced-matches-plan.md`: 从已同步 JJC 对局重建角色身份表与同步队列计划
 
 ## Completed
 

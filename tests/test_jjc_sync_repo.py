@@ -54,6 +54,17 @@ class TestJjcSyncRepoIdentity(unittest.TestCase):
     def test_identity_key_priority(self) -> None:
         self.assertEqual(
             JjcSyncRepo._build_identity_key(
+                global_id="99999",
+                global_role_id="gid",
+                zone="z",
+                role_id="rid",
+                normalized_server="s",
+                normalized_name="n",
+            ),
+            "global_id:99999",
+        )
+        self.assertEqual(
+            JjcSyncRepo._build_identity_key(
                 global_role_id="gid",
                 zone="z",
                 role_id="rid",
@@ -145,6 +156,7 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
 
         result = await repo.update_role_identity_fields(
             identity_key="name:梦江南:角色A",
+            global_id="99999",
             global_role_id="gid",
             role_id="rid",
             zone="zone-a",
@@ -154,10 +166,39 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result)
         filter_doc, update = db.jjc_sync_role_queue.update_one.call_args.args
         self.assertEqual(filter_doc, {"identity_key": "name:梦江南:角色A"})
+        self.assertEqual(update["$set"]["global_id"], "99999")
         self.assertEqual(update["$set"]["global_role_id"], "gid")
         self.assertEqual(update["$set"]["role_id"], "rid")
         self.assertEqual(update["$set"]["zone"], "zone-a")
         self.assertEqual(update["$set"]["identity_source"], "role_identity_name_match")
+        self.assertNotIn("full_synced_until_time", update["$set"])
+
+    async def test_update_role_identity_fields_and_key_migrates_to_global_id_without_waterline_reset(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.return_value = {
+            "identity_key": "name:梦江南:角色A",
+            "normalized_server": "梦江南",
+            "normalized_name": "角色A",
+            "full_synced_until_time": 1000,
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.update_role_identity_fields_and_key(
+            identity_key="name:梦江南:角色A",
+            global_id="99999",
+            global_role_id="SK01-abc",
+            role_id="rid-a",
+            zone="电信区",
+            identity_source="role_identity_name_match",
+        )
+
+        self.assertEqual(result, "global_id:99999")
+        filter_doc, update = db.jjc_sync_role_queue.update_one.call_args.args
+        self.assertEqual(filter_doc, {"identity_key": "name:梦江南:角色A"})
+        self.assertEqual(update["$set"]["identity_key"], "global_id:99999")
+        self.assertEqual(update["$set"]["global_id"], "99999")
+        self.assertEqual(update["$set"]["global_role_id"], "SK01-abc")
+        self.assertIn("name:梦江南:角色A", update["$addToSet"]["aliases"]["$each"])
         self.assertNotIn("full_synced_until_time", update["$set"])
 
     async def test_recover_expired_leases_updates_role_and_match(self) -> None:
@@ -194,6 +235,60 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
             filter_doc["status"],
             {"$in": ["pending", "cooldown", "exhausted"]},
         )
+
+    async def test_upsert_role_prefers_global_id_and_writes_sk01_as_profile_field(self) -> None:
+        db = FakeDb()
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="梦江南",
+            name="角色A",
+            normalized_server="梦江南",
+            normalized_name="角色A",
+            global_role_id="SK01-abc",
+            role_id="rid-a",
+            zone="电信区",
+            global_id="99999",
+        )
+
+        self.assertEqual(result, "global_id:99999")
+        inserted = db.jjc_sync_role_queue.insert_one.call_args.args[0]
+        self.assertEqual(inserted["identity_key"], "global_id:99999")
+        self.assertEqual(inserted["global_id"], "99999")
+        self.assertEqual(inserted["global_role_id"], "SK01-abc")
+
+    async def test_upsert_role_migrates_legacy_global_role_queue_record(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.side_effect = [
+            None,
+            {
+                "identity_key": "global:SK01-abc",
+                "full_synced_until_time": 1000,
+                "history_exhausted": True,
+            },
+        ]
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="梦江南",
+            name="角色A",
+            normalized_server="梦江南",
+            normalized_name="角色A",
+            global_role_id="SK01-abc",
+            role_id="rid-a",
+            zone="电信区",
+            global_id="99999",
+            priority=5,
+        )
+
+        self.assertEqual(result, "global_id:99999")
+        db.jjc_sync_role_queue.insert_one.assert_not_called()
+        filter_doc, update = db.jjc_sync_role_queue.update_one.call_args.args
+        self.assertEqual(filter_doc, {"identity_key": "global:SK01-abc"})
+        self.assertEqual(update["$set"]["identity_key"], "global_id:99999")
+        self.assertEqual(update["$set"]["global_id"], "99999")
+        self.assertNotIn("full_synced_until_time", update["$set"])
+        self.assertIn("global:SK01-abc", update["$addToSet"]["aliases"]["$each"])
 
 
 class TestJjcSyncRepoMatchSeen(unittest.IsolatedAsyncioTestCase):

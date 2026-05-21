@@ -76,6 +76,23 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     async def _safe_index(collection_name: str, keys, *, name: str, **kwargs):
         col = db[collection_name]
         try:
+            indexes = await col.index_information()
+            existing = indexes.get(name)
+            if existing is not None:
+                desired_keys = keys if isinstance(keys, list) else [(keys, 1)]
+                desired_unique = bool(kwargs.get("unique", False))
+                existing_unique = bool(existing.get("unique", False))
+                if existing.get("key") != desired_keys or existing_unique != desired_unique:
+                    logger.warning(
+                        "索引定义变更，准备重建: collection={} index={} old_keys={} new_keys={} old_unique={} new_unique={}",
+                        collection_name,
+                        name,
+                        existing.get("key"),
+                        desired_keys,
+                        existing_unique,
+                        desired_unique,
+                    )
+                    await col.drop_index(name)
             await col.create_index(keys, name=name, **kwargs)
         except DuplicateKeyError:
             logger.warning(f"索引创建跳过(数据冲突): collection={collection_name} index={name}")
@@ -128,13 +145,13 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     # role_identities
     await _safe_index("role_identities", "identity_key", name="idx_identity_key", unique=True)
     await _safe_index(
-        "role_identities", "global_role_id", name="idx_global_role_id", unique=True,
-        partialFilterExpression={"global_role_id": {"$type": "string"}},
+        "role_identities", "global_id", name="idx_global_id", unique=True,
+        partialFilterExpression={"global_id": {"$type": "string"}},
     )
+    await _safe_index("role_identities", "global_role_id", name="idx_global_role_id")
     await _safe_index(
         "role_identities", [("zone", 1), ("game_role_id", 1)],
-        name="idx_zone_game_role_id", unique=True,
-        partialFilterExpression={"zone": {"$type": "string"}, "game_role_id": {"$type": "string"}},
+        name="idx_zone_game_role_id",
     )
     await _safe_index(
         "role_identities", [("normalized_server", 1), ("normalized_name", 1)],
@@ -157,6 +174,7 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
 
     # role_jjc_cache
     await _safe_index("role_jjc_cache", "identity_key", name="idx_identity_key", unique=True)
+    await _safe_index("role_jjc_cache", "global_id", name="idx_global_id")
     await _safe_index("role_jjc_cache", "global_role_id", name="idx_global_role_id")
     await _safe_index(
         "role_jjc_cache", [("zone", 1), ("game_role_id", 1)],
@@ -180,6 +198,7 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         [("normalized_server", 1), ("normalized_name", 1)],
         name="idx_normalized_server_name",
     )
+    await _safe_index("jjc_sync_role_queue", "global_id", name="idx_global_id")
     await _safe_index("jjc_sync_role_queue", "global_role_id", name="idx_global_role_id")
     await _safe_index("jjc_sync_role_queue", "lease_expires_at", name="idx_lease_expires_at")
 
