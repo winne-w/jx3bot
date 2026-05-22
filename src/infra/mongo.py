@@ -225,4 +225,34 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await _safe_index("jjc_role_indicator", "cache_key", name="idx_cache_key", unique=True)
     await _safe_index("jjc_role_indicator", "cached_at", name="idx_cached_at")
 
+    # jjc_ranking_stat_summaries
+    await _safe_index("jjc_ranking_stat_summaries", "timestamp", name="idx_timestamp", unique=True)
+    await _safe_index(
+        "jjc_ranking_stat_summaries", [("generated_at", -1)], name="idx_generated_at"
+    )
+    await _safe_index(
+        "jjc_ranking_stat_summaries",
+        [("ranking_cache_time", -1)],
+        name="idx_ranking_cache_time",
+    )
+    await _safe_index(
+        "jjc_ranking_stat_summaries",
+        [("current_season", 1), ("default_week", 1)],
+        name="idx_current_season_default_week",
+    )
+
+    # jjc_ranking_stat_details
+    await _safe_index(
+        "jjc_ranking_stat_details",
+        [("timestamp", 1), ("range", 1), ("lane", 1), ("kungfu", 1)],
+        name="idx_timestamp_range_lane_kungfu",
+        unique=True,
+    )
+    await _safe_index("jjc_ranking_stat_details", "timestamp", name="idx_timestamp")
+    await _safe_index(
+        "jjc_ranking_stat_details",
+        [("timestamp", 1), ("range", 1), ("lane", 1)],
+        name="idx_timestamp_range_lane",
+    )
+
     logger.info("MongoDB 索引初始化完成")

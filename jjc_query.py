@@ -76,11 +76,13 @@ async def query_ranking(token=None, ticket=None):
     print_kungfu_stats(stats)
     print_ranking_details(kungfu_data)
 
-    service.save_ranking_stats(
+    mongo_save_task = service.save_ranking_stats(
         ranking_result=ranking_result,
         stats=stats,
         week_info=week_info,
     )
+    if mongo_save_task is not None:
+        await mongo_save_task
 
     await close_mongo()
     return {

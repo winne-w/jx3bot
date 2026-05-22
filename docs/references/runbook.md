@@ -154,6 +154,7 @@ python test_tuilan_match_history.py
   - 新结构优先写入 `data/jjc_ranking_stats/<timestamp>/summary.json`
   - 明细按需拆分在 `data/jjc_ranking_stats/<timestamp>/details/`
   - 历史兼容阶段可能仍存在旧的 `data/jjc_ranking_stats/<timestamp>.json`
+- 同一份统计快照会写入 MongoDB `jjc_ranking_stat_summaries` 与 `jjc_ranking_stat_details`；HTTP API 优先读 Mongo，未命中时回退上述文件。
 - JJC 同步命令只有 `config.py` 中 `ADMIN_QQ` 管理员可执行
 - `/jjc同步开始` 只触发一轮同步，不会启动常驻任务
 - JJC 最终身份主键为 replay 数字 ID：`global_id:{global_id}`；`global_id` 来自 `/3c/mine/match/replay` 的 `players[].global_role_id`，不要与 SK01 `global_role_id` 混用。
@@ -253,6 +254,7 @@ python scripts/check_role_identity_migration.py
 ```bash
 curl "http://127.0.0.1:5288/api/arena/recent?server=梦江南&name=示例角色"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list"
+curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list&page=1&page_size=20"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=read&timestamp=<时间戳>"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/details?timestamp=<时间戳>&range=top_50&lane=healer&kungfu=云裳心经"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/role-recent?server=梦江南&name=示例角色"

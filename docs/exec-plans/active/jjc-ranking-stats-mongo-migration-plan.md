@@ -1,6 +1,8 @@
 # JJC 排名统计快照迁移 MongoDB 计划
 
-更新时间：2026-04-30
+更新时间：2026-05-21
+
+状态：已实现，待提交/待历史数据正式迁移。已完成 Mongo repo/索引、生成统计双写 Mongo、HTTP API 优先读 Mongo 并保留文件 fallback、历史迁移脚本与单测。代码提交前，本计划继续保留在 active。
 
 ## 背景
 
@@ -203,6 +205,8 @@ GET /api/jjc/ranking-stats/details?timestamp=<ts>&range=<range>&lane=<lane>&kung
 
 ### 阶段 1：Mongo repo 与索引
 
+执行状态：已完成。
+
 执行项：
 
 - 新增 `JjcRankingStatsRepo`。
@@ -217,6 +221,8 @@ GET /api/jjc/ranking-stats/details?timestamp=<ts>&range=<range>&lane=<lane>&kung
 
 ### 阶段 2：新数据双写
 
+执行状态：已完成。
+
 执行项：
 
 - `save_ranking_stats()` 在生成统计后写 Mongo。
@@ -230,6 +236,8 @@ GET /api/jjc/ranking-stats/details?timestamp=<ts>&range=<range>&lane=<lane>&kung
 - Mongo detail 与文件 detail 成员数量一致。
 
 ### 阶段 3：API 优先读 Mongo
+
+执行状态：已完成。
 
 执行项：
 
@@ -246,6 +254,8 @@ GET /api/jjc/ranking-stats/details?timestamp=<ts>&range=<range>&lane=<lane>&kung
 
 ### 阶段 4：历史数据迁移
 
+执行状态：脚本已完成；线上历史数据尚未执行正式迁移。
+
 执行项：
 
 - 编写迁移脚本。
@@ -258,6 +268,17 @@ GET /api/jjc/ranking-stats/details?timestamp=<ts>&range=<range>&lane=<lane>&kung
 
 - `action=list&page=1&page_size=20` 可以只查 Mongo 完成分页。
 - 历史 timestamp 的 `read` 和 `details` 均可从 Mongo 读取。
+
+## 当前验证记录
+
+2026-05-22 已执行：
+
+```bash
+python -m unittest tests.test_jjc_ranking_stats_repo tests.test_migrate_jjc_ranking_stats_to_mongo tests.test_jjc_ranking_stats_router
+python -m py_compile src/storage/mongo_repos/jjc_ranking_stats_repo.py src/infra/mongo.py src/services/jx3/jjc_ranking.py src/api/routers/jjc_ranking_stats.py scripts/migrate_jjc_ranking_stats_to_mongo.py jjc_query.py tests/test_jjc_ranking_stats_repo.py tests/test_jjc_ranking_stats_router.py tests/test_migrate_jjc_ranking_stats_to_mongo.py
+```
+
+结果：通过。review 后补充 strict Mongo 读写错误传播、CLI 等待 Mongo 双写任务完成，并在 API 读取路径增加 Mongo 命中/文件 fallback/未命中日志；历史数据正式写入 Mongo 尚未执行，上线前先运行 `scripts/migrate_jjc_ranking_stats_to_mongo.py --dry-run` 核对数量，再按需执行正式迁移。
 - 迁移报告无失败，或失败项可单独重试。
 
 ### 阶段 5：收敛文件依赖

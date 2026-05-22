@@ -717,12 +717,79 @@
 | `idx_announcement_id` | `announcement_id` | unique |
 | `idx_date_created_at` | `date` (降序), `created_at` (降序) | 普通复合索引 |
 
+### `jjc_ranking_stat_summaries`
+
+用途：保存 JJC 排名统计快照的首屏摘要与历史列表元数据。新生成统计会优先写入本集合，同时短期保留 `data/jjc_ranking_stats/` 文件双写作为回滚和迁移期 fallback。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_ranking_stats_repo.py`
+- 迁移脚本：`scripts/migrate_jjc_ranking_stats_to_mongo.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `timestamp` | int | 统计快照时间戳，沿用原文件目录名 |
+| `generated_at` | float | 统计生成时间 Unix 秒 |
+| `ranking_cache_time` | float/int/null | 排行榜缓存时间 |
+| `default_week` | int/string/null | 默认周次 |
+| `current_season` | string/int/null | 当前赛季标识 |
+| `week_info` | string | 周次展示文案 |
+| `kungfu_statistics` | object | 去除 members 明细后的 summary 统计结构 |
+| `source` | string | 写入来源，如 `ranking_job` 或 `migration` |
+| `schema_version` | int | 当前为 1 |
+| `created_at` | datetime | 首次写入时间 |
+| `updated_at` | datetime | 最近更新时间 |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_timestamp` | `timestamp` | unique |
+| `idx_generated_at` | `generated_at` (降序) | 普通索引 |
+| `idx_ranking_cache_time` | `ranking_cache_time` (降序) | 普通索引 |
+| `idx_current_season_default_week` | `current_season`, `default_week` | 普通复合索引 |
+
+### `jjc_ranking_stat_details`
+
+用途：保存 JJC 排名统计快照的按需明细。每条文档对应一个 `timestamp + range + lane + kungfu`，避免单个 summary 文档过大。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_ranking_stats_repo.py`
+- 迁移脚本：`scripts/migrate_jjc_ranking_stats_to_mongo.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `timestamp` | int | 统计快照时间戳 |
+| `range` | string | 排名范围，如 `top_200` |
+| `lane` | string | `healer` 或 `dps` |
+| `kungfu` | string | 心法名称 |
+| `members` | array | 该范围、分组、心法下的成员明细 |
+| `source` | string | 写入来源，如 `ranking_job` 或 `migration` |
+| `schema_version` | int | 当前为 1 |
+| `created_at` | datetime | 首次写入时间 |
+| `updated_at` | datetime | 最近更新时间 |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_timestamp_range_lane_kungfu` | `timestamp`, `range`, `lane`, `kungfu` | unique |
+| `idx_timestamp` | `timestamp` | 普通索引 |
+| `idx_timestamp_range_lane` | `timestamp`, `range`, `lane` | 普通复合索引 |
+
 ## 文件型持久化与非 Mongo 数据
 
 以下数据当前仍不是 MongoDB schema，但会影响运行状态，修改时也要确认是否需要纳入本文：
 
 - `runtime_config.json`: `/修改配置` 等运行时配置写入文件，包含可覆盖的 `MONGO_URI` 等配置。
-- `data/jjc_ranking_stats/<timestamp>/summary.json` 与 `details/`: JJC 统计产物，属于文件型统计快照，不在 Mongo 中。details 成员包含 `weapon_name` 字段用于橙武白名单判定。
+- `data/jjc_ranking_stats/<timestamp>/summary.json` 与 `details/`: JJC 统计产物的迁移期双写/fallback 文件。Mongo 主存储为 `jjc_ranking_stat_summaries` 与 `jjc_ranking_stat_details`；details 成员包含 `weapon_name` 字段用于橙武白名单判定。
 - `data/baizhan_images/baizhan_data.json`、图片缓存和 `mpimg/`: 静态或缓存资源。
 
 ## 已清理的未使用 Mongo 集合
@@ -748,5 +815,6 @@
 | `scripts/migrate_jjc_role_recent.py` | `data/cache/jjc_ranking_inspect/role_recent/` | `jjc_role_recent` | `server`, `name` |
 | `scripts/migrate_jjc_match_detail.py` | `data/cache/jjc_ranking_inspect/match_detail/` | `jjc_match_detail` | `match_id` |
 | `scripts/migrate_role_identity_and_jjc_cache.py` | `kungfu_cache` | `role_identities`, `role_jjc_cache` | `identity_key` |
+| `scripts/migrate_jjc_ranking_stats_to_mongo.py` | `data/jjc_ranking_stats/` | `jjc_ranking_stat_summaries`, `jjc_ranking_stat_details` | `timestamp`; `timestamp`, `range`, `lane`, `kungfu` |
 | `scripts/fix_jjc_match_detail_role_names.py` | `role_identities`, `jjc_sync_role_queue` 中被 `match_detail` 污染的角色名 | 原集合就地修复，备份写入独立 backup collection | `batch_id`, `source_collection`, `original_id` |
 | `scripts/fix_jjc_ranking_weapon_names.py` | `data/jjc_ranking_stats/` 历史快照 details 缺少 `weapon_name` | 就地补齐 `weapon_name` 并重算 `summary.json` 的 `legendary_count_map` | `timestamp`, `range`, `lane`, `kungfu` |

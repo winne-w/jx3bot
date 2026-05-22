@@ -426,7 +426,7 @@ class JjcRankingService:
         stats: dict[str, Any],
         week_info: str,
         payload: Optional[dict[str, Any]] = None,
-    ) -> None:
+    ) -> Optional[asyncio.Task]:
         stats_dir = os.path.join("data", "jjc_ranking_stats")
         ranking_timestamp = int(ranking_result.get("cache_time") or time.time())
         stats_entry_dir = os.path.join(stats_dir, str(ranking_timestamp))
@@ -450,7 +450,7 @@ class JjcRankingService:
 
             self._write_details_files(details_root_dir, stats)
             detail_payloads = self._build_detail_payloads(stats)
-            self._save_ranking_stats_to_mongo(
+            mongo_task = self._save_ranking_stats_to_mongo(
                 timestamp=ranking_timestamp,
                 summary_payload=summary_payload,
                 detail_payloads=detail_payloads,
@@ -458,8 +458,10 @@ class JjcRankingService:
 
             logger.info("保存竞技场统计摘要: %s", summary_path)
             logger.info("保存竞技场统计详情目录: %s", details_root_dir)
+            return mongo_task
         except Exception as exc:
             logger.warning("保存竞技场统计结果失败: %s", exc)
+            return None
 
     def _build_summary_payload(self, stats_payload: dict[str, Any]) -> dict[str, Any]:
         summary_payload = {
@@ -535,7 +537,7 @@ class JjcRankingService:
         timestamp: int,
         summary_payload: Dict[str, Any],
         detail_payloads: List[Dict[str, Any]],
-    ) -> None:
+    ) -> Optional[asyncio.Task]:
         async def _save() -> None:
             try:
                 await JjcRankingStatsRepo().save_snapshot(
@@ -551,8 +553,8 @@ class JjcRankingService:
             loop = asyncio.get_running_loop()
         except RuntimeError as exc:
             logger.warning("保存竞技场统计到 Mongo 失败: 无可用事件循环 timestamp={} error={}", timestamp, exc)
-            return
-        loop.create_task(_save())
+            return None
+        return loop.create_task(_save())
 
     def _write_details_files(self, details_root_dir: str, stats: dict[str, Any]) -> None:
         for range_key, range_stats in (stats or {}).items():
