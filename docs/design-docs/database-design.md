@@ -193,9 +193,8 @@
 
 迁移到新集合的说明：
 
-- 迁移脚本：`scripts/migrate_role_identity_and_jjc_cache.py`，支持 dry-run / `--apply` / `--limit`，幂等。
 - 运行时业务已不再回退本集合；新集合 miss 时直接查外部接口并回写 `role_identities` / `role_jjc_cache`。
-- 本集合已完成历史清理；迁移脚本仍保留用于审计和历史参考。
+- 本集合已完成历史清理；旧迁移脚本已删除，后续不再从该集合迁移数据。
 
 ### `role_identities`
 
@@ -204,7 +203,7 @@
 读写归属：
 
 - `src/storage/mongo_repos/role_identity_repo.py`
-- 迁移脚本：`scripts/migrate_role_identity_and_jjc_cache.py`
+- 辅助脚本：`scripts/backfill_jjc_role_id_from_match_replay.py` 可从已同步 match/replay 补充 `global_id`、`role_id`、SK01 `global_role_id` 等身份字段。
 
 字段：
 
@@ -270,11 +269,11 @@
 
 ### `role_identities_history`
 
-用途：归档被合并的 `role_identities` 历史文档。当同一角色存在多条 `role_identities` 记录持有不同 `global_role_id` 时，审计脚本以 person-history 为准保留当前有效 ID，旧文档移入本集合。
+用途：归档被合并或被新画像替换的 `role_identities` 历史文档。当前运行时代码可在角色画像更新时写入历史快照；旧审计归档脚本已删除。
 
 读写归属：
 
-- `scripts/audit_jjc_person_history_identity.py`（写入）
+- `src/storage/mongo_repos/role_identity_repo.py`
 - 只读查询按需使用 `identity_key` 或 `global_role_id`
 
 字段：继承 `role_identities` 全部字段，外加：
@@ -302,7 +301,6 @@
 读写归属：
 
 - `src/storage/mongo_repos/role_jjc_cache_repo.py`
-- 迁移脚本：`scripts/migrate_role_identity_and_jjc_cache.py`
 
 字段：
 
@@ -502,7 +500,7 @@
 - 历史对局详情是“对局当时快照”，不要直接改成从角色当前画像表读取装备、奇穴、分数等动态状态，否则会把历史对局展示成当前角色状态。
 - 可以把角色身份字段（如 `global_role_id`、`role_id`、`person_id`、服务器、角色名）与已有 `role_identities` 关联，但对局时的 `kungfu`、`mmr`、`score`、`total_score`、`equip_score`、`max_hp`、`mvp`、`fight_seconds` 等仍属于对局快照。
 - `players_info[].role_name` 可继续保留推栏原始展示名，例如 `角色名·服务器`；运行时若要派生写入 `role_identities` 或 `jjc_sync_role_queue`，必须先规范化为纯角色名，不直接回写快照源数据。
-- 第一阶段拆表已完成：`jjc_equipment_snapshot` 保存完整 `armors` 数组，`jjc_talent_snapshot` 保存完整 `talents` 数组，`jjc_match_detail` 的玩家节点保存对应 `*_snapshot_hash`。读取详情时由 `JjcInspectRepo` 批量查快照并拼回原 API 结构。历史详情缓存不做兼容迁移，必要时通过 `scripts/clear_jjc_match_detail_snapshot_cache.py` 清空后重新按新格式写入。
+- 第一阶段拆表已完成：`jjc_equipment_snapshot` 保存完整 `armors` 数组，`jjc_talent_snapshot` 保存完整 `talents` 数组，`jjc_match_detail` 的玩家节点保存对应 `*_snapshot_hash`。读取详情时由 `JjcInspectRepo` 批量查快照并拼回原 API 结构。历史详情缓存不做兼容迁移，相关一次性清理脚本已删除。
 - `snapshot_hash` 必须基于规范化后的完整数组生成：装备按稳定字段（优先 `pos`，再 `ui_id`/`name`）排序，奇穴按稳定字段（优先 `level`，再 `id`/`name`）排序，JSON 序列化使用固定 key 顺序和固定分隔符。
 - 后续若需要“点了某个奇穴的对局数”“有 CW 的对局数”等统计，可在 snapshot 表补充可查询索引字段（如 `talent_ids`、`talent_names`、`item_ui_ids`、`item_names`、`has_cw`），或再建 `jjc_match_player_fact` 事实表。事实表应视为可重建的查询索引，不应替代完整详情与快照源数据。
 - 若大量爬取导致热表继续增长，应考虑冷热分层：热集合保留近期可快速查询结构，归档集合或对象存储保留完整历史详情。无论是否归档，`match_id` 仍是幂等主键。
@@ -802,6 +800,4 @@
 
 | 脚本 | 处理范围 | 写入集合 | 幂等键 |
 |---|---|---|---|
-| `scripts/migrate_role_identity_and_jjc_cache.py` | `kungfu_cache` | `role_identities`, `role_jjc_cache` | `identity_key` |
-| `scripts/fix_jjc_match_detail_role_names.py` | `role_identities`, `jjc_sync_role_queue` 中被 `match_detail` 污染的角色名 | 原集合就地修复，备份写入独立 backup collection | `batch_id`, `source_collection`, `original_id` |
-| `scripts/fix_jjc_ranking_weapon_names.py` | `data/jjc_ranking_stats/` 历史快照 details 缺少 `weapon_name` | 就地补齐 `weapon_name` 并重算 `summary.json` 的 `legendary_count_map` | `timestamp`, `range`, `lane`, `kungfu` |
+| `scripts/backfill_jjc_role_id_from_match_replay.py` | 已同步 JJC match/replay 身份补充 | `role_identities`, `jjc_sync_role_queue`, `jjc_match_detail` | `global_id`, `identity_key`, `match_id` |

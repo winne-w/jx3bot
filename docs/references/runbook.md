@@ -172,35 +172,6 @@ python -m py_compile src/services/jx3/jjc_match_data_sync.py src/storage/mongo_r
 
 在线手工回归需要真实 QQ/推栏环境：先 `/jjc同步添加 <服务器> <角色名>`，再 `/jjc同步状态`、`/jjc同步开始 incremental`、`/jjc同步状态`，确认角色被领取、对局详情写入、单条详情失败时仍继续处理后续对局和后续页。
 
-JJC 身份治理备份 / 恢复：
-
-```bash
-# 备份前 dry-run，默认覆盖 role_identities / jjc_sync_role_queue / role_jjc_cache / jjc_role_indicator / jjc_match_detail
-python scripts/backup_jjc_role_identity_collections.py
-
-# 执行备份，tag 不传则使用当前时间戳
-python scripts/backup_jjc_role_identity_collections.py --tag before_global_id_20260521 --apply --yes
-
-# 恢复前 dry-run
-python scripts/restore_jjc_role_identity_collections.py --tag before_global_id_20260521
-
-# 执行恢复；恢复前会先把当前目标集合备份为 *_pre_restore_backup_<时间戳>
-python scripts/restore_jjc_role_identity_collections.py --tag before_global_id_20260521 --apply --yes
-
-# 清理前 dry-run，默认只清 role_identities / jjc_sync_role_queue
-python scripts/clear_jjc_role_identity_collections.py --backup-tag before_global_id_20260521
-
-# 执行清理，要求备份集合已存在
-python scripts/clear_jjc_role_identity_collections.py --backup-tag before_global_id_20260521 --apply --yes
-```
-
-预期:
-
-- 备份集合命名为 `<原集合>_backup_<tag>`，保留原 `_id`。
-- 恢复前会自动创建 `<原集合>_pre_restore_backup_<tag>`，再 drop 目标集合并从备份集合复制回来。
-- 清理脚本默认只清空 `role_identities` 与 `jjc_sync_role_queue`；如需清缓存集合，必须显式传 `--collections`。
-- 备份、恢复和清理都会写入 `jjc_backup_metadata`，用于核对 tag、集合名和文档数。
-
 JJC replay 角色 ID / global_id 回填：
 
 ```bash
@@ -224,17 +195,6 @@ python scripts/backfill_jjc_role_id_from_match_replay.py --limit 20 --apply --ye
 - 当目标文档已有 `zone` 时，脚本会继续请求 `/role/indicator`，用 `role_id + zone + server` 补齐 `SK01-... global_role_id` 和 `person_id`。
 - 脚本按 `role_info_observed_match_time` 判断是否更新：旧对局只补缺失字段，不覆盖已有完整字段。
 - 若已有 `role_id` 与 replay 不一致、已有 `global_id` 与 replay 数字 ID 不一致，或已有 SK01 `global_role_id` 与 indicator 返回不一致，脚本跳过并记录 conflict。
-
-JJC 身份治理只读核验：
-
-```bash
-python scripts/check_role_identity_migration.py
-```
-
-预期：
-
-- 输出 `role_identities` / `role_jjc_cache` 的基础差异，以及 `role_identities` / `jjc_sync_role_queue` 中 `global_id` 重复、旧 `global:*` / `name:*` 主键残留、同一 `zone+role_id` 对应多个 `global_id` 的样本。
-- 新数据应优先为 `global_id:{global_id}`；旧 `global:*` / `name:*` 记录需要通过重建或后续同步迁移，不在核验脚本中自动修改。
 
 ### 6. 资历 / 百战 / 骗子查询
 
@@ -305,21 +265,7 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局I
 
 `jjc_match_detail` 只保存对局详情主体和玩家节点中的 `equipment_snapshot_hash` / `talent_snapshot_hash`。完整 `armors` / `talents` 分别保存在 `jjc_equipment_snapshot` / `jjc_talent_snapshot`，读取时由 `JjcInspectRepo` 按 hash 拼回 API 响应。
 
-历史详情缓存不迁移；如需重建，直接清空详情和快照缓存，后续点击对局详情时重新请求外部接口并按新格式写入。
-
-```bash
-# dry-run：只统计，不清空
-python scripts/clear_jjc_match_detail_snapshot_cache.py
-
-# 清空详情缓存和快照缓存
-python scripts/clear_jjc_match_detail_snapshot_cache.py --apply
-
-# 验证最近 5 条是否按新格式保存
-python scripts/verify_jjc_match_detail_snapshot_storage.py
-
-# 验证指定对局
-python scripts/verify_jjc_match_detail_snapshot_storage.py --match-id <对局ID>
-```
+历史详情缓存不迁移；临时清理和核验脚本已删除。需要验证时优先通过角色近期/详情下钻接口触发读取，确认返回结构能由 `JjcInspectRepo` 拼回完整装备和奇穴。
 
 ### 存储或缓存表现异常
 

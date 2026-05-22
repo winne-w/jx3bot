@@ -9,6 +9,7 @@
 - `active/jjc-role-global-id-governance-plan.md`: JJC 角色 replay `global_id` 主键治理、防回流、重建与审计收敛总体计划
 - `active/jjc-role-identity-time-guard-plan.md`: JJC 角色身份写入入口统一时间保护计划
 - `active/jjc-role-identity-schema-normalization-plan.md`: JJC 角色身份表 indicator/backfill 写入 schema 归一化计划
+- `active/scripts-cleanup-plan.md`: 清理临时迁移、检查、修复、审计和备份恢复脚本
 
 ## Superseded
 

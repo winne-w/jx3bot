@@ -128,9 +128,7 @@
 
 ### 3. 线上规范化脚本
 
-新增脚本：
-
-- `scripts/normalize_jjc_role_identity_schema.py`
+状态：该一次性规范化脚本已在脚本清理计划中删除，不再作为线上操作入口。历史 schema 差异后续如需处理，应重新立项并编写新的受控脚本。
 
 功能：
 
@@ -168,7 +166,7 @@
 - 明确 `role_identities.updated_at` 是 `datetime`。
 - 明确 `role_info_updated_at` 是 float Unix 秒。
 - 明确 `created_at` 非标准必需字段，历史数据可存在但新写入不依赖。
-- 增加 `normalize_jjc_role_identity_schema.py` 的线上操作步骤。
+- 不再保留 `normalize_jjc_role_identity_schema.py` 的线上操作步骤。
 
 ## 验证方案
 
@@ -176,13 +174,7 @@
 
 ```bash
 python -m unittest tests.test_role_identity_repo tests.test_backfill_jjc_role_id_from_match_replay
-python -m py_compile src/storage/mongo_repos/role_identity_repo.py src/services/jx3/jjc_cache_repo.py scripts/backfill_jjc_role_id_from_match_replay.py scripts/normalize_jjc_role_identity_schema.py
-```
-
-线上只读验证：
-
-```bash
-python scripts/normalize_jjc_role_identity_schema.py --source all --dry-run
+python -m py_compile src/storage/mongo_repos/role_identity_repo.py src/services/jx3/jjc_cache_repo.py scripts/backfill_jjc_role_id_from_match_replay.py
 ```
 
 Mongo 抽样检查：
@@ -203,45 +195,12 @@ db.role_identities.countDocuments({sources: "indicator", person_id: {$exists: fa
 
 ## 线上执行步骤
 
-1. 备份：
-
-```bash
-python scripts/backup_jjc_role_identity_collections.py --tag before_identity_schema_normalize_20260522 --apply --yes
-```
-
-2. dry-run：
-
-```bash
-python scripts/normalize_jjc_role_identity_schema.py --source all --dry-run
-```
-
-3. 小批 apply：
-
-```bash
-python scripts/normalize_jjc_role_identity_schema.py --source match_replay_indicator_backfill --limit 100 --apply --yes
-```
-
-4. 全量 apply：
-
-```bash
-python scripts/normalize_jjc_role_identity_schema.py --source all --apply --yes
-```
-
-5. 核验：
-
-```bash
-python scripts/check_role_identity_migration.py
-python scripts/normalize_jjc_role_identity_schema.py --source all --dry-run
-```
+一次性规范化脚本、备份恢复脚本和检查脚本已删除；不再提供线上执行步骤。
 
 ## 回滚
 
 - 代码回滚：回退本计划涉及的 repo/service/script 改动。
-- 数据回滚：
-  1. 停止相关同步任务。
-  2. 再次备份当前异常结果。
-  3. 使用 `scripts/restore_jjc_role_identity_collections.py --tag before_identity_schema_normalize_20260522 --apply --yes` 恢复。
-  4. 重新执行只读核验。
+- 数据回滚：脚本已删除，不再提供自动恢复路径；如需处理历史数据，先重新制定数据操作计划。
 
 ## 风险与缓解
 
@@ -258,7 +217,7 @@ python scripts/normalize_jjc_role_identity_schema.py --source all --dry-run
 
 - 2026-05-22：已修复 indicator 写入链路，支持从 `person_info.person_id` 透传并写入 `role_identities.person_id`。
 - 2026-05-22：已修复 `scripts/backfill_jjc_role_id_from_match_replay.py` 写入结构，`role_identities.updated_at` 等仓储时间字段改为 datetime，`role_info_updated_at` 继续保留 Unix 秒；`profile_history` 改为复用 `build_profile_history_entry()`。
-- 2026-05-22：已新增 `scripts/normalize_jjc_role_identity_schema.py`，支持 dry-run / apply、按 source / identity_key / skip / limit 处理历史 schema 类型差异。
+- 2026-05-22：曾新增 `scripts/normalize_jjc_role_identity_schema.py` 处理历史 schema 类型差异；后续脚本清理计划已删除该一次性脚本。
 - 2026-05-22：已将分段回填排序改为 `match_time desc, match_id desc`，避免同一秒多场对局时分页窗口不稳定。
 - 2026-05-22：已通过身份相关单测、`py_compile` 和相关文件 `git diff --check`。
 - 待执行：最终提交。

@@ -11,7 +11,7 @@
 - `JjcSyncRepo.upsert_role()` / `update_role_identity_fields()` / `update_role_identity_fields_and_key()`
 - `JjcMatchDataSyncService` 在对局详情同步、手工添加、单人同步中间接写入身份表和同步队列
 - `JjcRankingInspectService` 通过 indicator 写入身份表
-- `scripts/backfill_jjc_role_id_from_match_replay.py`、`scripts/audit_jjc_person_history_identity.py`、`scripts/migrate_role_identity_and_jjc_cache.py` 等治理脚本直接写库
+- `scripts/backfill_jjc_role_id_from_match_replay.py` 等治理脚本直接写库；历史审计和迁移脚本已在脚本清理计划中删除
 
 其中 `scripts/backfill_jjc_role_id_from_match_replay.py` 已有相对保守的 `role_info_observed_match_time` 判断：字段完整且当前对局不更新时不刷新，并且先拦截 `role_id/global_id/global_role_id` 强冲突。但线上通用入口并未统一这个规则：
 
@@ -209,18 +209,12 @@ python -m py_compile src/services/jx3/jjc_ranking_inspect.py src/services/jx3/jj
 涉及文件：
 
 - `scripts/backfill_jjc_role_id_from_match_replay.py`
-- `scripts/audit_jjc_person_history_identity.py`
-- `scripts/migrate_role_identity_and_jjc_cache.py`
 - 可选新增：`scripts/check_role_identity_time_guard.py`
 
 方案：
 
 - `backfill_jjc_role_id_from_match_replay.py` 保留现有时间保护，但改为调用共享决策函数，避免与线上 repo 规则分叉。
-- `audit_jjc_person_history_identity.py` 的自动修复必须显式区分：
-  - 补缺失字段
-  - 新对局画像覆盖
-  - 人工确认的冲突修复
-- `migrate_role_identity_and_jjc_cache.py` 作为历史迁移脚本，默认只补缺失，不覆盖已有完整画像。
+- 历史审计、迁移和检查类脚本已删除，不再纳入本计划后续实现范围。
 - 新增检查脚本用于输出：
   - `role_info_observed_match_time` 缺失但已有 `global_id` 的样本
   - 同一 `global_id` 下画像字段与最新 `profile_history` 不一致样本
@@ -229,7 +223,7 @@ python -m py_compile src/services/jx3/jjc_ranking_inspect.py src/services/jx3/jj
 验证：
 
 ```bash
-python -m py_compile scripts/backfill_jjc_role_id_from_match_replay.py scripts/audit_jjc_person_history_identity.py scripts/migrate_role_identity_and_jjc_cache.py
+python -m py_compile scripts/backfill_jjc_role_id_from_match_replay.py
 python scripts/backfill_jjc_role_id_from_match_replay.py --limit 1 --dry-run
 ```
 
@@ -325,6 +319,6 @@ python scripts/backfill_jjc_role_id_from_match_replay.py --limit 1 --dry-run
 
 ```bash
 python -m unittest tests.test_role_identity_matching tests.test_role_identity_repo tests.test_jjc_sync_repo tests.test_jjc_match_data_sync tests.test_jjc_ranking_inspect
-python -m py_compile src/services/jx3/role_identity_matching.py src/storage/mongo_repos/role_identity_repo.py src/storage/mongo_repos/jjc_sync_repo.py src/services/jx3/jjc_match_data_sync.py src/services/jx3/jjc_ranking_inspect.py scripts/backfill_jjc_role_id_from_match_replay.py scripts/audit_jjc_person_history_identity.py scripts/migrate_role_identity_and_jjc_cache.py
+python -m py_compile src/services/jx3/role_identity_matching.py src/storage/mongo_repos/role_identity_repo.py src/storage/mongo_repos/jjc_sync_repo.py src/services/jx3/jjc_match_data_sync.py src/services/jx3/jjc_ranking_inspect.py scripts/backfill_jjc_role_id_from_match_replay.py
 python scripts/backfill_jjc_role_id_from_match_replay.py --limit 1 --dry-run
 ```

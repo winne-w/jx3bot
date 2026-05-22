@@ -81,12 +81,10 @@ JJC 角色身份相关方案此前分散在多份 active 计划中：
 - 角色近期/详情下钻：
   - 获取最近对局和按需详情时，如果已有 `match_id` 或触达 `match/detail`，应补调或复用 `match/replay`，把当前角色与详情玩家的 `global_id` 写回缓存。
 
-### 必须审计
+### 保留的辅助脚本
 
 - `scripts/backfill_jjc_role_id_from_match_replay.py`：改为回填 `global_id`，再用 indicator 补 SK01 `global_role_id`。
-- `scripts/audit_jjc_person_history_identity.py`：旧逻辑按 person-history 和 SK01 修复，后续降级为冲突审计，不再按 SK01 改写主键。
-- `scripts/check_role_identity_migration.py`：增加 `global_id` 唯一性、旧 `global:*` 残留、`zone + role_id` 多 `global_id` 检查。
-- `scripts/fix_jjc_ranking_weapon_names.py`：查询缓存时优先使用 `global_id`，再 fallback 到 SK01 `global_role_id` 与 `zone + game_role_id`。
+- 临时审计、检查、修复脚本已在脚本清理计划中删除，不再作为线上操作入口。
 
 ## 数据来源
 
@@ -246,14 +244,7 @@ python -m py_compile src/services/jx3/jjc_match_data_sync.py src/services/jx3/jj
 
 ### 阶段 3：一次性重建身份与同步队列
 
-状态：备份/恢复脚本已实现；一次性重建正式脚本仍未实现。
-
-新增或保留临时脚本：
-
-- `scripts/backup_jjc_role_identity_collections.py`
-- `scripts/clear_jjc_role_identity_collections.py`
-- `scripts/rebuild_jjc_role_identity_from_synced_matches.py`
-- `scripts/restore_jjc_role_identity_collections.py`
+状态：一次性重建正式脚本未落地；备份、清理、恢复类临时脚本已删除，不再保留为运行手册入口。
 
 重建行为：
 
@@ -264,19 +255,7 @@ python -m py_compile src/services/jx3/jjc_match_data_sync.py src/services/jx3/jj
 - 可执行队列只写入同时具备 `global_id` 与 SK01 `global_role_id` 的角色。
 - 写入 `profile_history`，保留转服/改名/role_id 变化证据。
 
-运行步骤：
-
-```bash
-python scripts/backup_jjc_role_identity_collections.py --dry-run
-python scripts/backup_jjc_role_identity_collections.py --tag before_global_id_20260521 --apply --yes
-python scripts/clear_jjc_role_identity_collections.py --backup-tag before_global_id_20260521 --dry-run
-python scripts/clear_jjc_role_identity_collections.py --backup-tag before_global_id_20260521 --apply --yes
-python scripts/rebuild_jjc_role_identity_from_synced_matches.py --limit 20 --dry-run
-python scripts/rebuild_jjc_role_identity_from_synced_matches.py --sleep-min 1 --sleep-max 3 --dry-run
-python scripts/rebuild_jjc_role_identity_from_synced_matches.py --sleep-min 1 --sleep-max 3 --apply --yes
-python scripts/restore_jjc_role_identity_collections.py --tag before_global_id_20260521 --dry-run
-python scripts/restore_jjc_role_identity_collections.py --tag before_global_id_20260521 --apply --yes
-```
+如后续仍需重建身份表，应重新编写有计划约束的新脚本，并同步新的备份与回滚方案。
 
 ### 阶段 4：离线脚本和审计收敛
 
@@ -286,10 +265,7 @@ python scripts/restore_jjc_role_identity_collections.py --tag before_global_id_2
 - `scripts/backfill_jjc_role_id_from_match_replay.py` 在清空 `role_identities` / `jjc_sync_role_queue` 后也要能从已同步 `jjc_match_detail.data.detail` 与实时 replay 重建身份；当目标文档不存在时，按 replay `global_id` 新建 `role_identities`，并在已补到 SK01 `global_role_id` 时新建可执行的 `jjc_sync_role_queue`。
 - `scripts/backfill_jjc_role_id_from_match_replay.py` 每次 replay 成功后写回 `jjc_match_detail.data.replay`，后续页面点击和重跑脚本可复用缓存。
 - `scripts/backfill_jjc_role_id_from_match_replay.py` 支持按排序后的 1-based 闭区间分批处理：`--start N --end M`，例如 `--start 21 --end 40` 处理第 21 到 40 条；与 `--match-id` 互斥。
-- `scripts/audit_jjc_person_history_identity.py` 只做历史污染审计和冲突报告，避免按 SK01 `global_role_id` 改主键。
-- 旧冲突链环路修复逻辑保留为审计脚本的安全兜底。
-- `scripts/check_role_identity_migration.py` 增加新主键校验。（已实现：`global_id` 重复、旧 `global:*` / `name:*` 残留、同一 `zone+role_id` 多 `global_id`）
-- `scripts/fix_jjc_ranking_weapon_names.py` 等缓存修复脚本优先按 `global_id` 查找。（已实现：`global_id` > SK01 `global_role_id` > `zone + game_role_id`）
+- 临时审计、核验和缓存修复脚本已删除；后续如需要重新检查数据，应新建独立计划和脚本。
 
 ### 阶段 5：文档与数据库设计同步
 
@@ -344,16 +320,16 @@ db.jjc_sync_role_queue.countDocuments({
 python -m unittest tests.test_role_identity_matching
 python -m unittest tests.test_jjc_match_data_sync tests.test_jjc_sync_repo tests.test_role_identity_repo tests.test_jjc_ranking_inspect
 python -m py_compile src/services/jx3/jjc_match_data_sync.py src/services/jx3/jjc_ranking.py src/services/jx3/kungfu.py src/services/jx3/jjc_ranking_inspect.py src/storage/mongo_repos/role_identity_repo.py src/storage/mongo_repos/jjc_sync_repo.py
-python -m py_compile scripts/rebuild_jjc_role_identity_from_synced_matches.py scripts/backup_jjc_role_identity_collections.py scripts/clear_jjc_role_identity_collections.py scripts/restore_jjc_role_identity_collections.py scripts/check_role_identity_migration.py
+python -m py_compile scripts/backfill_jjc_role_id_from_match_replay.py
 ```
 
 本轮已执行：
 
 ```bash
-python -m py_compile src/services/jx3/role_identity_matching.py src/storage/mongo_repos/role_identity_repo.py src/storage/mongo_repos/jjc_sync_repo.py src/storage/mongo_repos/role_jjc_cache_repo.py src/storage/mongo_repos/jjc_inspect_repo.py src/services/jx3/jjc_cache_repo.py src/services/jx3/jjc_match_data_sync.py src/services/jx3/jjc_ranking.py src/services/jx3/kungfu.py src/services/jx3/jjc_ranking_inspect.py src/services/jx3/singletons.py src/infra/mongo.py scripts/backfill_jjc_role_id_from_match_replay.py scripts/check_role_identity_migration.py scripts/fix_jjc_ranking_weapon_names.py
+python -m py_compile src/services/jx3/role_identity_matching.py src/storage/mongo_repos/role_identity_repo.py src/storage/mongo_repos/jjc_sync_repo.py src/storage/mongo_repos/role_jjc_cache_repo.py src/storage/mongo_repos/jjc_inspect_repo.py src/services/jx3/jjc_cache_repo.py src/services/jx3/jjc_match_data_sync.py src/services/jx3/jjc_ranking.py src/services/jx3/kungfu.py src/services/jx3/jjc_ranking_inspect.py src/services/jx3/singletons.py src/infra/mongo.py scripts/backfill_jjc_role_id_from_match_replay.py
 python -m unittest tests.test_role_identity_matching tests.test_role_identity_repo tests.test_jjc_sync_repo tests.test_jjc_match_data_sync tests.test_jjc_kungfu_global_id
 python -m unittest tests.test_jjc_ranking_inspect.TestJjcRankingInspectRoleRecent.test_role_recent_resolves_replay_global_id_into_identity_hints tests.test_jjc_ranking_inspect.TestJjcRankingInspectRoleRecent.test_cached_match_detail_is_enriched_with_replay_global_id tests.test_jjc_ranking_inspect.TestRankingWarmupInspectCache.test_warmup_writes_indicator_and_match_detail_cache tests.test_jjc_kungfu_global_id tests.test_jjc_match_detail_hydration tests.test_jjc_weapon_quality
-git diff --check -- src/services/jx3/role_identity_matching.py src/storage/mongo_repos/role_identity_repo.py src/storage/mongo_repos/jjc_sync_repo.py src/storage/mongo_repos/role_jjc_cache_repo.py src/storage/mongo_repos/jjc_inspect_repo.py src/services/jx3/jjc_cache_repo.py src/services/jx3/jjc_match_data_sync.py src/services/jx3/jjc_ranking.py src/services/jx3/kungfu.py src/services/jx3/jjc_ranking_inspect.py src/services/jx3/singletons.py src/infra/mongo.py scripts/backfill_jjc_role_id_from_match_replay.py scripts/check_role_identity_migration.py scripts/fix_jjc_ranking_weapon_names.py docs/design-docs/database-design.md docs/references/runbook.md docs/exec-plans/active/jjc-role-global-id-governance-plan.md
+git diff --check -- src/services/jx3/role_identity_matching.py src/storage/mongo_repos/role_identity_repo.py src/storage/mongo_repos/jjc_sync_repo.py src/storage/mongo_repos/role_jjc_cache_repo.py src/storage/mongo_repos/jjc_inspect_repo.py src/services/jx3/jjc_cache_repo.py src/services/jx3/jjc_match_data_sync.py src/services/jx3/jjc_ranking.py src/services/jx3/kungfu.py src/services/jx3/jjc_ranking_inspect.py src/services/jx3/singletons.py src/infra/mongo.py scripts/backfill_jjc_role_id_from_match_replay.py docs/design-docs/database-design.md docs/references/runbook.md docs/exec-plans/active/jjc-role-global-id-governance-plan.md
 ```
 
 说明：完整 `tests.test_jjc_ranking_inspect` 此前在既有 endpoint lock 并发测试处超过 10 秒未结束，本轮使用与 `global_id` 改造相关的 focused tests 覆盖。
