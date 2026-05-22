@@ -24,6 +24,8 @@ API_URLS = {
     "竞技场战局历史": "https://m.pvp.xoyo.com/3c/mine/match/history",
     "竞技场个人战局历史": "https://m.pvp.xoyo.com/mine/match/person-history",
     "竞技场战局详情": "https://m.pvp.xoyo.com/3c/mine/match/detail",
+    "竞技场战局回放": "https://m.pvp.xoyo.com/3c/mine/match/replay",
+    "推栏角色指标": "https://m.pvp.xoyo.com/role/indicator",
     "区服主服查询": "https://www.jx3api.com/data/master/search",
 }
 
