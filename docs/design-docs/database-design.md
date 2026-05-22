@@ -226,7 +226,7 @@
 | `role_id` | string/null | 角色详情或对局详情中的角色 ID |
 | `global_id` | string/null | JJC 稳定角色身份 ID，来自 `match/replay.players[].global_role_id`；不得与 SK01 `global_role_id` 混用 |
 | `global_role_id` | string/null | SK01 全局角色 ID，来自 `role/indicator.role_info.global_role_id`，用于请求推栏战局历史 |
-| `person_id` | string/null | 对局详情中的 person ID |
+| `person_id` | string/null | 推栏个人 ID；对局详情或 indicator `person_info.person_id` 可提供 |
 | `role_info_observed_match_time` | int/null | 当前角色画像字段所依据的最近对局时间 Unix 秒；对局来源只有晚于该值才允许覆盖已有非空画像字段 |
 | `role_info_source` | string/null | 最近一次角色画像补充来源，如 `match_detail`、`match_replay_indicator_backfill`、`match_replay_backfill`、`match_replay_indicator` |
 | `role_info_updated_at` | float/null | 最近一次角色信息补充写入时间 Unix 秒 |
@@ -237,6 +237,8 @@
 | `last_seen_at` | datetime | 最近一次出现时间 |
 | `updated_at` | datetime | 最近一次字段更新（如升级 identity_level）时间 |
 | `schema_version` | int | schema 版本号 |
+
+`created_at` 不是 `role_identities` 标准必需字段；历史脚本写入的旧字段可存在，线上规范化脚本只做兼容转换，新写入逻辑不依赖它。
 
 `identity_key` 生成规则：
 

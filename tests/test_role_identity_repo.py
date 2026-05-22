@@ -336,6 +336,56 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["global_role_id"], "SK01-abc")
         self.assertEqual(result["profile_history"][0]["global_id"], "99999")
 
+    async def test_indicator_new_identity_writes_person_id(self) -> None:
+        db = FakeDb()
+        repo = RoleIdentityRepo(db=db)
+
+        result = await repo.upsert_from_indicator(
+            server="梦江南",
+            name="角色A",
+            zone="电信区",
+            game_role_id="rid-a",
+            global_role_id="SK01-abc",
+            role_id="rid-a",
+            person_id="person-a",
+        )
+
+        self.assertEqual(result["person_id"], "person-a")
+        self.assertEqual(result["profile_history"][0]["person_id"], "person-a")
+        inserted = db.role_identities.insert_one.call_args.args[0]
+        self.assertEqual(inserted["person_id"], "person-a")
+
+    async def test_indicator_fills_missing_person_id_on_existing_identity(self) -> None:
+        db = FakeDb()
+        existing = {
+            "identity_key": "global:SK01-abc",
+            "identity_level": "global",
+            "server": "梦江南",
+            "normalized_server": "梦江南",
+            "name": "角色A",
+            "normalized_name": "角色A",
+            "global_role_id": "SK01-abc",
+        }
+        db.role_identities.find_one.side_effect = [
+            dict(existing),
+            dict(existing, person_id="person-a"),
+        ]
+        repo = RoleIdentityRepo(db=db)
+
+        await repo.upsert_from_indicator(
+            server="梦江南",
+            name="角色A",
+            zone="电信区",
+            game_role_id="rid-a",
+            global_role_id="SK01-abc",
+            role_id="rid-a",
+            person_id="person-a",
+        )
+
+        _, update = db.role_identities.update_one.call_args.args
+        self.assertEqual(update["$set"]["person_id"], "person-a")
+        self.assertEqual(update["$addToSet"]["profile_history"]["person_id"], "person-a")
+
     async def test_legacy_global_role_identity_upgrades_to_global_id(self) -> None:
         db = FakeDb()
         existing = {

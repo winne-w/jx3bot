@@ -1,9 +1,11 @@
 import unittest
 from argparse import Namespace
+from datetime import datetime
 
 from scripts.backfill_jjc_role_id_from_match_replay import (
     build_detail_player_map,
     build_insert_doc,
+    build_update,
     merge_detail_hint,
     parse_replay_role_name,
     resolve_range,
@@ -65,6 +67,34 @@ class TestBackfillJjcRoleIdFromMatchReplay(unittest.TestCase):
         self.assertEqual(doc["global_role_id"], "SK01-a")
         self.assertEqual(doc["person_id"], "person-a")
         self.assertEqual(doc["profile_history"][0]["global_id"], "gid-a")
+        self.assertIsInstance(doc["profile_observed_at"], datetime)
+        self.assertIsInstance(doc["first_seen_at"], datetime)
+        self.assertIsInstance(doc["last_seen_at"], datetime)
+        self.assertIsInstance(doc["updated_at"], datetime)
+        self.assertIsInstance(doc["role_info_updated_at"], float)
+        self.assertNotIn("created_at", doc)
+
+    def test_role_identity_insert_history_omits_empty_person_id(self) -> None:
+        player = {
+            "role_id": "rid-a",
+            "global_id": "gid-a",
+            "zone": "电信区",
+            **parse_replay_role_name("角色A·梦江南"),
+        }
+
+        doc = build_insert_doc(
+            "role_identities",
+            player,
+            1779209338,
+            "match_replay_indicator_backfill",
+            1779210000.0,
+            global_role_id="SK01-a",
+            person_id=None,
+        )
+
+        self.assertIsNotNone(doc)
+        assert doc is not None
+        self.assertNotIn("person_id", doc["profile_history"][0])
 
     def test_queue_insert_requires_sk01_global_role_id(self) -> None:
         player = {
@@ -85,6 +115,44 @@ class TestBackfillJjcRoleIdFromMatchReplay(unittest.TestCase):
         )
 
         self.assertIsNone(doc)
+
+    def test_role_identity_update_uses_datetime_and_profile_history_entry(self) -> None:
+        player = {
+            "role_id": "rid-a",
+            "global_id": "gid-a",
+            "zone": "电信区",
+            **parse_replay_role_name("角色A·梦江南"),
+        }
+        existing = {
+            "identity_key": "global_id:gid-a",
+            "identity_level": "global_id",
+            "server": "梦江南",
+            "name": "角色A",
+            "normalized_server": "梦江南",
+            "normalized_name": "角色a",
+            "global_id": "gid-a",
+            "role_info_observed_match_time": 1779209000,
+        }
+
+        update, reason = build_update(
+            "role_identities",
+            existing,
+            player,
+            1779209338,
+            "match_replay_indicator_backfill",
+            1779210000.0,
+            global_role_id="SK01-a",
+            person_id=None,
+        )
+
+        self.assertEqual(reason, "update")
+        self.assertIsNotNone(update)
+        assert update is not None
+        self.assertIsInstance(update["$set"]["updated_at"], datetime)
+        self.assertIsInstance(update["$set"]["role_info_updated_at"], float)
+        history_entry = update["$addToSet"]["profile_history"]
+        self.assertEqual(history_entry["source"], "match_replay_indicator_backfill")
+        self.assertNotIn("person_id", history_entry)
 
     def test_resolve_range_supports_one_based_closed_interval(self) -> None:
         args = Namespace(match_id=None, start=21, end=40, skip=0, limit=20)

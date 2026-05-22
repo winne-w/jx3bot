@@ -60,6 +60,7 @@ class JjcCacheRepo:
         game_role_id: Optional[str],
         global_role_id: Optional[str],
         role_id: Optional[str],
+        person_id: Optional[str] = None,
         global_id: Optional[str] = None,
     ) -> dict[str, Any]:
         identity_repo = self._get_identity_repo()
@@ -71,6 +72,7 @@ class JjcCacheRepo:
             game_role_id=game_role_id,
             global_role_id=global_role_id,
             role_id=role_id,
+            person_id=person_id,
             global_id=global_id,
             cache_repo=jjc_repo,
         )
@@ -298,6 +300,7 @@ class JjcCacheRepo:
             global_role_id = result.get("global_role_id")
             global_id = result.get("global_id")
             role_id = result.get("role_id")
+            person_id = result.get("person_id")
 
             identity = await self.upsert_role_identity_from_indicator(
                 server=server,
@@ -306,6 +309,7 @@ class JjcCacheRepo:
                 game_role_id=game_role_id,
                 global_role_id=global_role_id,
                 role_id=role_id,
+                person_id=person_id,
                 global_id=global_id,
             )
             identity_key = identity["identity_key"]

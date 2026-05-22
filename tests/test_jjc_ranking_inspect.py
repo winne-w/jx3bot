@@ -789,6 +789,8 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
     async def test_role_indicator_parses_nested_metrics_and_caches(self) -> None:
         cache_repo = FakeJjcInspectRepo()
         fetch_calls: List[Dict[str, Any]] = []
+        kungfu_cache_repo = MagicMock()
+        kungfu_cache_repo.upsert_role_identity_from_indicator = AsyncMock()
 
         def fake_fetch(role_id: str, zone: str, server: str, **kwargs: Any) -> Dict[str, Any]:
             fetch_calls.append({"role_id": role_id, "zone": zone, "server": server, "kwargs": kwargs})
@@ -796,6 +798,8 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
                 "code": 0,
                 "msg": "success",
                 "data": {
+                    "role_info": {"global_role_id": "16648966321772809985", "role_id": "30284767"},
+                    "person_info": {"person_id": "person-30284767"},
                     "indicator": [
                         {"type": "3c", "metrics": [{"pvp_type": 3, "win_count": 160, "total_count": 245, "level": 95}], "performance": {"mmr": 2752, "grade": 15}},
                     ],
@@ -804,7 +808,7 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
 
         service = DirectJjcRankingInspectService(
             ranking_service=MagicMock(),
-            kungfu_cache_repo=MagicMock(),
+            kungfu_cache_repo=kungfu_cache_repo,
             match_history_client=MagicMock(),
             match_detail_client=MagicMock(),
             cache_repo=cache_repo,
@@ -827,6 +831,12 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result1["indicator"]["grade"], 15)
         self.assertEqual(len(fetch_calls), 1)
         self.assertEqual(len(cache_repo.saved_role_indicator), 1)
+        kungfu_cache_repo.upsert_role_identity_from_indicator.assert_awaited_once()
+        upsert_kwargs = kungfu_cache_repo.upsert_role_identity_from_indicator.await_args.kwargs
+        self.assertEqual(upsert_kwargs["person_id"], "person-30284767")
+        self.assertEqual(cache_repo.saved_role_indicator[0][1]["person_id"], "person-30284767")
+        self.assertEqual(cache_repo.saved_role_indicator[0][1]["global_role_id"], "16648966321772809985")
+        self.assertEqual(cache_repo.saved_role_indicator[0][1]["role_id"], "30284767")
 
         result2 = await service.get_role_indicator(
             server="梦江南",
@@ -854,6 +864,100 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result3["cache"]["ttl_seconds"], 86400)
         self.assertEqual(result3["cache"]["force_refresh"], True)
         self.assertEqual(len(fetch_calls), 2)
+
+    async def test_resolve_identity_from_indicator_writes_person_id(self) -> None:
+        kungfu_cache_repo = MagicMock()
+        kungfu_cache_repo.upsert_role_identity_from_indicator = AsyncMock()
+
+        def fake_fetch(role_id: str, zone: str, server: str, **kwargs: Any) -> Dict[str, Any]:
+            return {
+                "code": 0,
+                "msg": "success",
+                "data": {
+                    "role_info": {"global_role_id": "SK01-abc", "role_id": "rid-a"},
+                    "person_info": {"person_id": "person-a"},
+                },
+            }
+
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=kungfu_cache_repo,
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=fake_fetch,
+            kungfu_pinyin_to_chinese={},
+        )
+
+        result = await service._resolve_identity_from_indicator(
+            server="梦江南",
+            name="角色A",
+            game_role_id="rid-a",
+            zone="电信区",
+            role_id=None,
+            global_id=None,
+            source="test",
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["person_id"], "person-a")
+        kungfu_cache_repo.upsert_role_identity_from_indicator.assert_awaited_once()
+        upsert_kwargs = kungfu_cache_repo.upsert_role_identity_from_indicator.await_args.kwargs
+        self.assertEqual(upsert_kwargs["person_id"], "person-a")
+
+    async def test_role_indicator_saves_cache_with_upgraded_identity_key(self) -> None:
+        cache_repo = FakeJjcInspectRepo()
+        kungfu_cache_repo = MagicMock()
+        kungfu_cache_repo.upsert_role_identity_from_indicator = AsyncMock(return_value={
+            "identity_key": "global:SK01-upgraded",
+            "identity_level": "global",
+            "server": "梦江南",
+            "name": "角色A",
+            "game_role_id": "rid-a",
+            "role_id": "rid-a",
+            "global_role_id": "SK01-upgraded",
+            "person_id": "person-a",
+            "zone": "电信区",
+        })
+
+        def fake_fetch(role_id: str, zone: str, server: str, **kwargs: Any) -> Dict[str, Any]:
+            return {
+                "code": 0,
+                "msg": "success",
+                "data": {
+                    "role_info": {"global_role_id": "SK01-upgraded", "role_id": "rid-a"},
+                    "person_info": {"person_id": "person-a"},
+                    "indicator": [
+                        {"type": "3c", "metrics": [{"pvp_type": 3, "win_count": 1, "total_count": 2, "level": 1}], "performance": {"mmr": 1000}},
+                    ],
+                },
+            }
+
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=kungfu_cache_repo,
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=cache_repo,
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=fake_fetch,
+            kungfu_pinyin_to_chinese={},
+        )
+
+        result = await service.get_role_indicator(
+            server="梦江南",
+            name="角色A",
+            game_role_id="rid-a",
+            global_role_id="SK01-old",
+            zone="电信区",
+        )
+
+        self.assertFalse(result.get("error"))
+        self.assertEqual(result["identity"]["identity_key"], "global:SK01-upgraded")
+        self.assertEqual(cache_repo.saved_role_indicator[0][0], "global:SK01-upgraded")
+        self.assertEqual(cache_repo.saved_role_indicator[0][1]["global_role_id"], "SK01-upgraded")
+        self.assertEqual(cache_repo.saved_role_indicator[0][1]["role_id"], "rid-a")
 
     async def test_role_indicator_accepts_3d_indicator_type(self) -> None:
         cache_repo = FakeJjcInspectRepo()

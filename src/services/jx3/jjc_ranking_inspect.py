@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import inspect
 import threading
 import time
 from weakref import WeakKeyDictionary
@@ -124,6 +125,21 @@ def _extract_total_mmr(match: dict[str, Any]) -> Optional[int]:
 
 def _parse_3v3_indicator(raw: dict[str, Any]) -> dict[str, Any]:
     return parse_3v3_indicator(raw)
+
+
+def _extract_person_id_from_indicator(raw: dict[str, Any]) -> Optional[str]:
+    data = raw.get("data") if isinstance(raw, dict) else None
+    payload = data if isinstance(data, dict) else raw
+    person_info = payload.get("person_info") if isinstance(payload, dict) else None
+    if not isinstance(person_info, dict):
+        return None
+    return _pick_str(person_info.get("person_id"), person_info.get("personId"))
+
+
+async def _maybe_await(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
 
 
 @dataclass(frozen=True)
@@ -391,14 +407,51 @@ class JjcRankingInspectService:
                 "raw": raw,
             }
 
+        person_id = _extract_person_id_from_indicator(raw)
+        raw_role_info = (raw.get("data") or {}).get("role_info") if isinstance(raw.get("data"), dict) else None
+        if not isinstance(raw_role_info, dict):
+            raw_role_info = {}
+        indicator_global_role_id = _pick_str(
+            raw_role_info.get("global_role_id"),
+            raw_role_info.get("globalRoleId"),
+            identity.get("global_role_id"),
+        )
+        indicator_role_id = _pick_str(
+            raw_role_info.get("role_id"),
+            raw_role_info.get("roleId"),
+            identity.get("role_id"),
+            resolved_game_role_id,
+        )
+        if indicator_global_role_id:
+            try:
+                updated_identity = await _maybe_await(
+                    self.kungfu_cache_repo.upsert_role_identity_from_indicator(
+                        server=server,
+                        name=name,
+                        zone=resolved_zone,
+                        game_role_id=resolved_game_role_id,
+                        global_role_id=indicator_global_role_id,
+                        role_id=indicator_role_id,
+                        person_id=person_id,
+                        global_id=_pick_str(identity.get("global_id")),
+                    )
+                )
+                if isinstance(updated_identity, dict):
+                    identity = updated_identity
+                    identity_key = _pick_str(updated_identity.get("identity_key")) or identity_key
+            except Exception as exc:
+                logger.warning(f"JJC 角色 indicator: 写入 role_identities 失败 server={server} name={name} error={exc}")
+
         cached_at = time.time()
         cache_payload = {
             "identity_key": identity_key,
             "server": server,
             "name": _normalize_name(name),
             "game_role_id": resolved_game_role_id,
-            "global_role_id": _pick_str(identity.get("global_role_id")),
+            "global_role_id": indicator_global_role_id or _pick_str(identity.get("global_role_id")),
             "global_id": _pick_str(identity.get("global_id")),
+            "role_id": indicator_role_id or _pick_str(identity.get("role_id")),
+            "person_id": person_id,
             "zone": resolved_zone,
             "indicator": parsed,
             "raw": raw,
@@ -642,6 +695,7 @@ class JjcRankingInspectService:
         role_info = (result.get("data") or {}).get("role_info") or {}
         global_role_id = _pick_str(role_info.get("global_role_id"), role_info.get("globalRoleId"))
         resolved_role_id = _pick_str(role_info.get("role_id"), role_info.get("roleId"), role_id, game_role_id)
+        person_id = _extract_person_id_from_indicator(result)
         if not global_role_id:
             logger.warning(
                 "JJC 角色标识解析: indicator 未返回 global_role_id server={} name={} source={}",
@@ -651,23 +705,27 @@ class JjcRankingInspectService:
             )
             return None
         try:
-            await self.kungfu_cache_repo.upsert_role_identity_from_indicator(
-                server=server,
-                name=name,
-                zone=zone,
-                game_role_id=game_role_id,
-                global_role_id=global_role_id,
-                role_id=resolved_role_id,
-                global_id=global_id,
+            await _maybe_await(
+                self.kungfu_cache_repo.upsert_role_identity_from_indicator(
+                    server=server,
+                    name=name,
+                    zone=zone,
+                    game_role_id=game_role_id,
+                    global_role_id=global_role_id,
+                    role_id=resolved_role_id,
+                    person_id=person_id,
+                    global_id=global_id,
+                )
             )
         except Exception as exc:
-            logger.warning("JJC 角色标识解析: 写入 role_identities 失败 server={} name={} error={}", server, name, exc)
+            logger.warning(f"JJC 角色标识解析: 写入 role_identities 失败 server={server} name={name} error={exc}")
         return {
             "server": server,
             "name": _normalize_name(name),
             "global_role_id": global_role_id,
             "global_id": global_id,
             "role_id": resolved_role_id,
+            "person_id": person_id,
             "game_role_id": game_role_id,
             "zone": zone,
             "source": source,

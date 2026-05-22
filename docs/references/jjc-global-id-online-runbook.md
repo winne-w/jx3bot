@@ -191,7 +191,29 @@ python scripts/backfill_jjc_role_id_from_match_replay.py --match-id <对局ID> -
 - 从 indicator 补 SK01 `global_role_id` 和 `person_id`。
 - 有 `global_id` 时把 `identity_key` 迁移到 `global_id:{global_id}` 并写 `aliases`。
 
-## 6. 回填后核验
+## 6. 规范化 role_identities schema
+
+如果线上已经存在 `sources` 包含 `indicator` 或 `match_replay_indicator_backfill` 的历史数据，回填后先 dry-run 检查时间字段类型和 `profile_history` 空字段：
+
+```bash
+python scripts/normalize_jjc_role_identity_schema.py --source all --dry-run
+```
+
+小批执行：
+
+```bash
+python scripts/normalize_jjc_role_identity_schema.py --source match_replay_indicator_backfill --limit 100 --apply --yes
+```
+
+确认输出里的 `failed` 为 0 后全量执行：
+
+```bash
+python scripts/normalize_jjc_role_identity_schema.py --source all --apply --yes
+```
+
+该脚本只规范化 schema 形态：把 `updated_at`、`first_seen_at`、`last_seen_at`、`profile_observed_at` 等历史数字时间转为 datetime，清理 `profile_history` entry 中的空字段；不修改 `identity_key`、`global_id`、`global_role_id`、`role_id`、`zone`、`server`、`name` 等身份画像值。
+
+## 7. 回填后核验
 
 每轮 apply 后执行：
 
@@ -206,7 +228,7 @@ python scripts/check_role_identity_migration.py
 - `global_id` 重复组数不增加。
 - `zone+role_id` 多 `global_id` 样本可解释，不自动合并。
 
-## 7. 恢复
+## 8. 恢复
 
 如清理或回填出现明显错误，使用备份恢复。
 
@@ -242,7 +264,7 @@ python scripts/restore_jjc_role_identity_collections.py --tag "$BACKUP_TAG" --ap
 python scripts/check_role_identity_migration.py
 ```
 
-## 8. 查询备份 tag
+## 9. 查询备份 tag
 
 如果忘了备份 tag，可查 `jjc_backup_metadata`：
 
@@ -258,7 +280,7 @@ for item in db.jjc_backup_metadata.find({"type": "jjc_role_identity_backup"}).so
 PY
 ```
 
-## 9. 推荐完整命令顺序
+## 10. 推荐完整命令顺序
 
 ```bash
 BACKUP_TAG=before_global_id_20260521
@@ -273,6 +295,9 @@ python scripts/clear_jjc_role_identity_collections.py --backup-tag "$BACKUP_TAG"
 
 python scripts/backfill_jjc_role_id_from_match_replay.py --limit 20 --dry-run
 python scripts/backfill_jjc_role_id_from_match_replay.py --limit 20 --apply --yes
+
+python scripts/normalize_jjc_role_identity_schema.py --source all --dry-run
+python scripts/normalize_jjc_role_identity_schema.py --source all --apply --yes
 
 python scripts/check_role_identity_migration.py
 ```

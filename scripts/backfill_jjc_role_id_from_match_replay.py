@@ -20,7 +20,11 @@ if str(ROOT) not in sys.path:
 from pymongo import MongoClient  # noqa: E402
 
 from src.services.jx3.jjc_match_data_sync import normalize_role_name  # noqa: E402
-from src.services.jx3.role_identity_matching import build_identity_key, legacy_identity_keys  # noqa: E402
+from src.services.jx3.role_identity_matching import (  # noqa: E402
+    build_identity_key,
+    build_profile_history_entry,
+    legacy_identity_keys,
+)
 from src.utils.tuilan_request import tuilan_request  # noqa: E402
 
 MATCH_REPLAY_URL = "https://m.pvp.xoyo.com/3c/mine/match/replay"
@@ -273,11 +277,13 @@ def build_update(
     if not has_missing and not newer:
         return None, "older_or_equal_complete"
 
+    now_dt = datetime.fromtimestamp(now, tz=timezone.utc)
+    observed_at = _observed_datetime(match_time) or now_dt
     set_fields: Dict[str, Any] = {
         "role_id": role_id,
         "role_info_source": source,
         "role_info_updated_at": now,
-        "updated_at": now,
+        "updated_at": now_dt if collection == "role_identities" else now,
     }
     if collection == "role_identities":
         set_fields["game_role_id"] = role_id
@@ -291,6 +297,22 @@ def build_update(
         set_fields["role_info_observed_match_time"] = match_time
 
     update_op: Dict[str, Any] = {"$set": set_fields}
+    if collection == "role_identities":
+        update_op["$addToSet"] = {
+            "sources": source,
+            "profile_history": build_profile_history_entry(
+                server=_text(doc.get("server") or player.get("server")),
+                name=_text(doc.get("name") or player.get("name")),
+                zone=_text(doc.get("zone") or player.get("zone")) or None,
+                role_id=role_id,
+                game_role_id=role_id,
+                global_role_id=global_role_id or existing_global_role_id or None,
+                global_id=global_id or existing_global_id or None,
+                person_id=person_id or _text(doc.get("person_id")) or None,
+                source=source,
+                observed_at=observed_at,
+            ),
+        }
     if global_id:
         old_key = _text(doc.get("identity_key"))
         new_key, new_level = build_identity_key(
@@ -313,7 +335,8 @@ def build_update(
                 name=_text(doc.get("normalized_name") or doc.get("name")),
             )
             aliases.append(old_key)
-            update_op["$addToSet"] = {"aliases": {"$each": sorted(set(aliases))}}
+            add_to_set = update_op.setdefault("$addToSet", {})
+            add_to_set["aliases"] = {"$each": sorted(set(aliases))}
 
     return update_op, "update"
 
@@ -382,8 +405,10 @@ def build_insert_doc(
             server=player["server"],
             name=player["name"],
         )
-        observed_at = _observed_datetime(match_time) or datetime.fromtimestamp(now, tz=timezone.utc)
+        now_dt = datetime.fromtimestamp(now, tz=timezone.utc)
+        observed_at = _observed_datetime(match_time) or now_dt
         doc = dict(common)
+        doc["updated_at"] = now_dt
         doc.update({
             "identity_key": identity_key,
             "identity_level": identity_level,
@@ -397,23 +422,22 @@ def build_insert_doc(
             ),
             "sources": [source],
             "profile_observed_at": observed_at,
-            "profile_history": [{
-                "server": player["server"],
-                "name": player["name"],
-                "normalized_server": player["normalized_server"],
-                "normalized_name": player["normalized_name"],
-                "zone": zone or None,
-                "role_id": role_id or None,
-                "game_role_id": role_id or None,
-                "global_id": common.get("global_id") or None,
-                "global_role_id": global_role_id or None,
-                "person_id": person_id or None,
-                "source": source,
-                "observed_at": observed_at,
-            }],
+            "profile_history": [
+                build_profile_history_entry(
+                    server=player["server"],
+                    name=player["name"],
+                    zone=zone or None,
+                    role_id=role_id or None,
+                    game_role_id=role_id or None,
+                    global_id=common.get("global_id") or None,
+                    global_role_id=global_role_id or None,
+                    person_id=person_id or None,
+                    source=source,
+                    observed_at=observed_at,
+                )
+            ],
             "first_seen_at": observed_at,
             "last_seen_at": observed_at,
-            "created_at": now,
             "schema_version": 1,
         })
         return doc
@@ -499,7 +523,7 @@ def iter_matches(db: Any, args: argparse.Namespace) -> Iterable[Dict[str, Any]]:
     cursor = db.jjc_sync_match_seen.find(
         query,
         {"match_id": 1, "match_time": 1, "status": 1},
-    ).sort("match_time", -1)
+    ).sort([("match_time", -1), ("match_id", -1)])
     skip, limit = resolve_range(args)
     if skip:
         cursor = cursor.skip(skip)

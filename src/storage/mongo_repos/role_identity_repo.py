@@ -173,13 +173,15 @@ class RoleIdentityRepo:
         game_role_id: Optional[str] = None,
         global_role_id: Optional[str] = None,
         role_id: Optional[str] = None,
+        person_id: Optional[str] = None,
         global_id: Optional[str] = None,
         cache_repo: Any = None,
     ) -> Dict[str, Any]:
         """从 indicator 接口数据写入或升级身份。"""
         return await self._upsert_identity(
             server=server, name=name, zone=zone, game_role_id=game_role_id,
-            global_role_id=global_role_id, role_id=role_id, global_id=global_id,
+            global_role_id=global_role_id, role_id=role_id, person_id=person_id,
+            global_id=global_id,
             source="indicator", cache_repo=cache_repo,
         )
 
