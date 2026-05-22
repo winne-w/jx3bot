@@ -227,8 +227,8 @@
 | `global_id` | string/null | JJC 稳定角色身份 ID，来自 `match/replay.players[].global_role_id`；不得与 SK01 `global_role_id` 混用 |
 | `global_role_id` | string/null | SK01 全局角色 ID，来自 `role/indicator.role_info.global_role_id`，用于请求推栏战局历史 |
 | `person_id` | string/null | 对局详情中的 person ID |
-| `role_info_observed_match_time` | int/null | 最近一次用于补充角色身份字段的对局时间 Unix 秒；用于判断旧对局是否允许覆盖角色信息 |
-| `role_info_source` | string/null | 最近一次角色信息补充来源，如 `match_replay_indicator_backfill`、`match_replay_backfill`、`match_replay_indicator` |
+| `role_info_observed_match_time` | int/null | 当前角色画像字段所依据的最近对局时间 Unix 秒；对局来源只有晚于该值才允许覆盖已有非空画像字段 |
+| `role_info_source` | string/null | 最近一次角色画像补充来源，如 `match_detail`、`match_replay_indicator_backfill`、`match_replay_backfill`、`match_replay_indicator` |
 | `role_info_updated_at` | float/null | 最近一次角色信息补充写入时间 Unix 秒 |
 | `aliases` | array | 历史名称、历史服务器名、旧 `identity_key` 等，支持改名/转服后的回溯查询 |
 | `sources` | array | 数据来源列表，取值：`ranking`、`indicator`、`match_detail`、`migrated_kungfu_cache` |
@@ -254,7 +254,9 @@
 - `game_role` → `global`：仅作为历史兼容；通过 indicator 拿到 SK01 `global_role_id` 后可补字段，但后续仍应继续补 replay `global_id`。
 - 升级后旧 `identity_key` 记录不删除，但标记或合并到新记录。
 - 同一 `global_id` 不得出现多条 `global_id:{global_id}` 记录；同一 SK01 `global_role_id` 或同一 `zone + game_role_id` 对应多个 `global_id` 时只输出冲突样本，不按 SK01 或旧 role_id 自动合并。
-- `match_detail` 属于历史对局来源，只有当对局 `match_time` 晚于现有 `profile_observed_at` 时才更新当前 `server` / `name`，避免用旧对局覆盖转服/改名后的当前资料。
+- `match_detail` / replay 属于历史对局来源，只有当对局 `match_time` 晚于现有 `role_info_observed_match_time` 时才覆盖当前画像字段（`server`、`name`、`zone`、`role_id`、`game_role_id`、SK01 `global_role_id`、`person_id`）；旧对局或无对局时间来源默认只补齐缺失字段，避免用旧对局覆盖转服/改名后的当前资料。
+- 当更新对局覆盖 `server`、`name` 或 SK01 `global_role_id` 时，覆盖前的旧 `role_identities` 文档快照写入 `role_identities_history`；仅 `role_id` / `zone` 等普通画像变化不单独归档。
+- `ranking` / `indicator` 等无对局时间来源默认只补齐缺失画像字段，不覆盖已有非空画像字段；若入口已通过最近对局 replay 补到 `match_time`，则按同一时间水位规则处理。
 - 对于 `match_detail` 来源，原始详情里的 `players_info[].role_name` 可以保留推栏展示值；但派生写入 `role_identities.name` 时必须按“仅当最后一个 `·` 右侧等于当前 `server` 才拆分”的规则规范化为纯角色名。
 
 索引：
@@ -282,8 +284,10 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `archived_at` | datetime | 归档时间 |
-| `archive_reason` | string | 归档原因，当前固定为 `"duplicate_global_role_id_merged"` |
+| `archive_reason` | string | 归档原因，当前包括 `"duplicate_global_role_id_merged"`、`"role_identity_profile_updated"` |
 | `replaced_by_identity_key` | string | 保留文档的 `identity_key` |
+| `archive_source` | string/null | 触发归档的写入来源，如 `match_detail` |
+| `replaced_by_observed_match_time` | int/null | 触发覆盖的新对局时间 Unix 秒 |
 
 索引：
 
@@ -587,8 +591,8 @@
 | `person_id` | string/null | 推栏个人 ID；对局详情或 indicator 可提供，入口兜底时仍可用于 `person-history` 兼容补全 |
 | `zone` | string/null | 区服分区 |
 | `identity_source` | string/null | 同步前身份补全来源，如 `role_identity_name_match`、`live_ranking_global_role_id`、`person_history` |
-| `role_info_observed_match_time` | int/null | 最近一次用于补充角色身份字段的对局时间 Unix 秒；用于判断旧对局是否允许覆盖角色信息 |
-| `role_info_source` | string/null | 最近一次角色信息补充来源，如 `match_replay_indicator_backfill`、`match_replay_backfill`、`match_replay_indicator` |
+| `role_info_observed_match_time` | int/null | 当前角色画像字段所依据的最近对局时间 Unix 秒；对局来源只有晚于该值才允许覆盖已有非空画像字段 |
+| `role_info_source` | string/null | 最近一次角色画像补充来源，如 `match_detail`、`match_replay_indicator_backfill`、`match_replay_backfill`、`match_replay_indicator` |
 | `role_info_updated_at` | float/null | 最近一次角色信息补充写入时间 Unix 秒 |
 | `source` | string | 来源：`manual`、`ranking`、`match_detail` |
 | `priority` | int | 调度优先级，手动添加高于自动发现 |

@@ -10,9 +10,12 @@ from pymongo.errors import DuplicateKeyError
 
 from src.infra.mongo import get_db as _get_db
 from src.services.jx3.role_identity_matching import (
+    build_guarded_profile_set_fields,
     build_identity_key as _build_role_identity_key,
     build_profile_history_entry,
+    coerce_match_time,
     legacy_identity_keys,
+    should_overwrite_profile_fields,
 )
 
 SCHEMA_VERSION = 1
@@ -22,16 +25,6 @@ _LEVEL_ORDER = {"name": 0, "game_role": 1, "global": 2, "global_id": 3}
 
 def _normalize(value: str) -> str:
     return (value or "").strip().lower()
-
-
-def _coerce_datetime(value: Any) -> Optional[datetime]:
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value
-    if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value, tz=timezone.utc)
-    return None
 
 
 def build_identity_key(
@@ -68,6 +61,10 @@ class RoleIdentityRepo:
     def _col(self):
         db = self.db if self.db is not None else _get_db()
         return db.role_identities
+
+    def _history_col(self):
+        db = self.db if self.db is not None else _get_db()
+        return db.role_identities_history
 
     # ---- 查询 ----
 
@@ -196,6 +193,7 @@ class RoleIdentityRepo:
         role_id: Optional[str] = None,
         person_id: Optional[str] = None,
         observed_at: Optional[datetime] = None,
+        observed_match_time: Optional[int] = None,
         global_id: Optional[str] = None,
         cache_repo: Any = None,
     ) -> Dict[str, Any]:
@@ -203,7 +201,8 @@ class RoleIdentityRepo:
         return await self._upsert_identity(
             server=server, name=name, zone=zone, game_role_id=game_role_id,
             global_role_id=global_role_id, role_id=role_id, person_id=person_id,
-            global_id=global_id, source="match_detail", observed_at=observed_at, cache_repo=cache_repo,
+            global_id=global_id, source="match_detail", observed_at=observed_at,
+            observed_match_time=observed_match_time, cache_repo=cache_repo,
         )
 
     # ---- 显式升级 ----
@@ -294,35 +293,43 @@ class RoleIdentityRepo:
         role_id: Optional[str] = None,
         person_id: Optional[str] = None,
         observed_at: Optional[datetime] = None,
+        observed_match_time: Optional[int] = None,
         cache_repo: Any = None,
     ) -> Dict[str, Any]:
         """通用 upsert：查找已有身份 → 可能升级 → 新建或更新。"""
         now = datetime.now(timezone.utc)
         profile_observed_at = observed_at or now
+        profile_observed_match_time = (
+            coerce_match_time(observed_match_time)
+            if observed_match_time is not None
+            else coerce_match_time(observed_at)
+        )
+        effective_game_role_id = game_role_id or role_id
         ns = _normalize(server)
         nn = _normalize(name)
 
         existing = await self.resolve_best_identity(
             server=server, name=name,
-            zone=zone, game_role_id=game_role_id,
+            zone=zone, game_role_id=effective_game_role_id,
             global_role_id=global_role_id, global_id=global_id,
         )
 
         if existing:
             return await self._update_existing(
                 existing, server, name, ns, nn,
-                zone, game_role_id, global_role_id, global_id, role_id, person_id,
-                source, now, profile_observed_at, cache_repo=cache_repo,
+                zone, effective_game_role_id, global_role_id, global_id, role_id, person_id,
+                source, now, profile_observed_at, profile_observed_match_time,
+                cache_repo=cache_repo,
             )
 
         # 无已有身份 → 新建
         identity_key, identity_level = build_identity_key(
-            global_role_id=global_role_id, zone=zone, game_role_id=game_role_id,
+            global_role_id=global_role_id, zone=zone, game_role_id=effective_game_role_id,
             server=server, name=name, global_id=global_id,
         )
         history_entry = build_profile_history_entry(
             server=server, name=name, zone=zone, role_id=role_id,
-            game_role_id=game_role_id, global_role_id=global_role_id,
+            game_role_id=effective_game_role_id, global_role_id=global_role_id,
             global_id=global_id, person_id=person_id, source=source,
             observed_at=profile_observed_at,
         )
@@ -345,11 +352,15 @@ class RoleIdentityRepo:
             "updated_at": now,
             "schema_version": SCHEMA_VERSION,
         }
+        if profile_observed_match_time is not None:
+            doc["role_info_observed_match_time"] = profile_observed_match_time
+            doc["role_info_source"] = source
+            doc["role_info_updated_at"] = now.timestamp()
         # 只写入有实际值的字段，避免 null 参与 partial unique 索引导致冲突
         if zone:
             doc["zone"] = zone
-        if game_role_id:
-            doc["game_role_id"] = game_role_id
+        if effective_game_role_id:
+            doc["game_role_id"] = effective_game_role_id
         if global_role_id:
             doc["global_role_id"] = global_role_id
         if global_id:
@@ -364,8 +375,9 @@ class RoleIdentityRepo:
                 existing.pop("_id", None)
                 return await self._update_existing(
                     existing, server, name, ns, nn,
-                    zone, game_role_id, global_role_id, global_id, role_id, person_id,
-                    source, now, profile_observed_at, cache_repo=cache_repo,
+                    zone, effective_game_role_id, global_role_id, global_id, role_id, person_id,
+                    source, now, profile_observed_at, profile_observed_match_time,
+                    cache_repo=cache_repo,
                 )
             raise
 
@@ -388,11 +400,23 @@ class RoleIdentityRepo:
         source: str,
         now: datetime,
         profile_observed_at: datetime,
+        observed_match_time: Optional[int],
         cache_repo: Any = None,
     ) -> Dict[str, Any]:
         """更新已有身份记录，必要时执行身份升级。"""
         current_key: str = existing["identity_key"]
         current_level: str = existing.get("identity_level", "name")
+        existing_global_id = (existing.get("global_id") or "").strip()
+        incoming_global_id = (global_id or "").strip()
+        if existing_global_id and incoming_global_id and existing_global_id != incoming_global_id:
+            logger.warning(
+                "身份 global_id 冲突，跳过更新: identity_key={} existing_global_id={} incoming_global_id={}",
+                current_key,
+                existing_global_id,
+                incoming_global_id,
+            )
+            existing.pop("_id", None)
+            return existing
 
         new_key, new_level = build_identity_key(
             global_id=global_id, global_role_id=global_role_id, zone=zone, game_role_id=game_role_id,
@@ -405,40 +429,42 @@ class RoleIdentityRepo:
             "last_seen_at": now,
             "updated_at": now,
         }
-        existing_observed_at = _coerce_datetime(
-            existing.get("profile_observed_at") or existing.get("updated_at")
+        should_update_profile = should_overwrite_profile_fields(
+            existing,
+            observed_match_time=observed_match_time,
+            force_profile_update=False,
         )
-        should_update_profile = (
-            source != "match_detail"
-            or not existing.get("server")
-            or not existing.get("name")
-            or existing_observed_at is None
-            or profile_observed_at > existing_observed_at
-        )
+        incoming_profile_fields = {
+            "server": server,
+            "normalized_server": ns,
+            "name": name,
+            "normalized_name": nn,
+            "zone": zone,
+            "game_role_id": game_role_id,
+            "global_role_id": global_role_id,
+            "role_id": role_id,
+            "person_id": person_id,
+        }
+        set_fields.update(build_guarded_profile_set_fields(
+            existing,
+            incoming_profile_fields,
+            observed_match_time=observed_match_time,
+            force_profile_update=False,
+        ))
         if should_update_profile:
-            set_fields.update({
-                "server": server,
-                "normalized_server": ns,
-                "name": name,
-                "normalized_name": nn,
-                "profile_observed_at": profile_observed_at,
-            })
-
-        # 更新非空外部 ID 字段（传了就用新值，否则保留已有值）
-        for field_name, value in [
-            ("zone", zone),
-            ("game_role_id", game_role_id),
-            ("global_id", global_id),
-            ("global_role_id", global_role_id),
-            ("role_id", role_id),
-            ("person_id", person_id),
-        ]:
-            if value:
-                set_fields[field_name] = value
+            set_fields["profile_observed_at"] = profile_observed_at
+            if observed_match_time is not None:
+                set_fields["role_info_observed_match_time"] = observed_match_time
+                set_fields["role_info_source"] = source
+                set_fields["role_info_updated_at"] = now.timestamp()
+        if global_id and not existing_global_id:
+            set_fields["global_id"] = global_id
 
         if needs_upgrade:
             set_fields["identity_key"] = new_key
             set_fields["identity_level"] = new_level
+            if global_id:
+                set_fields["global_id"] = global_id
 
         update_op: Dict[str, Any] = {
             "$set": set_fields,
@@ -463,6 +489,20 @@ class RoleIdentityRepo:
             ))
             update_op["$addToSet"]["aliases"] = {"$each": sorted(set(aliases))}
 
+        should_archive = self._should_archive_profile_change(existing, set_fields)
+        if should_archive:
+            archived = await self._archive_profile_snapshot(
+                existing,
+                replaced_by_identity_key=new_key if needs_upgrade else current_key,
+                archive_reason="role_identity_profile_updated",
+                source=source,
+                observed_match_time=observed_match_time,
+                archived_at=now,
+            )
+            if not archived:
+                existing.pop("_id", None)
+                return existing
+
         try:
             await self._col().update_one(
                 {"identity_key": current_key},
@@ -484,3 +524,47 @@ class RoleIdentityRepo:
         if doc:
             doc.pop("_id", None)
         return doc or existing
+
+    def _should_archive_profile_change(
+        self,
+        existing: Dict[str, Any],
+        set_fields: Dict[str, Any],
+    ) -> bool:
+        for field_name in ("server", "name", "global_role_id"):
+            if field_name not in set_fields:
+                continue
+            old_value = str(existing.get(field_name) or "").strip()
+            new_value = str(set_fields.get(field_name) or "").strip()
+            if old_value and new_value and old_value != new_value:
+                return True
+        return False
+
+    async def _archive_profile_snapshot(
+        self,
+        existing: Dict[str, Any],
+        replaced_by_identity_key: str,
+        archive_reason: str,
+        source: str,
+        observed_match_time: Optional[int],
+        archived_at: datetime,
+    ) -> bool:
+        archive_doc = dict(existing)
+        archive_doc.pop("_id", None)
+        archive_doc["archived_at"] = archived_at
+        archive_doc["archive_reason"] = archive_reason
+        archive_doc["replaced_by_identity_key"] = replaced_by_identity_key
+        archive_doc["archive_source"] = source
+        if observed_match_time is not None:
+            archive_doc["replaced_by_observed_match_time"] = observed_match_time
+        try:
+            await self._history_col().insert_one(archive_doc)
+            return True
+        except Exception as exc:
+            logger.warning(
+                "归档角色身份旧画像失败: identity_key={} replaced_by={} error={}".format(
+                    existing.get("identity_key"),
+                    replaced_by_identity_key,
+                    exc,
+                )
+            )
+            return False

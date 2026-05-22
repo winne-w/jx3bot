@@ -9,6 +9,18 @@ IDENTITY_LEVEL_GLOBAL_ROLE = "global"
 IDENTITY_LEVEL_GAME_ROLE = "game_role"
 IDENTITY_LEVEL_NAME = "name"
 
+PROFILE_GUARDED_FIELDS = (
+    "server",
+    "normalized_server",
+    "name",
+    "normalized_name",
+    "zone",
+    "role_id",
+    "game_role_id",
+    "global_role_id",
+    "person_id",
+)
+
 
 def normalize_text(value: Any) -> str:
     return str(value or "").strip().lower()
@@ -17,6 +29,70 @@ def normalize_text(value: Any) -> str:
 def clean_id(value: Any) -> Optional[str]:
     text = str(value or "").strip()
     return text or None
+
+
+def coerce_match_time(value: Any) -> Optional[int]:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp())
+    return None
+
+
+def observed_match_time_from_doc(doc: Dict[str, Any]) -> Optional[int]:
+    observed = coerce_match_time(doc.get("role_info_observed_match_time"))
+    if observed is not None:
+        return observed
+    return coerce_match_time(doc.get("profile_observed_at"))
+
+
+def should_overwrite_profile_fields(
+    existing: Dict[str, Any],
+    observed_match_time: Optional[int] = None,
+    force_profile_update: bool = False,
+) -> bool:
+    if force_profile_update:
+        return True
+    if observed_match_time is None:
+        return False
+    existing_observed = observed_match_time_from_doc(existing)
+    return existing_observed is None or observed_match_time > existing_observed
+
+
+def build_guarded_profile_set_fields(
+    existing: Dict[str, Any],
+    incoming: Dict[str, Any],
+    observed_match_time: Optional[int] = None,
+    force_profile_update: bool = False,
+) -> Dict[str, Any]:
+    """Return profile fields that may be written under the match-time guard.
+
+    Newer observed matches may replace current profile fields. Older or
+    unobserved sources may only fill fields that are currently missing.
+    """
+    allow_overwrite = should_overwrite_profile_fields(
+        existing,
+        observed_match_time=observed_match_time,
+        force_profile_update=force_profile_update,
+    )
+    set_fields: Dict[str, Any] = {}
+    for field_name in PROFILE_GUARDED_FIELDS:
+        value = incoming.get(field_name)
+        if value is None or value == "":
+            continue
+        if allow_overwrite or not clean_id(existing.get(field_name)):
+            set_fields[field_name] = value
+    return set_fields
 
 
 def split_replay_role_name(role_name: Any, server: Any = "") -> Tuple[str, str]:

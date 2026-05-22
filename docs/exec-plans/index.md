@@ -7,6 +7,7 @@
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
 - `active/jjc-role-global-id-governance-plan.md`: JJC 角色 replay `global_id` 主键治理、防回流、重建与审计收敛总体计划
+- `active/jjc-role-identity-time-guard-plan.md`: JJC 角色身份写入入口统一时间保护计划
 
 ## Superseded
 

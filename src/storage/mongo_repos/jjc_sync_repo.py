@@ -11,8 +11,11 @@ from pymongo.errors import DuplicateKeyError
 
 from src.infra.mongo import get_db as _get_db
 from src.services.jx3.role_identity_matching import (
+    build_guarded_profile_set_fields,
     build_identity_key as _build_role_identity_key,
+    coerce_match_time,
     legacy_identity_keys,
+    should_overwrite_profile_fields,
 )
 
 
@@ -65,6 +68,28 @@ class JjcSyncRepo:
                 return None
         return None
 
+    @staticmethod
+    def _profile_update_fields(
+        existing: Dict[str, Any],
+        incoming: Dict[str, Any],
+        source: Optional[str],
+        now: float,
+        observed_match_time: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        observed = coerce_match_time(observed_match_time)
+        set_fields = build_guarded_profile_set_fields(
+            existing,
+            incoming,
+            observed_match_time=observed,
+            force_profile_update=False,
+        )
+        if should_overwrite_profile_fields(existing, observed_match_time=observed) and observed is not None:
+            set_fields["role_info_observed_match_time"] = observed
+            if source:
+                set_fields["role_info_source"] = source
+            set_fields["role_info_updated_at"] = now
+        return set_fields
+
     # ---- 角色队列操作 ----
 
     async def upsert_role(
@@ -82,6 +107,7 @@ class JjcSyncRepo:
         season_id: Optional[str] = None,
         season_start_time: int = 0,
         global_id: Optional[str] = None,
+        observed_match_time: Optional[int] = None,
     ) -> str:
         """将角色加入同步队列，已存在时更新身份字段但**不重置**同步水位。
 
@@ -117,23 +143,37 @@ class JjcSyncRepo:
         if existing:
             # 已有角色：更新身份字段，不重置同步水位
             set_fields: Dict[str, Any] = {
-                "server": server,
-                "name": name,
-                "normalized_server": normalized_server,
-                "normalized_name": normalized_name,
                 "updated_at": now,
             }
-
-            # 可选字段：仅在有值时更新
-            if zone is not None:
-                set_fields["zone"] = zone
-            if role_id is not None:
-                set_fields["role_id"] = role_id
-            if person_id is not None:
-                set_fields["person_id"] = person_id
-            if global_role_id is not None:
-                set_fields["global_role_id"] = global_role_id
-            if global_id is not None:
+            set_fields.update(self._profile_update_fields(
+                existing,
+                {
+                    "server": server,
+                    "name": name,
+                    "normalized_server": normalized_server,
+                    "normalized_name": normalized_name,
+                    "zone": zone,
+                    "role_id": role_id,
+                    "game_role_id": role_id,
+                    "global_role_id": global_role_id,
+                    "person_id": person_id,
+                },
+                source,
+                now,
+                observed_match_time=observed_match_time,
+            ))
+            existing_global_id = str(existing.get("global_id") or "").strip()
+            incoming_global_id = str(global_id or "").strip()
+            if existing_global_id and incoming_global_id and existing_global_id != incoming_global_id:
+                logger.warning(
+                    "同步队列 global_id 冲突，跳过角色 upsert: identity_key={} existing_global_id={} incoming_global_id={}".format(
+                        existing_key,
+                        existing_global_id,
+                        incoming_global_id,
+                    )
+                )
+                return existing_key
+            if global_id is not None and (not existing_global_id or existing_global_id == global_id):
                 set_fields["global_id"] = global_id
             if season_id is not None:
                 set_fields["season_id"] = season_id
@@ -197,6 +237,11 @@ class JjcSyncRepo:
                 doc["global_id"] = global_id
             if season_id is not None:
                 doc["season_id"] = season_id
+            observed = coerce_match_time(observed_match_time)
+            if observed is not None:
+                doc["role_info_observed_match_time"] = observed
+                doc["role_info_source"] = source
+                doc["role_info_updated_at"] = now
 
             try:
                 await db.jjc_sync_role_queue.insert_one(doc)
@@ -425,22 +470,30 @@ class JjcSyncRepo:
         zone: Optional[str] = None,
         identity_source: Optional[str] = None,
         global_id: Optional[str] = None,
+        observed_match_time: Optional[int] = None,
     ) -> bool:
         """补充同步队列角色的外部身份字段，不改变同步水位或 identity_key。"""
         db = self._db()
         now = time.time()
         set_fields: Dict[str, Any] = {"updated_at": now}
+        existing = await db.jjc_sync_role_queue.find_one({"identity_key": identity_key}) or {}
 
-        if global_role_id:
-            set_fields["global_role_id"] = global_role_id
-        if global_id:
+        existing_global_id = str(existing.get("global_id") or "").strip()
+        if global_id and (not existing_global_id or existing_global_id == global_id):
             set_fields["global_id"] = global_id
-        if role_id:
-            set_fields["role_id"] = role_id
-        if person_id:
-            set_fields["person_id"] = person_id
-        if zone:
-            set_fields["zone"] = zone
+        set_fields.update(self._profile_update_fields(
+            existing,
+            {
+                "global_role_id": global_role_id,
+                "role_id": role_id,
+                "game_role_id": role_id,
+                "person_id": person_id,
+                "zone": zone,
+            },
+            identity_source,
+            now,
+            observed_match_time=observed_match_time,
+        ))
         if identity_source:
             set_fields["identity_source"] = identity_source
 
@@ -469,6 +522,7 @@ class JjcSyncRepo:
         zone: Optional[str] = None,
         identity_source: Optional[str] = None,
         global_id: Optional[str] = None,
+        observed_match_time: Optional[int] = None,
     ) -> Optional[str]:
         """补充同步队列身份字段；拿到 global_id 时迁移 identity_key 并保留水位。"""
         db = self._db()
@@ -476,6 +530,16 @@ class JjcSyncRepo:
         existing = await db.jjc_sync_role_queue.find_one({"identity_key": identity_key})
         if not existing:
             return None
+        existing_global_id = str(existing.get("global_id") or "").strip()
+        incoming_global_id = str(global_id or "").strip()
+        if existing_global_id and incoming_global_id and existing_global_id != incoming_global_id:
+            logger.warning(
+                "同步队列 global_id 冲突，跳过身份字段更新: identity_key={} existing_global_id={} incoming_global_id={}",
+                identity_key,
+                existing_global_id,
+                incoming_global_id,
+            )
+            return identity_key
 
         new_key = identity_key
         if global_id:
@@ -491,18 +555,31 @@ class JjcSyncRepo:
         set_fields: Dict[str, Any] = {"updated_at": now}
         if new_key != identity_key:
             set_fields["identity_key"] = new_key
-        if global_role_id:
-            set_fields["global_role_id"] = global_role_id
         if global_id:
             set_fields["global_id"] = global_id
-        if role_id:
-            set_fields["role_id"] = role_id
-        if person_id:
-            set_fields["person_id"] = person_id
-        if zone:
-            set_fields["zone"] = zone
+        set_fields.update(self._profile_update_fields(
+            existing,
+            {
+                "global_role_id": global_role_id,
+                "role_id": role_id,
+                "game_role_id": role_id,
+                "person_id": person_id,
+                "zone": zone,
+            },
+            identity_source,
+            now,
+            observed_match_time=observed_match_time,
+        ))
         if identity_source:
             set_fields["identity_source"] = identity_source
+        if new_key != identity_key:
+            if global_role_id:
+                set_fields["global_role_id"] = global_role_id
+            if role_id:
+                set_fields["role_id"] = role_id
+                set_fields["game_role_id"] = role_id
+            if zone:
+                set_fields["zone"] = zone
 
         update_op: Dict[str, Any] = {"$set": set_fields}
         if new_key != identity_key:

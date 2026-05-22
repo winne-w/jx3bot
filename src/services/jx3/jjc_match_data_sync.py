@@ -1031,6 +1031,7 @@ class JjcMatchDataSyncService:
                 role_id=role_id,
                 person_id=person_id,
                 observed_at=observed_at,
+                observed_match_time=observed_match_time,
             )
         except Exception as exc:
             logger.warning(
@@ -1368,6 +1369,7 @@ class JjcMatchDataSyncService:
                 priority=-10,
                 season_id=self._current_season,
                 season_start_time=self._season_start_time,
+                observed_match_time=detail_match_time,
             )
 
     async def add_role(

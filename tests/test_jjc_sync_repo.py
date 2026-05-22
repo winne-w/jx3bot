@@ -290,6 +290,107 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("full_synced_until_time", update["$set"])
         self.assertIn("global:SK01-abc", update["$addToSet"]["aliases"]["$each"])
 
+    async def test_upsert_role_skips_legacy_migration_on_global_id_conflict(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.side_effect = [
+            None,
+            {
+                "identity_key": "global:SK01-abc",
+                "global_id": "88888",
+                "full_synced_until_time": 1000,
+            },
+        ]
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="梦江南",
+            name="角色A",
+            normalized_server="梦江南",
+            normalized_name="角色A",
+            global_role_id="SK01-abc",
+            role_id="rid-a",
+            zone="电信区",
+            global_id="99999",
+            priority=5,
+        )
+
+        self.assertEqual(result, "global:SK01-abc")
+        db.jjc_sync_role_queue.update_one.assert_not_called()
+
+    async def test_upsert_role_old_match_does_not_overwrite_profile_fields(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.return_value = {
+            "identity_key": "global_id:99999",
+            "global_id": "99999",
+            "server": "新服",
+            "name": "新名",
+            "normalized_server": "新服",
+            "normalized_name": "新名",
+            "role_id": "rid-new",
+            "global_role_id": "SK01-new",
+            "role_info_observed_match_time": 1810000100,
+            "full_synced_until_time": 1000,
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="老服",
+            name="旧名",
+            normalized_server="老服",
+            normalized_name="旧名",
+            global_id="99999",
+            global_role_id="SK01-old",
+            role_id="rid-old",
+            source="match_detail",
+            observed_match_time=1810000000,
+        )
+
+        self.assertEqual(result, "global_id:99999")
+        _, update = db.jjc_sync_role_queue.update_one.call_args.args
+        self.assertNotIn("server", update["$set"])
+        self.assertNotIn("name", update["$set"])
+        self.assertNotIn("role_id", update["$set"])
+        self.assertNotIn("global_role_id", update["$set"])
+        self.assertNotIn("role_info_observed_match_time", update["$set"])
+        self.assertNotIn("full_synced_until_time", update["$set"])
+
+    async def test_upsert_role_newer_match_overwrites_profile_fields(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.return_value = {
+            "identity_key": "global_id:99999",
+            "global_id": "99999",
+            "server": "旧服",
+            "name": "旧名",
+            "normalized_server": "旧服",
+            "normalized_name": "旧名",
+            "role_id": "rid-old",
+            "global_role_id": "SK01-old",
+            "role_info_observed_match_time": 1810000000,
+            "full_synced_until_time": 1000,
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="新服",
+            name="新名",
+            normalized_server="新服",
+            normalized_name="新名",
+            global_id="99999",
+            global_role_id="SK01-new",
+            role_id="rid-new",
+            source="match_detail",
+            observed_match_time=1810000100,
+        )
+
+        self.assertEqual(result, "global_id:99999")
+        _, update = db.jjc_sync_role_queue.update_one.call_args.args
+        self.assertEqual(update["$set"]["server"], "新服")
+        self.assertEqual(update["$set"]["name"], "新名")
+        self.assertEqual(update["$set"]["role_id"], "rid-new")
+        self.assertEqual(update["$set"]["global_role_id"], "SK01-new")
+        self.assertEqual(update["$set"]["role_info_observed_match_time"], 1810000100)
+        self.assertNotIn("full_synced_until_time", update["$set"])
+
 
 class TestJjcSyncRepoMatchSeen(unittest.IsolatedAsyncioTestCase):
     async def test_mark_match_discovered_uses_set_on_insert_and_upsert(self) -> None:
