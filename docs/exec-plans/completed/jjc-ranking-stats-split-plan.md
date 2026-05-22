@@ -8,7 +8,7 @@
 - 已完成：`action=read` 优先返回 `summary.json`，并兼容旧单文件
 - 已完成：新增 `GET /api/jjc/ranking-stats/details`
 - 已完成：前端首屏改为只依赖 summary，展开时懒加载详情
-- 已完成：新增历史数据迁移脚本 `scripts/migrate_jjc_ranking_stats.py`
+- 已完成：曾新增历史数据迁移脚本；后续 Mongo 迁移完成后该一次性脚本已清理。
 - 已完成：回归验证、导出兼容确认、历史数据批量迁移执行
 
 ## 背景
@@ -131,7 +131,7 @@
 
 新增脚本，例如：
 
-- `scripts/migrate_jjc_ranking_stats.py`
+- 一次性历史数据迁移脚本（后续已清理）
 
 职责：
 

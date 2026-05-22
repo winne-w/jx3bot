@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
-import json
-import os
 import sys
-import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -88,11 +85,6 @@ def _install_router_import_stubs() -> None:
     singletons_mod.jjc_ranking_inspect_service = object()
     sys.modules["src.services.jx3.singletons"] = singletons_mod
 
-    weapon_quality_mod = types.ModuleType("src.services.jx3.weapon_quality")
-    weapon_quality_mod.extract_member_weapon_name = lambda member: (member or {}).get("weapon_name")
-    weapon_quality_mod.is_jjc_legendary_weapon = lambda quality, name=None: str(quality) == "5" and bool(name)
-    sys.modules["src.services.jx3.weapon_quality"] = weapon_quality_mod
-
     repo_mod = types.ModuleType("src.storage.mongo_repos.jjc_ranking_stats_repo")
     repo_mod.JjcRankingStatsRepo = object
     sys.modules["src.storage.mongo_repos.jjc_ranking_stats_repo"] = repo_mod
@@ -109,60 +101,37 @@ def _load_router_module() -> Any:
     return module
 
 
-def _write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-
 class TestRankingStatsListRoutes(unittest.IsolatedAsyncioTestCase):
-    async def test_unpaged_list_merges_mongo_and_file_timestamps(self) -> None:
+    async def test_unpaged_list_returns_mongo_timestamps_only(self) -> None:
         module = _load_router_module()
         repo = _FakeRepo(list_result=[300, 100])
         module.JjcRankingStatsRepo = lambda: repo
 
-        with tempfile.TemporaryDirectory() as tmp:
-            cwd = os.getcwd()
-            os.chdir(tmp)
-            try:
-                _write_json(Path("data/jjc_ranking_stats/200/summary.json"), {"source": "new"})
-                _write_json(Path("data/jjc_ranking_stats/100.json"), {"source": "legacy duplicate"})
-
-                response = await module.get_ranking_stats(action="list")
-            finally:
-                os.chdir(cwd)
+        response = await module.get_ranking_stats(action="list")
 
         self.assertEqual(response["status_code"], 0)
-        self.assertEqual(response["data"], [300, 200, 100])
+        self.assertEqual(response["data"], [300, 100])
         self.assertEqual(repo.list_calls, [{}])
 
-    async def test_paged_list_falls_back_to_files_when_mongo_has_no_data(self) -> None:
+    async def test_paged_list_returns_mongo_page_even_when_empty(self) -> None:
         module = _load_router_module()
         repo = _FakeRepo(list_result={
             "items": [],
-            "page": 1,
+            "page": 2,
             "page_size": 2,
             "total": 0,
             "has_more": False,
         })
         module.JjcRankingStatsRepo = lambda: repo
 
-        with tempfile.TemporaryDirectory() as tmp:
-            cwd = os.getcwd()
-            os.chdir(tmp)
-            try:
-                for timestamp in (300, 200, 100):
-                    _write_json(Path("data/jjc_ranking_stats/{}/summary.json".format(timestamp)), {})
-
-                response = await module.get_ranking_stats(action="list", page=2, page_size=2)
-            finally:
-                os.chdir(cwd)
+        response = await module.get_ranking_stats(action="list", page=2, page_size=2)
 
         self.assertEqual(response["status_code"], 0)
         self.assertEqual(response["data"], {
-            "items": [100],
+            "items": [],
             "page": 2,
             "page_size": 2,
-            "total": 3,
+            "total": 0,
             "has_more": False,
         })
         self.assertEqual(repo.list_calls, [{"page": 2, "page_size": 2}])
@@ -179,6 +148,17 @@ class TestRankingStatsMongoHitRoutes(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response["status_code"], 0)
         self.assertIs(response["data"], mongo_summary)
+        self.assertEqual(repo.summary_calls, [123])
+
+    async def test_read_returns_not_found_when_mongo_misses(self) -> None:
+        module = _load_router_module()
+        repo = _FakeRepo(summary=None)
+        module.JjcRankingStatsRepo = lambda: repo
+
+        response = await module.get_ranking_stats(action="read", timestamp="123")
+
+        self.assertEqual(response["status_code"], 1)
+        self.assertEqual(response["status_msg"], "not_found")
         self.assertEqual(repo.summary_calls, [123])
 
     async def test_details_returns_mongo_detail_with_normalized_lane_and_params(self) -> None:
@@ -202,6 +182,27 @@ class TestRankingStatsMongoHitRoutes(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response["status_code"], 0)
         self.assertIs(response["data"], mongo_detail)
+        self.assertEqual(repo.detail_calls, [{
+            "timestamp": 123,
+            "range_key": "top_200",
+            "lane": "dps",
+            "kungfu": "花间游",
+        }])
+
+    async def test_details_returns_not_found_when_mongo_misses(self) -> None:
+        module = _load_router_module()
+        repo = _FakeRepo(detail=None)
+        module.JjcRankingStatsRepo = lambda: repo
+
+        response = await module.get_ranking_stats_details(
+            timestamp="123",
+            range_key="top_200",
+            lane="dps",
+            kungfu="花间游",
+        )
+
+        self.assertEqual(response["status_code"], 1)
+        self.assertEqual(response["status_msg"], "not_found")
         self.assertEqual(repo.detail_calls, [{
             "timestamp": 123,
             "range_key": "top_200",

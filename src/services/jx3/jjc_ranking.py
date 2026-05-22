@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import json
-import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Optional
-from urllib.parse import quote
 
 from nonebot import logger
 
@@ -427,13 +424,8 @@ class JjcRankingService:
         week_info: str,
         payload: Optional[dict[str, Any]] = None,
     ) -> Optional[asyncio.Task]:
-        stats_dir = os.path.join("data", "jjc_ranking_stats")
         ranking_timestamp = int(ranking_result.get("cache_time") or time.time())
-        stats_entry_dir = os.path.join(stats_dir, str(ranking_timestamp))
-        summary_path = os.path.join(stats_entry_dir, "summary.json")
-        details_root_dir = os.path.join(stats_entry_dir, "details")
         try:
-            os.makedirs(stats_dir, exist_ok=True)
             stats_payload = {
                 "generated_at": time.time(),
                 "ranking_cache_time": ranking_result.get("cache_time"),
@@ -443,12 +435,6 @@ class JjcRankingService:
                 "kungfu_statistics": stats,
             }
             summary_payload = self._build_summary_payload(stats_payload)
-
-            os.makedirs(stats_entry_dir, exist_ok=True)
-            with open(summary_path, "w", encoding="utf-8") as file_handle:
-                json.dump(summary_payload, file_handle, ensure_ascii=False, indent=2)
-
-            self._write_details_files(details_root_dir, stats)
             detail_payloads = self._build_detail_payloads(stats)
             mongo_task = self._save_ranking_stats_to_mongo(
                 timestamp=ranking_timestamp,
@@ -456,8 +442,7 @@ class JjcRankingService:
                 detail_payloads=detail_payloads,
             )
 
-            logger.info("保存竞技场统计摘要: %s", summary_path)
-            logger.info("保存竞技场统计详情目录: %s", details_root_dir)
+            logger.info("保存竞技场统计到 Mongo: timestamp=%s details=%s", ranking_timestamp, len(detail_payloads))
             return mongo_task
         except Exception as exc:
             logger.warning("保存竞技场统计结果失败: %s", exc)
@@ -555,30 +540,6 @@ class JjcRankingService:
             logger.warning("保存竞技场统计到 Mongo 失败: 无可用事件循环 timestamp={} error={}", timestamp, exc)
             return None
         return loop.create_task(_save())
-
-    def _write_details_files(self, details_root_dir: str, stats: dict[str, Any]) -> None:
-        for range_key, range_stats in (stats or {}).items():
-            if not isinstance(range_stats, dict):
-                continue
-            for lane_name in ("healer", "dps"):
-                lane = range_stats.get(lane_name) or {}
-                members_map = lane.get("members") or {}
-                if not isinstance(members_map, dict):
-                    continue
-
-                lane_dir = os.path.join(details_root_dir, range_key, lane_name)
-                os.makedirs(lane_dir, exist_ok=True)
-                for kungfu, members in members_map.items():
-                    encoded_kungfu = quote(str(kungfu), safe="")
-                    detail_path = os.path.join(lane_dir, f"{encoded_kungfu}.json")
-                    detail_payload = {
-                        "range": range_key,
-                        "lane": lane_name,
-                        "kungfu": kungfu,
-                        "members": members or [],
-                    }
-                    with open(detail_path, "w", encoding="utf-8") as file_handle:
-                        json.dump(detail_payload, file_handle, ensure_ascii=False, indent=2)
 
     async def get_user_kungfu(
         self,

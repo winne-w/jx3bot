@@ -150,11 +150,8 @@ python test_tuilan_match_history.py
 
 - service 能返回结构化数据
 - renderer 能生成图片
-- 统计文件写入 `data/jjc_ranking_stats/`
-  - 新结构优先写入 `data/jjc_ranking_stats/<timestamp>/summary.json`
-  - 明细按需拆分在 `data/jjc_ranking_stats/<timestamp>/details/`
-  - 历史兼容阶段可能仍存在旧的 `data/jjc_ranking_stats/<timestamp>.json`
-- 同一份统计快照会写入 MongoDB `jjc_ranking_stat_summaries` 与 `jjc_ranking_stat_details`；HTTP API 优先读 Mongo，未命中时回退上述文件。
+- JJC 排名统计快照写入 MongoDB `jjc_ranking_stat_summaries` 与 `jjc_ranking_stat_details`；HTTP API 仅读 Mongo，未命中时返回 `not_found`。
+- 历史 `data/jjc_ranking_stats/` 文件仅作为一次性迁移输入，不再作为运行时 fallback。
 - JJC 同步命令只有 `config.py` 中 `ADMIN_QQ` 管理员可执行
 - `/jjc同步开始` 只触发一轮同步，不会启动常驻任务
 - JJC 最终身份主键为 replay 数字 ID：`global_id:{global_id}`；`global_id` 来自 `/3c/mine/match/replay` 的 `players[].global_role_id`，不要与 SK01 `global_role_id` 混用。
@@ -209,6 +206,9 @@ JJC replay 角色 ID / global_id 回填：
 ```bash
 # 默认 dry-run，只处理最近 20 场 detail_saved 对局
 python scripts/backfill_jjc_role_id_from_match_replay.py --limit 20 --dry-run
+
+# 按当前排序处理第 21 到 40 条，1-based 闭区间
+python scripts/backfill_jjc_role_id_from_match_replay.py --start 21 --end 40 --dry-run
 
 # 指定单场 dry-run
 python scripts/backfill_jjc_role_id_from_match_replay.py --match-id <对局ID> --dry-run

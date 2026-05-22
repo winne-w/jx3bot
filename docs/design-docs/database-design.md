@@ -30,7 +30,6 @@
 读写归属：
 
 - `src/storage/mongo_repos/group_config_repo.py`
-- 迁移脚本：`scripts/migrate_group_configs.py`
 
 字段：
 
@@ -54,7 +53,6 @@
 
 - `src/storage/mongo_repos/reminder_repo.py`
 - 业务入口：`src/plugins/jx3bot_handlers/reminder.py`
-- 迁移脚本：`scripts/migrate_reminders.py`
 
 字段：
 
@@ -88,7 +86,6 @@
 
 - `src/storage/mongo_repos/wanbaolou_sub_repo.py`
 - 业务入口：`src/plugins/wanbaolou/`
-- 迁移脚本：`scripts/migrate_wanbaolou_subs.py`
 
 字段：
 
@@ -170,7 +167,6 @@
 历史归属：
 
 - 历史心法解析逻辑：`src/services/jx3/kungfu.py`
-- 历史迁移脚本：`scripts/migrate_kungfu_cache.py`
 
 字段：
 
@@ -386,7 +382,6 @@
 
 - `src/storage/mongo_repos/jjc_inspect_repo.py`
 - 业务逻辑：`src/services/jx3/jjc_ranking_inspect.py`
-- 迁移脚本：`scripts/migrate_jjc_role_recent.py`
 
 字段：
 
@@ -451,7 +446,6 @@
 
 - `src/storage/mongo_repos/jjc_inspect_repo.py`
 - 业务逻辑：`src/services/jx3/jjc_ranking_inspect.py`、`src/services/jx3/jjc_ranking.py`
-- 迁移脚本：`scripts/migrate_jjc_match_detail.py`
 
 字段：
 
@@ -721,12 +715,11 @@
 
 ### `jjc_ranking_stat_summaries`
 
-用途：保存 JJC 排名统计快照的首屏摘要与历史列表元数据。新生成统计会优先写入本集合，同时短期保留 `data/jjc_ranking_stats/` 文件双写作为回滚和迁移期 fallback。
+用途：保存 JJC 排名统计快照的首屏摘要与历史列表元数据。新生成统计只写入本集合；`data/jjc_ranking_stats/` 历史文件仅作为一次性迁移输入，不再作为运行时 fallback。
 
 读写归属：
 
 - `src/storage/mongo_repos/jjc_ranking_stats_repo.py`
-- 迁移脚本：`scripts/migrate_jjc_ranking_stats_to_mongo.py`
 
 字段：
 
@@ -761,7 +754,6 @@
 读写归属：
 
 - `src/storage/mongo_repos/jjc_ranking_stats_repo.py`
-- 迁移脚本：`scripts/migrate_jjc_ranking_stats_to_mongo.py`
 
 字段：
 
@@ -791,7 +783,7 @@
 以下数据当前仍不是 MongoDB schema，但会影响运行状态，修改时也要确认是否需要纳入本文：
 
 - `runtime_config.json`: `/修改配置` 等运行时配置写入文件，包含可覆盖的 `MONGO_URI` 等配置。
-- `data/jjc_ranking_stats/<timestamp>/summary.json` 与 `details/`: JJC 统计产物的迁移期双写/fallback 文件。Mongo 主存储为 `jjc_ranking_stat_summaries` 与 `jjc_ranking_stat_details`；details 成员包含 `weapon_name` 字段用于橙武白名单判定。
+- `data/jjc_ranking_stats/<timestamp>/summary.json` 与 `details/`: 历史 JJC 统计产物；运行时主存储为 `jjc_ranking_stat_summaries` 与 `jjc_ranking_stat_details`。
 - `data/baizhan_images/baizhan_data.json`、图片缓存和 `mpimg/`: 静态或缓存资源。
 
 ## 已清理的未使用 Mongo 集合
@@ -804,19 +796,12 @@
 | `group_reminders` | 0 | 历史提醒集合名；当前使用 `reminders` |
 | `jjc_kungfu_cache` | 0 | 历史/临时集合名；当前 JJC 角色缓存使用 `role_identities` 与 `role_jjc_cache` |
 | `jjc_match_detail_snapshot_migration_backup` | 0 | 临时备份集合，当前代码无引用 |
-| `jjc_ranking_stats` | 1 | Mongo 集合无运行时代码引用；当前 JJC 统计快照写入 `data/jjc_ranking_stats/` 文件目录 |
+| `jjc_ranking_stats` | 1 | Mongo 集合无运行时代码引用；当前 JJC 统计快照写入 `jjc_ranking_stat_summaries` 与 `jjc_ranking_stat_details` |
 
-## 历史迁移脚本
+## 数据维护脚本
 
-| 脚本 | 源数据 | 目标集合 | 幂等键 |
+| 脚本 | 处理范围 | 写入集合 | 幂等键 |
 |---|---|---|---|
-| `scripts/migrate_group_configs.py` | `groups.json` | `group_configs` | `group_id` |
-| `scripts/migrate_reminders.py` | `data/group_reminders.json` | `reminders` | `reminder_id` |
-| `scripts/migrate_wanbaolou_subs.py` | `data/wanbaolou_subscriptions.json` | `wanbaolou_subscriptions` | `user_id`, `item_name` |
-| `scripts/migrate_kungfu_cache.py` | `data/cache/kungfu/*.json` | `kungfu_cache` | `server`, `name` |
-| `scripts/migrate_jjc_role_recent.py` | `data/cache/jjc_ranking_inspect/role_recent/` | `jjc_role_recent` | `server`, `name` |
-| `scripts/migrate_jjc_match_detail.py` | `data/cache/jjc_ranking_inspect/match_detail/` | `jjc_match_detail` | `match_id` |
 | `scripts/migrate_role_identity_and_jjc_cache.py` | `kungfu_cache` | `role_identities`, `role_jjc_cache` | `identity_key` |
-| `scripts/migrate_jjc_ranking_stats_to_mongo.py` | `data/jjc_ranking_stats/` | `jjc_ranking_stat_summaries`, `jjc_ranking_stat_details` | `timestamp`; `timestamp`, `range`, `lane`, `kungfu` |
 | `scripts/fix_jjc_match_detail_role_names.py` | `role_identities`, `jjc_sync_role_queue` 中被 `match_detail` 污染的角色名 | 原集合就地修复，备份写入独立 backup collection | `batch_id`, `source_collection`, `original_id` |
 | `scripts/fix_jjc_ranking_weapon_names.py` | `data/jjc_ranking_stats/` 历史快照 details 缺少 `weapon_name` | 就地补齐 `weapon_name` 并重算 `summary.json` 的 `legendary_count_map` | `timestamp`, `range`, `lane`, `kungfu` |

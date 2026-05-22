@@ -2,11 +2,11 @@
 
 更新时间：2026-05-21
 
-状态：已实现，待提交/待历史数据正式迁移。已完成 Mongo repo/索引、生成统计双写 Mongo、HTTP API 优先读 Mongo 并保留文件 fallback、历史迁移脚本与单测。代码提交前，本计划继续保留在 active。
+状态：已实现，待提交。已完成 Mongo repo/索引、生成统计写入 Mongo、HTTP API 仅读 Mongo、历史数据迁移和一次性迁移脚本清理。代码提交前，本计划继续保留在 active。
 
 ## 背景
 
-当前 JJC 排名统计快照仍写入文件：
+迁移前 JJC 排名统计快照写入文件：
 
 - `data/jjc_ranking_stats/<timestamp>/summary.json`
 - `data/jjc_ranking_stats/<timestamp>/details/<range>/<lane>/<kungfu>.json`
@@ -18,9 +18,9 @@
 
 - 将 JJC 排名统计快照迁移到 MongoDB，支持历史列表分页。
 - 保留 summary/details 拆分结构，避免把所有明细塞进单个 Mongo 文档。
-- API 优先读 Mongo，文件作为迁移期 fallback。
-- 新生成统计优先写 Mongo，可短期保留文件双写作为回滚兜底。
-- 提供历史文件到 Mongo 的一次性迁移脚本。
+- API 仅读 Mongo，不再回退文件。
+- 新生成统计只写 Mongo，不再写入 `data/jjc_ranking_stats/` 文件。
+- 历史文件已迁移到 Mongo；一次性迁移脚本已删除。
 
 ## 非目标
 
@@ -102,17 +102,15 @@
 - `src/infra/mongo.py`
   - 增加两个新集合索引。
 - `src/services/jx3/jjc_ranking.py`
-  - `save_ranking_stats()` 新增 Mongo 写入路径。
-  - 保留短期文件双写，便于回滚和对照。
+  - `save_ranking_stats()` 写入 Mongo summary/detail。
+  - 移除运行时统计文件写入。
 - `src/api/routers/jjc_ranking_stats.py`
-  - `action=list` 优先读 Mongo 分页。
-  - `action=read` 优先读 Mongo summary。
-  - `/details` 优先读 Mongo detail。
-  - Mongo 未命中时回退读取文件。
-- `scripts/migrate_jjc_ranking_stats_to_mongo.py`
-  - 扫描现有文件结构并写入 Mongo。
+  - `action=list` 读 Mongo 分页。
+  - `action=read` 读 Mongo summary。
+  - `/details` 读 Mongo detail。
+  - Mongo 未命中时直接返回 `not_found`。
 - `docs/design-docs/database-design.md`
-  - 补充新集合 schema、索引和迁移说明。
+  - 补充新集合 schema、索引和已清理脚本说明。
 - `README.md`、`docs/references/runbook.md`
   - 如果接口增加分页参数，同步更新调用说明。
 
@@ -158,11 +156,7 @@ GET /api/jjc/ranking-stats?action=list&page=1&page_size=20
 GET /api/jjc/ranking-stats?action=read&timestamp=<timestamp>
 ```
 
-读取顺序：
-
-1. Mongo `jjc_ranking_stat_summaries`
-2. 文件 `summary.json`
-3. 旧文件 `<timestamp>.json` 转 summary
+读取来源：Mongo `jjc_ranking_stat_summaries`。Mongo 未命中时返回 `not_found`。
 
 ### 读取明细
 
@@ -170,36 +164,7 @@ GET /api/jjc/ranking-stats?action=read&timestamp=<timestamp>
 GET /api/jjc/ranking-stats/details?timestamp=<ts>&range=<range>&lane=<lane>&kungfu=<name>
 ```
 
-读取顺序：
-
-1. Mongo `jjc_ranking_stat_details`
-2. 文件 `details/<range>/<lane>/<kungfu>.json`
-3. 旧文件 `<timestamp>.json` 抽取对应明细
-
-## 迁移脚本方案
-
-脚本：`scripts/migrate_jjc_ranking_stats_to_mongo.py`
-
-输入：
-
-- 默认扫描 `data/jjc_ranking_stats/`
-- 支持可选 `--timestamp <ts>` 单个迁移
-- 支持 `--dry-run`
-- 支持 `--overwrite` 控制是否覆盖 Mongo 已有快照
-
-处理逻辑：
-
-1. 扫描新目录结构和旧单文件结构。
-2. 对新结构读取 `summary.json`，写入 `jjc_ranking_stat_summaries`。
-3. 对新结构遍历 `details/<range>/<lane>/*.json`，写入 `jjc_ranking_stat_details`。
-4. 对旧单文件先构造 summary，再从 `members` 拆 detail 写入 Mongo。
-5. 输出迁移统计：快照数、summary 写入数、detail 写入数、跳过数、失败列表。
-
-幂等要求：
-
-- 以 `timestamp` upsert summary。
-- 以 `(timestamp, range, lane, kungfu)` upsert detail。
-- 默认不覆盖已有文档，除非显式传 `--overwrite`。
+读取来源：Mongo `jjc_ranking_stat_details`。Mongo 未命中时返回 `not_found`。
 
 ## 实施阶段
 
@@ -219,75 +184,73 @@ GET /api/jjc/ranking-stats/details?timestamp=<ts>&range=<range>&lane=<lane>&kung
 - Mongo 初始化能成功创建索引。
 - repo 方法可被单测或脚本 dry-run 调用。
 
-### 阶段 2：新数据双写
+### 阶段 2：新数据写入 Mongo
 
 执行状态：已完成。
 
 执行项：
 
 - `save_ranking_stats()` 在生成统计后写 Mongo。
-- 保留现有文件写入。
-- 写 Mongo 失败时记录 warning，不影响原有文件落盘。
+- 不再写入 `data/jjc_ranking_stats/` 文件。
+- 写 Mongo 失败时记录 warning。
 
 验收：
 
-- 定时任务或手动生成统计后，文件与 Mongo 都有数据。
-- Mongo summary 与文件 summary 关键字段一致。
-- Mongo detail 与文件 detail 成员数量一致。
+- 定时任务或手动生成统计后，Mongo 有 summary/detail 数据。
+- 不再新增 `data/jjc_ranking_stats/<timestamp>/` 运行时统计文件。
+- Mongo 写入失败会记录 warning。
 
-### 阶段 3：API 优先读 Mongo
+### 阶段 3：API 读 Mongo
 
 执行状态：已完成。
 
 执行项：
 
-- `action=list` 支持分页参数并优先读 Mongo。
-- `action=read` 优先读 Mongo summary。
-- `/details` 优先读 Mongo detail。
-- 保留文件 fallback。
+- `action=list` 支持分页参数并读 Mongo。
+- `action=read` 读 Mongo summary。
+- `/details` 读 Mongo detail。
+- 移除文件 fallback。
 
 验收：
 
 - 旧调用不带分页参数仍兼容。
 - 新分页调用能返回稳定分页结果。
-- Mongo 缺失某个 timestamp 时仍可从文件读取。
+- Mongo 缺失某个 timestamp 时返回 `not_found`。
 
-### 阶段 4：历史数据迁移
+### 阶段 4：历史数据迁移与脚本清理
 
-执行状态：脚本已完成；线上历史数据尚未执行正式迁移。
+执行状态：已完成。
 
 执行项：
 
-- 编写迁移脚本。
-- 先执行 `--dry-run`，确认扫描数量和预期一致。
-- 小批量迁移最近几个 timestamp。
-- 全量迁移历史文件。
-- 抽样对比文件与 Mongo 的 summary/detail。
+- 历史文件已迁移到 Mongo。
+- 删除 JJC ranking stats 一次性迁移脚本和测试。
+- 删除已完成的旧文件到 Mongo 一次性迁移脚本。
 
 验收：
 
 - `action=list&page=1&page_size=20` 可以只查 Mongo 完成分页。
 - 历史 timestamp 的 `read` 和 `details` 均可从 Mongo 读取。
+- 代码库不再保留已完成的一次性文件迁移脚本。
 
 ## 当前验证记录
 
 2026-05-22 已执行：
 
 ```bash
-python -m unittest tests.test_jjc_ranking_stats_repo tests.test_migrate_jjc_ranking_stats_to_mongo tests.test_jjc_ranking_stats_router
-python -m py_compile src/storage/mongo_repos/jjc_ranking_stats_repo.py src/infra/mongo.py src/services/jx3/jjc_ranking.py src/api/routers/jjc_ranking_stats.py scripts/migrate_jjc_ranking_stats_to_mongo.py jjc_query.py tests/test_jjc_ranking_stats_repo.py tests/test_jjc_ranking_stats_router.py tests/test_migrate_jjc_ranking_stats_to_mongo.py
+python -m unittest tests.test_jjc_ranking_stats_repo tests.test_jjc_ranking_stats_router
+python -m py_compile src/storage/mongo_repos/jjc_ranking_stats_repo.py src/infra/mongo.py src/services/jx3/jjc_ranking.py src/api/routers/jjc_ranking_stats.py jjc_query.py tests/test_jjc_ranking_stats_repo.py tests/test_jjc_ranking_stats_router.py
 ```
 
-结果：通过。review 后补充 strict Mongo 读写错误传播、CLI 等待 Mongo 双写任务完成，并在 API 读取路径增加 Mongo 命中/文件 fallback/未命中日志；历史数据正式写入 Mongo 尚未执行，上线前先运行 `scripts/migrate_jjc_ranking_stats_to_mongo.py --dry-run` 核对数量，再按需执行正式迁移。
-- 迁移报告无失败，或失败项可单独重试。
+结果：通过。review 后补充 strict Mongo 读写错误传播、CLI 等待 Mongo 写入任务完成，并在 API 读取路径增加 Mongo 命中/未命中日志；历史数据已迁移后删除一次性迁移脚本。
 
 ### 阶段 5：收敛文件依赖
 
 执行项：
 
-- 观察一段时间后，决定是否保留文件双写。
-- 如果保留文件作为备份，文档明确 Mongo 是 API 主数据源。
-- 如果移除文件写入，需要先更新回滚方案和 runbook。
+- 移除运行时文件双写。
+- 移除 API 文件 fallback。
+- 文档明确历史文件仅作为迁移输入，不再作为运行时数据源。
 
 验收：
 
@@ -296,23 +259,23 @@ python -m py_compile src/storage/mongo_repos/jjc_ranking_stats_repo.py src/infra
 
 ## 回滚策略
 
-- 阶段 2 和阶段 3 均保留文件 fallback。
-- Mongo 写入失败不阻塞原有文件落盘。
-- 如果 Mongo 读取异常，API 可直接回退文件读取。
-- 迁移脚本默认幂等，不删除文件。
+- 运行时主数据源为 Mongo。
+- 历史文件不再作为 API fallback。
+- Mongo 写入失败会记录 warning；需通过日志定位后用临时运维脚本或手工补写。
 
 ## 风险与注意事项
 
 - `members` 明细如果未来继续膨胀，单个 detail 文档可能接近 Mongo 16MB 限制，需要二次拆分。
 - 旧 API 返回数组，新分页 API 返回对象，前端调用需要明确区分。
-- 多实例部署时，迁移完成前仍可能存在“某实例有文件、某实例没有文件”的不一致，应尽快让 API 主读 Mongo。
+- 多实例部署时，迁移完成前 Mongo 可能缺少部分历史快照，应先完成迁移再切线上入口。
 - 数据库新增集合和索引必须同步数据库设计文档。
 
 ## 推荐顺序
 
 1. 新增 repo 与索引。
-2. 新生成统计双写 Mongo 和文件。
-3. API 增加分页参数并优先读 Mongo。
-4. 编写并执行历史文件迁移脚本。
+2. 新生成统计写入 Mongo。
+3. API 增加分页参数并只读 Mongo。
+4. 执行历史文件迁移。
 5. 前端切到分页列表。
-6. 稳定后评估是否取消文件双写。
+6. 移除文件双写与 API 文件 fallback。
+7. 删除一次性迁移脚本。
