@@ -5,11 +5,7 @@
 ## Active
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
-- `active/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与文件 fallback 计划
 - `active/jjc-role-global-id-governance-plan.md`: JJC 角色 replay `global_id` 主键治理、防回流、重建与审计收敛总体计划
-- `active/jjc-role-identity-time-guard-plan.md`: JJC 角色身份写入入口统一时间保护计划
-- `active/jjc-role-identity-schema-normalization-plan.md`: JJC 角色身份表 indicator/backfill 写入 schema 归一化计划
-- `active/scripts-cleanup-plan.md`: 清理临时迁移、检查、修复、审计和备份恢复脚本
 
 ## Superseded
 
@@ -50,3 +46,7 @@
 - `completed/jjc-ranking-cache-label-clarity-plan.md`: JJC 排名角色弹窗缓存文案澄清计划
 - `completed/jjc-person-history-role-match-plan.md`: JJC person-history 身份补全增加角色级校验计划
 - `completed/jjc-audit-duplicate-global-role-id-merge-plan.md`: JJC 审计脚本：同角色多 global_role_id 检测、合并与历史归档计划
+- `completed/jjc-ranking-stats-mongo-migration-plan.md`: JJC 排名统计快照迁移 MongoDB、历史列表分页与纯 Mongo 读写计划
+- `completed/jjc-role-identity-time-guard-plan.md`: JJC 角色身份写入入口统一时间保护计划
+- `completed/jjc-role-identity-schema-normalization-plan.md`: JJC 角色身份表 indicator/backfill 写入 schema 归一化计划
+- `completed/scripts-cleanup-plan.md`: 清理临时迁移、检查、修复、审计和备份恢复脚本

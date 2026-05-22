@@ -1,6 +1,6 @@
 # JJC 角色身份表 schema 归一化计划
 
-状态：阶段 2 实现收口中
+状态：已完成并归档
 更新时间：2026-05-22
 
 ## 背景
@@ -220,4 +220,4 @@ db.role_identities.countDocuments({sources: "indicator", person_id: {$exists: fa
 - 2026-05-22：曾新增 `scripts/normalize_jjc_role_identity_schema.py` 处理历史 schema 类型差异；后续脚本清理计划已删除该一次性脚本。
 - 2026-05-22：已将分段回填排序改为 `match_time desc, match_id desc`，避免同一秒多场对局时分页窗口不稳定。
 - 2026-05-22：已通过身份相关单测、`py_compile` 和相关文件 `git diff --check`。
-- 待执行：最终提交。
+- 2026-05-22：相关代码和脚本清理已提交，计划归档到 completed。
