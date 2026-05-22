@@ -170,6 +170,13 @@ python scripts/backfill_jjc_role_id_from_match_replay.py --limit 100 --dry-run
 python scripts/backfill_jjc_role_id_from_match_replay.py --limit 100 --apply --yes
 ```
 
+如要按当前排序分段处理，使用 1-based 闭区间：
+
+```bash
+python scripts/backfill_jjc_role_id_from_match_replay.py --start 21 --end 40 --dry-run
+python scripts/backfill_jjc_role_id_from_match_replay.py --start 21 --end 40 --apply --yes
+```
+
 如要指定单场：
 
 ```bash

@@ -283,6 +283,9 @@ python scripts/restore_jjc_role_identity_collections.py --tag before_global_id_2
 状态：已完成首轮实现。
 
 - `scripts/backfill_jjc_role_id_from_match_replay.py` 改为补 `global_id`，不再只补 `role_id`。（已实现：replay 数字 `players[].global_role_id` 写入 `global_id`，SK01 `global_role_id` 仍由 indicator 补齐）
+- `scripts/backfill_jjc_role_id_from_match_replay.py` 在清空 `role_identities` / `jjc_sync_role_queue` 后也要能从已同步 `jjc_match_detail.data.detail` 与实时 replay 重建身份；当目标文档不存在时，按 replay `global_id` 新建 `role_identities`，并在已补到 SK01 `global_role_id` 时新建可执行的 `jjc_sync_role_queue`。
+- `scripts/backfill_jjc_role_id_from_match_replay.py` 每次 replay 成功后写回 `jjc_match_detail.data.replay`，后续页面点击和重跑脚本可复用缓存。
+- `scripts/backfill_jjc_role_id_from_match_replay.py` 支持按排序后的 1-based 闭区间分批处理：`--start N --end M`，例如 `--start 21 --end 40` 处理第 21 到 40 条；与 `--match-id` 互斥。
 - `scripts/audit_jjc_person_history_identity.py` 只做历史污染审计和冲突报告，避免按 SK01 `global_role_id` 改主键。
 - 旧冲突链环路修复逻辑保留为审计脚本的安全兜底。
 - `scripts/check_role_identity_migration.py` 增加新主键校验。（已实现：`global_id` 重复、旧 `global:*` / `name:*` 残留、同一 `zone+role_id` 多 `global_id`）

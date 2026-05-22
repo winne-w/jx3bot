@@ -9,6 +9,7 @@ import os
 import random
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -50,6 +51,12 @@ def _coerce_int(value: Any) -> Optional[int]:
         except ValueError:
             return None
     return None
+
+
+def _observed_datetime(match_time: Optional[int]) -> Optional[datetime]:
+    if match_time is None:
+        return None
+    return datetime.fromtimestamp(match_time, tz=timezone.utc)
 
 
 def _log(message: str) -> None:
@@ -147,6 +154,82 @@ def unique_players(players: Iterable[Dict[str, Any]]) -> Tuple[List[Dict[str, An
     return result, conflicts
 
 
+def load_match_detail_doc(db: Any, match_id: int) -> Optional[Dict[str, Any]]:
+    doc = db.jjc_match_detail.find_one({"match_id": int(match_id)})
+    return doc if isinstance(doc, dict) else None
+
+
+def _iter_detail_players(detail: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
+    for team_key in ("team1", "team2"):
+        team = detail.get(team_key)
+        if not isinstance(team, dict):
+            continue
+        players = team.get("players_info")
+        if not isinstance(players, list):
+            continue
+        for player in players:
+            if isinstance(player, dict):
+                yield player
+
+
+def build_detail_player_map(match_detail_doc: Optional[Dict[str, Any]]) -> Dict[Tuple[str, str], Dict[str, Any]]:
+    data = match_detail_doc.get("data") if isinstance(match_detail_doc, dict) else None
+    detail = data.get("detail") if isinstance(data, dict) else None
+    if not isinstance(detail, dict):
+        return {}
+
+    result: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    conflicts: set = set()
+    for player in _iter_detail_players(detail):
+        server = _text(player.get("server"))
+        name = normalize_role_name(_text(player.get("role_name")), server)
+        if not server or not name:
+            continue
+        key = (_norm(server), _norm(name))
+        if key in result:
+            conflicts.add(key)
+            continue
+        result[key] = player
+
+    for key in conflicts:
+        result.pop(key, None)
+    return result
+
+
+def merge_detail_hint(player: Dict[str, Any], detail_map: Dict[Tuple[str, str], Dict[str, Any]]) -> Dict[str, Any]:
+    detail_player = detail_map.get((player["normalized_server"], player["normalized_name"]))
+    if not isinstance(detail_player, dict):
+        return player
+
+    merged = dict(player)
+    for field in ("zone", "person_id"):
+        value = _text(detail_player.get(field))
+        if value:
+            merged[field] = value
+    detail_role_id = _text(detail_player.get("role_id") or detail_player.get("game_role_id"))
+    if detail_role_id and not merged.get("role_id"):
+        merged["role_id"] = detail_role_id
+    detail_global_role_id = _text(detail_player.get("global_role_id"))
+    if detail_global_role_id.startswith("SK01-"):
+        merged["detail_global_role_id"] = detail_global_role_id
+    return merged
+
+
+def persist_replay_to_match_detail(db: Any, match_id: int, payload: Dict[str, Any], apply: bool) -> bool:
+    existing = load_match_detail_doc(db, match_id)
+    data = existing.get("data") if isinstance(existing, dict) else None
+    if not isinstance(data, dict):
+        return False
+    if data.get("replay") == payload:
+        return False
+    if apply:
+        db.jjc_match_detail.update_one(
+            {"match_id": int(match_id)},
+            {"$set": {"data.replay": payload, "updated_at": time.time()}},
+        )
+    return True
+
+
 def is_missing_role_id(collection: str, doc: Dict[str, Any]) -> bool:
     if collection == "role_identities":
         return not _text(doc.get("role_id") or doc.get("game_role_id"))
@@ -235,16 +318,148 @@ def build_update(
     return update_op, "update"
 
 
+def _common_identity_fields(
+    player: Dict[str, Any],
+    match_time: Optional[int],
+    now: float,
+    source: str,
+    global_role_id: Optional[str],
+    person_id: Optional[str],
+) -> Dict[str, Any]:
+    role_id = _text(player.get("role_id"))
+    zone = _text(player.get("zone"))
+    fields: Dict[str, Any] = {
+        "identity_key": build_identity_key(
+            global_id=_text(player.get("global_id")),
+            global_role_id=global_role_id,
+            zone=zone,
+            game_role_id=role_id,
+            server=player["server"],
+            name=player["name"],
+        )[0],
+        "server": player["server"],
+        "name": player["name"],
+        "normalized_server": player["normalized_server"],
+        "normalized_name": player["normalized_name"],
+        "role_id": role_id,
+        "global_id": _text(player.get("global_id")),
+        "role_info_source": source,
+        "role_info_updated_at": now,
+        "updated_at": now,
+    }
+    if zone:
+        fields["zone"] = zone
+    if global_role_id:
+        fields["global_role_id"] = global_role_id
+    if person_id:
+        fields["person_id"] = person_id
+    if match_time is not None:
+        fields["role_info_observed_match_time"] = match_time
+    return fields
+
+
+def build_insert_doc(
+    collection: str,
+    player: Dict[str, Any],
+    match_time: Optional[int],
+    source: str,
+    now: float,
+    global_role_id: Optional[str] = None,
+    person_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    if collection == "jjc_sync_role_queue" and not global_role_id:
+        return None
+
+    common = _common_identity_fields(player, match_time, now, source, global_role_id, person_id)
+    role_id = _text(player.get("role_id"))
+    zone = _text(player.get("zone"))
+    if collection == "role_identities":
+        identity_key, identity_level = build_identity_key(
+            global_id=common.get("global_id"),
+            global_role_id=global_role_id,
+            zone=zone,
+            game_role_id=role_id,
+            server=player["server"],
+            name=player["name"],
+        )
+        observed_at = _observed_datetime(match_time) or datetime.fromtimestamp(now, tz=timezone.utc)
+        doc = dict(common)
+        doc.update({
+            "identity_key": identity_key,
+            "identity_level": identity_level,
+            "game_role_id": role_id,
+            "aliases": legacy_identity_keys(
+                global_role_id=global_role_id,
+                zone=zone,
+                game_role_id=role_id,
+                server=player["normalized_server"],
+                name=player["normalized_name"],
+            ),
+            "sources": [source],
+            "profile_observed_at": observed_at,
+            "profile_history": [{
+                "server": player["server"],
+                "name": player["name"],
+                "normalized_server": player["normalized_server"],
+                "normalized_name": player["normalized_name"],
+                "zone": zone or None,
+                "role_id": role_id or None,
+                "game_role_id": role_id or None,
+                "global_id": common.get("global_id") or None,
+                "global_role_id": global_role_id or None,
+                "person_id": person_id or None,
+                "source": source,
+                "observed_at": observed_at,
+            }],
+            "first_seen_at": observed_at,
+            "last_seen_at": observed_at,
+            "created_at": now,
+            "schema_version": 1,
+        })
+        return doc
+
+    if collection == "jjc_sync_role_queue":
+        doc = dict(common)
+        doc.update({
+            "source": "match_replay_backfill",
+            "priority": 0,
+            "status": "pending",
+            "next_sync_after": None,
+            "fail_count": 0,
+            "last_cursor": 0,
+            "season_start_time": 0,
+            "created_at": now,
+        })
+        return doc
+
+    return None
+
+
 def find_target_docs(db: Any, player: Dict[str, Any], collections: Iterable[str]) -> List[Tuple[str, Dict[str, Any]]]:
-    query = {
+    global_id = _text(player.get("global_id"))
+    role_id = _text(player.get("role_id"))
+    zone = _text(player.get("zone"))
+    name_query = {
         "normalized_server": player["normalized_server"],
         "normalized_name": player["normalized_name"],
     }
     found: List[Tuple[str, Dict[str, Any]]] = []
     for collection in collections:
+        query: Dict[str, Any]
+        identity_key = "global_id:%s" % global_id if global_id else ""
+        ors: List[Dict[str, Any]] = [name_query]
+        if global_id:
+            ors.extend([{"global_id": global_id}, {"identity_key": identity_key}])
+        if zone and role_id:
+            ors.extend([{"zone": zone, "role_id": role_id}, {"zone": zone, "game_role_id": role_id}])
+        query = {"$or": ors}
         for doc in db[collection].find(query):
             found.append((collection, doc))
     return found
+
+
+def target_exists(db: Any, collection: str, player: Dict[str, Any]) -> bool:
+    return bool(find_target_docs(db, player, (collection,)))
 
 
 def fetch_replay(match_id: int) -> Dict[str, Any]:
@@ -285,17 +500,42 @@ def iter_matches(db: Any, args: argparse.Namespace) -> Iterable[Dict[str, Any]]:
         query,
         {"match_id": 1, "match_time": 1, "status": 1},
     ).sort("match_time", -1)
-    if args.skip:
-        cursor = cursor.skip(int(args.skip))
-    if args.limit:
-        cursor = cursor.limit(int(args.limit))
+    skip, limit = resolve_range(args)
+    if skip:
+        cursor = cursor.skip(skip)
+    if limit:
+        cursor = cursor.limit(limit)
     return cursor
+
+
+def resolve_range(args: argparse.Namespace) -> Tuple[int, Optional[int]]:
+    if args.match_id and (args.start is not None or args.end is not None):
+        raise SystemExit("--match-id cannot be used with --start/--end")
+    if args.start is None and args.end is None:
+        skip = int(args.skip or 0)
+        limit = int(args.limit) if args.limit else None
+        return skip, limit
+
+    if args.skip:
+        raise SystemExit("--skip cannot be used with --start/--end")
+    if args.limit != 20:
+        raise SystemExit("--limit cannot be used with --start/--end")
+
+    start = int(args.start) if args.start is not None else 1
+    end = int(args.end) if args.end is not None else start
+    if start < 1:
+        raise SystemExit("--start must be >= 1")
+    if end < start:
+        raise SystemExit("--end must be >= --start")
+    return start - 1, end - start + 1
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="从推栏 match/replay 回填 JJC 角色 role_id/global_id")
     parser.add_argument("--limit", type=int, default=20, help="最多处理多少场对局，默认 20")
     parser.add_argument("--skip", type=int, default=0, help="跳过多少场")
+    parser.add_argument("--start", type=int, default=None, help="按当前排序处理第几条开始，1-based，和 --end 组成闭区间")
+    parser.add_argument("--end", type=int, default=None, help="按当前排序处理到第几条，1-based 闭区间")
     parser.add_argument("--match-id", type=int, default=None, help="只处理指定 match_id")
     parser.add_argument("--status", default="detail_saved", help="jjc_sync_match_seen 状态过滤，默认 detail_saved；传空字符串不过滤")
     parser.add_argument("--collections", default="all", choices=["all", "role_identities", "jjc_sync_role_queue"], help="更新目标集合")
@@ -346,6 +586,10 @@ def main() -> int:
         "indicator_success": 0,
         "indicator_failed": 0,
         "indicator_skipped": 0,
+        "replay_persisted": 0,
+        "inserts": 0,
+        "inserted": 0,
+        "insert_skipped": 0,
     }
     skip_reasons: Dict[str, int] = {}
 
@@ -367,8 +611,13 @@ def main() -> int:
             ))
             continue
         stats["replay_success"] += 1
+        if persist_replay_to_match_detail(db, match_id, payload, args.apply):
+            stats["replay_persisted"] += 1
         players, parse_skipped = extract_replay_players(payload)
         players, player_conflicts = unique_players(players)
+        match_detail_doc = load_match_detail_doc(db, match_id)
+        detail_map = build_detail_player_map(match_detail_doc)
+        players = [merge_detail_hint(player, detail_map) for player in players]
         stats["players"] += len(players)
         stats["player_parse_skipped"] += parse_skipped
         stats["player_conflicts"] += player_conflicts
@@ -377,9 +626,6 @@ def main() -> int:
         for player in players:
             targets = find_target_docs(db, player, collections)
             stats["target_docs"] += len(targets)
-            if not targets:
-                skip_reasons["target_not_found"] = skip_reasons.get("target_not_found", 0) + 1
-                continue
 
             zone = ""
             for _, doc in targets:
@@ -387,6 +633,8 @@ def main() -> int:
                 if doc_zone:
                     zone = doc_zone
                     break
+            if not zone:
+                zone = _text(player.get("zone"))
 
             indicator_result = None
             source = SOURCE_REPLAY
@@ -409,9 +657,69 @@ def main() -> int:
                 skip_reasons["indicator_zone_missing"] = skip_reasons.get("indicator_zone_missing", 0) + 1
 
             global_role_id = indicator_result["global_role_id"] if indicator_result else None
+            if not global_role_id:
+                detail_global_role_id = _text(player.get("detail_global_role_id"))
+                if detail_global_role_id.startswith("SK01-"):
+                    global_role_id = detail_global_role_id
             person_id = indicator_result["person_id"] if indicator_result else None
+            if not person_id:
+                person_id = _text(player.get("person_id")) or None
             if person_id is not None and not person_id:
                 person_id = None
+
+            if not targets:
+                inserted_any = False
+                for collection in collections:
+                    if target_exists(db, collection, player):
+                        stats["insert_skipped"] += 1
+                        skip_reasons["target_created_by_previous_player"] = (
+                            skip_reasons.get("target_created_by_previous_player", 0) + 1
+                        )
+                        continue
+                    insert_doc = build_insert_doc(
+                        collection,
+                        player,
+                        match_time,
+                        source,
+                        now,
+                        global_role_id=global_role_id,
+                        person_id=person_id,
+                    )
+                    if insert_doc is None:
+                        stats["insert_skipped"] += 1
+                        skip_reasons["insert_requires_global_role_id"] = (
+                            skip_reasons.get("insert_requires_global_role_id", 0) + 1
+                        )
+                        continue
+                    stats["inserts"] += 1
+                    _log("[INSERT{}] collection={} identity_key={} role={}/{} role_id={} global_id={} global_role_id={}".format(
+                        "" if args.apply else "_DRY_RUN",
+                        collection,
+                        insert_doc.get("identity_key"),
+                        player["server"],
+                        player["name"],
+                        player["role_id"],
+                        player["global_id"],
+                        global_role_id or "-",
+                    ))
+                    if args.apply:
+                        try:
+                            db[collection].insert_one(insert_doc)
+                            stats["inserted"] += 1
+                            inserted_any = True
+                        except Exception as exc:
+                            stats["insert_skipped"] += 1
+                            skip_reasons["insert_failed"] = skip_reasons.get("insert_failed", 0) + 1
+                            _log("[INSERT_FAIL] collection={} identity_key={} error={}".format(
+                                collection,
+                                insert_doc.get("identity_key"),
+                                exc,
+                            ))
+                    else:
+                        inserted_any = True
+                if not inserted_any:
+                    skip_reasons["target_not_found"] = skip_reasons.get("target_not_found", 0) + 1
+                continue
 
             for collection, doc in targets:
                 doc_person_id = _text(doc.get("person_id"))
