@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 
 from jinja2 import Environment
+from nonebot import logger
 from nonebot.adapters.onebot.v11 import Bot, Event, MessageSegment
 
 from src.services.jx3.weapon_quality import extract_member_weapon_name, is_jjc_legendary_weapon
@@ -213,7 +214,7 @@ async def send_split_ranking_images(
 
                 await asyncio.sleep(1)
         except Exception as exc:
-            print(f"生成{config['name']}图片失败: {exc}")
+            logger.exception(f"生成{config['name']}图片失败")
             await bot.send(event, f"生成{config['name']}图片失败: {str(exc)}")
 
     processed_key = "top_1000" if has_top_1000 else "top_200"

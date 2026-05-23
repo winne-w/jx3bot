@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Optional
 
+from nonebot import logger
 from nonebot.adapters.onebot.v11 import Bot, Event
 
 
@@ -9,7 +10,7 @@ def register(
     zhanji_ranking_matcher: Any,
     *,
     query_jjc_ranking: Callable[[], Awaitable[dict]],
-    calculate_season_week_info: Callable[[int, float | None], str],
+    calculate_season_week_info: Callable[[int, Optional[float]], str],
     get_ranking_kungfu_data: Callable[[dict], Awaitable[dict]],
     save_ranking_stats: Callable[[dict, dict, str], None],
     generate_split_ranking_images: Callable[[Bot, Event, dict, str, bool], Awaitable[None]],
@@ -101,8 +102,5 @@ def register(
                     await bot.send(event, f"{chunk_header}\n{chunk_message}")
 
         except Exception as exc:
-            import traceback
-
-            error_traceback = traceback.format_exc()
-            print(f"战绩排名统计详细错误：{error_traceback}")
+            logger.exception("战绩排名统计详细错误")
             await bot.send(event, f"战绩排名统计失败：{str(exc)}")

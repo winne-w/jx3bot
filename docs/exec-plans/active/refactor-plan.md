@@ -1,6 +1,6 @@
 # 重构计划
 
-更新时间：2026-03-09
+更新时间：2026-05-23
 
 本文记录当前仓库的重构边界、已经落地的成果、仍然存在的遗留问题，以及后续增量改造时的优先级。它描述的是“当前真实状态”，不是一次性大重写方案。
 
@@ -148,10 +148,10 @@
 - 已有 `JjcCacheRepo`
 - 渲染逻辑已位于 `src/renderers/jx3/jjc_ranking.py`
 - handler 与 service 已基本分开
+- 2026-05-22 已清理 handler 与 renderer 中当前可见的调试式 `print()`
 
 遗留项：
 
-- 个别渲染或 handler 模块里仍有 `print()`
 - 统计文件读写仍由文件系统直接承载，后续如要增强可观测性，可考虑单独抽 repo
 
 ### 7. 手工回归清单
@@ -171,20 +171,63 @@
 
 以下问题不是抽象风险，而是仓库中当前可见的实际遗留点：
 
-- `src/renderers/jx3/jjc_ranking.py` 仍有 `print()`
-- `src/plugins/jx3bot_handlers/jjc_ranking.py` 仍有 `print()`
-- `src/plugins/status_monitor/storage.py` 仍有 `print()`
-- `src/plugins/config_manager.py` 仍大量使用 `print()`
+- `src/utils/defget.py` 仍有调试式输出
 - `src/plugins/wanbaolou/` 内仍大量使用 `print()`
-- `src/infra/image_fetch.py` 和 `src/services/jx3/kungfu.py` 仍有调试式输出
 
 这些位置在继续重构时应优先替换为 `nonebot.logger` 或 `loguru`，并补上下文信息。
+
+## 2026-05-22 执行批次：P1 日志收口
+
+状态：已完成。
+
+本批次目标：
+
+- 将当前仍可见的调试式 `print()` 替换为结构化日志，优先覆盖 `config_manager`、`jjc_ranking`、`infra/image_fetch` 与 `services/jx3/kungfu`。
+- 保持现有命令行为、用户可见回复、缓存读写路径和外部请求参数不变。
+- 不扩大 `src.utils.defget` 依赖面；本批次不主动迁移 `defget` 调用，只做日志收口和同文件低风险兼容修正。
+- 同步修正触碰文件中不符合 Python 3.9 基线的 `| None` 注解。
+
+文件范围：
+
+- `src/plugins/config_manager.py`
+- `src/plugins/jx3bot_handlers/jjc_ranking.py`
+- `src/renderers/jx3/jjc_ranking.py`
+- `src/infra/image_fetch.py`
+- `src/services/jx3/kungfu.py`
+- `docs/exec-plans/active/refactor-plan.md`
+- `docs/tasks/in-progress/refactor-plan.md`
+
+实施切片：
+
+1. `config_manager`：引入 `nonebot.logger`，把重启标记、重启通知、异常处理和清理动作中的 `print()` 替换为带上下文的日志；不调整命令权限、配置文件格式和重启流程。
+2. `jjc_ranking`：handler 异常改为 `logger.exception`，renderer 单图失败改为日志记录；保持消息发送与分片逻辑不变；顺手将触碰签名中的 `float | None` 改为 `Optional[float]`。
+3. `infra/image_fetch` 与 `services/jx3/kungfu`：补日志入口，将缓存读取、缺失 URL、下载失败、下载成功和推栏历史异常改为日志；不调整请求超时、缓存目录和返回值。
+
+验证方式：
+
+```bash
+rg -n "\bprint\(" src/plugins/config_manager.py src/plugins/jx3bot_handlers/jjc_ranking.py src/renderers/jx3/jjc_ranking.py src/infra/image_fetch.py src/services/jx3/kungfu.py
+python -m py_compile src/plugins/config_manager.py src/plugins/jx3bot_handlers/jjc_ranking.py src/renderers/jx3/jjc_ranking.py src/infra/image_fetch.py src/services/jx3/kungfu.py
+```
+
+回归关注：
+
+- `/重启`、启动后的重启完成通知、`/查看配置`、`/修改配置` 行为不变。
+- `竞技排名`、`竞技排名 拆分` 的失败提示仍发送给用户，详细错误进入日志。
+- `名片` 图片缓存命中、URL 缺失、下载失败时仍返回原有 `None` 语义。
+- 推栏 `match/history` 请求异常时仍返回 `None`，由上层保持原有降级逻辑。
+
+验证结果：
+
+- `rg -n "\bprint\(" src/plugins/config_manager.py src/plugins/jx3bot_handlers/jjc_ranking.py src/renderers/jx3/jjc_ranking.py src/infra/image_fetch.py src/services/jx3/kungfu.py`：无匹配。
+- `python -m py_compile src/plugins/config_manager.py src/plugins/jx3bot_handlers/jjc_ranking.py src/renderers/jx3/jjc_ranking.py src/infra/image_fetch.py src/services/jx3/kungfu.py`：通过。
+- 2026-05-23 用户确认验证正常，本批次标记完成。
 
 ## 下一步优先级
 
 ### P1
 
-- 统一替换遗留 `print()`，先覆盖 `status_monitor`、`config_manager`、`jjc_ranking` 相关链路
+- 统一替换遗留 `print()`，后续优先覆盖 `src/plugins/wanbaolou/` 与 `src/utils/defget.py`
 - 收敛 `defget` 导入面，减少新的兼容依赖
 
 ### P2

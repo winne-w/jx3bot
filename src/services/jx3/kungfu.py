@@ -93,10 +93,7 @@ def get_match_history(
     try:
         return tuilan_request(url, params)
     except Exception as exc:
-        print(f"\n❌ 获取战局历史时发生异常: {exc}")
-        import traceback
-
-        traceback.print_exc()
+        logger.exception(f"获取战局历史时发生异常: {exc}")
         return None
 
 
