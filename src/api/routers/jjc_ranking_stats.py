@@ -19,9 +19,38 @@ async def get_ranking_stats(
     timestamp: Optional[str] = Query(None, description="read 模式下的时间戳"),
     page: Optional[int] = Query(None, ge=1, description="list 模式分页页码"),
     page_size: Optional[int] = Query(None, ge=1, le=100, description="list 模式分页大小"),
+    with_meta: bool = Query(False, description="list 模式返回元数据列表"),
 ) -> dict[str, Any]:
     action = action.strip().lower()
     if action == "list":
+        if with_meta:
+            normalized_page = page or 1
+            normalized_page_size = page_size or 100
+            mongo_result = await JjcRankingStatsRepo().list_timestamps(
+                page=normalized_page,
+                page_size=normalized_page_size,
+                with_meta=True,
+            )
+            if isinstance(mongo_result, dict):
+                logger.info(
+                    "JJC ranking stats list with_meta: page={} page_size={} total={}".format(
+                        mongo_result.get("page"),
+                        mongo_result.get("page_size"),
+                        mongo_result.get("total"),
+                    )
+                )
+                return success_response(mongo_result)
+            logger.info(
+                "JJC ranking stats list with_meta 返回异常，返回空分页"
+            )
+            return success_response({
+                "items": [],
+                "page": normalized_page,
+                "page_size": normalized_page_size,
+                "total": 0,
+                "has_more": False,
+            })
+
         if page is not None or page_size is not None:
             normalized_page = page or 1
             normalized_page_size = page_size or 20

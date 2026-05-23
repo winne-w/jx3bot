@@ -18,6 +18,7 @@
 
 ## Completed
 
+- `completed/jjc-ranking-history-selector-plan.md`: JJC 排名历史列表按赛季、周次和结算状态筛选计划
 - `completed/html-py-commit-ignore-plan.md`: 提交指定 HTML/Python 改动并忽略 JJC 审计输出目录计划
 - `completed/admin-command-help-plan.md`: 管理员命令帮助入口计划
 - `completed/found-field-deprecation-plan.md`: `found` 字段降级与 `kungfu` 主判定改造计划

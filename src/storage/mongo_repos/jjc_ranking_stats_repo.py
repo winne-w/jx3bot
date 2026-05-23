@@ -187,13 +187,62 @@ class JjcRankingStatsRepo:
         self,
         page: Optional[int] = None,
         page_size: Optional[int] = None,
+        with_meta: bool = False,
     ) -> Any:
         sort_order = [("timestamp", -1)]
 
-        is_paged = page is not None or page_size is not None
+        if with_meta:
+            is_paged = True
+            normalized_page = max(int(page or 1), 1)
+            normalized_page_size = max(min(int(page_size or 100), 100), 1)
+        else:
+            is_paged = page is not None or page_size is not None
 
         try:
             db = self.db if self.db is not None else _get_db()
+
+            if with_meta:
+                normalized_page = max(int(page or 1), 1)
+                normalized_page_size = max(min(int(page_size or 100), 100), 1)
+                total = await db.jjc_ranking_stat_summaries.count_documents({})
+                skip = max(0, (normalized_page - 1) * normalized_page_size)
+                projection = {
+                    "timestamp": 1,
+                    "generated_at": 1,
+                    "ranking_cache_time": 1,
+                    "default_week": 1,
+                    "current_season": 1,
+                    "week_info": 1,
+                }
+                cursor = (
+                    db.jjc_ranking_stat_summaries.find({}, projection)
+                    .sort(sort_order)
+                    .skip(skip)
+                    .limit(normalized_page_size)
+                )
+                items: List[Dict[str, Any]] = []
+                async for doc in cursor:
+                    week_info = str(doc.get("week_info") or "")
+                    is_settlement = "结算" in week_info
+                    items.append({
+                        "timestamp": doc["timestamp"],
+                        "generated_at": doc.get("generated_at"),
+                        "ranking_cache_time": doc.get("ranking_cache_time"),
+                        "default_week": doc.get("default_week"),
+                        "current_season": doc.get("current_season"),
+                        "week_info": doc.get("week_info"),
+                        "is_settlement": is_settlement,
+                        "snapshot_kind": "settlement" if is_settlement else "daily",
+                    })
+                has_more = (skip + normalized_page_size) < total
+                return {
+                    "items": items,
+                    "page": normalized_page,
+                    "page_size": normalized_page_size,
+                    "total": total,
+                    "has_more": has_more,
+                }
+
             if not is_paged:
                 cursor = db.jjc_ranking_stat_summaries.find(
                     {}, {"timestamp": 1}
@@ -229,6 +278,14 @@ class JjcRankingStatsRepo:
                 "list jjc_ranking_stat_summaries 失败: error={}".format(exc),
                 exc,
             )
+            if with_meta:
+                return {
+                    "items": [],
+                    "page": page or 1,
+                    "page_size": page_size or 100,
+                    "total": 0,
+                    "has_more": False,
+                }
             if not is_paged:
                 return []
             return {

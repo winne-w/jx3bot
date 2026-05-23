@@ -127,6 +127,47 @@
             display: none;
         }
 
+        .history-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 12px;
+            align-items: flex-end;
+        }
+
+        .history-field {
+            display: inline-flex;
+            flex-direction: column;
+            gap: 5px;
+            min-width: 132px;
+            color: var(--muted);
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
+        .history-field.snapshot-field {
+            min-width: min(360px, 100%);
+            flex: 1 1 280px;
+        }
+
+        .history-field select,
+        .legacy-date-select {
+            min-height: 34px;
+            border-radius: 10px;
+            border: 1px solid rgba(137, 196, 244, 0.35);
+            background: #ffffff;
+            color: var(--ink);
+            font-family: inherit;
+            font-size: 0.9rem;
+            padding: 6px 10px;
+            outline: none;
+        }
+
+        .history-field select:focus,
+        .legacy-date-select:focus {
+            border-color: rgba(91, 124, 250, 0.65);
+            box-shadow: 0 0 0 3px rgba(91, 124, 250, 0.12);
+        }
+
         .tabs {
             margin-top: 18px;
             display: inline-flex;
@@ -1415,7 +1456,7 @@
 
     <script>
         const BASE_API = "/jx3bot/api/jjc/ranking-stats";
-        const DEFAULT_LIST_API = `${BASE_API}?action=list`;
+        const DEFAULT_LIST_API = `${BASE_API}?action=list&page=1&page_size=100&with_meta=1`;
         const DEFAULT_READ_API = `${BASE_API}?action=read`;
         const params = new URLSearchParams(window.location.search);
         const listApiUrl = params.get("list_api") || DEFAULT_LIST_API;
@@ -1505,12 +1546,15 @@
         const listContainer = document.createElement("div");
         listContainer.className = "status";
         listContainer.id = "list-status";
-        listContainer.innerHTML = `
-            <label class="muted" for="date-select">可用日期：</label>
-            <select id="date-select" disabled></select>
-        `;
+        listContainer.innerHTML = `<span class="muted">正在加载日期列表...</span>`;
         statusNode.insertAdjacentElement("afterend", listContainer);
-        const dateSelect = listContainer.querySelector("#date-select");
+
+        let dateSelect = null;
+        let seasonSelect = null;
+        let weekSelect = null;
+        let typeSelect = null;
+        let snapshotSelect = null;
+        let metadataStore = { seasons: [], weeksBySeason: {}, typesBySeasonWeek: {}, snapshotsByKey: {}, items: [] };
 
         const tabContainer = document.createElement("div");
         tabContainer.className = "tabs";
@@ -1606,30 +1650,256 @@
             return payload;
         }
 
+        function getWeekLabel(item, weekNumber) {
+            const weekInfo = String(item.week_info || "");
+            const match = weekInfo.match(/第\s*\d+\s*周/);
+            if (match) {
+                return match[0].replace(/\s+/g, "");
+            }
+            if (Number.isFinite(weekNumber)) {
+                return `第${weekNumber}周`;
+            }
+            return "未知周次";
+        }
+
+        function normalizeHistoryItems(rawItems) {
+            if (!Array.isArray(rawItems)) {
+                return [];
+            }
+            return rawItems
+                .map(function (item) {
+                    if (!item || typeof item !== "object") {
+                        return null;
+                    }
+                    const timestampNumber = Number(item.timestamp);
+                    if (!Number.isFinite(timestampNumber)) {
+                        return null;
+                    }
+                    const weekRaw = item.default_week ?? item.week;
+                    const weekNumber = Number(weekRaw);
+                    const hasWeekNumber = Number.isFinite(weekNumber);
+                    const season = String(item.current_season ?? item.season ?? "未知赛季");
+                    const weekKey = hasWeekNumber ? String(weekNumber) : "unknown";
+                    const weekLabel = getWeekLabel(item, hasWeekNumber ? weekNumber : NaN);
+                    const weekInfo = String(item.week_info || "");
+                    const isSettlement = item.is_settlement === true
+                        || item.snapshot_kind === "settlement"
+                        || weekInfo.indexOf("结算") >= 0;
+                    const kind = isSettlement ? "settlement" : "daily";
+                    const kindLabel = isSettlement ? "结算" : "日常快照";
+                    const timeLabel = formatTime(timestampNumber, true);
+                    return {
+                        timestamp: String(item.timestamp),
+                        timestampNumber: timestampNumber,
+                        season: season || "未知赛季",
+                        weekKey: weekKey,
+                        weekNumber: hasWeekNumber ? weekNumber : null,
+                        weekLabel: weekLabel,
+                        kind: kind,
+                        kindLabel: kindLabel,
+                        timeLabel: timeLabel,
+                        snapshotLabel: `${kindLabel} · ${timeLabel}`,
+                    };
+                })
+                .filter(Boolean)
+                .sort(function (a, b) {
+                    if (a.timestampNumber !== b.timestampNumber) {
+                        return b.timestampNumber - a.timestampNumber;
+                    }
+                    return a.season.localeCompare(b.season);
+                });
+        }
+
+        function buildHistoryGroups(items) {
+            const seasons = [];
+            const seasonMap = new Map();
+            items.forEach(function (item) {
+                if (!seasonMap.has(item.season)) {
+                    const seasonEntry = { value: item.season, label: item.season, latest: item.timestampNumber, weeks: [], weekMap: new Map() };
+                    seasonMap.set(item.season, seasonEntry);
+                    seasons.push(seasonEntry);
+                }
+                const seasonEntry = seasonMap.get(item.season);
+                seasonEntry.latest = Math.max(seasonEntry.latest, item.timestampNumber);
+                if (!seasonEntry.weekMap.has(item.weekKey)) {
+                    const weekEntry = {
+                        value: item.weekKey,
+                        label: item.weekLabel,
+                        weekNumber: item.weekNumber,
+                        latest: item.timestampNumber,
+                        items: [],
+                    };
+                    seasonEntry.weekMap.set(item.weekKey, weekEntry);
+                    seasonEntry.weeks.push(weekEntry);
+                }
+                const weekEntry = seasonEntry.weekMap.get(item.weekKey);
+                weekEntry.latest = Math.max(weekEntry.latest, item.timestampNumber);
+                weekEntry.items.push(item);
+            });
+            seasons.sort(function (a, b) { return b.latest - a.latest; });
+            seasons.forEach(function (seasonEntry) {
+                seasonEntry.weeks.sort(function (a, b) {
+                    if (a.weekNumber != null && b.weekNumber != null && a.weekNumber !== b.weekNumber) {
+                        return b.weekNumber - a.weekNumber;
+                    }
+                    if (a.weekNumber != null && b.weekNumber == null) {
+                        return -1;
+                    }
+                    if (a.weekNumber == null && b.weekNumber != null) {
+                        return 1;
+                    }
+                    return b.latest - a.latest;
+                });
+            });
+            return { seasons: seasons, seasonMap: seasonMap, items: items };
+        }
+
+        function populateSelect(selectEl, options, selectedValue) {
+            if (!selectEl) {
+                return;
+            }
+            selectEl.innerHTML = options.map(function (option) {
+                const selected = option.value === selectedValue ? " selected" : "";
+                return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(option.label)}</option>`;
+            }).join("");
+            selectEl.disabled = options.length === 0;
+        }
+
+        function getSelectedWeekEntry(seasonValue) {
+            const seasonEntry = metadataStore.seasonMap && metadataStore.seasonMap.get(seasonValue);
+            if (!seasonEntry || !weekSelect) {
+                return null;
+            }
+            return seasonEntry.weekMap.get(weekSelect.value) || null;
+        }
+
+        function updateWeekSelect(seasonValue) {
+            const seasonEntry = metadataStore.seasonMap && metadataStore.seasonMap.get(seasonValue);
+            const weeks = seasonEntry ? seasonEntry.weeks : [];
+            const options = weeks.map(function (week) {
+                return { value: week.value, label: week.label };
+            });
+            populateSelect(weekSelect, options, options[0] ? options[0].value : "");
+        }
+
+        function updateSnapshotSelect(loadSelected) {
+            const seasonValue = seasonSelect ? seasonSelect.value : "";
+            const weekEntry = getSelectedWeekEntry(seasonValue);
+            const typeValue = typeSelect ? typeSelect.value : "all";
+            let snapshots = weekEntry ? weekEntry.items.slice() : [];
+            if (typeValue === "settlement") {
+                snapshots = snapshots.filter(function (item) { return item.kind === "settlement"; });
+            } else if (typeValue === "daily") {
+                snapshots = snapshots.filter(function (item) { return item.kind === "daily"; });
+            }
+            snapshots.sort(function (a, b) {
+                if (a.kind !== b.kind) {
+                    return a.kind === "settlement" ? -1 : 1;
+                }
+                return b.timestampNumber - a.timestampNumber;
+            });
+            const options = snapshots.map(function (item) {
+                return {
+                    value: item.timestamp,
+                    label: `${item.weekLabel} · ${item.snapshotLabel}`,
+                };
+            });
+            populateSelect(snapshotSelect, options, options[0] ? options[0].value : "");
+            if (loadSelected && snapshotSelect && snapshotSelect.value) {
+                loadStats(snapshotSelect.value);
+            }
+        }
+
+        function renderMetadataList(rawItems) {
+            const items = normalizeHistoryItems(rawItems);
+            if (!items.length) {
+                listContainer.textContent = "暂无可用快照数据";
+                return;
+            }
+            metadataStore = buildHistoryGroups(items);
+            dateSelect = null;
+
+            listContainer.innerHTML = `
+                <div class="history-controls">
+                    <label class="history-field">赛季<select id="season-select"></select></label>
+                    <label class="history-field">周次<select id="week-select"></select></label>
+                    <label class="history-field">类型<select id="type-select"></select></label>
+                    <label class="history-field snapshot-field">快照<select id="snapshot-select"></select></label>
+                </div>
+            `;
+            seasonSelect = listContainer.querySelector("#season-select");
+            weekSelect = listContainer.querySelector("#week-select");
+            typeSelect = listContainer.querySelector("#type-select");
+            snapshotSelect = listContainer.querySelector("#snapshot-select");
+
+            const seasonOptions = metadataStore.seasons.map(function (season) {
+                return { value: season.value, label: season.label };
+            });
+            populateSelect(seasonSelect, seasonOptions, seasonOptions[0].value);
+            populateSelect(typeSelect, [
+                { value: "all", label: "全部" },
+                { value: "settlement", label: "结算" },
+                { value: "daily", label: "日常快照" },
+            ], "all");
+            updateWeekSelect(seasonSelect.value);
+            updateSnapshotSelect(true);
+
+            seasonSelect.addEventListener("change", function () {
+                updateWeekSelect(seasonSelect.value);
+                typeSelect.value = "all";
+                updateSnapshotSelect(true);
+            });
+            weekSelect.addEventListener("change", function () {
+                typeSelect.value = "all";
+                updateSnapshotSelect(true);
+            });
+            typeSelect.addEventListener("change", function () {
+                updateSnapshotSelect(true);
+            });
+            snapshotSelect.addEventListener("change", function () {
+                if (snapshotSelect.value) {
+                    loadStats(snapshotSelect.value);
+                }
+            });
+        }
+
         function renderDateList(timestamps) {
             if (!Array.isArray(timestamps) || timestamps.length === 0) {
                 listContainer.textContent = "暂无可用日期数据";
                 return;
             }
-            const items = timestamps
-                .filter((value) => Number.isFinite(Number(value)))
-                .sort((a, b) => Number(b) - Number(a))
-                .map((value) => ({
-                    value: String(value),
-                    label: formatTime(Number(value), true),
-                }));
+            var items = timestamps
+                .filter(function (value) { return Number.isFinite(Number(value)); })
+                .sort(function (a, b) { return Number(b) - Number(a); })
+                .map(function (value) {
+                    return {
+                        value: String(value),
+                        label: formatTime(Number(value), true),
+                    };
+                });
             if (!items.length) {
                 listContainer.textContent = "暂无可用日期数据";
                 return;
             }
 
+            seasonSelect = null;
+            weekSelect = null;
+            typeSelect = null;
+            snapshotSelect = null;
+            listContainer.innerHTML = "<label class=\"muted\" for=\"date-select\">可用日期：</label>"
+                + "<select id=\"date-select\" class=\"legacy-date-select\"></select>";
+            dateSelect = listContainer.querySelector("#date-select");
+
             dateSelect.innerHTML = items
-                .map((item) => `<option value="${item.value}">${item.label}</option>`)
+                .map(function (item) { return "<option value=\"" + item.value + "\">" + item.label + "</option>"; })
                 .join("");
             dateSelect.disabled = false;
+            dateSelect.value = items[0].value;
 
-            const selected = items[0].value;
-            dateSelect.value = selected;
+            dateSelect.addEventListener("change", function (event) {
+                var value = event.target.value;
+                if (value) { loadStats(value); }
+            });
         }
 
         function buildDetailsCacheKey(timestamp, rangeKey, lane, kungfu) {
@@ -1989,9 +2259,16 @@
                     throw new Error(`HTTP ${response.status}`);
                 }
                 const payload = await response.json();
-                renderDateList(unwrapResponse(payload));
-                if (dateSelect && dateSelect.value) {
-                    loadStats(dateSelect.value);
+                const data = unwrapResponse(payload);
+                if (Array.isArray(data)) {
+                    renderDateList(data);
+                    if (dateSelect && dateSelect.value) {
+                        loadStats(dateSelect.value);
+                    }
+                } else if (data && typeof data === "object" && Array.isArray(data.items)) {
+                    renderMetadataList(data.items);
+                } else {
+                    listContainer.textContent = "列表数据格式异常";
                 }
             } catch (error) {
                 listContainer.textContent = `获取日期列表失败：${error.message || error}`;
@@ -2849,15 +3126,6 @@
         })();
 
         loadDateList();
-
-        if (dateSelect) {
-            dateSelect.addEventListener("change", (event) => {
-                const value = event.target.value;
-                if (value) {
-                    loadStats(value);
-                }
-            });
-        }
 
         if (grid) {
             grid.addEventListener("click", (event) => {

@@ -215,6 +215,7 @@ python scripts/backfill_jjc_role_id_from_match_replay.py --limit 20 --apply --ye
 curl "http://127.0.0.1:5288/api/arena/recent?server=梦江南&name=示例角色"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list&page=1&page_size=20"
+curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=list&page=1&page_size=100&with_meta=1"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=read&timestamp=<时间戳>"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/details?timestamp=<时间戳>&range=top_50&lane=healer&kungfu=云裳心经"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/role-recent?server=梦江南&name=示例角色"
@@ -226,11 +227,13 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局I
 
 - 返回统一结构
 - 参数非法时返回错误响应，而不是 500
+- `action=list&with_meta=1` 返回带赛季、周次、结算状态的分页快照列表；旧 `action=list` 仍返回时间戳数组
 - `action=read` 首屏摘要不再返回全量 `members`
 - `details` 接口可按需返回单个心法成员明细
 - 统计页点击角色时可按需返回最近 3v3 胜负和最近对局列表
 - 统计页角色指标默认使用 1 天内 `jjc_role_indicator` 缓存；页面刷新按钮或 `force_refresh=true` 会绕过缓存并写回最新结果
 - 统计页点击对局时可按需返回单局详情
+- 统计页历史选择器可按赛季、周次、全部/结算/日常快照切换；切换后详情懒加载仍使用当前快照 timestamp
 - 不可用对局详情返回 `unavailable=true`、`code=-1`、`message=no data found`、`detail=null`，统计页应显示“该对局查询不到数据”
 - 每日/手动 JJC 排名统计后，若统计过程已请求到 `role/indicator` 或最近胜场 `match/detail`，Mongo 中应可看到对应 `jjc_role_indicator`、`jjc_match_detail` 预热缓存；页面再次查看对应角色或对局时应命中缓存
 

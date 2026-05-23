@@ -113,6 +113,65 @@ class TestRankingStatsListRoutes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["data"], [300, 100])
         self.assertEqual(repo.list_calls, [{}])
 
+    async def test_with_meta_true_passes_to_repo_with_default_pagination(self) -> None:
+        module = _load_router_module()
+        repo = _FakeRepo(list_result={
+            "items": [
+                {
+                    "timestamp": 300,
+                    "generated_at": 1000.0,
+                    "ranking_cache_time": 1000.5,
+                    "default_week": 3,
+                    "current_season": "S3",
+                    "week_info": "第3周",
+                    "is_settlement": False,
+                    "snapshot_kind": "daily",
+                },
+            ],
+            "page": 1,
+            "page_size": 100,
+            "total": 1,
+            "has_more": False,
+        })
+        module.JjcRankingStatsRepo = lambda: repo
+
+        response = await module.get_ranking_stats(action="list", with_meta=True)
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(repo.list_calls, [{"page": 1, "page_size": 100, "with_meta": True}])
+
+    async def test_with_meta_true_respects_custom_pagination(self) -> None:
+        module = _load_router_module()
+        repo = _FakeRepo(list_result={
+            "items": [],
+            "page": 2,
+            "page_size": 5,
+            "total": 0,
+            "has_more": False,
+        })
+        module.JjcRankingStatsRepo = lambda: repo
+
+        response = await module.get_ranking_stats(action="list", with_meta=True, page=2, page_size=5)
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(repo.list_calls, [{"page": 2, "page_size": 5, "with_meta": True}])
+
+    async def test_with_meta_false_paged_does_not_pass_with_meta(self) -> None:
+        module = _load_router_module()
+        repo = _FakeRepo(list_result={
+            "items": [300],
+            "page": 1,
+            "page_size": 20,
+            "total": 1,
+            "has_more": False,
+        })
+        module.JjcRankingStatsRepo = lambda: repo
+
+        response = await module.get_ranking_stats(action="list", page=1)
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(repo.list_calls, [{"page": 1, "page_size": 20}])
+
     async def test_paged_list_returns_mongo_page_even_when_empty(self) -> None:
         module = _load_router_module()
         repo = _FakeRepo(list_result={

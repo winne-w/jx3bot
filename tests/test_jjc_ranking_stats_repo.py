@@ -126,6 +126,180 @@ class TestListTimestampsPaged(unittest.IsolatedAsyncioTestCase):
         assert result["has_more"] is False
 
 
+class TestListTimestampsWithMeta(unittest.IsolatedAsyncioTestCase):
+    async def test_with_meta_returns_paged_dict_with_item_dicts(self):
+        docs = [
+            {
+                "timestamp": 300,
+                "generated_at": 1000.0,
+                "ranking_cache_time": 1000.5,
+                "default_week": 3,
+                "current_season": "S3",
+                "week_info": "第3周",
+            },
+            {
+                "timestamp": 200,
+                "generated_at": 900.0,
+                "ranking_cache_time": 900.5,
+                "default_week": 2,
+                "current_season": "S2",
+                "week_info": "第2周",
+            },
+        ]
+        col = _make_mock_collection(find_results=docs, count=2)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        repo = JjcRankingStatsRepo(db=db)
+        result = await repo.list_timestamps(with_meta=True)
+
+        assert isinstance(result, dict)
+        assert result["page"] == 1
+        assert result["page_size"] == 100
+        assert result["total"] == 2
+        assert result["has_more"] is False
+        assert len(result["items"]) == 2
+        assert result["items"][0]["timestamp"] == 300
+        assert result["items"][0]["generated_at"] == 1000.0
+        assert result["items"][0]["is_settlement"] is False
+        assert result["items"][0]["snapshot_kind"] == "daily"
+
+    async def test_with_meta_derives_is_settlement_from_week_info(self):
+        docs = [
+            {
+                "timestamp": 100,
+                "generated_at": 500.0,
+                "ranking_cache_time": 500.5,
+                "default_week": 1,
+                "current_season": "S1",
+                "week_info": "第1周（结算周）",
+            },
+        ]
+        col = _make_mock_collection(find_results=docs, count=1)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        repo = JjcRankingStatsRepo(db=db)
+        result = await repo.list_timestamps(with_meta=True)
+
+        item = result["items"][0]
+        assert item["is_settlement"] is True
+        assert item["snapshot_kind"] == "settlement"
+
+    async def test_with_meta_daily_week_info(self):
+        docs = [
+            {
+                "timestamp": 200,
+                "generated_at": 600.0,
+                "ranking_cache_time": 600.5,
+                "default_week": 2,
+                "current_season": "S2",
+                "week_info": "第2周",
+            },
+        ]
+        col = _make_mock_collection(find_results=docs, count=1)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        repo = JjcRankingStatsRepo(db=db)
+        result = await repo.list_timestamps(with_meta=True)
+
+        item = result["items"][0]
+        assert item["is_settlement"] is False
+        assert item["snapshot_kind"] == "daily"
+
+    async def test_with_meta_tolerates_missing_fields(self):
+        docs = [
+            {
+                "timestamp": 400,
+            },
+        ]
+        col = _make_mock_collection(find_results=docs, count=1)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        repo = JjcRankingStatsRepo(db=db)
+        result = await repo.list_timestamps(with_meta=True)
+
+        item = result["items"][0]
+        assert item["timestamp"] == 400
+        assert item["generated_at"] is None
+        assert item["ranking_cache_time"] is None
+        assert item["default_week"] is None
+        assert item["current_season"] is None
+        assert item["week_info"] is None
+        assert item["is_settlement"] is False
+        assert item["snapshot_kind"] == "daily"
+
+    async def test_with_meta_null_week_info_treated_as_empty(self):
+        docs = [
+            {
+                "timestamp": 500,
+                "week_info": None,
+            },
+        ]
+        col = _make_mock_collection(find_results=docs, count=1)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        repo = JjcRankingStatsRepo(db=db)
+        result = await repo.list_timestamps(with_meta=True)
+
+        item = result["items"][0]
+        assert item["is_settlement"] is False
+        assert item["snapshot_kind"] == "daily"
+
+    async def test_with_meta_respects_custom_pagination(self):
+        docs = [{"timestamp": 500}]
+        col = _make_mock_collection(find_results=docs, count=10)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        repo = JjcRankingStatsRepo(db=db)
+        result = await repo.list_timestamps(page=2, page_size=5, with_meta=True)
+
+        assert result["page"] == 2
+        assert result["page_size"] == 5
+        assert result["total"] == 10
+
+    async def test_with_meta_failure_returns_empty_page(self):
+        col = MagicMock()
+        col.find = MagicMock(side_effect=RuntimeError("boom"))
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        repo = JjcRankingStatsRepo(db=db)
+        result = await repo.list_timestamps(with_meta=True)
+
+        assert result["items"] == []
+        assert result["page"] == 1
+        assert result["page_size"] == 100
+        assert result["total"] == 0
+        assert result["has_more"] is False
+
+    async def test_with_meta_false_unpaged_still_returns_int_list(self):
+        docs = [{"timestamp": 300}, {"timestamp": 200}]
+        col = _make_mock_collection(find_results=docs)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        repo = JjcRankingStatsRepo(db=db)
+        result = await repo.list_timestamps(with_meta=False)
+
+        assert result == [300, 200]
+
+    async def test_with_meta_false_paged_still_returns_int_items(self):
+        docs = [{"timestamp": 500}]
+        col = _make_mock_collection(find_results=docs, count=1)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        repo = JjcRankingStatsRepo(db=db)
+        result = await repo.list_timestamps(page=1, page_size=10, with_meta=False)
+
+        assert result["items"] == [500]
+
+
 class TestSaveAndLoadSummary(unittest.IsolatedAsyncioTestCase):
     async def test_save_snapshot_calls_upsert_summary_and_details(self):
         summary_col = _make_mock_collection()
