@@ -379,97 +379,6 @@ def extract_history_items(payload: dict) -> List[dict]:
     return []
 
 
-def extract_identity_from_person_history(
-    payload: dict,
-    person_id: Optional[str] = None,
-    expected_zone: Optional[str] = None,
-    expected_role_id: Optional[str] = None,
-    expected_server: Optional[str] = None,
-    expected_role_name: Optional[str] = None,
-) -> Dict[str, Any]:
-    """从 person-history 响应中提取身份字段。
-
-    推栏该接口按时间倒序返回对局记录；每条记录通常包含 global_role_id、
-    person_id、role_name、server、zone。若传入 expected_* 字段则对候选行做角色级
-    校验：强匹配为 zone + role_id 一致，fallback 为 server + 规范化角色名一致。
-    未传入 expected_* 时保持旧行为（person_id 匹配的首条记录）。
-    """
-    items = extract_history_items(payload)
-    expected_person_id = str(person_id or "").strip()
-
-    exp_zone = str(expected_zone or "").strip()
-    exp_role_id = str(expected_role_id or "").strip()
-    exp_server = str(expected_server or "").strip()
-    exp_name = str(expected_role_name or "").strip()
-    has_expected_fields = bool(exp_zone or exp_role_id or exp_server or exp_name)
-    matched_person_candidates = 0
-    role_mismatch_candidates = 0
-
-    for item in items:
-        item_person_id = str(item.get("person_id") or "").strip()
-        if expected_person_id and item_person_id and item_person_id != expected_person_id:
-            continue
-        matched_person_candidates += 1
-        global_role_id = str(item.get("global_role_id") or item.get("globalRoleId") or "").strip()
-        role_id = str(item.get("role_id") or item.get("roleId") or "").strip()
-        zone = str(item.get("zone") or "").strip()
-        server = str(item.get("server") or "").strip()
-        role_name = normalize_role_name(
-            item.get("role_name") or item.get("roleName"),
-            server,
-        )
-        if not (global_role_id or role_id or zone or server or role_name):
-            continue
-
-        if has_expected_fields:
-            if exp_zone and exp_role_id and exp_zone == zone and exp_role_id == role_id:
-                return {
-                    "global_role_id": global_role_id,
-                    "role_id": role_id,
-                    "game_role_id": role_id,
-                    "zone": zone,
-                    "server": server,
-                    "role_name": role_name,
-                    "person_id": item_person_id,
-                    "source": "person_history",
-                }
-            normalized_expected_name = (
-                normalize_role_name(exp_name, exp_server) if exp_server and exp_name else ""
-            )
-            if exp_server and exp_name and exp_server == server and normalized_expected_name == role_name:
-                return {
-                    "global_role_id": global_role_id,
-                    "role_id": role_id,
-                    "game_role_id": role_id,
-                    "zone": zone,
-                    "server": server,
-                    "role_name": role_name,
-                    "person_id": item_person_id,
-                    "source": "person_history",
-                }
-            role_mismatch_candidates += 1
-            continue
-
-        return {
-            "global_role_id": global_role_id,
-            "role_id": role_id,
-            "game_role_id": role_id,
-            "zone": zone,
-            "server": server,
-            "role_name": role_name,
-            "person_id": item_person_id,
-            "source": "person_history",
-        }
-    if has_expected_fields and matched_person_candidates and role_mismatch_candidates:
-        logger.debug(
-            f"JJC person-history 候选身份角色校验未命中: person_id={expected_person_id} "
-            f"expected_server={exp_server} expected_role_name={exp_name} expected_zone={exp_zone} "
-            f"expected_role_id={exp_role_id} candidates={matched_person_candidates} "
-            f"skipped={role_mismatch_candidates}"
-        )
-    return {}
-
-
 def parse_season_start_timestamp(season_start_str: str) -> int:
     """将 "2026-04-24" 格式的日期字符串转为 Unix 时间戳（秒）。
 
@@ -1220,12 +1129,7 @@ class JjcMatchDataSyncService:
 
         if not global_role_id:
             try:
-                identity = await self._resolve_role_identity_from_person_history(
-                    role,
-                    lease_renewer=renew_role_context,
-                )
-                if not str(identity.get("global_role_id") or "").strip():
-                    identity = await self._resolve_role_identity_for_sync(role)
+                identity = await self._resolve_role_identity_for_sync(role)
             except JjcSyncGlobalPauseError as exc:
                 reason = exc.reason
                 logger.warning(
@@ -1551,34 +1455,6 @@ class JjcMatchDataSyncService:
             return {}
         return identity
 
-    async def _resolve_role_identity_from_person_history(
-        self,
-        role: Dict[str, Any],
-        lease_renewer: Optional[Callable[[bool], Awaitable[None]]] = None,
-    ) -> Dict[str, Any]:
-        person_id = str(role.get("person_id") or "").strip()
-        if not person_id or self._person_match_history_client is None:
-            return {}
-        identity = await self._resolve_identity_from_person_history_pages(
-            person_id=person_id,
-            expected_zone=str(role.get("zone") or "").strip(),
-            expected_role_id=str(role.get("role_id") or role.get("game_role_id") or "").strip(),
-            expected_server=str(role.get("server") or "").strip(),
-            expected_role_name=str(role.get("name") or "").strip(),
-            log_context="同步角色",
-            lease_renewer=lease_renewer,
-        )
-        if not identity:
-            return {}
-
-        server = str(identity.get("server") or "").strip()
-        role_name = str(identity.get("role_name") or "").strip()
-        if server:
-            identity["server"] = server
-        if role_name:
-            identity["name"] = role_name
-        return identity
-
     async def _resolve_player_identity_from_local_repo(self, player: Dict[str, Any]) -> Dict[str, Any]:
         if self._identity_repo is None:
             return {}
@@ -1654,103 +1530,6 @@ class JjcMatchDataSyncService:
         current_server = str(player.get("server") or "").strip()
         if current_name and current_server:
             player["role_name"] = normalize_role_name(current_name, current_server)
-
-    async def _resolve_player_identity_from_person_history(
-        self,
-        player: Dict[str, Any],
-        lease_renewer: Optional[Callable[[bool], Awaitable[None]]] = None,
-    ) -> Dict[str, Any]:
-        if str(player.get("global_role_id") or "").strip():
-            return {}
-        person_id = str(player.get("person_id") or "").strip()
-        if not person_id or self._person_match_history_client is None:
-            return {}
-
-        return await self._resolve_identity_from_person_history_pages(
-            person_id=person_id,
-            expected_zone=str(player.get("zone") or "").strip(),
-            expected_role_id=str(player.get("role_id") or "").strip(),
-            expected_server=str(player.get("server") or "").strip(),
-            expected_role_name=str(player.get("role_name") or "").strip(),
-            log_context="对局玩家",
-            lease_renewer=lease_renewer,
-        )
-
-    async def _resolve_identity_from_person_history_pages(
-        self,
-        *,
-        person_id: str,
-        expected_zone: str = "",
-        expected_role_id: str = "",
-        expected_server: str = "",
-        expected_role_name: str = "",
-        log_context: str = "",
-        page_size: int = 20,
-        max_pages: int = 20,
-        lease_renewer: Optional[Callable[[bool], Awaitable[None]]] = None,
-    ) -> Dict[str, Any]:
-        if self._person_match_history_client is None:
-            return {}
-
-        cursor = 0
-        for _ in range(max_pages):
-            payload: Dict[str, Any]
-            try:
-                if lease_renewer is not None:
-                    await lease_renewer(False)
-                if cursor > 0:
-                    await self._sleep_func()
-                    if lease_renewer is not None:
-                        await lease_renewer(False)
-                payload = await asyncio.to_thread(
-                    self._person_match_history_client.get_person_match_history,
-                    person_id=person_id,
-                    size=page_size,
-                    cursor=cursor,
-                )
-                if lease_renewer is not None:
-                    await lease_renewer(False)
-            except Exception as exc:
-                if is_tuilan_auth_error(str(exc)):
-                    raise JjcSyncGlobalPauseError(
-                        build_tuilan_auth_pause_reason(str(exc), context="person-history")
-                    )
-                logger.warning(
-                    f"JJC 同步通过 person-history 补全{log_context}身份失败: "
-                    f"person_id={person_id} cursor={cursor} error={exc}"
-                )
-                return {}
-
-            if is_tuilan_auth_error(payload):
-                raise JjcSyncGlobalPauseError(
-                    build_tuilan_auth_pause_reason(payload, context="person-history")
-                )
-            if not isinstance(payload, dict) or payload.get("error"):
-                return {}
-            items = extract_history_items(payload)
-            if not items:
-                return {}
-            identity = extract_identity_from_person_history(
-                {"data": items},
-                person_id,
-                expected_zone=expected_zone,
-                expected_role_id=expected_role_id,
-                expected_server=expected_server,
-                expected_role_name=expected_role_name,
-            )
-            if identity:
-                logger.debug(
-                    f"JJC person-history 分页补全{log_context}身份命中: person_id={person_id} "
-                    f"cursor={cursor} expected_server={expected_server} "
-                    f"expected_role_name={expected_role_name}"
-                )
-                return identity
-            cursor += page_size
-        logger.debug(
-            f"JJC person-history 分页补全{log_context}身份达到上限: "
-            f"person_id={person_id} max_pages={max_pages}"
-        )
-        return {}
 
     async def _upsert_role_identity_from_resolved(
         self,
@@ -2277,15 +2056,6 @@ class JjcMatchDataSyncService:
                     await lease_renewer(False)
                 if identity:
                     self._backfill_player_from_identity(player, identity)
-                else:
-                    person_identity = await self._resolve_player_identity_from_person_history(
-                        player,
-                        lease_renewer=lease_renewer,
-                    )
-                    if lease_renewer is not None:
-                        await lease_renewer(False)
-                    if person_identity:
-                        self._backfill_player_from_identity(player, person_identity)
             server = str(player.get("server") or "").strip()
             name = normalize_role_name(
                 str(player.get("role_name") or "").strip(), server

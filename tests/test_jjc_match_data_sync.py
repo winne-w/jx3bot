@@ -8,7 +8,6 @@ from src.services.jx3.jjc_match_data_sync import (
     JjcSyncMatchDetailClaimError,
     JjcSyncStaleLeaseError,
     JjcMatchDataSyncService,
-    extract_identity_from_person_history,
     extract_history_items,
     extract_players_from_detail,
     normalize_role_name,
@@ -598,45 +597,6 @@ class TestExtractHistoryItems(unittest.TestCase):
         self.assertEqual(len(players), 2)
         self.assertEqual(players[0]["role_name"], "奈川寺")
         self.assertEqual(players[1]["role_name"], "角色A·别的服")
-
-    def test_extract_identity_from_person_history_prefers_matching_person(self) -> None:
-        identity = extract_identity_from_person_history(
-            {
-                "data": [
-                    {"person_id": "other", "global_role_id": "gid-other"},
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-a",
-                        "role_name": "角色A",
-                        "server": "梦江南",
-                        "zone": "电信区",
-                    },
-                ]
-            },
-            "pid-a",
-        )
-
-        self.assertEqual(identity["global_role_id"], "gid-a")
-        self.assertEqual(identity["role_name"], "角色A")
-        self.assertEqual(identity["source"], "person_history")
-
-    def test_extract_identity_from_person_history_normalizes_role_name(self) -> None:
-        identity = extract_identity_from_person_history(
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-a",
-                        "role_name": "发神鲸@龙争虎斗·龙争虎斗",
-                        "server": "龙争虎斗",
-                        "zone": "电信区",
-                    },
-                ]
-            },
-            "pid-a",
-        )
-
-        self.assertEqual(identity["role_name"], "发神鲸@龙争虎斗")
 
 
 class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
@@ -1437,22 +1397,10 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(identity_repo.upserted[0]["global_role_id"], "gid-a")
         self.assertEqual(identity_repo.upserted[0]["role_id"], "rid-a")
 
-    async def test_enqueue_players_from_detail_backfills_global_role_id_from_person_history(self) -> None:
+    async def test_enqueue_players_from_detail_does_not_backfill_global_role_id_from_person_history(self) -> None:
         repo = FakeRepo()
         identity_repo = FakeIdentityRepo()
-        person_history = FakePersonHistoryClient([
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-a",
-                        "role_name": "角色A",
-                        "server": "梦江南",
-                        "zone": "电信区",
-                    }
-                ]
-            }
-        ])
+        person_history = FakePersonHistoryClient([])
         service = JjcMatchDataSyncService(
             repo=repo,
             current_season="赛季",
@@ -1476,10 +1424,9 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             }
         })
 
-        self.assertEqual(person_history.calls[0]["person_id"], "pid-a")
-        self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-a")
-        self.assertEqual(repo.upserted_roles[0]["person_id"], "pid-a")
-        self.assertEqual(identity_repo.upserted[0]["global_role_id"], "gid-a")
+        self.assertEqual(person_history.calls, [])
+        self.assertEqual(repo.upserted_roles, [])
+        self.assertEqual(identity_repo.upserted[0]["global_role_id"], None)
         self.assertEqual(identity_repo.upserted[0]["person_id"], "pid-a")
 
     async def test_enqueue_players_from_detail_normalizes_written_role_name(self) -> None:
@@ -1952,7 +1899,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(identity_repo.upserted[0]["global_role_id"], "gid-resolved")
         self.assertGreaterEqual(sleep.count, 3)
 
-    async def test_missing_global_role_id_uses_person_history_before_inspect_resolver(self) -> None:
+    async def test_missing_global_role_id_skips_person_history_and_uses_inspect_resolver(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
             "status": "queued",
@@ -1964,20 +1911,15 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         history = FakeHistoryClient([
             {"data": [{"match_id": 41, "match_time": 1810000000, "pvpType": 3}]}
         ])
-        person_history = FakePersonHistoryClient([
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-person",
-                        "role_name": "种子",
-                        "server": "梦江南",
-                        "zone": "电信区",
-                    }
-                ]
-            }
-        ])
+        person_history = FakePersonHistoryClient([])
         inspect_service = FakeInspectService()
+        inspect_service.identity_result = {
+            "global_role_id": "gid-inspect",
+            "role_id": "rid-a",
+            "game_role_id": "rid-a",
+            "zone": "zone-a",
+            "source": "test_identity",
+        }
         identity_repo = FakeIdentityRepo()
         service = JjcMatchDataSyncService(
             repo=repo,
@@ -1993,168 +1935,11 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         result = await service.run_once()
 
         self.assertFalse(result["error"])
-        self.assertEqual(history.calls[0]["global_role_id"], "gid-person")
-        self.assertEqual(inspect_service.identity_calls, [])
-        self.assertEqual(repo.identity_updates[0]["global_role_id"], "gid-person")
+        self.assertEqual(person_history.calls, [])
+        self.assertEqual(len(inspect_service.identity_calls), 1)
+        self.assertEqual(history.calls[0]["global_role_id"], "gid-inspect")
+        self.assertEqual(repo.identity_updates[0]["global_role_id"], "gid-inspect")
         self.assertEqual(repo.identity_updates[0]["person_id"], "pid-a")
-
-    async def test_missing_global_role_id_finds_person_history_identity_on_later_page(self) -> None:
-        repo = FakeRepo()
-        repo.roles = [{
-            "status": "queued",
-            "identity_key": "name:梦江南:种子",
-            "server": "梦江南",
-            "name": "种子",
-            "person_id": "pid-a",
-        }]
-        history = FakeHistoryClient([
-            {"data": [{"match_id": 43, "match_time": 1810000000, "pvpType": 3}]}
-        ])
-        person_history = FakePersonHistoryClient([
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-other",
-                        "role_name": "其他角色",
-                        "server": "梦江南",
-                        "zone": "电信区",
-                    }
-                ]
-            },
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-page-2",
-                        "role_name": "种子",
-                        "server": "梦江南",
-                        "zone": "电信区",
-                    }
-                ]
-            },
-        ])
-        inspect_service = FakeInspectService()
-        service = JjcMatchDataSyncService(
-            repo=repo,
-            current_season="赛季",
-            current_season_start="2026-04-24",
-            match_history_client=history,
-            person_match_history_client=person_history,
-            inspect_service=inspect_service,
-            sleep_func=_noop_sleep,
-        )
-
-        result = await service.run_once()
-
-        self.assertFalse(result["error"])
-        self.assertEqual(history.calls[0]["global_role_id"], "gid-page-2")
-        self.assertEqual(inspect_service.identity_calls, [])
-        self.assertEqual(
-            [call["cursor"] for call in person_history.calls],
-            [0, 20],
-        )
-
-    async def test_role_person_history_pagination_sleeps_between_pages(self) -> None:
-        person_history = FakePersonHistoryClient([
-            {
-                "data": [{
-                    "person_id": "pid-a",
-                    "global_role_id": "gid-other",
-                    "role_name": "其他角色",
-                    "server": "梦江南",
-                    "zone": "电信区",
-                }]
-            },
-            {
-                "data": [{
-                    "person_id": "pid-a",
-                    "global_role_id": "gid-page-2",
-                    "role_name": "种子",
-                    "server": "梦江南",
-                    "zone": "电信区",
-                }]
-            },
-        ])
-        sleep = SleepCounter()
-        service = JjcMatchDataSyncService(
-            repo=FakeRepo(),
-            current_season="赛季",
-            current_season_start="2026-04-24",
-            person_match_history_client=person_history,
-            sleep_func=sleep,
-        )
-
-        identity = await service._resolve_role_identity_from_person_history({
-            "server": "梦江南",
-            "name": "种子",
-            "person_id": "pid-a",
-        })
-
-        self.assertEqual(identity["global_role_id"], "gid-page-2")
-        self.assertEqual([call["cursor"] for call in person_history.calls], [0, 20])
-        self.assertEqual(sleep.count, 1)
-
-    async def test_person_history_pages_stop_at_max_pages(self) -> None:
-        person_history = FakePersonHistoryClient([
-            {"data": [{"person_id": "pid-a", "global_role_id": "gid-other", "role_name": "其他1", "server": "梦江南"}]},
-            {"data": [{"person_id": "pid-a", "global_role_id": "gid-other-2", "role_name": "其他2", "server": "梦江南"}]},
-            {"data": [{"person_id": "pid-a", "global_role_id": "gid-page-3", "role_name": "种子", "server": "梦江南"}]},
-        ])
-        service = JjcMatchDataSyncService(
-            repo=FakeRepo(),
-            current_season="赛季",
-            current_season_start="2026-04-24",
-            person_match_history_client=person_history,
-            sleep_func=_noop_sleep,
-        )
-        renew_calls: List[bool] = []
-
-        async def renew(force: bool = False) -> None:
-            renew_calls.append(force)
-
-        identity = await service._resolve_identity_from_person_history_pages(
-            person_id="pid-a",
-            expected_server="梦江南",
-            expected_role_name="种子",
-            max_pages=2,
-            lease_renewer=renew,
-        )
-
-        self.assertEqual(identity, {})
-        self.assertEqual([call["cursor"] for call in person_history.calls], [0, 20])
-        self.assertGreaterEqual(len(renew_calls), 2)
-
-    async def test_role_person_history_passes_lease_renewer(self) -> None:
-        person_history = FakePersonHistoryClient([
-            {
-                "data": [{
-                    "person_id": "pid-a",
-                    "global_role_id": "gid-person",
-                    "role_name": "种子",
-                    "server": "梦江南",
-                }]
-            }
-        ])
-        service = JjcMatchDataSyncService(
-            repo=FakeRepo(),
-            current_season="赛季",
-            current_season_start="2026-04-24",
-            person_match_history_client=person_history,
-            sleep_func=_noop_sleep,
-        )
-        renew_calls: List[bool] = []
-
-        async def renew(force: bool = False) -> None:
-            renew_calls.append(force)
-
-        identity = await service._resolve_role_identity_from_person_history(
-            {"server": "梦江南", "name": "种子", "person_id": "pid-a"},
-            lease_renewer=renew,
-        )
-
-        self.assertEqual(identity["global_role_id"], "gid-person")
-        self.assertGreaterEqual(len(renew_calls), 1)
 
     async def test_match_detail_identity_uses_match_time_as_observed_at(self) -> None:
         repo = FakeRepo()
@@ -2367,23 +2152,11 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(person_history.calls, [])
         self.assertEqual(repo.upserted_roles, [])
 
-    async def test_enqueue_player_local_identity_miss_falls_back_to_person_history(self) -> None:
+    async def test_enqueue_player_local_identity_miss_does_not_call_person_history(self) -> None:
         repo = FakeRepo()
         identity_repo = FakeIdentityRepo()
         identity_repo.resolve_results = {}
-        person_history = FakePersonHistoryClient([
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-ph",
-                        "role_name": "角色A",
-                        "server": "梦江南",
-                        "zone": "电信区",
-                    }
-                ]
-            }
-        ])
+        person_history = FakePersonHistoryClient([])
         service = JjcMatchDataSyncService(
             repo=repo,
             current_season="赛季",
@@ -2408,69 +2181,10 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         })
 
         self.assertEqual(len(identity_repo.resolve_calls), 1)
-        self.assertEqual(len(person_history.calls), 1)
-        self.assertEqual(person_history.calls[0]["person_id"], "pid-a")
-        self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-ph")
-        self.assertEqual(repo.upserted_roles[0]["person_id"], "pid-a")
-
-    async def test_enqueue_player_person_history_finds_identity_on_later_page(self) -> None:
-        repo = FakeRepo()
-        identity_repo = FakeIdentityRepo()
-        identity_repo.resolve_results = {}
-        person_history = FakePersonHistoryClient([
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-other",
-                        "role_name": "其他角色",
-                        "server": "梦江南",
-                        "zone": "电信区",
-                    }
-                ]
-            },
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-page-2",
-                        "role_name": "角色A",
-                        "server": "梦江南",
-                        "zone": "电信区",
-                    }
-                ]
-            },
-        ])
-        sleep = SleepCounter()
-        service = JjcMatchDataSyncService(
-            repo=repo,
-            current_season="赛季",
-            current_season_start="2026-04-24",
-            identity_repo=identity_repo,
-            person_match_history_client=person_history,
-            sleep_func=sleep,
-        )
-
-        await service._enqueue_players_from_detail({
-            "team1": {
-                "players_info": [
-                    {
-                        "role_name": "角色A",
-                        "global_role_id": "",
-                        "role_id": "",
-                        "person_id": "pid-a",
-                        "server": "梦江南",
-                    }
-                ]
-            }
-        })
-
-        self.assertEqual(
-            [call["cursor"] for call in person_history.calls],
-            [0, 20],
-        )
-        self.assertEqual(sleep.count, 1)
-        self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-page-2")
+        self.assertEqual(person_history.calls, [])
+        self.assertEqual(repo.upserted_roles, [])
+        self.assertEqual(identity_repo.upserted[0]["global_role_id"], None)
+        self.assertEqual(identity_repo.upserted[0]["person_id"], "pid-a")
 
     async def test_enqueue_player_with_existing_global_role_id_skips_local_repo_and_person_history(self) -> None:
         repo = FakeRepo()
@@ -2504,23 +2218,11 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(person_history.calls, [])
         self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-existing")
 
-    async def test_enqueue_player_local_identity_exception_falls_back_to_person_history(self) -> None:
+    async def test_enqueue_player_local_identity_exception_does_not_call_person_history(self) -> None:
         repo = FakeRepo()
         identity_repo = FakeIdentityRepo()
         identity_repo.resolve_error = RuntimeError("db down")
-        person_history = FakePersonHistoryClient([
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-ph",
-                        "role_name": "角色A",
-                        "server": "梦江南",
-                        "zone": "电信区",
-                    }
-                ]
-            }
-        ])
+        person_history = FakePersonHistoryClient([])
         service = JjcMatchDataSyncService(
             repo=repo,
             current_season="赛季",
@@ -2545,10 +2247,10 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         })
 
         self.assertEqual(len(identity_repo.resolve_calls), 1)
-        self.assertEqual(len(person_history.calls), 1)
-        self.assertEqual(person_history.calls[0]["person_id"], "pid-a")
-        self.assertEqual(repo.upserted_roles[0]["global_role_id"], "gid-ph")
-        self.assertEqual(repo.upserted_roles[0]["person_id"], "pid-a")
+        self.assertEqual(person_history.calls, [])
+        self.assertEqual(repo.upserted_roles, [])
+        self.assertEqual(identity_repo.upserted[0]["global_role_id"], None)
+        self.assertEqual(identity_repo.upserted[0]["person_id"], "pid-a")
 
     async def test_backfill_player_normalizes_role_name(self) -> None:
         player: Dict[str, Any] = {"server": "梦江南"}
@@ -2569,125 +2271,12 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         JjcMatchDataSyncService._backfill_player_from_identity(player, identity)
         self.assertEqual(player["role_name"], "已有角色名")
 
-    # --- person-history candidate validation tests ---
-
-    def test_extract_identity_rejects_wrong_role_with_expected_fields(self) -> None:
-        """same person_id but different role fields → returns {}"""
-        identity = extract_identity_from_person_history(
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-wrong",
-                        "role_name": "角色B",
-                        "server": "梦江南",
-                        "zone": "zone-b",
-                        "role_id": "rid-b",
-                    }
-                ]
-            },
-            "pid-a",
-            expected_zone="zone-a",
-            expected_role_id="rid-a",
-        )
-
-        self.assertEqual(identity, {})
-
-    def test_extract_identity_selects_second_candidate_when_first_mismatches(self) -> None:
-        """first candidate wrong role, second candidate matches → selects second"""
-        identity = extract_identity_from_person_history(
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-wrong",
-                        "role_name": "角色B",
-                        "server": "梦江南",
-                        "zone": "zone-b",
-                        "role_id": "rid-b",
-                    },
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-correct",
-                        "role_name": "角色A",
-                        "server": "梦江南",
-                        "zone": "zone-a",
-                        "role_id": "rid-a",
-                    },
-                ]
-            },
-            "pid-a",
-            expected_zone="zone-a",
-            expected_role_id="rid-a",
-        )
-
-        self.assertEqual(identity["global_role_id"], "gid-correct")
-
-    def test_extract_identity_strong_match_succeeds_even_if_name_differs(self) -> None:
-        """zone + role_id strong match succeeds even when role_name differs"""
-        identity = extract_identity_from_person_history(
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-a",
-                        "role_name": "旧名字",
-                        "server": "梦江南",
-                        "zone": "zone-a",
-                        "role_id": "rid-a",
-                    }
-                ]
-            },
-            "pid-a",
-            expected_zone="zone-a",
-            expected_role_id="rid-a",
-            expected_server="梦江南",
-            expected_role_name="新名字",
-        )
-
-        self.assertEqual(identity["global_role_id"], "gid-a")
-
-    def test_extract_identity_fallback_match_by_server_and_normalized_name(self) -> None:
-        """fallback: server + normalized name match even without zone/role_id"""
-        identity = extract_identity_from_person_history(
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-a",
-                        "role_name": "奈川寺·梦江南",
-                        "server": "梦江南",
-                        "zone": "电信区",
-                    }
-                ]
-            },
-            "pid-a",
-            expected_server="梦江南",
-            expected_role_name="奈川寺",
-        )
-
-        self.assertEqual(identity["global_role_id"], "gid-a")
-        self.assertEqual(identity["role_name"], "奈川寺")
-
-    async def test_enqueue_player_person_history_wrong_role_does_not_backfill(self) -> None:
-        """person-history returns another role for same person_id → player keeps empty global_role_id"""
+    async def test_enqueue_player_with_no_local_identity_skips_person_history(self) -> None:
+        """person-history is not used to fill SK01 global_role_id."""
         repo = FakeRepo()
         identity_repo = FakeIdentityRepo()
         identity_repo.resolve_results = {}
-        person_history = FakePersonHistoryClient([
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-wrong",
-                        "role_name": "角色B",
-                        "server": "梦江南",
-                        "zone": "zone-b",
-                        "role_id": "rid-b",
-                    }
-                ]
-            }
-        ])
+        person_history = FakePersonHistoryClient([])
         service = JjcMatchDataSyncService(
             repo=repo,
             current_season="赛季",
@@ -2712,15 +2301,13 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             }
         })
 
-        self.assertEqual(len(person_history.calls), 2)
-        # player should NOT receive the wrong global_role_id, and without
-        # SK01 global_role_id it must not become an executable queue role.
+        self.assertEqual(person_history.calls, [])
         self.assertEqual(repo.upserted_roles, [])
         self.assertEqual(identity_repo.upserted[0]["server"], "梦江南")
         self.assertEqual(identity_repo.upserted[0]["name"], "角色A")
 
-    async def test_queue_role_person_history_mismatch_falls_through_to_inspect(self) -> None:
-        """role missing global_role_id, person-history mismatches → falls through to inspect resolver"""
+    async def test_queue_role_missing_global_role_id_skips_person_history_and_uses_inspect(self) -> None:
+        """role missing global_role_id goes directly to inspect resolver."""
         repo = FakeRepo()
         repo.roles = [{
             "status": "queued",
@@ -2734,20 +2321,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         history = FakeHistoryClient([
             {"data": [{"match_id": 42, "match_time": 1810000000, "pvpType": 3}]}
         ])
-        person_history = FakePersonHistoryClient([
-            {
-                "data": [
-                    {
-                        "person_id": "pid-a",
-                        "global_role_id": "gid-wrong",
-                        "role_name": "其他角色",
-                        "server": "梦江南",
-                        "zone": "zone-b",
-                        "role_id": "rid-b",
-                    }
-                ]
-            }
-        ])
+        person_history = FakePersonHistoryClient([])
         inspect_service = FakeInspectService()
         inspect_service.identity_result = {
             "global_role_id": "gid-inspect",
@@ -2772,11 +2346,8 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result["error"])
         self.assertEqual(result["failed_roles"], 0)
-        # person-history was called but returned mismatch
-        self.assertEqual(len(person_history.calls), 2)
-        # fell through to inspect resolver
+        self.assertEqual(person_history.calls, [])
         self.assertEqual(len(inspect_service.identity_calls), 1)
-        # inspect resolver's result was used
         self.assertEqual(history.calls[0]["global_role_id"], "gid-inspect")
         self.assertEqual(repo.identity_updates[0]["global_role_id"], "gid-inspect")
 
