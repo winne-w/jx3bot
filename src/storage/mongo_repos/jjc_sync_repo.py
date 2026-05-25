@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from re import escape as escape_regex
 from typing import Any, Dict, List, Optional, Union
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -1412,6 +1413,8 @@ class JjcSyncRepo:
     async def list_queue(
         self,
         status: Optional[str] = None,
+        server: Optional[str] = None,
+        name: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
     ) -> Dict[str, Any]:
@@ -1423,6 +1426,20 @@ class JjcSyncRepo:
         query: Dict[str, Any] = {}
         if status:
             query["status"] = status
+        if server:
+            server_pattern = {"$regex": escape_regex(server), "$options": "i"}
+            query["$or"] = [
+                {"server": server_pattern},
+                {"normalized_server": server_pattern},
+            ]
+        if name:
+            name_pattern = {"$regex": escape_regex(name), "$options": "i"}
+            query.setdefault("$and", []).append({
+                "$or": [
+                    {"name": name_pattern},
+                    {"normalized_name": name_pattern},
+                ]
+            })
 
         docs: List[Dict[str, Any]] = []
         total = 0
@@ -1443,7 +1460,10 @@ class JjcSyncRepo:
             async for doc in cursor:
                 docs.append(doc)
         except Exception as exc:
-            logger.warning("分页查询同步队列失败: status={} error={}", status, exc)
+            logger.warning(
+                "分页查询同步队列失败: status={} server={} name={} error={}",
+                status, server, name, exc,
+            )
 
         return {
             "items": docs,

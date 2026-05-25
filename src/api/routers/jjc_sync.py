@@ -33,13 +33,19 @@ async def get_jjc_sync_status() -> Dict[str, Any]:
 @router.get("/queue")
 async def list_jjc_sync_queue(
     status: Optional[str] = Query(None, description="队列状态过滤"),
+    server: Optional[str] = Query(None, description="服务器名称搜索"),
+    name: Optional[str] = Query(None, description="角色名称搜索"),
     page: int = Query(1, ge=1, description="分页页码"),
     page_size: int = Query(50, ge=1, le=200, description="分页大小"),
 ) -> Dict[str, Any]:
     normalized_status = (status or "").strip() or None
+    normalized_server = (server or "").strip() or None
+    normalized_name = (name or "").strip() or None
     try:
         result = await jjc_match_data_sync_service.list_queue(
             status=normalized_status,
+            server=normalized_server,
+            name=normalized_name,
             page=page,
             page_size=page_size,
         )

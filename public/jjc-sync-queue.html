@@ -35,6 +35,7 @@
         }
 
         button,
+        input,
         select {
             font: inherit;
         }
@@ -83,6 +84,7 @@
         }
 
         select,
+        input,
         button {
             min-height: 34px;
             border: 1px solid var(--line);
@@ -302,6 +304,7 @@
 
             .controls,
             .field,
+            input,
             select,
             button {
                 width: 100%;
@@ -325,14 +328,22 @@
                     状态
                     <select id="statusFilter">
                         <option value="">全部</option>
-                        <option value="pending">pending</option>
-                        <option value="queued">queued</option>
-                        <option value="syncing">syncing</option>
-                        <option value="cooldown">cooldown</option>
-                        <option value="exhausted">exhausted</option>
-                        <option value="failed">failed</option>
-                        <option value="disabled">disabled</option>
+                        <option value="pending">待入队</option>
+                        <option value="queued">排队中</option>
+                        <option value="syncing">同步中</option>
+                        <option value="cooldown">冷却中</option>
+                        <option value="exhausted">已同步完</option>
+                        <option value="failed">失败</option>
+                        <option value="disabled">已禁用</option>
                     </select>
+                </label>
+                <label class="field">
+                    服务器
+                    <input id="serverSearch" type="search" placeholder="服务器名">
+                </label>
+                <label class="field">
+                    角色
+                    <input id="nameSearch" type="search" placeholder="角色名">
                 </label>
                 <label class="field">
                     每页
@@ -411,6 +422,8 @@
                 page: 1,
                 pageSize: 50,
                 status: "",
+                server: "",
+                name: "",
                 total: 0,
                 hasMore: false,
                 loading: false
@@ -427,8 +440,28 @@
                 prevPage: document.getElementById("prevPage"),
                 nextPage: document.getElementById("nextPage"),
                 statusFilter: document.getElementById("statusFilter"),
+                serverSearch: document.getElementById("serverSearch"),
+                nameSearch: document.getElementById("nameSearch"),
                 pageSize: document.getElementById("pageSize"),
                 refreshButton: document.getElementById("refreshButton")
+            };
+            let searchTimer = null;
+
+            const statusLabels = {
+                pending: "待入队",
+                queued: "排队中",
+                syncing: "同步中",
+                cooldown: "冷却中",
+                exhausted: "已同步完",
+                failed: "失败",
+                disabled: "已禁用",
+                starting: "启动中",
+                running: "运行中",
+                idle: "空闲",
+                paused: "已暂停",
+                stopped: "已停止",
+                offline: "离线",
+                ok: "正常"
             };
 
             function escapeHtml(value) {
@@ -469,7 +502,7 @@
             function badge(value) {
                 const text = value == null || value === "" ? "-" : String(value);
                 const cls = text.toLowerCase().replace(/[^a-z0-9_-]/g, "");
-                return `<span class="badge ${escapeHtml(cls)}">${escapeHtml(text)}</span>`;
+                return `<span class="badge ${escapeHtml(cls)}">${escapeHtml(statusLabels[text] || text)}</span>`;
             }
 
             async function fetchApi(url) {
@@ -489,6 +522,12 @@
                 if (state.status) {
                     params.set("status", state.status);
                 }
+                if (state.server) {
+                    params.set("server", state.server);
+                }
+                if (state.name) {
+                    params.set("name", state.name);
+                }
                 params.set("page", String(state.page));
                 params.set("page_size", String(state.pageSize));
                 return `/jx3bot/api/jjc/sync/queue?${params.toString()}`;
@@ -501,12 +540,12 @@
                 const background = data.background_running ? "运行中" : "未运行";
                 const metrics = [
                     ["总数", total],
-                    ["pending", counts.pending || 0],
-                    ["queued", counts.queued || 0],
-                    ["syncing", counts.syncing || 0],
-                    ["cooldown", counts.cooldown || 0],
-                    ["exhausted", counts.exhausted || 0],
-                    ["failed", counts.failed || 0],
+                    ["待入队", counts.pending || 0],
+                    ["排队中", counts.queued || 0],
+                    ["同步中", counts.syncing || 0],
+                    ["冷却中", counts.cooldown || 0],
+                    ["已同步完", counts.exhausted || 0],
+                    ["失败", counts.failed || 0],
                     ["暂停", paused],
                     ["后台", background]
                 ];
@@ -633,13 +672,48 @@
                 refresh();
             });
 
+            function applySearch() {
+                if (searchTimer) {
+                    window.clearTimeout(searchTimer);
+                    searchTimer = null;
+                }
+                state.server = els.serverSearch.value.trim();
+                state.name = els.nameSearch.value.trim();
+                state.page = 1;
+                refresh();
+            }
+
+            function scheduleSearch() {
+                if (searchTimer) {
+                    window.clearTimeout(searchTimer);
+                }
+                searchTimer = window.setTimeout(applySearch, 350);
+            }
+
+            els.serverSearch.addEventListener("input", scheduleSearch);
+            els.nameSearch.addEventListener("input", scheduleSearch);
+            els.serverSearch.addEventListener("change", applySearch);
+            els.nameSearch.addEventListener("change", applySearch);
+            els.serverSearch.addEventListener("search", applySearch);
+            els.nameSearch.addEventListener("search", applySearch);
+            els.serverSearch.addEventListener("keydown", function (event) {
+                if (event.key === "Enter") {
+                    applySearch();
+                }
+            });
+            els.nameSearch.addEventListener("keydown", function (event) {
+                if (event.key === "Enter") {
+                    applySearch();
+                }
+            });
+
             els.pageSize.addEventListener("change", function () {
                 state.pageSize = Number(els.pageSize.value) || 50;
                 state.page = 1;
                 refresh();
             });
 
-            els.refreshButton.addEventListener("click", refresh);
+            els.refreshButton.addEventListener("click", applySearch);
             els.prevPage.addEventListener("click", function () {
                 if (state.page > 1) {
                     state.page -= 1;

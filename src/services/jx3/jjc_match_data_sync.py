@@ -830,6 +830,8 @@ class JjcMatchDataSyncService:
     async def list_queue(
         self,
         status: Optional[str] = None,
+        server: Optional[str] = None,
+        name: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
     ) -> Dict[str, Any]:
@@ -837,7 +839,13 @@ class JjcMatchDataSyncService:
             return {"error": True, "message": "invalid_page"}
         if page_size < 1 or page_size > 200:
             return {"error": True, "message": "invalid_page_size"}
-        result = await self._repo.list_queue(status=status, page=page, page_size=page_size)
+        result = await self._repo.list_queue(
+            status=status,
+            server=server,
+            name=name,
+            page=page,
+            page_size=page_size,
+        )
         result.setdefault("error", False)
         result["items"] = _jsonable(result.get("items") or [])
         return result
@@ -1612,6 +1620,7 @@ class JjcMatchDataSyncService:
             "zone": str(doc.get("zone") or "").strip(),
             "server": str(doc.get("server") or "").strip(),
             "role_name": str(doc.get("role_name") or doc.get("name") or "").strip(),
+            "role_info_observed_match_time": _coerce_int(doc.get("role_info_observed_match_time")),
             "source": "local_identity",
         }
 
@@ -1942,6 +1951,7 @@ class JjcMatchDataSyncService:
                         await renew_processing_context(force=True)
                         await self._enrich_detail_with_indicator(
                             detail,
+                            match_time=match_time,
                             lease_renewer=renew_processing_context,
                         )
                         await renew_processing_context(force=True)
@@ -2119,15 +2129,18 @@ class JjcMatchDataSyncService:
     async def _enrich_detail_with_indicator(
         self,
         detail: dict,
+        match_time: Optional[int] = None,
         lease_renewer: Optional[Callable[[bool], Awaitable[None]]] = None,
     ) -> None:
         """对 detail 中有 role_id + zone + server 且缺少 SK01 global_role_id 的玩家
         请求 indicator 接口，回填 SK01 global_role_id 和 person_id。
 
+        若本地身份表已有不早于当前对局时间的 SK01 global_role_id，则直接复用本地身份，
+        避免同一批玩家在多场对局中反复请求 indicator。
+
         若 detail 已有 person_id 且与 indicator 返回的不一致，保留 detail 的并 log warning。
         """
-        if self._role_indicator_client is None:
-            return
+        detail_match_time = _coerce_int(match_time)
 
         for team_key in ("team1", "team2"):
             team = detail.get(team_key)
@@ -2147,6 +2160,13 @@ class JjcMatchDataSyncService:
                 if existing_global:
                     continue
                 if not (role_id and zone and server):
+                    continue
+
+                local_identity = await self._resolve_player_identity_from_local_repo(player)
+                if self._local_identity_can_skip_indicator(local_identity, detail_match_time):
+                    self._backfill_player_from_identity(player, local_identity)
+                    continue
+                if self._role_indicator_client is None:
                     continue
 
                 if lease_renewer is not None:
@@ -2221,6 +2241,21 @@ class JjcMatchDataSyncService:
                                     server,
                                 )
                             )
+
+    @staticmethod
+    def _local_identity_can_skip_indicator(
+        identity: Dict[str, Any],
+        match_time: Optional[int],
+    ) -> bool:
+        global_role_id = str(identity.get("global_role_id") or "").strip()
+        if not global_role_id.startswith("SK01-"):
+            return False
+        observed_match_time = _coerce_int(identity.get("role_info_observed_match_time"))
+        return (
+            match_time is None
+            or observed_match_time is None
+            or match_time <= observed_match_time
+        )
 
     async def _enqueue_players_from_detail(
         self,

@@ -35,11 +35,15 @@ class _FakeSyncService:
     async def list_queue(
         self,
         status: Optional[str] = None,
+        server: Optional[str] = None,
+        name: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
     ) -> Dict[str, Any]:
         self.queue_calls.append({
             "status": status,
+            "server": server,
+            "name": name,
             "page": page,
             "page_size": page_size,
         })
@@ -128,9 +132,37 @@ class TestJjcSyncRouter(unittest.IsolatedAsyncioTestCase):
         response = await module.list_jjc_sync_queue(status="  ", page=2, page_size=20)
 
         self.assertEqual(response["status_code"], 0)
-        self.assertEqual(service.queue_calls, [{"status": None, "page": 2, "page_size": 20}])
+        self.assertEqual(service.queue_calls, [{
+            "status": None,
+            "server": None,
+            "name": None,
+            "page": 2,
+            "page_size": 20,
+        }])
         self.assertIn("has_more", response["data"])
         self.assertTrue(response["data"]["has_more"])
+
+    async def test_queue_trims_server_and_name_search(self) -> None:
+        module = _load_router_module()
+        service = _FakeSyncService()
+        module.jjc_match_data_sync_service = service
+
+        response = await module.list_jjc_sync_queue(
+            status="queued",
+            server=" 梦江南 ",
+            name=" 角色A ",
+            page=1,
+            page_size=50,
+        )
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(service.queue_calls, [{
+            "status": "queued",
+            "server": "梦江南",
+            "name": "角色A",
+            "page": 1,
+            "page_size": 50,
+        }])
 
     async def test_queue_reports_has_more_false_on_last_page(self) -> None:
         module = _load_router_module()

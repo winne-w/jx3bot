@@ -1,5 +1,6 @@
 import time
 import unittest
+import re
 from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -78,9 +79,18 @@ class MemoryCollection:
                 if not any(cls._matches(doc, condition) for condition in expected):
                     return False
                 continue
+            if field == "$and":
+                if not all(cls._matches(doc, condition) for condition in expected):
+                    return False
+                continue
 
             value = doc.get(field)
             if isinstance(expected, dict):
+                if "$regex" in expected:
+                    flags = re.IGNORECASE if "i" in str(expected.get("$options") or "") else 0
+                    if re.search(str(expected["$regex"]), str(value or ""), flags) is None:
+                        return False
+                    continue
                 for operator, operator_expected in expected.items():
                     if not cls._matches_operator(value, operator, operator_expected):
                         return False
@@ -586,6 +596,38 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(page["page_size"], 1)
         self.assertTrue(page["has_more"])
         self.assertEqual([doc["identity_key"] for doc in page["items"]], ["b"])
+
+    async def test_list_queue_filters_server_and_name(self) -> None:
+        db = MemoryDb(roles=[
+            {
+                "identity_key": "a",
+                "server": "梦江南",
+                "normalized_server": "梦江南",
+                "name": "角色A",
+                "normalized_name": "角色a",
+                "status": "queued",
+                "priority": 1,
+                "queued_at": 1,
+                "updated_at": 1,
+            },
+            {
+                "identity_key": "b",
+                "server": "唯我独尊",
+                "normalized_server": "唯我独尊",
+                "name": "角色B",
+                "normalized_name": "角色b",
+                "status": "queued",
+                "priority": 9,
+                "queued_at": 2,
+                "updated_at": 2,
+            },
+        ])
+        repo = JjcSyncRepo(db=db)
+
+        page = await repo.list_queue(status="queued", server="梦江", name="角色A")
+
+        self.assertEqual(page["total"], 1)
+        self.assertEqual([doc["identity_key"] for doc in page["items"]], ["a"])
 
     async def test_worker_register_heartbeat_stop_and_list(self) -> None:
         db = MemoryDb()

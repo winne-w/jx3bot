@@ -3105,6 +3105,149 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         player = detail["team1"]["players_info"][0]
         self.assertEqual(player["global_role_id"], "SK01-existing")
 
+    async def test_indicator_uses_fresh_local_identity_and_skips_request(self) -> None:
+        indicator = FakeIndicatorClient({
+            "zone-a:rid-a:梦江南": {
+                "role_info": {"global_role_id": "SK01-from-api"},
+                "person_info": {"person_id": "pid-api"},
+            }
+        })
+        identity_repo = FakeIdentityRepo()
+        identity_repo.resolve_results = {
+            "global_role_id": "SK01-local",
+            "global_id": "99999",
+            "role_id": "rid-a",
+            "zone": "zone-a",
+            "server": "梦江南",
+            "role_name": "角色A",
+            "person_id": "pid-local",
+            "role_info_observed_match_time": 1810000000,
+        }
+        service = JjcMatchDataSyncService(
+            repo=FakeRepo(),
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            role_indicator_client=indicator,
+            identity_repo=identity_repo,
+            sleep_func=_noop_sleep,
+        )
+
+        detail = {
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "角色A",
+                        "server": "梦江南",
+                        "global_role_id": "",
+                        "role_id": "rid-a",
+                        "zone": "zone-a",
+                        "person_id": "",
+                    }
+                ]
+            },
+        }
+        await service._enrich_detail_with_indicator(detail, match_time=1810000000)
+
+        player = detail["team1"]["players_info"][0]
+        self.assertEqual(indicator.calls, [])
+        self.assertEqual(player["global_role_id"], "SK01-local")
+        self.assertEqual(player["person_id"], "pid-local")
+
+    async def test_indicator_requests_when_local_identity_missing_global_role_id(self) -> None:
+        indicator = FakeIndicatorClient({
+            "zone-a:rid-a:梦江南": {
+                "role_info": {"global_role_id": "SK01-api", "role_id": "rid-a"},
+                "person_info": {"person_id": "pid-api"},
+            }
+        })
+        identity_repo = FakeIdentityRepo()
+        identity_repo.resolve_results = {
+            "global_id": "99999",
+            "role_id": "rid-a",
+            "zone": "zone-a",
+            "server": "梦江南",
+            "role_name": "角色A",
+            "person_id": "pid-local",
+            "role_info_observed_match_time": 1810000000,
+        }
+        service = JjcMatchDataSyncService(
+            repo=FakeRepo(),
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            role_indicator_client=indicator,
+            identity_repo=identity_repo,
+            sleep_func=_noop_sleep,
+        )
+
+        detail = {
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "角色A",
+                        "server": "梦江南",
+                        "global_role_id": "",
+                        "role_id": "rid-a",
+                        "zone": "zone-a",
+                        "person_id": "",
+                    }
+                ]
+            },
+        }
+        await service._enrich_detail_with_indicator(detail, match_time=1810000000)
+
+        player = detail["team1"]["players_info"][0]
+        self.assertEqual(len(indicator.calls), 1)
+        self.assertEqual(player["global_role_id"], "SK01-api")
+        self.assertEqual(player["person_id"], "pid-api")
+
+    async def test_indicator_requests_when_match_is_newer_than_local_identity(self) -> None:
+        indicator = FakeIndicatorClient({
+            "zone-a:rid-a:梦江南": {
+                "role_info": {"global_role_id": "SK01-new", "role_id": "rid-a"},
+                "person_info": {"person_id": "pid-new"},
+            }
+        })
+        identity_repo = FakeIdentityRepo()
+        identity_repo.resolve_results = {
+            "global_role_id": "SK01-old",
+            "global_id": "99999",
+            "role_id": "rid-a",
+            "zone": "zone-a",
+            "server": "梦江南",
+            "role_name": "角色A",
+            "person_id": "pid-old",
+            "role_info_observed_match_time": 1809999999,
+        }
+        service = JjcMatchDataSyncService(
+            repo=FakeRepo(),
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            role_indicator_client=indicator,
+            identity_repo=identity_repo,
+            sleep_func=_noop_sleep,
+        )
+
+        detail = {
+            "team1": {
+                "players_info": [
+                    {
+                        "role_name": "角色A",
+                        "server": "梦江南",
+                        "global_role_id": "",
+                        "role_id": "rid-a",
+                        "zone": "zone-a",
+                        "person_id": "",
+                    }
+                ]
+            },
+        }
+        await service._enrich_detail_with_indicator(detail, match_time=1810000000)
+
+        player = detail["team1"]["players_info"][0]
+        self.assertEqual(len(indicator.calls), 1)
+        self.assertEqual(player["global_role_id"], "SK01-new")
+        self.assertEqual(player["person_id"], "pid-new")
+
     async def test_indicator_person_id_conflict_keeps_detail_person_id(self) -> None:
         indicator = FakeIndicatorClient({
             "zone-a:rid-a:梦江南": {
