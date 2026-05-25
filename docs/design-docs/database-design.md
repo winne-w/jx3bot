@@ -401,7 +401,7 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_server_name` | `server`, `name` | unique |
-| `idx_cached_at` | `cached_at` | TTL 600 秒（⚠ float 类型，TTL 实际不生效） |
+| `idx_cached_at` | `cached_at` | TTL 86400 秒（⚠ float 类型，TTL 实际不生效；实际过期判断由业务逻辑完成） |
 
 ### `jjc_role_indicator`
 

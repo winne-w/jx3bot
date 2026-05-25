@@ -153,7 +153,7 @@ class JjcRankingInspectService:
     role_indicator_fetcher: Callable[..., Optional[dict[str, Any]]]
     kungfu_pinyin_to_chinese: dict[str, str]
     match_replay_client: Optional[MatchReplayClient] = None
-    role_recent_ttl_seconds: int = 600
+    role_recent_ttl_seconds: int = 86400
     role_indicator_ttl_seconds: int = 86400
     max_recent_matches: int = 20
     _tuilan_query_locks: WeakKeyDictionary = field(default_factory=WeakKeyDictionary, init=False, repr=False)

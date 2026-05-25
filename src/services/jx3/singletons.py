@@ -89,7 +89,7 @@ jjc_ranking_inspect_service = JjcRankingInspectService(
     tuilan_request=tuilan_request,
     role_indicator_fetcher=get_role_indicator,
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
-    role_recent_ttl_seconds=600,
+    role_recent_ttl_seconds=86400,
 )
 
 jjc_match_data_sync_service = JjcMatchDataSyncService(

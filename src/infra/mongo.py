@@ -81,16 +81,24 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
             if existing is not None:
                 desired_keys = keys if isinstance(keys, list) else [(keys, 1)]
                 desired_unique = bool(kwargs.get("unique", False))
+                desired_expire = kwargs.get("expireAfterSeconds")
                 existing_unique = bool(existing.get("unique", False))
-                if existing.get("key") != desired_keys or existing_unique != desired_unique:
+                existing_expire = existing.get("expireAfterSeconds")
+                if (
+                    existing.get("key") != desired_keys
+                    or existing_unique != desired_unique
+                    or existing_expire != desired_expire
+                ):
                     logger.warning(
-                        "索引定义变更，准备重建: collection={} index={} old_keys={} new_keys={} old_unique={} new_unique={}",
+                        "索引定义变更，准备重建: collection={} index={} old_keys={} new_keys={} old_unique={} new_unique={} old_expire={} new_expire={}",
                         collection_name,
                         name,
                         existing.get("key"),
                         desired_keys,
                         existing_unique,
                         desired_unique,
+                        existing_expire,
+                        desired_expire,
                     )
                     await col.drop_index(name)
             await col.create_index(keys, name=name, **kwargs)
@@ -112,7 +120,7 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await _safe_index(
         "jjc_role_recent", [("server", 1), ("name", 1)], name="idx_server_name", unique=True
     )
-    await _safe_index("jjc_role_recent", "cached_at", name="idx_cached_at", expireAfterSeconds=600)
+    await _safe_index("jjc_role_recent", "cached_at", name="idx_cached_at", expireAfterSeconds=86400)
 
     # jjc_match_detail
     await _safe_index("jjc_match_detail", "match_id", name="idx_match_id", unique=True)

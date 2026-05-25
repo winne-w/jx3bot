@@ -9,6 +9,7 @@
 - `active/jjc-sync-worker-queue-redesign-plan.md`: JJC 对局同步 worker 多进程队列、优先级和队列页面重设计计划
 - `active/jjc-ranking-kungfu-history-win-fallback-plan.md`: JJC 排名心法缺失时基于当前赛季已缓存对局胜场的保守兜底计划
 - `active/jjc-sync-queue-mode-filter-plan.md`: JJC 同步队列页面按入队同步类型筛选计划
+- `active/jjc-ranking-role-cache-ttl-plan.md`: JJC 排名角色弹窗后端缓存统一 24 小时计划
 
 ## Superseded
 
