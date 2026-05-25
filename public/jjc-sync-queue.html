@@ -338,6 +338,15 @@
                     </select>
                 </label>
                 <label class="field">
+                    同步类型
+                    <select id="modeFilter">
+                        <option value="">全部</option>
+                        <option value="incremental_or_full">增量或全量</option>
+                        <option value="incremental">仅增量</option>
+                        <option value="full">仅全量</option>
+                    </select>
+                </label>
+                <label class="field">
                     服务器
                     <input id="serverSearch" type="search" placeholder="服务器名">
                 </label>
@@ -393,17 +402,18 @@
                     <table>
                         <thead>
                             <tr>
-                                <th style="width: 22%;">角色</th>
+                                <th style="width: 20%;">角色</th>
                                 <th style="width: 12%;">状态</th>
-                                <th style="width: 10%;">优先级</th>
-                                <th style="width: 18%;">租约 Worker</th>
-                                <th style="width: 12%;">失败</th>
-                                <th style="width: 14%;">下次同步</th>
-                                <th style="width: 12%;">更新</th>
+                                <th style="width: 12%;">同步类型</th>
+                                <th style="width: 9%;">优先级</th>
+                                <th style="width: 17%;">租约 Worker</th>
+                                <th style="width: 11%;">失败</th>
+                                <th style="width: 11%;">下次同步</th>
+                                <th style="width: 8%;">更新</th>
                             </tr>
                         </thead>
                         <tbody id="queueRows">
-                            <tr><td class="empty" colspan="7">暂无数据</td></tr>
+                            <tr><td class="empty" colspan="8">暂无数据</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -422,6 +432,7 @@
                 page: 1,
                 pageSize: 50,
                 status: "",
+                mode: "",
                 server: "",
                 name: "",
                 total: 0,
@@ -440,6 +451,7 @@
                 prevPage: document.getElementById("prevPage"),
                 nextPage: document.getElementById("nextPage"),
                 statusFilter: document.getElementById("statusFilter"),
+                modeFilter: document.getElementById("modeFilter"),
                 serverSearch: document.getElementById("serverSearch"),
                 nameSearch: document.getElementById("nameSearch"),
                 pageSize: document.getElementById("pageSize"),
@@ -462,6 +474,12 @@
                 stopped: "已停止",
                 offline: "离线",
                 ok: "正常"
+            };
+
+            const modeLabels = {
+                incremental_or_full: "增量或全量",
+                incremental: "仅增量",
+                full: "仅全量"
             };
 
             function escapeHtml(value) {
@@ -521,6 +539,9 @@
                 const params = new URLSearchParams();
                 if (state.status) {
                     params.set("status", state.status);
+                }
+                if (state.mode) {
+                    params.set("mode", state.mode);
                 }
                 if (state.server) {
                     params.set("server", state.server);
@@ -602,7 +623,7 @@
                 els.nextPage.disabled = state.loading || !state.hasMore;
 
                 if (!items.length) {
-                    els.queueRows.innerHTML = `<tr><td class="empty" colspan="7">暂无队列记录</td></tr>`;
+                    els.queueRows.innerHTML = `<tr><td class="empty" colspan="8">暂无队列记录</td></tr>`;
                     return;
                 }
 
@@ -618,6 +639,7 @@
                                 <div class="muted">${escapeHtml(identityKey)}</div>
                             </td>
                             <td>${badge(item.status || "-")}</td>
+                            <td>${escapeHtml(modeLabels[item.queue_mode] || item.queue_mode || "-")}</td>
                             <td>${escapeHtml(item.priority || 0)}</td>
                             <td>${escapeHtml(lease)}</td>
                             <td>
@@ -668,6 +690,12 @@
 
             els.statusFilter.addEventListener("change", function () {
                 state.status = els.statusFilter.value;
+                state.page = 1;
+                refresh();
+            });
+
+            els.modeFilter.addEventListener("change", function () {
+                state.mode = els.modeFilter.value;
                 state.page = 1;
                 refresh();
             });

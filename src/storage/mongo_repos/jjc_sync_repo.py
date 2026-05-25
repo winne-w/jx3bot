@@ -1413,6 +1413,7 @@ class JjcSyncRepo:
     async def list_queue(
         self,
         status: Optional[str] = None,
+        mode: Optional[str] = None,
         server: Optional[str] = None,
         name: Optional[str] = None,
         page: int = 1,
@@ -1426,6 +1427,8 @@ class JjcSyncRepo:
         query: Dict[str, Any] = {}
         if status:
             query["status"] = status
+        if mode:
+            query["queue_mode"] = mode
         if server:
             server_pattern = {"$regex": escape_regex(server), "$options": "i"}
             query["$or"] = [
@@ -1461,8 +1464,8 @@ class JjcSyncRepo:
                 docs.append(doc)
         except Exception as exc:
             logger.warning(
-                "分页查询同步队列失败: status={} server={} name={} error={}",
-                status, server, name, exc,
+                "分页查询同步队列失败: status={} mode={} server={} name={} error={}",
+                status, mode, server, name, exc,
             )
 
         return {

@@ -35,6 +35,7 @@ class _FakeSyncService:
     async def list_queue(
         self,
         status: Optional[str] = None,
+        mode: Optional[str] = None,
         server: Optional[str] = None,
         name: Optional[str] = None,
         page: int = 1,
@@ -42,6 +43,7 @@ class _FakeSyncService:
     ) -> Dict[str, Any]:
         self.queue_calls.append({
             "status": status,
+            "mode": mode,
             "server": server,
             "name": name,
             "page": page,
@@ -134,6 +136,7 @@ class TestJjcSyncRouter(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["status_code"], 0)
         self.assertEqual(service.queue_calls, [{
             "status": None,
+            "mode": None,
             "server": None,
             "name": None,
             "page": 2,
@@ -149,6 +152,7 @@ class TestJjcSyncRouter(unittest.IsolatedAsyncioTestCase):
 
         response = await module.list_jjc_sync_queue(
             status="queued",
+            mode=" incremental ",
             server=" 梦江南 ",
             name=" 角色A ",
             page=1,
@@ -158,6 +162,7 @@ class TestJjcSyncRouter(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["status_code"], 0)
         self.assertEqual(service.queue_calls, [{
             "status": "queued",
+            "mode": "incremental",
             "server": "梦江南",
             "name": "角色A",
             "page": 1,

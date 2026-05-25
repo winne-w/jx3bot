@@ -583,9 +583,30 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
 
     async def test_list_queue_paginates_and_filters_status(self) -> None:
         db = MemoryDb(roles=[
-            {"identity_key": "a", "status": "queued", "priority": 1, "queued_at": 1, "updated_at": 1},
-            {"identity_key": "b", "status": "queued", "priority": 9, "queued_at": 2, "updated_at": 2},
-            {"identity_key": "c", "status": "pending", "priority": 99, "queued_at": None, "updated_at": 3},
+            {
+                "identity_key": "a",
+                "status": "queued",
+                "queue_mode": "full",
+                "priority": 1,
+                "queued_at": 1,
+                "updated_at": 1,
+            },
+            {
+                "identity_key": "b",
+                "status": "queued",
+                "queue_mode": "incremental",
+                "priority": 9,
+                "queued_at": 2,
+                "updated_at": 2,
+            },
+            {
+                "identity_key": "c",
+                "status": "pending",
+                "queue_mode": "incremental",
+                "priority": 99,
+                "queued_at": None,
+                "updated_at": 3,
+            },
         ])
         repo = JjcSyncRepo(db=db)
 
@@ -596,6 +617,40 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(page["page_size"], 1)
         self.assertTrue(page["has_more"])
         self.assertEqual([doc["identity_key"] for doc in page["items"]], ["b"])
+
+    async def test_list_queue_filters_mode(self) -> None:
+        db = MemoryDb(roles=[
+            {
+                "identity_key": "a",
+                "status": "queued",
+                "queue_mode": "full",
+                "priority": 1,
+                "queued_at": 1,
+                "updated_at": 1,
+            },
+            {
+                "identity_key": "b",
+                "status": "queued",
+                "queue_mode": "incremental",
+                "priority": 9,
+                "queued_at": 2,
+                "updated_at": 2,
+            },
+            {
+                "identity_key": "c",
+                "status": "pending",
+                "queue_mode": "incremental",
+                "priority": 99,
+                "queued_at": None,
+                "updated_at": 3,
+            },
+        ])
+        repo = JjcSyncRepo(db=db)
+
+        page = await repo.list_queue(mode="incremental")
+
+        self.assertEqual(page["total"], 2)
+        self.assertEqual([doc["identity_key"] for doc in page["items"]], ["c", "b"])
 
     async def test_list_queue_filters_server_and_name(self) -> None:
         db = MemoryDb(roles=[

@@ -830,6 +830,7 @@ class JjcMatchDataSyncService:
     async def list_queue(
         self,
         status: Optional[str] = None,
+        mode: Optional[str] = None,
         server: Optional[str] = None,
         name: Optional[str] = None,
         page: int = 1,
@@ -841,6 +842,7 @@ class JjcMatchDataSyncService:
             return {"error": True, "message": "invalid_page_size"}
         result = await self._repo.list_queue(
             status=status,
+            mode=mode,
             server=server,
             name=name,
             page=page,
