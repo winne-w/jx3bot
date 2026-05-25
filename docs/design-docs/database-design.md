@@ -322,7 +322,12 @@
 | `kungfu_pinyin` | string/null | 心法拼音 |
 | `kungfu_indicator` | string/null | 通过 indicator 接口获取的心法名 |
 | `kungfu_match_history` | string/null | 通过战局历史统计获取的心法名 |
-| `kungfu_selected_source` | string/null | 最终采用的心法来源：`indicator`、`match_history`、`kungfu_cache` 等 |
+| `kungfu_selected_source` | string/null | 最终采用的心法来源：`indicator`、`match_history`、`cached_match_detail_win_history` 等 |
+| `cached_match_detail_win_count` | int/null | 历史胜场心法兜底的胜场数 |
+| `cached_match_detail_total_count` | int/null | 历史胜场心法兜底的总出场次数 |
+| `cached_match_detail_latest_win_match_id` | int/null | 历史胜场心法兜底最近胜场对局 ID |
+| `cached_match_detail_latest_win_time` | int/null | 历史胜场心法兜底最近胜场时间 Unix 秒 |
+| `cached_match_detail_win_samples` | array/null | 历史胜场心法兜底胜场采样（最多 5 条） |
 | `weapon` | object/null | 武器详情原始结构 |
 | `weapon_icon` | string/null | 武器图标 |
 | `weapon_quality` | string/int/null | 武器品质 |
@@ -473,6 +478,11 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_match_id` | `match_id` | unique |
+| `idx_detail_match_time` | `data.detail.match_time` | 普通索引 |
+| `idx_detail_team1_server_role_name` | `data.detail.team1.players_info.server`, `data.detail.team1.players_info.role_name` | 普通复合索引 |
+| `idx_detail_team2_server_role_name` | `data.detail.team2.players_info.server`, `data.detail.team2.players_info.role_name` | 普通复合索引 |
+| `idx_replay_player_role_id` | `data.replay.data.players.role_id` | 普通索引 |
+| `idx_replay_player_global_role_id` | `data.replay.data.players.global_role_id` | 普通索引 |
 
 写入来源：
 

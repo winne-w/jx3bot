@@ -116,6 +116,25 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
 
     # jjc_match_detail
     await _safe_index("jjc_match_detail", "match_id", name="idx_match_id", unique=True)
+    await _safe_index(
+        "jjc_match_detail", "data.detail.match_time", name="idx_detail_match_time"
+    )
+    await _safe_index(
+        "jjc_match_detail",
+        [("data.detail.team1.players_info.server", 1), ("data.detail.team1.players_info.role_name", 1)],
+        name="idx_detail_team1_server_role_name",
+    )
+    await _safe_index(
+        "jjc_match_detail",
+        [("data.detail.team2.players_info.server", 1), ("data.detail.team2.players_info.role_name", 1)],
+        name="idx_detail_team2_server_role_name",
+    )
+    await _safe_index(
+        "jjc_match_detail", "data.replay.data.players.role_id", name="idx_replay_player_role_id"
+    )
+    await _safe_index(
+        "jjc_match_detail", "data.replay.data.players.global_role_id", name="idx_replay_player_global_role_id"
+    )
 
     # jjc_ranking_cache
     await _safe_index("jjc_ranking_cache", "cache_key", name="idx_cache_key", unique=True)

@@ -341,7 +341,9 @@ class JjcRankingService:
                     player_name = person_info.get("roleName")
 
                     if player_name and "·" in player_name:
-                        player_name = player_name.split("·")[0]
+                        parts = player_name.rsplit("·", 1)
+                        if len(parts) == 2 and parts[1] == str(player_server):
+                            player_name = parts[0]
 
                     if player_server == server and player_name == name:
                         game_role_id = person_info.get("gameRoleId")
@@ -556,6 +558,8 @@ class JjcRankingService:
 
         logger.info(f"优先使用心法查询接口查询心法信息: server={server} name={name}")
 
+        captured_game_role_id: Optional[Any] = None
+
         try:
             ranking_result = ranking_data
             if not ranking_result:
@@ -569,10 +573,13 @@ class JjcRankingService:
                     player_name = person_info.get("roleName")
 
                     if player_name and "·" in player_name:
-                        player_name = player_name.split("·")[0]
+                        parts = player_name.rsplit("·", 1)
+                        if len(parts) == 2 and parts[1] == str(player_server):
+                            player_name = parts[0]
 
                     if player_server == server and player_name == name:
                         game_role_id = person_info.get("gameRoleId")
+                        captured_game_role_id = game_role_id
                         zone = person_info.get("zone")
 
                         if game_role_id and zone:
@@ -662,6 +669,24 @@ class JjcRankingService:
                     kungfu_info = match.get("kungfu")
                     break
 
+        history_win_result: Optional[dict[str, Any]] = None
+        if not kungfu_info:
+            logger.info(
+                "历史胜场心法兜底: defget 历史未找到心法，尝试从缓存对局详情推断 "
+                "server={} name={}",
+                server,
+                name,
+            )
+            history_win_result = await self._cache().get_kungfu_from_cached_match_detail_win_history(
+                server=server,
+                name=name,
+                season_start=self.current_season_start,
+                # Ranking gameRoleId matches replay players[].role_id; replay numeric global_id is optional.
+                role_id=captured_game_role_id,
+            )
+            if history_win_result and history_win_result.get("found"):
+                kungfu_info = history_win_result.get("kungfu")
+
         result = {
             "server": server,
             "name": name,
@@ -669,6 +694,18 @@ class JjcRankingService:
             "found": kungfu_info is not None,
             "cache_time": time.time(),
         }
+        if history_win_result:
+            for key in (
+                "cached_match_detail_win_count",
+                "cached_match_detail_total_count",
+                "cached_match_detail_latest_win_match_id",
+                "cached_match_detail_latest_win_time",
+                "cached_match_detail_win_samples",
+                "kungfu_selected_source",
+                "kungfu_id",
+            ):
+                if key in history_win_result:
+                    result[key] = history_win_result[key]
         result.setdefault("weapon_checked", True)
         await self._merge_cached_weapon(server, name, result)
         cached = await self._cache().load_kungfu_cache(server, name)
@@ -702,7 +739,9 @@ class JjcRankingService:
                 score = self._extract_score(player, person_info)
 
                 if name and "·" in name:
-                    name = name.split("·")[0]
+                    parts = name.rsplit("·", 1)
+                    if len(parts) == 2 and parts[1] == str(server):
+                        name = parts[0]
 
                 kungfu_info = await self.get_user_kungfu(
                     server,
@@ -759,6 +798,11 @@ class JjcRankingService:
                         "kungfu_selected_source": kungfu_info.get("kungfu_selected_source"),
                         "kungfu_indicator": kungfu_info.get("kungfu_indicator"),
                         "kungfu_match_history": kungfu_info.get("kungfu_match_history"),
+                        "cached_match_detail_win_count": kungfu_info.get("cached_match_detail_win_count"),
+                        "cached_match_detail_total_count": kungfu_info.get("cached_match_detail_total_count"),
+                        "cached_match_detail_latest_win_match_id": kungfu_info.get("cached_match_detail_latest_win_match_id"),
+                        "cached_match_detail_latest_win_time": kungfu_info.get("cached_match_detail_latest_win_time"),
+                        "cached_match_detail_win_samples": kungfu_info.get("cached_match_detail_win_samples"),
                     }
                 )
 
