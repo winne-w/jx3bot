@@ -112,7 +112,8 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "global:gid")
         db.jjc_sync_role_queue.insert_one.assert_not_called()
-        _, update = db.jjc_sync_role_queue.update_one.call_args.args
+        filter_doc, update = db.jjc_sync_role_queue.update_one.call_args.args
+        self.assertEqual(filter_doc, {"identity_key": "global:gid", "status": {"$ne": "syncing"}})
         self.assertNotIn("full_synced_until_time", update["$set"])
         self.assertNotIn("history_exhausted", update["$set"])
         self.assertNotIn("source", update["$set"])
@@ -120,6 +121,7 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
 
     async def test_duplicate_insert_falls_back_to_update(self) -> None:
         db = FakeDb()
+        db.jjc_sync_role_queue.find_one.side_effect = [None, {"identity_key": "global:gid"}]
         db.jjc_sync_role_queue.insert_one.side_effect = DuplicateKeyError("dup")
         repo = JjcSyncRepo(db=db)
 
@@ -134,8 +136,74 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "global:gid")
         db.jjc_sync_role_queue.update_one.assert_called_once()
-        _, update = db.jjc_sync_role_queue.update_one.call_args.args
+        filter_doc, update = db.jjc_sync_role_queue.update_one.call_args.args
+        self.assertEqual(filter_doc, {"identity_key": "global:gid", "status": {"$ne": "syncing"}})
         self.assertEqual(update["$set"]["source"], "manual")
+
+    async def test_upsert_existing_role_skips_syncing_without_update(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.return_value = {
+            "identity_key": "global:gid",
+            "status": "syncing",
+            "lease_owner": "worker-1",
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="梦江南",
+            name="角色A",
+            normalized_server="梦江南",
+            normalized_name="角色A",
+            global_role_id="gid",
+            source="match_detail",
+        )
+
+        self.assertEqual(result, "global:gid")
+        db.jjc_sync_role_queue.update_one.assert_not_called()
+
+    async def test_upsert_existing_role_race_to_syncing_does_not_write(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.return_value = {"identity_key": "global:gid", "status": "queued"}
+        db.jjc_sync_role_queue.update_one.return_value = SimpleNamespace(
+            matched_count=0,
+            modified_count=0,
+            upserted_id=None,
+        )
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="梦江南",
+            name="角色A",
+            normalized_server="梦江南",
+            normalized_name="角色A",
+            global_role_id="gid",
+            source="match_detail",
+        )
+
+        self.assertEqual(result, "global:gid")
+        filter_doc, _ = db.jjc_sync_role_queue.update_one.call_args.args
+        self.assertEqual(filter_doc, {"identity_key": "global:gid", "status": {"$ne": "syncing"}})
+
+    async def test_duplicate_insert_fallback_skips_syncing_role(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.side_effect = [
+            None,
+            {"identity_key": "global:gid", "status": "syncing", "lease_owner": "worker-1"},
+        ]
+        db.jjc_sync_role_queue.insert_one.side_effect = DuplicateKeyError("dup")
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="梦江南",
+            name="角色A",
+            normalized_server="梦江南",
+            normalized_name="角色A",
+            global_role_id="gid",
+            source="manual",
+        )
+
+        self.assertEqual(result, "global:gid")
+        db.jjc_sync_role_queue.update_one.assert_not_called()
 
     async def test_release_role_failure_third_failure_marks_failed(self) -> None:
         db = FakeDb()
@@ -173,6 +241,34 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["$set"]["identity_source"], "role_identity_name_match")
         self.assertNotIn("full_synced_until_time", update["$set"])
 
+    async def test_update_role_identity_fields_with_lease_owner_uses_active_fence(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.return_value = {
+            "identity_key": "name:梦江南:角色A",
+            "status": "syncing",
+            "lease_owner": "worker-1",
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.update_role_identity_fields(
+            identity_key="name:梦江南:角色A",
+            global_role_id="gid",
+            lease_owner="worker-1",
+        )
+
+        self.assertTrue(result)
+        find_filter = db.jjc_sync_role_queue.find_one.call_args.args[0]
+        self.assertEqual(find_filter["identity_key"], "name:梦江南:角色A")
+        self.assertEqual(find_filter["status"], "syncing")
+        self.assertEqual(find_filter["lease_owner"], "worker-1")
+        self.assertIn("lease_expires_at", find_filter)
+        self.assertGreater(find_filter["lease_expires_at"]["$gt"], 0)
+        update_filter, update = db.jjc_sync_role_queue.update_one.call_args.args
+        self.assertEqual(update_filter["status"], "syncing")
+        self.assertEqual(update_filter["lease_owner"], "worker-1")
+        self.assertIn("lease_expires_at", update_filter)
+        self.assertEqual(update["$set"]["global_role_id"], "gid")
+
     async def test_update_role_identity_fields_and_key_migrates_to_global_id_without_waterline_reset(self) -> None:
         db = FakeDb()
         db.jjc_sync_role_queue.find_one.return_value = {
@@ -201,6 +297,35 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
         self.assertIn("name:梦江南:角色A", update["$addToSet"]["aliases"]["$each"])
         self.assertNotIn("full_synced_until_time", update["$set"])
 
+    async def test_update_role_identity_fields_and_key_with_lease_owner_fences_current_worker(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.return_value = {
+            "identity_key": "name:梦江南:角色A",
+            "normalized_server": "梦江南",
+            "normalized_name": "角色A",
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.update_role_identity_fields_and_key(
+            identity_key="name:梦江南:角色A",
+            global_id="99999",
+            global_role_id="SK01-abc",
+            lease_owner="worker-1",
+        )
+
+        self.assertEqual(result, "global_id:99999")
+        find_one_call = db.jjc_sync_role_queue.find_one.call_args
+        self.assertEqual(find_one_call.args[0]["identity_key"], "name:梦江南:角色A")
+        self.assertEqual(find_one_call.args[0]["status"], "syncing")
+        self.assertEqual(find_one_call.args[0]["lease_owner"], "worker-1")
+        self.assertIn("lease_expires_at", find_one_call.args[0])
+        self.assertGreater(find_one_call.args[0]["lease_expires_at"]["$gt"], 0)
+        filter_doc, _ = db.jjc_sync_role_queue.update_one.call_args.args
+        self.assertEqual(filter_doc["status"], "syncing")
+        self.assertEqual(filter_doc["lease_owner"], "worker-1")
+        self.assertIn("lease_expires_at", filter_doc)
+        self.assertGreater(filter_doc["lease_expires_at"]["$gt"], 0)
+
     async def test_recover_expired_leases_updates_role_and_match(self) -> None:
         db = FakeDb()
         db.jjc_sync_role_queue.update_many.return_value = SimpleNamespace(modified_count=2)
@@ -213,13 +338,15 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
         role_filter = db.jjc_sync_role_queue.update_many.call_args.kwargs["filter"]
         role_update = db.jjc_sync_role_queue.update_many.call_args.kwargs["update"]
         self.assertEqual(role_filter["status"], "syncing")
-        self.assertEqual(role_update["$set"]["status"], "pending")
+        self.assertEqual(role_update["$set"]["status"], "queued")
+        self.assertEqual(role_update["$set"]["interrupted_reason"], "lease_expired")
+        self.assertIn("queued_at", role_update["$set"])
         match_filter = db.jjc_sync_match_seen.update_many.call_args.kwargs["filter"]
         match_update = db.jjc_sync_match_seen.update_many.call_args.kwargs["update"]
         self.assertEqual(match_filter["status"], "detail_syncing")
         self.assertEqual(match_update["$set"]["status"], "discovered")
 
-    async def test_claim_next_roles_includes_due_cooldown_and_exhausted(self) -> None:
+    async def test_claim_next_roles_prefers_queued_roles_for_compatibility(self) -> None:
         db = FakeDb()
         db.jjc_sync_role_queue.find_one_and_update.return_value = {
             "identity_key": "global:gid",
@@ -231,10 +358,19 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(claimed), 1)
         filter_doc = db.jjc_sync_role_queue.find_one_and_update.call_args.kwargs["filter"]
-        self.assertEqual(
-            filter_doc["status"],
-            {"$in": ["pending", "cooldown", "exhausted"]},
-        )
+        self.assertEqual(filter_doc["status"], "queued")
+
+    async def test_claim_next_roles_does_not_fallback_to_due_legacy_candidates(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one_and_update.return_value = None
+        repo = JjcSyncRepo(db=db)
+
+        claimed = await repo.claim_next_roles(limit=1, lease_owner="owner", lease_seconds=60)
+
+        self.assertEqual(claimed, [])
+        self.assertEqual(db.jjc_sync_role_queue.find_one_and_update.call_count, 1)
+        filter_doc = db.jjc_sync_role_queue.find_one_and_update.call_args.kwargs["filter"]
+        self.assertEqual(filter_doc["status"], "queued")
 
     async def test_upsert_role_prefers_global_id_and_writes_sk01_as_profile_field(self) -> None:
         db = FakeDb()
@@ -284,11 +420,100 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "global_id:99999")
         db.jjc_sync_role_queue.insert_one.assert_not_called()
         filter_doc, update = db.jjc_sync_role_queue.update_one.call_args.args
-        self.assertEqual(filter_doc, {"identity_key": "global:SK01-abc"})
+        self.assertEqual(filter_doc, {"identity_key": "global:SK01-abc", "status": {"$ne": "syncing"}})
         self.assertEqual(update["$set"]["identity_key"], "global_id:99999")
         self.assertEqual(update["$set"]["global_id"], "99999")
         self.assertNotIn("full_synced_until_time", update["$set"])
         self.assertIn("global:SK01-abc", update["$addToSet"]["aliases"]["$each"])
+
+    async def test_upsert_role_migration_toctou_keeps_old_key_without_fallback_write(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.side_effect = [
+            None,
+            {
+                "identity_key": "global:SK01-abc",
+                "status": "pending",
+                "full_synced_until_time": 1000,
+            },
+        ]
+        db.jjc_sync_role_queue.update_one.side_effect = [
+            SimpleNamespace(matched_count=0, modified_count=0, upserted_id=None),
+            SimpleNamespace(matched_count=1, modified_count=1, upserted_id=None),
+        ]
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="梦江南",
+            name="角色A",
+            normalized_server="梦江南",
+            normalized_name="角色A",
+            global_role_id="SK01-abc",
+            role_id="rid-a",
+            zone="电信区",
+            global_id="99999",
+            priority=5,
+        )
+
+        self.assertEqual(result, "global:SK01-abc")
+        self.assertEqual(db.jjc_sync_role_queue.update_one.call_count, 1)
+        first_filter, first_update = db.jjc_sync_role_queue.update_one.call_args_list[0].args
+        self.assertEqual(first_filter, {"identity_key": "global:SK01-abc", "status": {"$ne": "syncing"}})
+        self.assertEqual(first_update["$set"]["identity_key"], "global_id:99999")
+
+    async def test_upsert_role_defers_legacy_key_migration_when_role_is_syncing(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.side_effect = [
+            None,
+            {
+                "identity_key": "global:SK01-abc",
+                "status": "syncing",
+                "lease_owner": "worker-1",
+                "full_synced_until_time": 1000,
+            },
+        ]
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="梦江南",
+            name="角色A",
+            normalized_server="梦江南",
+            normalized_name="角色A",
+            global_role_id="SK01-abc",
+            role_id="rid-a",
+            zone="电信区",
+            global_id="99999",
+            priority=5,
+        )
+
+        self.assertEqual(result, "global:SK01-abc")
+        db.jjc_sync_role_queue.update_one.assert_not_called()
+
+    async def test_upsert_role_skips_existing_syncing_role_profile_update(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_role_queue.find_one.return_value = {
+            "identity_key": "global_id:99999",
+            "status": "syncing",
+            "lease_owner": "worker-1",
+            "global_id": "99999",
+            "global_role_id": "SK01-abc",
+            "full_synced_until_time": 1000,
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.upsert_role(
+            server="梦江南",
+            name="角色A-新名",
+            normalized_server="梦江南",
+            normalized_name="角色A-新名",
+            global_role_id="SK01-abc",
+            role_id="rid-a",
+            zone="电信区",
+            global_id="99999",
+            priority=50,
+        )
+
+        self.assertEqual(result, "global_id:99999")
+        db.jjc_sync_role_queue.update_one.assert_not_called()
 
     async def test_upsert_role_skips_legacy_migration_on_global_id_conflict(self) -> None:
         db = FakeDb()
@@ -460,6 +685,50 @@ class TestJjcSyncRepoMatchSeen(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result)
         db.jjc_sync_match_seen.find_one_and_update.assert_not_called()
 
+    async def test_get_match_detail_sync_state_terminal_returns_skip_action(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one.return_value = {
+            "match_id": 1001,
+            "status": "detail_saved",
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.get_match_detail_sync_state(1001)
+
+        self.assertEqual(result["action"], "skip")
+        self.assertTrue(result["terminal"])
+        self.assertFalse(result["claimable"])
+
+    async def test_get_match_detail_sync_state_non_terminal_returns_interrupt_action(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one.return_value = {
+            "match_id": 1001,
+            "status": "detail_syncing",
+            "lease_owner": "worker-1",
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.get_match_detail_sync_state(1001)
+
+        self.assertEqual(result["action"], "interrupt")
+        self.assertFalse(result["terminal"])
+        self.assertFalse(result["claimable"])
+
+    async def test_get_match_detail_sync_state_due_failed_returns_claimable_action(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one.return_value = {
+            "match_id": 1001,
+            "status": "failed",
+            "detail_retry_after": None,
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.get_match_detail_sync_state(1001)
+
+        self.assertEqual(result["action"], "claimable")
+        self.assertFalse(result["terminal"])
+        self.assertTrue(result["claimable"])
+
     async def test_mark_match_detail_unavailable_writes_fields_and_clears_lease(self) -> None:
         db = FakeDb()
         repo = JjcSyncRepo(db=db)
@@ -482,6 +751,62 @@ class TestJjcSyncRepoMatchSeen(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(set_fields["lease_expires_at"])
         self.assertIsNone(set_fields["detail_retry_after"])
 
+    async def test_mark_match_detail_saved_with_lease_owner_uses_fenced_filter(self) -> None:
+        db = FakeDb()
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.mark_match_detail_saved(2002, lease_owner="worker-1")
+
+        self.assertTrue(result)
+        filter_doc, update = db.jjc_sync_match_seen.update_one.call_args.args
+        self.assertEqual(filter_doc["match_id"], 2002)
+        self.assertEqual(filter_doc["status"], "detail_syncing")
+        self.assertEqual(filter_doc["lease_owner"], "worker-1")
+        self.assertIn("lease_expires_at", filter_doc)
+        self.assertGreater(filter_doc["lease_expires_at"]["$gt"], 0)
+        self.assertEqual(update["$set"]["status"], "detail_saved")
+
+    async def test_mark_match_detail_saved_returns_false_for_stale_lease(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.update_one.return_value = SimpleNamespace(
+            matched_count=0,
+            modified_count=0,
+            upserted_id=None,
+        )
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.mark_match_detail_saved(2003, lease_owner="worker-1")
+
+        self.assertFalse(result)
+
+    async def test_renew_match_detail_lease_requires_current_owner(self) -> None:
+        db = FakeDb()
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.renew_match_detail_lease(2004, lease_owner="worker-1", lease_seconds=60)
+
+        self.assertTrue(result)
+        filter_doc, update = db.jjc_sync_match_seen.update_one.call_args.args
+        self.assertEqual(filter_doc["match_id"], 2004)
+        self.assertEqual(filter_doc["status"], "detail_syncing")
+        self.assertEqual(filter_doc["lease_owner"], "worker-1")
+        self.assertIn("lease_expires_at", filter_doc)
+        self.assertGreater(filter_doc["lease_expires_at"]["$gt"], 0)
+        self.assertGreater(update["$set"]["lease_expires_at"], 0)
+
+    async def test_renew_match_detail_lease_returns_false_for_stale_owner(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.update_one.return_value = SimpleNamespace(
+            matched_count=0,
+            modified_count=0,
+            upserted_id=None,
+        )
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.renew_match_detail_lease(2005, lease_owner="worker-old", lease_seconds=60)
+
+        self.assertFalse(result)
+
     async def test_mark_match_detail_unavailable_returns_false_for_bad_id(self) -> None:
         db = FakeDb()
         repo = JjcSyncRepo(db=db)
@@ -502,6 +827,39 @@ class TestJjcSyncRepoMatchSeen(unittest.IsolatedAsyncioTestCase):
         set_fields = update["$set"]
         self.assertEqual(set_fields["fail_count"], 1)
         self.assertAlmostEqual(set_fields["detail_retry_after"], set_fields["updated_at"] + 300, delta=2)
+
+    async def test_mark_match_detail_failed_with_lease_owner_uses_fenced_filter(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one.return_value = {"fail_count": 0}
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.mark_match_detail_failed(3002, "err", lease_owner="worker-1")
+
+        self.assertTrue(result)
+        find_one_call = db.jjc_sync_match_seen.find_one.call_args
+        self.assertEqual(find_one_call.args[0]["match_id"], 3002)
+        self.assertEqual(find_one_call.args[0]["status"], "detail_syncing")
+        self.assertEqual(find_one_call.args[0]["lease_owner"], "worker-1")
+        self.assertIn("lease_expires_at", find_one_call.args[0])
+        self.assertGreater(find_one_call.args[0]["lease_expires_at"]["$gt"], 0)
+        self.assertEqual(find_one_call.args[1], {"fail_count": 1})
+        filter_doc, update = db.jjc_sync_match_seen.update_one.call_args.args
+        self.assertEqual(filter_doc["match_id"], 3002)
+        self.assertEqual(filter_doc["status"], "detail_syncing")
+        self.assertEqual(filter_doc["lease_owner"], "worker-1")
+        self.assertIn("lease_expires_at", filter_doc)
+        self.assertGreater(filter_doc["lease_expires_at"]["$gt"], 0)
+        self.assertEqual(update["$set"]["fail_count"], 1)
+
+    async def test_mark_match_detail_failed_returns_false_for_stale_lease(self) -> None:
+        db = FakeDb()
+        db.jjc_sync_match_seen.find_one.return_value = None
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.mark_match_detail_failed(3003, "err", lease_owner="worker-1")
+
+        self.assertFalse(result)
+        db.jjc_sync_match_seen.update_one.assert_not_called()
 
     async def test_mark_match_detail_failed_backoff_2nd_failure(self) -> None:
         db = FakeDb()

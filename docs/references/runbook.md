@@ -139,12 +139,16 @@ python test_tuilan_match_history.py
 - `竞技查询`
 - `竞技排名`
 - `竞技排名 拆分`
-- 添加角色：`/jjc同步添加 <服务器> <角色名> [global_role_id=...] [role_id=...] [zone=...]`
+- 添加并默认排队指定角色：`/jjc同步添加 <服务器> <角色名> [priority=100] [queued=1] [global_role_id=...] [role_id=...] [zone=...]`
 - 查看状态：`/jjc同步状态`
-- 触发一轮同步：`/jjc同步开始 [default|full|incremental]`
+- 批量入队：`/jjc同步开始 [default|full|incremental] [limit=10]`
+- 调整优先级：`/jjc同步优先级 <服务器> <角色名> <priority>`
 - 暂停后续同步：`/jjc同步暂停 [原因]`
 - 恢复同步：`/jjc同步恢复`
 - 重置角色水位：`/jjc同步重置 <服务器> <角色名>`
+- 启动常驻 worker：`python scripts/jjc_sync.py worker --mode=incremental_or_full` 或 `python scripts/jjc_sync.py start --limit=10`；`start --limit` 只限制最多处理数量，队列暂空时仍会继续等待
+- 批量入队脚本：`python scripts/jjc_sync.py enqueue --limit=10`
+- 队列页面：启动 bot 后通过同源 HTTP 访问 `http://<bot-host>:<port>/public/jjc-sync-queue.html`；页面依赖同源 `/api/jjc/sync/...` 接口，不能直接用本地文件方式打开。
 
 预期:
 
@@ -153,24 +157,30 @@ python test_tuilan_match_history.py
 - JJC 排名统计快照写入 MongoDB `jjc_ranking_stat_summaries` 与 `jjc_ranking_stat_details`；HTTP API 仅读 Mongo，未命中时返回 `not_found`。
 - 历史 `data/jjc_ranking_stats/` 文件仅作为一次性迁移输入，不再作为运行时 fallback。
 - JJC 同步命令只有 `config.py` 中 `ADMIN_QQ` 管理员可执行
-- `/jjc同步开始` 只触发一轮同步，不会启动常驻任务
+- `/jjc同步开始` 只负责把角色放入 `queued` 队列，不在当前 bot 进程直接同步；即使全局暂停也允许继续入队，实际处理由 `scripts/jjc_sync.py worker` 常驻进程在恢复后领取。
+- 多个 worker 可以同时运行；每个 worker 一次只处理一个角色，通过 Mongo `lease_owner/lease_expires_at` 避免重复领取。
+- 状态命令和队列页面只把 5 分钟内有心跳的 `starting/running/idle/syncing/paused` worker 视为活跃 worker；进程被 kill 后旧心跳不会长期显示为运行中。
+- worker、脚本或容器中断后，已领取的 `syncing/detail_syncing` 记录会在租约过期后由新 worker 恢复，角色水位只在完整成功后推进，重复扫描依赖 match/detail 幂等跳过。
+- 修改推栏 ticket 的推荐流程：先 `/jjc同步暂停 更换ticket`，等待 `/jjc同步状态` 显示无 `syncing` 或 worker 已 paused，重启 bot/worker 加载新配置，再 `/jjc同步恢复`；暂停期间可以继续添加角色或批量入队，worker 暂不领取，但 tick 仍会恢复过期租约。
+- 推栏返回明确 ticket 过期、无权限、鉴权失败时，worker 会自动全局暂停，并把当前角色释放回队列且不增加角色 `fail_count`。
 - JJC 最终身份主键为 replay 数字 ID：`global_id:{global_id}`；`global_id` 来自 `/3c/mine/match/replay` 的 `players[].global_role_id`，不要与 SK01 `global_role_id` 混用。
 - `global_role_id` 专指 `/role/indicator` 返回的 `SK01-...`，用于请求 `match/history`；角色缺少 SK01 且队列中已有 `person_id` 时，同步前仍保留 `mine/match/person-history` 兼容兜底。
 - 同步详情应写入现有 `jjc_match_detail`，并从详情玩家回填 `jjc_sync_role_queue`；详情玩家身份补全主链路为 `match/detail + match/replay + role/indicator`，成功拿到 replay `global_id` 与 SK01 `global_role_id` 后才写入可执行同步队列。
 - 单条详情临时失败不会中断当前角色同步，`/jjc同步开始` 输出中的 `详情失败` 表示对局详情已写入失败状态并等待 `detail_retry_after` 后重试
+- 若 Mongo 领取对局详情租约失败，worker 会释放当前角色回 `queued`，不推进角色水位，等待后续 tick 重试，避免跳过该角色后续对局。
 - 推栏返回 `code=-1`、`msg=no data found`、`data=null` 时，对局写入 `detail_unavailable` 终态；`/jjc同步开始` 输出中的 `详情不可用` 表示后续不会重复请求该对局详情
 - 若状态中最近错误出现 `role_identity_not_found`，优先检查目标角色是否已能通过最近对局 replay 补到 `global_id`；仅缺 SK01 `global_role_id` 时再用带 `global_role_id=...` 的添加命令补充 history 请求字段。
-- 若服务中断后状态长期存在 `syncing` 或 `detail_syncing`，再次执行 `/jjc同步开始` 会先恢复过期租约再领取角色
+- 若服务中断后状态长期存在 `syncing` 或 `detail_syncing`，再次执行 `/jjc同步开始` 或启动 worker 会先恢复过期租约；角色恢复为 `queued`，详情恢复为可重试状态
 
 离线自动验证：
 
 ```bash
-python -m unittest tests.test_jjc_match_data_sync_handler tests.test_jjc_match_data_sync tests.test_jjc_sync_repo
+python -m unittest tests.test_jjc_match_data_sync_handler tests.test_jjc_match_data_sync tests.test_jjc_sync_repo tests.test_jjc_sync_worker_queue tests.test_jjc_sync_router
 python -m unittest tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot_repo tests.test_jjc_match_detail_hydration tests.test_scripts_jjc_snapshot
-python -m py_compile src/services/jx3/jjc_match_data_sync.py src/storage/mongo_repos/jjc_sync_repo.py src/plugins/jx3bot_handlers/jjc_match_data_sync.py src/infra/mongo.py
+python -m py_compile src/services/jx3/jjc_match_data_sync.py src/storage/mongo_repos/jjc_sync_repo.py src/plugins/jx3bot_handlers/jjc_match_data_sync.py src/api/routers/jjc_sync.py scripts/jjc_sync.py src/infra/mongo.py
 ```
 
-在线手工回归需要真实 QQ/推栏环境：先 `/jjc同步添加 <服务器> <角色名>`，再 `/jjc同步状态`、`/jjc同步开始 incremental`、`/jjc同步状态`，确认角色被领取、对局详情写入、单条详情失败时仍继续处理后续对局和后续页。
+在线手工回归需要真实 QQ/推栏环境：先启动一个 `python scripts/jjc_sync.py worker --mode=incremental_or_full`，再 `/jjc同步添加 <服务器> <角色名>`、`/jjc同步状态`、打开 `http://<bot-host>:<port>/public/jjc-sync-queue.html`，确认角色进入 queued 后被 worker 领取、对局详情写入、单条详情失败时仍继续处理后续对局和后续页。
 
 JJC replay 角色 ID / global_id 回填：
 

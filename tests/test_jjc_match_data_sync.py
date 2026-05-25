@@ -1,9 +1,12 @@
 import asyncio
+import time
 import unittest
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
 from src.services.jx3.jjc_match_data_sync import (
+    JjcSyncMatchDetailClaimError,
+    JjcSyncStaleLeaseError,
     JjcMatchDataSyncService,
     extract_identity_from_person_history,
     extract_history_items,
@@ -38,47 +41,345 @@ class FakeRepo:
         self.failure_release: Optional[Dict[str, Any]] = None
         self.identity_updates: List[Dict[str, Any]] = []
         self.claim_detail_skips: set = set()
+        self.enqueued_roles: List[Dict[str, Any]] = []
+        self.claimed_queued_role: Optional[Dict[str, Any]] = None
+        self.interrupted_release: Optional[Dict[str, Any]] = None
+        self.pause_reason: str = ""
+        self.worker_heartbeats: List[Dict[str, Any]] = []
+        self.role_lease_renewals: List[Dict[str, Any]] = []
+        self.renew_role_lease_result = True
+        self.identity_update_result: Any = ...
+        self.detail_saved_calls: List[Dict[str, Any]] = []
+        self.detail_failed_calls: List[Dict[str, Any]] = []
+        self.detail_unavailable_calls: List[Dict[str, Any]] = []
+        self.mark_detail_saved_result = True
+        self.mark_detail_failed_result = True
+        self.mark_detail_unavailable_result = True
+        self.detail_lease_renewals: List[Dict[str, Any]] = []
+        self.renew_match_detail_lease_result = True
+        self.upsert_role_exception: Optional[Exception] = None
+        self.events: List[str] = []
+        self.workers: List[Dict[str, Any]] = []
+        self.claim_match_detail_exception: Optional[Exception] = None
+        self.registered_workers: List[Dict[str, Any]] = []
+        self.stopped_workers: List[Dict[str, Any]] = []
+        self.detail_states: Dict[int, Dict[str, Any]] = {}
+        self.released_match_details: List[Dict[str, Any]] = []
+
+    def _find_role(self, identity_key: str) -> Optional[Dict[str, Any]]:
+        candidates: List[Dict[str, Any]] = []
+        if self.claimed_queued_role is not None:
+            candidates.append(self.claimed_queued_role)
+        candidates.extend(self.roles)
+        for role in candidates:
+            if role.get("identity_key") == identity_key:
+                return role
+        return None
+
+    def _role_lease_allows(self, identity_key: str, lease_owner: Optional[str]) -> bool:
+        if lease_owner is None:
+            return True
+        role = self._find_role(identity_key)
+        if role is None:
+            return False
+        if role.get("status") != "syncing" or role.get("lease_owner") != lease_owner:
+            return False
+        expires_at = role.get("lease_expires_at")
+        if expires_at is not None and expires_at <= time.time():
+            return False
+        return True
+
+    def _detail_lease_allows(self, match_id: int, lease_owner: Optional[str]) -> bool:
+        if lease_owner is None:
+            return True
+        state = self.detail_states.get(match_id)
+        if state is None:
+            return False
+        if state.get("status") != "detail_syncing" or state.get("lease_owner") != lease_owner:
+            return False
+        expires_at = state.get("lease_expires_at")
+        if expires_at is not None and expires_at <= time.time():
+            return False
+        return True
 
     async def get_paused(self) -> bool:
         return self.paused
 
+    async def get_pause_state(self) -> Dict[str, Any]:
+        return {"paused": self.paused, "reason": self.pause_reason, "updated_at": 123.0}
+
+    async def set_paused(self, paused: bool, reason: str = "") -> bool:
+        self.paused = paused
+        self.pause_reason = reason
+        return True
+
     async def recover_expired_leases(self) -> int:
         return 2
 
+    async def list_workers(self, limit: int = 20) -> List[Dict[str, Any]]:
+        return self.workers[:limit]
+
     async def claim_next_roles(self, **kwargs: Any) -> List[Dict[str, Any]]:
         return self.roles
+
+    async def count_by_status(self) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for role in self.roles:
+            status = role.get("status") or "pending"
+            counts[status] = counts.get(status, 0) + 1
+        if self.claimed_queued_role:
+            counts["syncing"] = counts.get("syncing", 0) + 1
+        return counts
+
+    async def get_recent_errors(self, limit: int = 5) -> List[Dict[str, Any]]:
+        return []
+
+    async def enqueue_next_roles(self, **kwargs: Any) -> List[Dict[str, Any]]:
+        self.enqueued_roles = self.roles[:kwargs.get("limit", len(self.roles))]
+        return self.enqueued_roles
+
+    async def claim_queued_role(self, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        lease_owner = kwargs.get("lease_owner")
+        lease_seconds = kwargs.get("lease_seconds", 600)
+        if self.claimed_queued_role is not None:
+            role = self.claimed_queued_role
+            if role.get("status") != "queued":
+                return None
+            role["status"] = "syncing"
+            role["lease_owner"] = lease_owner
+            role["lease_expires_at"] = time.time() + lease_seconds
+            return role
+        for role in self.roles:
+            if role.get("status") == "queued":
+                role["status"] = "syncing"
+                role["lease_owner"] = lease_owner
+                role["lease_expires_at"] = time.time() + lease_seconds
+                return role
+        return None
+
+    async def release_role_interrupted(
+        self,
+        identity_key: str,
+        reason: str,
+        requeue: bool = True,
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        self.interrupted_release = {
+            "identity_key": identity_key,
+            "reason": reason,
+            "requeue": requeue,
+            "lease_owner": lease_owner,
+        }
+        if not self._role_lease_allows(identity_key, lease_owner):
+            return False
+        role = self._find_role(identity_key)
+        if role is not None:
+            role["status"] = "queued" if requeue else "pending"
+            role["lease_owner"] = None
+            role["lease_expires_at"] = None
+        return True
+
+    async def renew_role_lease(self, **kwargs: Any) -> bool:
+        self.role_lease_renewals.append(kwargs)
+        if not self.renew_role_lease_result:
+            return False
+        identity_key = kwargs.get("identity_key")
+        lease_owner = kwargs.get("lease_owner")
+        if identity_key and not self._role_lease_allows(identity_key, lease_owner):
+            return False
+        role = self._find_role(identity_key) if identity_key else None
+        if role is not None:
+            role["lease_expires_at"] = time.time() + kwargs.get("lease_seconds", 600)
+        return True
+
+    async def renew_match_detail_lease(self, **kwargs: Any) -> bool:
+        self.detail_lease_renewals.append(kwargs)
+        if not self.renew_match_detail_lease_result:
+            return False
+        match_id = kwargs.get("match_id")
+        lease_owner = kwargs.get("lease_owner")
+        if match_id is not None and not self._detail_lease_allows(match_id, lease_owner):
+            return False
+        state = self.detail_states.get(match_id)
+        if state is not None:
+            state["lease_expires_at"] = time.time() + kwargs.get("lease_seconds", 600)
+        return True
+
+    async def register_worker(self, **kwargs: Any) -> bool:
+        self.registered_workers.append(kwargs)
+        return True
+
+    async def heartbeat_worker(self, **kwargs: Any) -> bool:
+        self.worker_heartbeats.append(kwargs)
+        return True
+
+    async def stop_worker(self, **kwargs: Any) -> bool:
+        self.stopped_workers.append(kwargs)
+        return True
 
     async def mark_match_discovered(self, **kwargs: Any) -> bool:
         self.discovered_matches.append(kwargs)
         return True
 
     async def claim_match_detail(self, match_id: int, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        if self.claim_match_detail_exception is not None:
+            raise self.claim_match_detail_exception
         if match_id in self.saved_matches or match_id in self.claim_detail_skips:
             return None
-        return {"match_id": match_id}
+        state = self.detail_states.get(match_id)
+        if state is not None:
+            status = state.get("status")
+            retry_after = state.get("detail_retry_after")
+            claimable = status == "discovered" or (
+                status == "failed" and (retry_after is None or retry_after <= time.time())
+            )
+            if not claimable:
+                return None
+        else:
+            state = {"match_id": match_id, "status": "discovered"}
+            self.detail_states[match_id] = state
+        state["status"] = "detail_syncing"
+        state["lease_owner"] = kwargs.get("lease_owner")
+        state["lease_expires_at"] = time.time() + kwargs.get("lease_seconds", 600)
+        return dict(state)
 
-    async def mark_match_detail_saved(self, match_id: int) -> bool:
+    async def get_match_detail_sync_state(self, match_id: int) -> Dict[str, Any]:
+        if match_id in self.detail_states:
+            state = dict(self.detail_states[match_id])
+            status = str(state.get("status") or "")
+            terminal = bool(state.get("terminal")) or status in ("detail_saved", "detail_unavailable")
+            retry_after = state.get("detail_retry_after")
+            claimable = status == "discovered" or (
+                status == "failed" and (retry_after is None or retry_after <= time.time())
+            )
+            state["terminal"] = terminal
+            state["claimable"] = claimable
+            state.setdefault("action", "skip" if terminal else "claimable" if claimable else "interrupt")
+            return state
+        if match_id in self.saved_matches:
+            return {"exists": True, "status": "detail_saved", "action": "skip", "terminal": True, "claimable": False}
+        if match_id in self.unavailable_matches:
+            return {"exists": True, "status": "detail_unavailable", "action": "skip", "terminal": True, "claimable": False}
+        if match_id in self.claim_detail_skips:
+            return {"exists": True, "status": "detail_syncing", "action": "interrupt", "terminal": False, "claimable": False}
+        return {"exists": False, "status": "missing", "action": "interrupt", "terminal": False, "claimable": False}
+
+    async def release_match_detail_interrupted(
+        self,
+        match_id: int,
+        reason: str = "",
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        self.released_match_details.append({
+            "match_id": match_id,
+            "reason": reason,
+            "lease_owner": lease_owner,
+        })
+        if not self._detail_lease_allows(match_id, lease_owner):
+            return False
+        state = self.detail_states.get(match_id)
+        if state is not None:
+            state["status"] = "discovered"
+            state["lease_owner"] = None
+            state["lease_expires_at"] = None
+        return True
+
+    async def mark_match_detail_saved(self, match_id: int, lease_owner: Optional[str] = None) -> bool:
+        self.events.append("mark_saved")
+        self.detail_saved_calls.append({"match_id": match_id, "lease_owner": lease_owner})
+        if not self.mark_detail_saved_result or not self._detail_lease_allows(match_id, lease_owner):
+            return False
+        state = self.detail_states.setdefault(match_id, {"match_id": match_id})
+        state["status"] = "detail_saved"
+        state["lease_owner"] = None
+        state["lease_expires_at"] = None
         self.saved_matches.append(match_id)
         return True
 
-    async def mark_match_detail_failed(self, match_id: int, error_message: str = "") -> bool:
+    async def mark_match_detail_failed(
+        self,
+        match_id: int,
+        error_message: str = "",
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        self.events.append("mark_failed")
+        self.detail_failed_calls.append({
+            "match_id": match_id,
+            "error_message": error_message,
+            "lease_owner": lease_owner,
+        })
+        if not self.mark_detail_failed_result or not self._detail_lease_allows(match_id, lease_owner):
+            return False
+        state = self.detail_states.setdefault(match_id, {"match_id": match_id})
+        state["status"] = "failed"
+        state["lease_owner"] = None
+        state["lease_expires_at"] = None
         self.failed_matches.append(match_id)
         self.failed_messages[match_id] = error_message
         return True
 
-    async def mark_match_detail_unavailable(self, match_id: int, reason: str = "", code: int = 0) -> bool:
+    async def mark_match_detail_unavailable(
+        self,
+        match_id: int,
+        reason: str = "",
+        code: int = 0,
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        self.events.append("mark_unavailable")
+        self.detail_unavailable_calls.append({
+            "match_id": match_id,
+            "reason": reason,
+            "code": code,
+            "lease_owner": lease_owner,
+        })
+        if not self.mark_detail_unavailable_result or not self._detail_lease_allows(match_id, lease_owner):
+            return False
+        state = self.detail_states.setdefault(match_id, {"match_id": match_id})
+        state["status"] = "detail_unavailable"
+        state["lease_owner"] = None
+        state["lease_expires_at"] = None
         self.unavailable_matches.append(match_id)
         return True
 
     async def upsert_role(self, **kwargs: Any) -> str:
+        self.events.append("upsert_role")
+        if self.upsert_role_exception is not None:
+            raise self.upsert_role_exception
         self.upserted_roles.append(kwargs)
         return "global:" + str(kwargs.get("global_role_id"))
 
-    async def release_role_success(self, **kwargs: Any) -> None:
+    async def release_role_success(self, **kwargs: Any) -> bool:
         self.success_release = kwargs
+        identity_key = kwargs.get("identity_key")
+        lease_owner = kwargs.get("lease_owner")
+        if identity_key and not self._role_lease_allows(identity_key, lease_owner):
+            return False
+        role = self._find_role(identity_key) if identity_key else None
+        if role is not None:
+            role["status"] = "exhausted" if kwargs.get("history_exhausted") else "cooldown"
+            role["lease_owner"] = None
+            role["lease_expires_at"] = None
+        return True
 
-    async def release_role_failure(self, identity_key: str, error_message: str = "") -> None:
-        self.failure_release = {"identity_key": identity_key, "error_message": error_message}
+    async def release_role_failure(
+        self,
+        identity_key: str,
+        error_message: str = "",
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        self.failure_release = {
+            "identity_key": identity_key,
+            "error_message": error_message,
+            "lease_owner": lease_owner,
+        }
+        if not self._role_lease_allows(identity_key, lease_owner):
+            return False
+        role = self._find_role(identity_key)
+        if role is not None:
+            role["status"] = "pending"
+            role["lease_owner"] = None
+            role["lease_expires_at"] = None
+        return True
 
     async def update_role_identity_fields(self, **kwargs: Any) -> bool:
         self.identity_updates.append(kwargs)
@@ -86,8 +387,15 @@ class FakeRepo:
 
     async def update_role_identity_fields_and_key(self, **kwargs: Any) -> Optional[str]:
         self.identity_updates.append(kwargs)
+        if self.identity_update_result is not ...:
+            return self.identity_update_result
         global_id = str(kwargs.get("global_id") or "").strip()
-        return "global_id:" + global_id if global_id else kwargs.get("identity_key")
+        new_key = "global_id:" + global_id if global_id else kwargs.get("identity_key")
+        old_key = kwargs.get("identity_key")
+        role = self._find_role(old_key)
+        if role is not None and new_key:
+            role["identity_key"] = new_key
+        return new_key
 
 
 class FakeHistoryClient:
@@ -449,7 +757,650 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["error"])
         self.assertTrue(result["paused"])
         self.assertEqual(result["processed_roles"], 0)
-        self.assertEqual(result["recovered_leases"], 0)
+        self.assertEqual(result["recovered_leases"], 2)
+
+    async def test_enqueue_roles_moves_candidates_to_queue(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [
+            {"identity_key": "global:g1", "server": "梦江南", "name": "角色A"},
+            {"identity_key": "global:g2", "server": "梦江南", "name": "角色B"},
+        ]
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.enqueue_roles(mode="incremental", limit=10, source="test")
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["enqueued_roles"], 2)
+        self.assertEqual(result["mode"], "incremental")
+        self.assertEqual(result["recovered_leases"], 2)
+
+    async def test_enqueue_roles_when_paused_still_queues_roles(self) -> None:
+        repo = FakeRepo()
+        repo.paused = True
+        repo.pause_reason = "更换 ticket"
+        repo.roles = [
+            {"identity_key": "global:g1", "server": "梦江南", "name": "角色A"},
+        ]
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.enqueue_roles(mode="incremental", limit=10, source="test")
+
+        self.assertFalse(result["error"])
+        self.assertTrue(result["paused"])
+        self.assertEqual(result["pause_reason"], "更换 ticket")
+        self.assertEqual(result["enqueued_roles"], 1)
+
+    async def test_worker_tick_claims_queued_role(self) -> None:
+        repo = FakeRepo()
+        repo.claimed_queued_role = {
+            "status": "queued",
+            "identity_key": "global:gid-a",
+            "server": "梦江南",
+            "name": "角色A",
+            "global_role_id": "gid-a",
+        }
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([{"data": []}]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.worker_tick(mode="incremental_or_full", worker_id="worker-1")
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(repo.success_release["identity_key"], "global:gid-a")
+        self.assertEqual(repo.worker_heartbeats[0]["status"], "syncing")
+        self.assertEqual(repo.worker_heartbeats[-1]["status"], "idle")
+
+    async def test_sync_one_role_refreshes_worker_heartbeat_during_role_processing(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [{
+            "status": "syncing",
+            "identity_key": "global:gid-a",
+            "lease_owner": "worker-1",
+            "lease_expires_at": time.time() + 3600,
+        }]
+        history = FakeHistoryClient([
+            {"data": [{"match_id": 19, "match_time": 1810000000, "pvpType": 3}]}
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+        heartbeat_calls: List[Dict[str, Any]] = []
+
+        async def fake_heartbeat_if_due(
+            worker_id: str,
+            current_role: Dict[str, Any],
+            last_heartbeat_at: float,
+            force: bool = False,
+        ) -> float:
+            heartbeat_calls.append({
+                "worker_id": worker_id,
+                "identity_key": current_role.get("identity_key"),
+                "force": force,
+            })
+            return last_heartbeat_at + 1
+
+        service._heartbeat_worker_if_due = fake_heartbeat_if_due
+
+        result = await service._sync_one_role(
+            role={
+                "identity_key": "global:gid-a",
+                "server": "梦江南",
+                "name": "角色A",
+                "global_role_id": "gid-a",
+            },
+            mode="incremental_or_full",
+            lease_owner="worker-1",
+        )
+
+        self.assertFalse(result["error"])
+        self.assertGreaterEqual(len(heartbeat_calls), 2)
+        self.assertTrue(heartbeat_calls[0]["force"])
+        self.assertTrue(all(call["worker_id"] == "worker-1" for call in heartbeat_calls))
+        self.assertTrue(all(call["identity_key"] == "global:gid-a" for call in heartbeat_calls))
+
+    async def test_worker_tick_paused_recovers_expired_leases_without_claiming(self) -> None:
+        repo = FakeRepo()
+        repo.paused = True
+        repo.pause_reason = "维护"
+        repo.claimed_queued_role = {
+            "status": "queued",
+            "identity_key": "global:gid-a",
+            "server": "梦江南",
+            "name": "角色A",
+            "global_role_id": "gid-a",
+        }
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.worker_tick(mode="incremental_or_full", worker_id="worker-1")
+
+        self.assertTrue(result["paused"])
+        self.assertEqual(result["pause_reason"], "维护")
+        self.assertEqual(result["recovered_leases"], 2)
+        self.assertIsNotNone(repo.claimed_queued_role)
+        self.assertIsNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
+        self.assertEqual(repo.worker_heartbeats[-1]["status"], "paused")
+
+    async def test_queue_status_reports_worker_running_from_worker_list(self) -> None:
+        repo = FakeRepo()
+        repo.workers = [
+            {"worker_id": "worker-stopped", "status": "stopped", "heartbeat_at": 1.0},
+            {"worker_id": "worker-idle", "status": "idle", "heartbeat_at": time.time()},
+        ]
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.queue_status()
+
+        self.assertFalse(result["error"])
+        self.assertTrue(result["worker_running"])
+        self.assertTrue(result["background_running"])
+        self.assertFalse(result["workers"][0]["online"])
+        self.assertEqual(result["workers"][0]["effective_status"], "stopped")
+        self.assertTrue(result["workers"][1]["online"])
+        self.assertEqual(result["workers"][1]["effective_status"], "idle")
+
+    async def test_queue_status_ignores_stale_worker_heartbeat(self) -> None:
+        repo = FakeRepo()
+        repo.workers = [
+            {"worker_id": "worker-old", "status": "idle", "heartbeat_at": time.time() - 3600},
+        ]
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.queue_status()
+
+        self.assertFalse(result["error"])
+        self.assertFalse(result["worker_running"])
+        self.assertFalse(result["background_running"])
+        self.assertFalse(result["workers"][0]["online"])
+        self.assertEqual(result["workers"][0]["effective_status"], "offline")
+
+    async def test_fake_repo_claim_and_release_enforces_role_lease_owner(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [{
+            "status": "queued",
+            "identity_key": "global:gid-a",
+            "server": "梦江南",
+            "name": "角色A",
+        }]
+
+        claimed = await repo.claim_queued_role(lease_owner="worker-1", lease_seconds=60)
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(repo.roles[0]["status"], "syncing")
+        self.assertEqual(repo.roles[0]["lease_owner"], "worker-1")
+        self.assertFalse(await repo.release_role_success(
+            identity_key="global:gid-a",
+            lease_owner="worker-2",
+        ))
+        self.assertEqual(repo.roles[0]["status"], "syncing")
+        self.assertTrue(await repo.release_role_success(
+            identity_key="global:gid-a",
+            lease_owner="worker-1",
+        ))
+        self.assertEqual(repo.roles[0]["status"], "cooldown")
+
+    async def test_run_worker_treats_zero_max_roles_as_unlimited(self) -> None:
+        repo = FakeRepo()
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+        tick_calls: List[Dict[str, Any]] = []
+
+        async def fake_tick(mode: str, worker_id: str) -> Dict[str, Any]:
+            tick_calls.append({"mode": mode, "worker_id": worker_id})
+            return {"error": False, "paused": True, "auto_paused": True, "recovered_leases": 0}
+
+        service.worker_tick = fake_tick
+
+        result = await service.run_worker(
+            mode="incremental_or_full",
+            worker_id="worker-zero",
+            idle_sleep=1,
+            max_roles=0,
+        )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["stopped_reason"], "auto_paused")
+        self.assertEqual(tick_calls, [{"mode": "incremental_or_full", "worker_id": "worker-zero"}])
+
+    async def test_run_worker_stale_tick_does_not_count_as_processed(self) -> None:
+        repo = FakeRepo()
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+        ticks = [
+            {
+                "error": False,
+                "processed": False,
+                "result": {"error": True, "stale_lease": True, "message": "stale_role_lease"},
+                "recovered_leases": 0,
+            },
+            {"error": False, "paused": True, "auto_paused": True, "recovered_leases": 0},
+        ]
+        slept: List[int] = []
+
+        async def fake_tick(mode: str, worker_id: str) -> Dict[str, Any]:
+            return ticks.pop(0)
+
+        async def fake_sleep(seconds: int) -> None:
+            slept.append(seconds)
+
+        service.worker_tick = fake_tick
+
+        with patch("src.services.jx3.jjc_match_data_sync.asyncio.sleep", new=fake_sleep):
+            result = await service.run_worker(
+                mode="incremental_or_full",
+                worker_id="worker-stale",
+                idle_sleep=7,
+                max_roles=1,
+            )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["processed_roles"], 0)
+        self.assertEqual(result["interrupted_ticks"], 1)
+        self.assertEqual(result["stopped_reason"], "auto_paused")
+        self.assertEqual(result["errors"], ["stale_role_lease"])
+        self.assertEqual(slept, [7])
+
+    async def test_run_worker_one_shot_stale_tick_stops_interrupted(self) -> None:
+        repo = FakeRepo()
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+        slept: List[int] = []
+
+        async def fake_tick(mode: str, worker_id: str) -> Dict[str, Any]:
+            return {
+                "error": False,
+                "processed": False,
+                "result": {"error": True, "stale_detail_lease": True, "message": "stale_detail_lease"},
+                "recovered_leases": 0,
+            }
+
+        async def fake_sleep(seconds: int) -> None:
+            slept.append(seconds)
+
+        service.worker_tick = fake_tick
+
+        with patch("src.services.jx3.jjc_match_data_sync.asyncio.sleep", new=fake_sleep):
+            result = await service.run_worker(
+                mode="incremental_or_full",
+                worker_id="worker-one-shot",
+                idle_sleep=7,
+                stop_when_idle=True,
+            )
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["processed_roles"], 0)
+        self.assertEqual(result["interrupted_ticks"], 1)
+        self.assertEqual(result["stopped_reason"], "interrupted")
+        self.assertEqual(result["errors"], ["stale_detail_lease"])
+        self.assertEqual(slept, [])
+
+    async def test_worker_tick_auth_error_auto_pauses_without_fail_count(self) -> None:
+        repo = FakeRepo()
+        repo.claimed_queued_role = {
+            "status": "queued",
+            "identity_key": "global:gid-a",
+            "server": "梦江南",
+            "name": "角色A",
+            "global_role_id": "gid-a",
+        }
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([{"error": "ticket expired"}]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.worker_tick(mode="incremental_or_full", worker_id="worker-1")
+
+        self.assertTrue(result["paused"])
+        self.assertTrue(result["auto_paused"])
+        self.assertTrue(repo.paused)
+        self.assertIn("ticket expired", repo.pause_reason)
+        self.assertEqual(repo.interrupted_release["identity_key"], "global:gid-a")
+        self.assertIsNone(repo.failure_release)
+
+    async def test_worker_tick_stale_role_lease_does_not_release_role(self) -> None:
+        repo = FakeRepo()
+        repo.renew_role_lease_result = False
+        repo.claimed_queued_role = {
+            "status": "queued",
+            "identity_key": "global:gid-a",
+            "server": "梦江南",
+            "name": "角色A",
+            "global_role_id": "gid-a",
+        }
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([{"data": []}]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.worker_tick(mode="incremental_or_full", worker_id="worker-1")
+
+        self.assertFalse(result["processed"])
+        self.assertTrue(result["result"]["stale_lease"])
+        self.assertIsNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
+
+    async def test_worker_tick_stale_identity_migration_does_not_release_role(self) -> None:
+        repo = FakeRepo()
+        repo.identity_update_result = None
+        repo.claimed_queued_role = {
+            "status": "queued",
+            "identity_key": "name:梦江南:种子",
+            "server": "梦江南",
+            "name": "种子",
+            "role_id": "rid",
+            "zone": "zone-a",
+        }
+        inspect_service = FakeInspectService()
+        inspect_service.identity_result = {
+            "global_id": "global-resolved",
+            "global_role_id": "gid-resolved",
+            "role_id": "rid",
+            "game_role_id": "rid",
+            "zone": "zone-a",
+            "source": "test_identity",
+        }
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([{"data": []}]),
+            inspect_service=inspect_service,
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.worker_tick(mode="incremental_or_full", worker_id="worker-1")
+
+        self.assertFalse(result["processed"])
+        self.assertTrue(result["result"]["stale_lease"])
+        self.assertEqual(repo.identity_updates[0]["lease_owner"], "worker-1")
+        self.assertIsNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
+
+    async def test_sync_match_detail_passes_lease_owner_to_saved_marker(self) -> None:
+        repo = FakeRepo()
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service._sync_match_detail(
+            match_id=11,
+            match_time=1810000000,
+            lease_owner="worker-1",
+        )
+
+        self.assertEqual(result, "saved")
+        self.assertEqual(repo.detail_saved_calls[0]["lease_owner"], "worker-1")
+
+    async def test_sync_match_detail_claim_error_interrupts_role(self) -> None:
+        repo = FakeRepo()
+        repo.claim_match_detail_exception = RuntimeError("mongo_claim_down")
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        with self.assertRaises(JjcSyncMatchDetailClaimError):
+            await service._sync_match_detail(
+                match_id=18,
+                match_time=1810000000,
+                lease_owner="worker-1",
+            )
+
+        self.assertEqual(repo.detail_saved_calls, [])
+        self.assertEqual(repo.detail_failed_calls, [])
+
+    async def test_sync_match_detail_renews_role_lease_during_saved_detail_postprocessing(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [{
+            "status": "syncing",
+            "identity_key": "global:seed",
+            "lease_owner": "worker-1",
+            "lease_expires_at": time.time() + 3600,
+        }]
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service._sync_match_detail(
+            match_id=14,
+            match_time=1810000000,
+            lease_owner="worker-1",
+            role_identity_key="global:seed",
+        )
+
+        self.assertEqual(result, "saved")
+        self.assertGreaterEqual(len(repo.role_lease_renewals), 4)
+        self.assertTrue(all(call["lease_owner"] == "worker-1" for call in repo.role_lease_renewals))
+        self.assertGreaterEqual(len(repo.detail_lease_renewals), 4)
+        self.assertTrue(all(call["lease_owner"] == "worker-1" for call in repo.detail_lease_renewals))
+        self.assertLess(repo.events.index("upsert_role"), repo.events.index("mark_saved"))
+
+    async def test_sync_match_detail_stale_role_lease_bubbles_without_marking_failed(self) -> None:
+        repo = FakeRepo()
+        repo.renew_role_lease_result = False
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        with self.assertRaises(JjcSyncStaleLeaseError):
+            await service._sync_match_detail(
+                match_id=12,
+                match_time=1810000000,
+                lease_owner="worker-1",
+                role_identity_key="global:seed",
+            )
+
+        self.assertEqual(repo.failed_matches, [])
+        self.assertEqual(repo.detail_failed_calls, [])
+
+    async def test_sync_match_detail_stale_role_lease_before_claim_prevents_detail_lease(self) -> None:
+        repo = FakeRepo()
+        repo.renew_role_lease_result = False
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        with self.assertRaises(JjcSyncStaleLeaseError):
+            await service._sync_match_detail(
+                match_id=100,
+                match_time=1810000000,
+                lease_owner="worker-1",
+                role_identity_key="global:seed",
+            )
+
+        self.assertNotIn(100, repo.detail_states)
+        self.assertEqual(repo.detail_saved_calls, [])
+        self.assertEqual(repo.detail_failed_calls, [])
+        self.assertEqual(repo.saved_matches, [])
+        self.assertEqual(repo.failed_matches, [])
+
+    async def test_sync_match_detail_stale_detail_save_bubbles_after_player_enqueue(self) -> None:
+        repo = FakeRepo()
+        repo.mark_detail_saved_result = False
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        with self.assertRaises(JjcSyncStaleLeaseError):
+            await service._sync_match_detail(
+                match_id=13,
+                match_time=1810000000,
+                lease_owner="worker-1",
+            )
+
+        self.assertEqual(repo.detail_saved_calls[0]["lease_owner"], "worker-1")
+        self.assertEqual(len(repo.upserted_roles), 1)
+        self.assertLess(repo.events.index("upsert_role"), repo.events.index("mark_saved"))
+
+    async def test_sync_match_detail_postprocess_failure_marks_failed_without_saved(self) -> None:
+        repo = FakeRepo()
+        repo.upsert_role_exception = RuntimeError("postprocess_down")
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service._sync_match_detail(
+            match_id=16,
+            match_time=1810000000,
+            lease_owner="worker-1",
+            max_attempts=1,
+        )
+
+        self.assertEqual(result, "failed")
+        self.assertEqual(repo.detail_saved_calls, [])
+        self.assertEqual(repo.failed_matches, [16])
+        self.assertIn("postprocess_down", repo.failed_messages[16])
+
+    async def test_sync_match_detail_stale_detail_lease_before_postprocess_does_not_mark_saved(self) -> None:
+        repo = FakeRepo()
+        repo.renew_match_detail_lease_result = False
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        with self.assertRaises(JjcSyncStaleLeaseError):
+            await service._sync_match_detail(
+                match_id=17,
+                match_time=1810000000,
+                lease_owner="worker-1",
+            )
+
+        self.assertEqual(repo.detail_saved_calls, [])
+        self.assertEqual(repo.upserted_roles, [])
+
+    async def test_worker_tick_stale_detail_lease_requeues_role_without_failure_release(self) -> None:
+        repo = FakeRepo()
+        repo.mark_detail_saved_result = False
+        repo.claimed_queued_role = {
+            "status": "queued",
+            "identity_key": "global:seed",
+            "server": "梦江南",
+            "name": "种子",
+            "global_role_id": "seed",
+        }
+        history = FakeHistoryClient([
+            {"data": [{"match_id": 15, "match_time": 1810000000, "pvpType": 3}]}
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.worker_tick(mode="incremental_or_full", worker_id="worker-1")
+
+        self.assertFalse(result["processed"])
+        self.assertTrue(result["result"]["stale_detail_lease"])
+        self.assertEqual(repo.interrupted_release["identity_key"], "global:seed")
+        self.assertTrue(repo.interrupted_release["requeue"])
+        self.assertEqual(repo.interrupted_release["lease_owner"], "worker-1")
+        self.assertIsNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
 
     async def test_enqueue_players_from_detail_uses_match_detail_source(self) -> None:
         repo = FakeRepo()
@@ -564,6 +1515,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_full_sync_reaches_season_start_and_releases_success(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -601,6 +1553,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_incremental_sync_stops_at_watermark(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -634,6 +1587,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_detail_failure_does_not_fail_role_continues_to_success(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -660,9 +1614,75 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(repo.failure_release)
         self.assertIn(20, repo.failed_matches)
 
+    async def test_detail_claim_error_requeues_role_without_advancing_waterline(self) -> None:
+        repo = FakeRepo()
+        repo.claim_match_detail_exception = RuntimeError("mongo_claim_down")
+        repo.roles = [{
+            "status": "queued",
+            "identity_key": "global:seed",
+            "server": "梦江南",
+            "name": "种子",
+            "global_role_id": "seed",
+        }]
+        history = FakeHistoryClient([
+            {"data": [{"match_id": 21, "match_time": 1810000000, "pvpType": 3}]}
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.run_once()
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["processed_roles"], 0)
+        self.assertEqual(result["failed_roles"], 0)
+        self.assertEqual(result["failed_details"], 0)
+        self.assertEqual(repo.interrupted_release["identity_key"], "global:seed")
+        self.assertIn("mongo_claim_down", repo.interrupted_release["reason"])
+        self.assertTrue(repo.interrupted_release["requeue"])
+        self.assertIsNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
+
+    async def test_worker_tick_detail_claim_error_requeues_role_without_counting_processed(self) -> None:
+        repo = FakeRepo()
+        repo.claim_match_detail_exception = RuntimeError("mongo_claim_down")
+        repo.claimed_queued_role = {
+            "status": "queued",
+            "identity_key": "global:seed",
+            "server": "梦江南",
+            "name": "种子",
+            "global_role_id": "seed",
+        }
+        history = FakeHistoryClient([
+            {"data": [{"match_id": 22, "match_time": 1810000000, "pvpType": 3}]}
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.worker_tick(mode="incremental_or_full", worker_id="worker-1")
+
+        self.assertFalse(result["processed"])
+        self.assertTrue(result["result"]["interrupted"])
+        self.assertEqual(result["result"]["error_type"], "match_detail_claim_failed")
+        self.assertEqual(repo.interrupted_release["identity_key"], "global:seed")
+        self.assertIsNone(repo.success_release)
+        self.assertIsNone(repo.failure_release)
+
     async def test_detail_transient_failure_retries_then_succeeds(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -694,6 +1714,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_detail_transient_failure_exhausted_marks_failed(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -725,6 +1746,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_unavailable_detail_marks_unavailable_without_player_enqueue(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -750,6 +1772,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["saved_details"], 0)
         self.assertEqual(repo.upserted_roles, [])
         self.assertIn(60, repo.unavailable_matches)
+        self.assertTrue(repo.detail_unavailable_calls[0]["lease_owner"])
         self.assertNotIn(60, repo.failed_matches)
         self.assertIsNotNone(repo.success_release)
         self.assertIsNone(repo.failure_release)
@@ -757,6 +1780,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_run_once_aggregates_failed_and_unavailable_details(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -791,6 +1815,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_failed_detail_continues_to_next_page(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -828,12 +1853,13 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_existing_detail_claim_is_skipped(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
             "global_role_id": "seed",
         }]
-        repo.claim_detail_skips.add(30)
+        repo.saved_matches.append(30)
         inspect_service = FakeInspectService()
         history = FakeHistoryClient([
             {"data": [{"match_id": 30, "match_time": 1810000000, "pvpType": 3}]}
@@ -857,6 +1883,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_history_error_fails_role(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -881,6 +1908,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_missing_global_role_id_is_resolved_before_history_request(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "name:梦江南:种子",
             "server": "梦江南",
             "name": "种子",
@@ -919,6 +1947,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repo.identity_updates[0]["global_id"], "global-resolved")
         self.assertEqual(repo.identity_updates[0]["global_role_id"], "gid-resolved")
         self.assertEqual(repo.identity_updates[0]["identity_key"], "name:梦江南:种子")
+        self.assertTrue(str(repo.identity_updates[0]["lease_owner"]).startswith("jjc-sync-worker:"))
         self.assertEqual(identity_repo.upserted[0]["global_id"], "global-resolved")
         self.assertEqual(identity_repo.upserted[0]["global_role_id"], "gid-resolved")
         self.assertGreaterEqual(sleep.count, 3)
@@ -926,6 +1955,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_missing_global_role_id_uses_person_history_before_inspect_resolver(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "name:梦江南:种子",
             "server": "梦江南",
             "name": "种子",
@@ -971,6 +2001,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_missing_global_role_id_finds_person_history_identity_on_later_page(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "name:梦江南:种子",
             "server": "梦江南",
             "name": "种子",
@@ -1064,6 +2095,67 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([call["cursor"] for call in person_history.calls], [0, 20])
         self.assertEqual(sleep.count, 1)
 
+    async def test_person_history_pages_stop_at_max_pages(self) -> None:
+        person_history = FakePersonHistoryClient([
+            {"data": [{"person_id": "pid-a", "global_role_id": "gid-other", "role_name": "其他1", "server": "梦江南"}]},
+            {"data": [{"person_id": "pid-a", "global_role_id": "gid-other-2", "role_name": "其他2", "server": "梦江南"}]},
+            {"data": [{"person_id": "pid-a", "global_role_id": "gid-page-3", "role_name": "种子", "server": "梦江南"}]},
+        ])
+        service = JjcMatchDataSyncService(
+            repo=FakeRepo(),
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            person_match_history_client=person_history,
+            sleep_func=_noop_sleep,
+        )
+        renew_calls: List[bool] = []
+
+        async def renew(force: bool = False) -> None:
+            renew_calls.append(force)
+
+        identity = await service._resolve_identity_from_person_history_pages(
+            person_id="pid-a",
+            expected_server="梦江南",
+            expected_role_name="种子",
+            max_pages=2,
+            lease_renewer=renew,
+        )
+
+        self.assertEqual(identity, {})
+        self.assertEqual([call["cursor"] for call in person_history.calls], [0, 20])
+        self.assertGreaterEqual(len(renew_calls), 2)
+
+    async def test_role_person_history_passes_lease_renewer(self) -> None:
+        person_history = FakePersonHistoryClient([
+            {
+                "data": [{
+                    "person_id": "pid-a",
+                    "global_role_id": "gid-person",
+                    "role_name": "种子",
+                    "server": "梦江南",
+                }]
+            }
+        ])
+        service = JjcMatchDataSyncService(
+            repo=FakeRepo(),
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            person_match_history_client=person_history,
+            sleep_func=_noop_sleep,
+        )
+        renew_calls: List[bool] = []
+
+        async def renew(force: bool = False) -> None:
+            renew_calls.append(force)
+
+        identity = await service._resolve_role_identity_from_person_history(
+            {"server": "梦江南", "name": "种子", "person_id": "pid-a"},
+            lease_renewer=renew,
+        )
+
+        self.assertEqual(identity["global_role_id"], "gid-person")
+        self.assertGreaterEqual(len(renew_calls), 1)
+
     async def test_match_detail_identity_uses_match_time_as_observed_at(self) -> None:
         repo = FakeRepo()
         identity_repo = FakeIdentityRepo()
@@ -1100,6 +2192,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_identity_resolution_failure_fails_role_before_history_request(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "name:梦江南:种子",
             "server": "梦江南",
             "name": "种子",
@@ -1630,6 +2723,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         """role missing global_role_id, person-history mismatches → falls through to inspect resolver"""
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "name:梦江南:种子",
             "server": "梦江南",
             "name": "种子",
@@ -2049,6 +3143,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_replay_failure_does_not_fail_detail_save(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -2077,6 +3172,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
     async def test_indicator_failure_does_not_fail_detail_save(self) -> None:
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",
@@ -2165,6 +3261,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         """Service works fine when replay/indicator clients are None (backwards compat)."""
         repo = FakeRepo()
         repo.roles = [{
+            "status": "queued",
             "identity_key": "global:seed",
             "server": "梦江南",
             "name": "种子",

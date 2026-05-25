@@ -6,6 +6,7 @@
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/jjc-role-global-id-governance-plan.md`: JJC 角色 replay `global_id` 主键治理、防回流、重建与审计收敛总体计划
+- `active/jjc-sync-worker-queue-redesign-plan.md`: JJC 对局同步 worker 多进程队列、优先级和队列页面重设计计划
 
 ## Superseded
 

@@ -92,6 +92,141 @@ class JjcSyncRepo:
 
     # ---- 角色队列操作 ----
 
+    @staticmethod
+    def _leased_role_filter(
+        identity_key: str,
+        lease_owner: Optional[str] = None,
+        now: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        filter_doc: Dict[str, Any] = {"identity_key": identity_key}
+        if lease_owner is not None:
+            filter_doc["status"] = "syncing"
+            filter_doc["lease_owner"] = lease_owner
+            if now is not None:
+                filter_doc["lease_expires_at"] = {"$gt": now}
+        return filter_doc
+
+    @staticmethod
+    def _leased_match_detail_filter(
+        match_id: int,
+        lease_owner: Optional[str] = None,
+        now: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        filter_doc: Dict[str, Any] = {"match_id": match_id}
+        if lease_owner is not None:
+            filter_doc["status"] = "detail_syncing"
+            filter_doc["lease_owner"] = lease_owner
+            if now is not None:
+                filter_doc["lease_expires_at"] = {"$gt": now}
+        return filter_doc
+
+    async def _update_existing_role_from_upsert(
+        self,
+        existing: Dict[str, Any],
+        existing_key: str,
+        identity_key: str,
+        legacy_keys: List[str],
+        *,
+        server: str,
+        name: str,
+        normalized_server: str,
+        normalized_name: str,
+        global_role_id: Optional[str],
+        role_id: Optional[str],
+        person_id: Optional[str],
+        zone: Optional[str],
+        source: str,
+        priority: int,
+        season_id: Optional[str],
+        season_start_time: int,
+        global_id: Optional[str],
+        observed_match_time: Optional[int],
+        now: float,
+    ) -> str:
+        """Update an existing queue role without touching syncing non-owner rows."""
+        db = self._db()
+        existing_status = str(existing.get("status") or "")
+        if existing_status == "syncing":
+            logger.info(
+                "同步队列角色正在同步，跳过非租约 upsert 写入: identity_key={} new_key={}".format(
+                    existing_key,
+                    identity_key,
+                )
+            )
+            return existing_key
+
+        set_fields: Dict[str, Any] = {"updated_at": now}
+        set_fields.update(self._profile_update_fields(
+            existing,
+            {
+                "server": server,
+                "name": name,
+                "normalized_server": normalized_server,
+                "normalized_name": normalized_name,
+                "zone": zone,
+                "role_id": role_id,
+                "game_role_id": role_id,
+                "global_role_id": global_role_id,
+                "person_id": person_id,
+            },
+            source,
+            now,
+            observed_match_time=observed_match_time,
+        ))
+        existing_global_id = str(existing.get("global_id") or "").strip()
+        incoming_global_id = str(global_id or "").strip()
+        if existing_global_id and incoming_global_id and existing_global_id != incoming_global_id:
+            logger.warning(
+                "同步队列 global_id 冲突，跳过角色 upsert: identity_key={} existing_global_id={} incoming_global_id={}".format(
+                    existing_key,
+                    existing_global_id,
+                    incoming_global_id,
+                )
+            )
+            return existing_key
+        if global_id is not None and (not existing_global_id or existing_global_id == global_id):
+            set_fields["global_id"] = global_id
+        if season_id is not None:
+            set_fields["season_id"] = season_id
+        set_fields["season_start_time"] = season_start_time
+        if source == 'manual':
+            set_fields["source"] = 'manual'
+
+        migrate_identity_key = existing_key != identity_key
+        if migrate_identity_key:
+            set_fields["identity_key"] = identity_key
+
+        update_op: Dict[str, Any] = {
+            "$set": set_fields,
+            "$max": {"priority": priority},
+        }
+        if migrate_identity_key:
+            aliases = list(legacy_keys)
+            aliases.append(existing_key)
+            update_op["$addToSet"] = {"aliases": {"$each": sorted(set(aliases))}}
+
+        try:
+            update_result = await db.jjc_sync_role_queue.update_one(
+                {"identity_key": existing_key, "status": {"$ne": "syncing"}},
+                update_op,
+            )
+        except Exception as exc:
+            logger.warning(
+                "更新同步队列角色失败: identity_key={} error={}",
+                identity_key, exc,
+            )
+            return existing_key
+
+        if update_result.matched_count <= 0:
+            logger.info(
+                "同步队列角色 upsert 时租约状态变化，跳过非租约写入: existing_key={} new_key={}".format(
+                    existing_key,
+                    identity_key,
+                )
+            )
+            return existing_key
+        return identity_key if migrate_identity_key else existing_key
+
     async def upsert_role(
         self,
         server: str,
@@ -141,70 +276,27 @@ class JjcSyncRepo:
                 existing_key = existing.get("identity_key") or identity_key
 
         if existing:
-            # 已有角色：更新身份字段，不重置同步水位
-            set_fields: Dict[str, Any] = {
-                "updated_at": now,
-            }
-            set_fields.update(self._profile_update_fields(
+            return await self._update_existing_role_from_upsert(
                 existing,
-                {
-                    "server": server,
-                    "name": name,
-                    "normalized_server": normalized_server,
-                    "normalized_name": normalized_name,
-                    "zone": zone,
-                    "role_id": role_id,
-                    "game_role_id": role_id,
-                    "global_role_id": global_role_id,
-                    "person_id": person_id,
-                },
-                source,
-                now,
+                existing_key,
+                identity_key,
+                legacy_keys,
+                server=server,
+                name=name,
+                normalized_server=normalized_server,
+                normalized_name=normalized_name,
+                global_role_id=global_role_id,
+                role_id=role_id,
+                person_id=person_id,
+                zone=zone,
+                source=source,
+                priority=priority,
+                season_id=season_id,
+                season_start_time=season_start_time,
+                global_id=global_id,
                 observed_match_time=observed_match_time,
-            ))
-            existing_global_id = str(existing.get("global_id") or "").strip()
-            incoming_global_id = str(global_id or "").strip()
-            if existing_global_id and incoming_global_id and existing_global_id != incoming_global_id:
-                logger.warning(
-                    "同步队列 global_id 冲突，跳过角色 upsert: identity_key={} existing_global_id={} incoming_global_id={}".format(
-                        existing_key,
-                        existing_global_id,
-                        incoming_global_id,
-                    )
-                )
-                return existing_key
-            if global_id is not None and (not existing_global_id or existing_global_id == global_id):
-                set_fields["global_id"] = global_id
-            if season_id is not None:
-                set_fields["season_id"] = season_id
-            set_fields["season_start_time"] = season_start_time
-            if existing_key != identity_key:
-                set_fields["identity_key"] = identity_key
-
-            # 来源：仅 manual 覆盖
-            if source == 'manual':
-                set_fields["source"] = 'manual'
-
-            update_op: Dict[str, Any] = {
-                "$set": set_fields,
-                "$max": {"priority": priority},
-            }
-            if existing_key != identity_key:
-                aliases = list(legacy_keys)
-                aliases.append(existing_key)
-                update_op["$addToSet"] = {"aliases": {"$each": sorted(set(aliases))}}
-
-            try:
-                await db.jjc_sync_role_queue.update_one(
-                    {"identity_key": existing_key},
-                    update_op,
-                )
-                return identity_key
-            except Exception as exc:
-                logger.warning(
-                    "更新同步队列角色失败: identity_key={} error={}",
-                    identity_key, exc,
-                )
+                now=now,
+            )
         else:
             # 新角色
             doc: Dict[str, Any] = {
@@ -247,48 +339,37 @@ class JjcSyncRepo:
                 await db.jjc_sync_role_queue.insert_one(doc)
                 return identity_key
             except DuplicateKeyError:
-                # 并发写入，已有记录则转为更新
-                set_fields = {
-                    "server": server,
-                    "name": name,
-                    "normalized_server": normalized_server,
-                    "normalized_name": normalized_name,
-                    "updated_at": now,
-                }
-                if zone is not None:
-                    set_fields["zone"] = zone
-                if role_id is not None:
-                    set_fields["role_id"] = role_id
-                if person_id is not None:
-                    set_fields["person_id"] = person_id
-                if global_role_id is not None:
-                    set_fields["global_role_id"] = global_role_id
-                if global_id is not None:
-                    set_fields["global_id"] = global_id
-                if season_id is not None:
-                    set_fields["season_id"] = season_id
-                set_fields["season_start_time"] = season_start_time
-
-                # 来源：仅 manual 覆盖
-                if source == 'manual':
-                    set_fields["source"] = 'manual'
-
-                update_op = {
-                    "$set": set_fields,
-                    "$max": {"priority": priority},
-                }
-
-                try:
-                    await db.jjc_sync_role_queue.update_one(
-                        {"identity_key": identity_key},
-                        update_op,
+                existing = await db.jjc_sync_role_queue.find_one({"identity_key": identity_key})
+                existing_key = identity_key
+                if existing is None and global_id and legacy_keys:
+                    existing = await db.jjc_sync_role_queue.find_one({"identity_key": {"$in": legacy_keys}})
+                    if existing is not None:
+                        existing_key = existing.get("identity_key") or identity_key
+                if existing is not None:
+                    return await self._update_existing_role_from_upsert(
+                        existing,
+                        existing_key,
+                        identity_key,
+                        legacy_keys,
+                        server=server,
+                        name=name,
+                        normalized_server=normalized_server,
+                        normalized_name=normalized_name,
+                        global_role_id=global_role_id,
+                        role_id=role_id,
+                        person_id=person_id,
+                        zone=zone,
+                        source=source,
+                        priority=priority,
+                        season_id=season_id,
+                        season_start_time=season_start_time,
+                        global_id=global_id,
+                        observed_match_time=observed_match_time,
+                        now=now,
                     )
-                    return identity_key
-                except Exception as exc:
-                    logger.warning(
-                        "并发写入后更新同步队列角色失败: identity_key={} error={}",
-                        identity_key, exc,
-                    )
+                logger.warning("并发写入后未找到同步队列角色: identity_key={}", identity_key)
+                return identity_key
+
 
     async def claim_next_roles(
         self,
@@ -296,38 +377,204 @@ class JjcSyncRepo:
         lease_owner: str = 'default',
         lease_seconds: int = 600,
     ) -> List[Dict[str, Any]]:
-        """原子领取可执行角色，按 priority 降序排序。
-
-        查找 pending/cooldown/exhausted 且 next_sync_after <= now（或 None）的角色，
-        逐个原子更新为 status='syncing'，设置租约信息。
-        返回成功领取的角色列表。
-        """
-        db = self._db()
-        now = time.time()
+        """兼容旧调用：只从 queued 队列领取角色。"""
         claimed: List[Dict[str, Any]] = []
 
         for _ in range(limit):
-            doc = await db.jjc_sync_role_queue.find_one_and_update(
-                filter={
-                    "status": {"$in": ["pending", "cooldown", "exhausted"]},
-                    "$or": [
-                        {"next_sync_after": None},
-                        {"next_sync_after": {"$lte": now}},
-                    ],
-                },
-                update={"$set": {
-                    "status": "syncing",
-                    "lease_owner": lease_owner,
-                    "lease_expires_at": now + lease_seconds,
-                }},
-                sort=[("priority", -1)],
-                return_document=ReturnDocument.AFTER,
+            doc = await self.claim_queued_role(
+                lease_owner=lease_owner,
+                lease_seconds=lease_seconds,
             )
             if doc is None:
                 break
             claimed.append(doc)
 
         return claimed
+
+    async def enqueue_next_roles(
+        self,
+        limit: int,
+        mode: str,
+        source: str,
+        batch_id: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        """将下一批可同步角色原子转入 queued 状态。
+
+        候选角色来自 pending/cooldown/exhausted/failed，且 next_sync_after 为空或已到期。
+        每次用 find_one_and_update 领取一个候选，保证多入口并发入队时不会重复处理同一角色。
+        """
+        if limit < 1:
+            return []
+
+        db = self._db()
+        enqueued: List[Dict[str, Any]] = []
+
+        for _ in range(limit):
+            now = time.time()
+            try:
+                doc = await db.jjc_sync_role_queue.find_one_and_update(
+                    filter={
+                        "status": {"$in": ["pending", "cooldown", "exhausted", "failed"]},
+                        "$or": [
+                            {"next_sync_after": None},
+                            {"next_sync_after": {"$lte": now}},
+                        ],
+                    },
+                    update={"$set": {
+                        "status": "queued",
+                        "queued_at": now,
+                        "queue_batch_id": batch_id,
+                        "queue_mode": mode,
+                        "queue_source": source,
+                        "lease_owner": None,
+                        "lease_expires_at": None,
+                        "updated_at": now,
+                    }},
+                    sort=[("priority", -1), ("updated_at", 1)],
+                    return_document=ReturnDocument.AFTER,
+                )
+            except Exception as exc:
+                logger.warning("批量入队同步角色失败: error={}", exc)
+                break
+
+            if doc is None:
+                break
+            enqueued.append(doc)
+
+        return enqueued
+
+    async def enqueue_role(
+        self,
+        identity_key: str,
+        mode: str,
+        source: str,
+        batch_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """将指定的非 disabled、非 syncing 角色转入 queued 状态。"""
+        db = self._db()
+        now = time.time()
+
+        try:
+            return await db.jjc_sync_role_queue.find_one_and_update(
+                filter={
+                    "identity_key": identity_key,
+                    "status": {"$nin": ["disabled", "syncing"]},
+                },
+                update={"$set": {
+                    "status": "queued",
+                    "queued_at": now,
+                    "queue_batch_id": batch_id,
+                    "queue_mode": mode,
+                    "queue_source": source,
+                    "lease_owner": None,
+                    "lease_expires_at": None,
+                    "updated_at": now,
+                }},
+                return_document=ReturnDocument.AFTER,
+            )
+        except Exception as exc:
+            logger.warning(
+                "指定同步角色入队失败: identity_key={} error={}",
+                identity_key, exc,
+            )
+            return None
+
+    async def claim_queued_role(
+        self,
+        lease_owner: str,
+        lease_seconds: int,
+    ) -> Optional[Dict[str, Any]]:
+        """原子领取一个 queued 角色，按 priority 降序、queued_at 升序。"""
+        db = self._db()
+        now = time.time()
+
+        try:
+            return await db.jjc_sync_role_queue.find_one_and_update(
+                filter={"status": "queued"},
+                update={"$set": {
+                    "status": "syncing",
+                    "lease_owner": lease_owner,
+                    "lease_expires_at": now + lease_seconds,
+                    "updated_at": now,
+                }},
+                sort=[("priority", -1), ("queued_at", 1)],
+                return_document=ReturnDocument.AFTER,
+            )
+        except Exception as exc:
+            logger.warning("领取 queued 同步角色失败: owner={} error={}", lease_owner, exc)
+            return None
+
+    async def release_role_interrupted(
+        self,
+        identity_key: str,
+        reason: str,
+        requeue: bool = True,
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        """释放被中断的角色，不增加 fail_count。"""
+        db = self._db()
+        now = time.time()
+        set_fields: Dict[str, Any] = {
+            "status": "queued" if requeue else "pending",
+            "next_sync_after": None,
+            "lease_owner": None,
+            "lease_expires_at": None,
+            "interrupted_reason": reason,
+            "interrupted_at": now,
+            "updated_at": now,
+        }
+        if requeue:
+            set_fields["queued_at"] = now
+            set_fields["queue_batch_id"] = None
+            set_fields["queue_source"] = "interrupted"
+        else:
+            set_fields["queued_at"] = None
+            set_fields["queue_batch_id"] = None
+            set_fields["queue_mode"] = None
+            set_fields["queue_source"] = None
+
+        try:
+            result = await db.jjc_sync_role_queue.update_one(
+                self._leased_role_filter(identity_key, lease_owner, now=now),
+                {"$set": set_fields},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning(
+                "释放中断同步角色失败: identity_key={} error={}",
+                identity_key, exc,
+            )
+            return False
+
+    async def update_role_priority(
+        self,
+        identity_key: str,
+        priority: int,
+        updated_by: Optional[str] = None,
+    ) -> bool:
+        """更新角色调度优先级。"""
+        db = self._db()
+        now = time.time()
+        set_fields: Dict[str, Any] = {
+            "priority": priority,
+            "priority_updated_at": now,
+            "updated_at": now,
+        }
+        if updated_by is not None:
+            set_fields["priority_updated_by"] = updated_by
+
+        try:
+            result = await db.jjc_sync_role_queue.update_one(
+                {"identity_key": identity_key},
+                {"$set": set_fields},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning(
+                "更新同步角色优先级失败: identity_key={} error={}",
+                identity_key, exc,
+            )
+            return False
 
     async def claim_specific_role(
         self,
@@ -368,7 +615,8 @@ class JjcSyncRepo:
         history_exhausted: Optional[bool] = None,
         season_id: Optional[str] = None,
         last_cursor: int = 0,
-    ) -> None:
+        lease_owner: Optional[str] = None,
+    ) -> bool:
         """释放角色（同步成功）。
 
         如果 history_exhausted=True: status='exhausted', next_sync_after=now+6h
@@ -402,21 +650,24 @@ class JjcSyncRepo:
             set_fields["history_exhausted"] = history_exhausted
 
         try:
-            await db.jjc_sync_role_queue.update_one(
-                {"identity_key": identity_key},
+            result = await db.jjc_sync_role_queue.update_one(
+                self._leased_role_filter(identity_key, lease_owner, now=now),
                 {"$set": set_fields},
             )
+            return result.matched_count > 0
         except Exception as exc:
             logger.warning(
                 "释放同步角色(成功)失败: identity_key={} error={}",
                 identity_key, exc,
             )
+            return False
 
     async def release_role_failure(
         self,
         identity_key: str,
         error_message: str = '',
-    ) -> None:
+        lease_owner: Optional[str] = None,
+    ) -> bool:
         """释放角色（同步失败）。
 
         累加 fail_count。fail_count >= 3 时状态变为 failed，next_sync_after=now+30min，
@@ -425,10 +676,14 @@ class JjcSyncRepo:
         db = self._db()
         now = time.time()
 
+        role_filter = self._leased_role_filter(identity_key, lease_owner, now=now)
         existing = await db.jjc_sync_role_queue.find_one(
-            {"identity_key": identity_key},
+            role_filter,
             {"fail_count": 1},
         )
+        if existing is None and lease_owner is not None:
+            return False
+
         current_fail_count: int = 0
         if existing is not None:
             current_fail_count = existing.get("fail_count", 0) or 0
@@ -443,8 +698,8 @@ class JjcSyncRepo:
             next_sync = None
 
         try:
-            await db.jjc_sync_role_queue.update_one(
-                {"identity_key": identity_key},
+            result = await db.jjc_sync_role_queue.update_one(
+                role_filter,
                 {"$set": {
                     "status": new_status,
                     "next_sync_after": next_sync,
@@ -455,11 +710,41 @@ class JjcSyncRepo:
                     "updated_at": now,
                 }},
             )
+            return result.matched_count > 0
         except Exception as exc:
             logger.warning(
                 "释放同步角色(失败)失败: identity_key={} error={}",
                 identity_key, exc,
             )
+            return False
+
+    async def renew_role_lease(
+        self,
+        identity_key: str,
+        lease_owner: str,
+        lease_seconds: int,
+    ) -> bool:
+        """续租正在同步的角色；仅当前租约 owner 可以续租。"""
+        db = self._db()
+        now = time.time()
+
+        try:
+            result = await db.jjc_sync_role_queue.update_one(
+                self._leased_role_filter(identity_key, lease_owner, now=now),
+                {"$set": {
+                    "lease_expires_at": now + lease_seconds,
+                    "updated_at": now,
+                }},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning(
+                "续租同步角色失败: identity_key={} owner={} error={}",
+                identity_key,
+                lease_owner,
+                exc,
+            )
+            return False
 
     async def update_role_identity_fields(
         self,
@@ -471,12 +756,16 @@ class JjcSyncRepo:
         identity_source: Optional[str] = None,
         global_id: Optional[str] = None,
         observed_match_time: Optional[int] = None,
+        lease_owner: Optional[str] = None,
     ) -> bool:
         """补充同步队列角色的外部身份字段，不改变同步水位或 identity_key。"""
         db = self._db()
         now = time.time()
+        role_filter = self._leased_role_filter(identity_key, lease_owner, now=now)
         set_fields: Dict[str, Any] = {"updated_at": now}
-        existing = await db.jjc_sync_role_queue.find_one({"identity_key": identity_key}) or {}
+        existing = await db.jjc_sync_role_queue.find_one(role_filter) or {}
+        if lease_owner is not None and not existing:
+            return False
 
         existing_global_id = str(existing.get("global_id") or "").strip()
         if global_id and (not existing_global_id or existing_global_id == global_id):
@@ -502,7 +791,7 @@ class JjcSyncRepo:
 
         try:
             result = await db.jjc_sync_role_queue.update_one(
-                {"identity_key": identity_key},
+                role_filter,
                 {"$set": set_fields},
             )
             return result.matched_count > 0
@@ -523,11 +812,13 @@ class JjcSyncRepo:
         identity_source: Optional[str] = None,
         global_id: Optional[str] = None,
         observed_match_time: Optional[int] = None,
+        lease_owner: Optional[str] = None,
     ) -> Optional[str]:
         """补充同步队列身份字段；拿到 global_id 时迁移 identity_key 并保留水位。"""
         db = self._db()
         now = time.time()
-        existing = await db.jjc_sync_role_queue.find_one({"identity_key": identity_key})
+        role_filter = self._leased_role_filter(identity_key, lease_owner, now=now)
+        existing = await db.jjc_sync_role_queue.find_one(role_filter)
         if not existing:
             return None
         existing_global_id = str(existing.get("global_id") or "").strip()
@@ -594,10 +885,12 @@ class JjcSyncRepo:
             update_op["$addToSet"] = {"aliases": {"$each": aliases}}
 
         try:
-            await db.jjc_sync_role_queue.update_one(
-                {"identity_key": identity_key},
+            result = await db.jjc_sync_role_queue.update_one(
+                role_filter,
                 update_op,
             )
+            if result.matched_count <= 0:
+                return None
             return new_key
         except Exception as exc:
             logger.warning(
@@ -647,7 +940,7 @@ class JjcSyncRepo:
     async def recover_expired_leases(self) -> int:
         """恢复过期的角色租约和 match_detail 租约。
 
-        - 角色：status='syncing' 且 lease_expires_at < now → status='pending'，清除租约
+        - 角色：status='syncing' 且 lease_expires_at < now → status='queued'，清除租约
         - 对局：status='detail_syncing' 且 lease_expires_at < now → status='discovered'，清除租约
         返回恢复的文档总数。
         """
@@ -663,7 +956,10 @@ class JjcSyncRepo:
                     "lease_expires_at": {"$lt": now},
                 },
                 update={"$set": {
-                    "status": "pending",
+                    "status": "queued",
+                    "queued_at": now,
+                    "interrupted_reason": "lease_expired",
+                    "interrupted_at": now,
                     "lease_owner": None,
                     "lease_expires_at": None,
                     "updated_at": now,
@@ -783,9 +1079,100 @@ class JjcSyncRepo:
 
         return doc
 
+    async def get_match_detail_sync_state(self, match_id: Union[int, str]) -> Dict[str, Any]:
+        """返回对局详情同步决策状态。
+
+        action 是 service 的必需合同：
+        - skip：详情已处于终态，当前角色可跳过该对局。
+        - claimable：记录理论上可领取；claim 未命中通常代表并发竞争，当前角色应中断重试。
+        - interrupt：记录处于非终态且当前 worker 不应继续推进角色水位。
+        """
+        _match_id = self._coerce_int(match_id)
+        if _match_id is None:
+            return {
+                "exists": False,
+                "status": "invalid_match_id",
+                "action": "interrupt",
+                "terminal": False,
+                "claimable": False,
+            }
+
+        db = self._db()
+        doc = await db.jjc_sync_match_seen.find_one(
+            {"match_id": _match_id},
+            {"status": 1, "detail_retry_after": 1, "lease_owner": 1, "lease_expires_at": 1},
+        )
+        if not doc:
+            return {
+                "exists": False,
+                "status": "missing",
+                "action": "interrupt",
+                "terminal": False,
+                "claimable": False,
+            }
+
+        status = str(doc.get("status") or "")
+        now = time.time()
+        retry_after = doc.get("detail_retry_after")
+        terminal = status in ("detail_saved", "detail_unavailable")
+        claimable = status == "discovered" or (
+            status == "failed"
+            and (retry_after is None or retry_after <= now)
+        )
+        if terminal:
+            action = "skip"
+        elif claimable:
+            action = "claimable"
+        else:
+            action = "interrupt"
+        return {
+            "exists": True,
+            "status": status,
+            "action": action,
+            "terminal": terminal,
+            "claimable": claimable,
+            "detail_retry_after": retry_after,
+            "lease_owner": doc.get("lease_owner"),
+            "lease_expires_at": doc.get("lease_expires_at"),
+        }
+
+    async def release_match_detail_interrupted(
+        self,
+        match_id: Union[int, str],
+        reason: str = "",
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        """当前处理被全局暂停/中断时，owner-fenced 地把详情释放回 discovered。"""
+        _match_id = self._coerce_int(match_id)
+        if _match_id is None:
+            return False
+        db = self._db()
+        now = time.time()
+        try:
+            result = await db.jjc_sync_match_seen.update_one(
+                self._leased_match_detail_filter(_match_id, lease_owner, now=now),
+                {
+                    "$set": {
+                        "status": "discovered",
+                        "interrupted_reason": reason,
+                        "interrupted_at": now,
+                        "updated_at": now,
+                    },
+                    "$unset": {"lease_owner": "", "lease_expires_at": ""},
+                },
+            )
+            return bool(getattr(result, "matched_count", 0))
+        except Exception as exc:
+            logger.warning(
+                "释放对局详情中断状态失败: match_id={} owner={} error={}",
+                _match_id, lease_owner, exc,
+            )
+            return False
+
     async def mark_match_detail_saved(
         self,
         match_id: Union[int, str],
+        lease_owner: Optional[str] = None,
     ) -> bool:
         """标记对局详情已保存。
 
@@ -801,8 +1188,8 @@ class JjcSyncRepo:
         now = time.time()
 
         try:
-            await db.jjc_sync_match_seen.update_one(
-                {"match_id": _match_id},
+            result = await db.jjc_sync_match_seen.update_one(
+                self._leased_match_detail_filter(_match_id, lease_owner, now=now),
                 {"$set": {
                     "status": "detail_saved",
                     "detail_saved_at": now,
@@ -813,11 +1200,43 @@ class JjcSyncRepo:
                     "updated_at": now,
                 }},
             )
-            return True
+            return result.matched_count > 0
         except Exception as exc:
             logger.warning(
                 "标记对局详情已保存失败: match_id={} error={}",
                 _match_id, exc,
+            )
+            return False
+
+    async def renew_match_detail_lease(
+        self,
+        match_id: Union[int, str],
+        lease_owner: str,
+        lease_seconds: int,
+    ) -> bool:
+        """续租正在同步的对局详情；仅当前租约 owner 可以续租。"""
+        _match_id = self._coerce_int(match_id)
+        if _match_id is None:
+            return False
+
+        db = self._db()
+        now = time.time()
+
+        try:
+            result = await db.jjc_sync_match_seen.update_one(
+                self._leased_match_detail_filter(_match_id, lease_owner, now=now),
+                {"$set": {
+                    "lease_expires_at": now + lease_seconds,
+                    "updated_at": now,
+                }},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning(
+                "续租对局详情失败: match_id={} owner={} error={}",
+                _match_id,
+                lease_owner,
+                exc,
             )
             return False
 
@@ -826,6 +1245,7 @@ class JjcSyncRepo:
         match_id: Union[int, str],
         reason: str = '',
         code: Union[int, str] = 0,
+        lease_owner: Optional[str] = None,
     ) -> bool:
         """标记对局详情不可用（如接口返回 code!=0 的确定性不可用）。
 
@@ -842,8 +1262,8 @@ class JjcSyncRepo:
         now = time.time()
 
         try:
-            await db.jjc_sync_match_seen.update_one(
-                {"match_id": _match_id},
+            result = await db.jjc_sync_match_seen.update_one(
+                self._leased_match_detail_filter(_match_id, lease_owner, now=now),
                 {"$set": {
                     "status": "detail_unavailable",
                     "detail_unavailable_reason": reason,
@@ -855,7 +1275,7 @@ class JjcSyncRepo:
                     "updated_at": now,
                 }},
             )
-            return True
+            return result.matched_count > 0
         except Exception as exc:
             logger.warning(
                 "标记对局详情不可用失败: match_id={} error={}",
@@ -867,6 +1287,7 @@ class JjcSyncRepo:
         self,
         match_id: Union[int, str],
         error_message: str = '',
+        lease_owner: Optional[str] = None,
     ) -> bool:
         """标记对局详情同步失败。
 
@@ -881,11 +1302,14 @@ class JjcSyncRepo:
 
         db = self._db()
         now = time.time()
+        match_filter = self._leased_match_detail_filter(_match_id, lease_owner, now=now)
 
         existing = await db.jjc_sync_match_seen.find_one(
-            {"match_id": _match_id},
+            match_filter,
             {"fail_count": 1},
         )
+        if existing is None and lease_owner is not None:
+            return False
         current_fail_count: int = 0
         if existing is not None:
             current_fail_count = existing.get("fail_count", 0) or 0
@@ -903,8 +1327,8 @@ class JjcSyncRepo:
             retry_delay = 21600
 
         try:
-            await db.jjc_sync_match_seen.update_one(
-                {"match_id": _match_id},
+            result = await db.jjc_sync_match_seen.update_one(
+                match_filter,
                 {"$set": {
                     "status": "failed",
                     "fail_count": new_fail_count,
@@ -915,7 +1339,7 @@ class JjcSyncRepo:
                     "updated_at": now,
                 }},
             )
-            return True
+            return result.matched_count > 0
         except Exception as exc:
             logger.warning(
                 "标记对局详情失败: match_id={} error={}",
@@ -985,6 +1409,177 @@ class JjcSyncRepo:
             )
             return None
 
+    async def list_queue(
+        self,
+        status: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> Dict[str, Any]:
+        """分页返回角色队列文档，供状态页/API 展示。"""
+        db = self._db()
+        safe_page = max(1, page)
+        safe_page_size = min(max(1, page_size), 200)
+        skip = (safe_page - 1) * safe_page_size
+        query: Dict[str, Any] = {}
+        if status:
+            query["status"] = status
+
+        docs: List[Dict[str, Any]] = []
+        total = 0
+        try:
+            total = await db.jjc_sync_role_queue.count_documents(query)
+            cursor = (
+                db.jjc_sync_role_queue
+                .find(query)
+                .sort([
+                    ("status", 1),
+                    ("priority", -1),
+                    ("queued_at", 1),
+                    ("updated_at", -1),
+                ])
+                .skip(skip)
+                .limit(safe_page_size)
+            )
+            async for doc in cursor:
+                docs.append(doc)
+        except Exception as exc:
+            logger.warning("分页查询同步队列失败: status={} error={}", status, exc)
+
+        return {
+            "items": docs,
+            "total": total,
+            "page": safe_page,
+            "page_size": safe_page_size,
+            "has_more": safe_page * safe_page_size < total,
+        }
+
+    # ---- worker 状态操作 ----
+
+    async def register_worker(
+        self,
+        worker_id: str,
+        mode: str,
+        pid: Optional[int] = None,
+        host: Optional[str] = None,
+        status: str = "running",
+    ) -> bool:
+        """注册或刷新一个同步 worker。"""
+        db = self._db()
+        now = time.time()
+        set_fields: Dict[str, Any] = {
+            "worker_id": worker_id,
+            "mode": mode,
+            "status": status,
+            "pid": pid,
+            "host": host,
+            "heartbeat_at": now,
+            "updated_at": now,
+        }
+
+        try:
+            result = await db.jjc_sync_workers.update_one(
+                {"worker_id": worker_id},
+                {
+                    "$set": set_fields,
+                    "$setOnInsert": {"started_at": now},
+                },
+                upsert=True,
+            )
+            return result.matched_count > 0 or getattr(result, "upserted_id", None) is not None
+        except Exception as exc:
+            logger.warning("注册 JJC 同步 worker 失败: worker_id={} error={}", worker_id, exc)
+            return False
+
+    async def heartbeat_worker(
+        self,
+        worker_id: str,
+        status: str = "running",
+        current_identity_key: Optional[str] = None,
+        current_server: Optional[str] = None,
+        current_name: Optional[str] = None,
+        last_result: Optional[Dict[str, Any]] = None,
+        last_error: Optional[str] = None,
+    ) -> bool:
+        """更新 worker 心跳和当前处理状态。"""
+        db = self._db()
+        now = time.time()
+        set_fields: Dict[str, Any] = {
+            "status": status,
+            "current_identity_key": current_identity_key,
+            "current_server": current_server,
+            "current_name": current_name,
+            "heartbeat_at": now,
+            "updated_at": now,
+        }
+        if last_result is not None:
+            set_fields["last_result"] = last_result
+        if last_error is not None:
+            set_fields["last_error"] = last_error
+
+        try:
+            result = await db.jjc_sync_workers.update_one(
+                {"worker_id": worker_id},
+                {"$set": set_fields},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning("更新 JJC 同步 worker 心跳失败: worker_id={} error={}", worker_id, exc)
+            return False
+
+    async def stop_worker(
+        self,
+        worker_id: str,
+        reason: str = '',
+    ) -> bool:
+        """标记 worker 已停止。"""
+        db = self._db()
+        now = time.time()
+
+        try:
+            result = await db.jjc_sync_workers.update_one(
+                {"worker_id": worker_id},
+                {"$set": {
+                    "status": "stopped",
+                    "current_identity_key": None,
+                    "current_server": None,
+                    "current_name": None,
+                    "stop_reason": reason,
+                    "heartbeat_at": now,
+                    "updated_at": now,
+                }},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning("停止 JJC 同步 worker 失败: worker_id={} error={}", worker_id, exc)
+            return False
+
+    async def list_workers(
+        self,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """返回 worker 状态列表，按最近心跳倒序。"""
+        db = self._db()
+        safe_limit = min(max(1, limit), 200)
+        query: Dict[str, Any] = {}
+        if status:
+            query["status"] = status
+
+        docs: List[Dict[str, Any]] = []
+        try:
+            cursor = (
+                db.jjc_sync_workers
+                .find(query)
+                .sort("heartbeat_at", -1)
+                .limit(safe_limit)
+            )
+            async for doc in cursor:
+                docs.append(doc)
+        except Exception as exc:
+            logger.warning("查询 JJC 同步 worker 列表失败: status={} error={}", status, exc)
+
+        return docs
+
     # ---- 全局状态操作 ----
 
     async def set_paused(self, paused: bool, reason: str = '') -> bool:
@@ -1027,3 +1622,20 @@ class JjcSyncRepo:
         except Exception as exc:
             logger.warning("读取全局暂停状态失败: error={}", exc)
             return False
+
+    async def get_pause_state(self) -> Dict[str, Any]:
+        """读取全局暂停状态详情。"""
+        db = self._db()
+
+        try:
+            doc = await db.jjc_sync_state.find_one({"key": "global"})
+            if doc is None:
+                return {"paused": False, "reason": "", "updated_at": None}
+            return {
+                "paused": bool(doc.get("paused", False)),
+                "reason": doc.get("reason") or "",
+                "updated_at": doc.get("updated_at"),
+            }
+        except Exception as exc:
+            logger.warning("读取全局暂停状态详情失败: error={}", exc)
+            return {"paused": False, "reason": "", "updated_at": None}

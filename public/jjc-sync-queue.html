@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JJC 同步队列</title>
+    <style>
+        :root {
+            --bg: #f5f6f8;
+            --panel: #ffffff;
+            --line: #d8dde6;
+            --ink: #1f2937;
+            --muted: #667085;
+            --accent: #2563eb;
+            --accent-soft: #eff6ff;
+            --danger: #b42318;
+            --danger-soft: #fef3f2;
+            --ok: #067647;
+            --ok-soft: #ecfdf3;
+            --warn: #b54708;
+            --warn-soft: #fffaeb;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+            font-size: 14px;
+        }
+
+        button,
+        select {
+            font: inherit;
+        }
+
+        .page {
+            width: min(1680px, 100%);
+            margin: 0 auto;
+            padding: 18px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 14px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 22px;
+            line-height: 1.25;
+            font-weight: 700;
+        }
+
+        .subtext {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .field {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        select,
+        button {
+            min-height: 34px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #ffffff;
+            color: var(--ink);
+            padding: 0 10px;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        button.primary {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: #ffffff;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .status-line {
+            min-height: 24px;
+            margin-bottom: 12px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .status-line.error {
+            color: var(--danger);
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .metric {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--panel);
+            padding: 12px;
+            min-height: 72px;
+        }
+
+        .metric-label {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .metric-value {
+            margin-top: 8px;
+            font-size: 24px;
+            line-height: 1;
+            font-weight: 700;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(360px, 0.85fr) minmax(620px, 2fr);
+            gap: 14px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--panel);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .panel-title {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .panel-meta {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .table-wrap {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        th,
+        td {
+            padding: 9px 10px;
+            border-bottom: 1px solid #edf0f5;
+            text-align: left;
+            vertical-align: top;
+            overflow-wrap: anywhere;
+        }
+
+        th {
+            color: var(--muted);
+            background: #fafbfc;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        tbody tr:hover {
+            background: #fafcff;
+        }
+
+        .empty {
+            padding: 24px 12px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            min-height: 22px;
+            border-radius: 999px;
+            padding: 2px 8px;
+            background: #f2f4f7;
+            color: #344054;
+            font-size: 12px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .badge.pending,
+        .badge.queued {
+            background: var(--accent-soft);
+            color: var(--accent);
+        }
+
+        .badge.syncing {
+            background: var(--warn-soft);
+            color: var(--warn);
+        }
+
+        .badge.cooldown,
+        .badge.exhausted {
+            background: #f4f3ff;
+            color: #5925dc;
+        }
+
+        .badge.failed {
+            background: var(--danger-soft);
+            color: var(--danger);
+        }
+
+        .badge.online,
+        .badge.starting,
+        .badge.running,
+        .badge.idle,
+        .badge.ok {
+            background: var(--ok-soft);
+            color: var(--ok);
+        }
+
+        .badge.paused {
+            background: var(--warn-soft);
+            color: var(--warn);
+        }
+
+        .badge.stopped {
+            background: #f1f5f9;
+            color: var(--muted);
+        }
+
+        .badge.offline {
+            background: #f1f5f9;
+            color: var(--muted);
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .pager {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 10px 14px;
+            border-top: 1px solid var(--line);
+        }
+
+        @media (max-width: 960px) {
+            .page {
+                padding: 12px;
+            }
+
+            .topbar,
+            .controls {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .controls,
+            .field,
+            select,
+            button {
+                width: 100%;
+            }
+
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <div class="topbar">
+            <div>
+                <h1>JJC 同步队列</h1>
+                <div class="subtext">只读视图，每 10 秒自动刷新</div>
+            </div>
+            <div class="controls">
+                <label class="field">
+                    状态
+                    <select id="statusFilter">
+                        <option value="">全部</option>
+                        <option value="pending">pending</option>
+                        <option value="queued">queued</option>
+                        <option value="syncing">syncing</option>
+                        <option value="cooldown">cooldown</option>
+                        <option value="exhausted">exhausted</option>
+                        <option value="failed">failed</option>
+                        <option value="disabled">disabled</option>
+                    </select>
+                </label>
+                <label class="field">
+                    每页
+                    <select id="pageSize">
+                        <option value="20">20</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                    </select>
+                </label>
+                <button id="refreshButton" class="primary" type="button">刷新</button>
+            </div>
+        </div>
+
+        <div id="statusLine" class="status-line">正在加载...</div>
+        <section id="summary" class="summary" aria-label="队列汇总"></section>
+
+        <div class="layout">
+            <section class="panel" aria-label="worker 心跳">
+                <div class="panel-head">
+                    <h2 class="panel-title">Worker 心跳</h2>
+                    <span id="workerCount" class="panel-meta">0 个</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 32%;">Worker</th>
+                                <th style="width: 18%;">状态</th>
+                                <th style="width: 25%;">心跳</th>
+                                <th style="width: 25%;">当前任务</th>
+                            </tr>
+                        </thead>
+                        <tbody id="workerRows">
+                            <tr><td class="empty" colspan="4">暂无数据</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel" aria-label="同步队列">
+                <div class="panel-head">
+                    <h2 class="panel-title">队列角色</h2>
+                    <span id="queueCount" class="panel-meta">0 条</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 22%;">角色</th>
+                                <th style="width: 12%;">状态</th>
+                                <th style="width: 10%;">优先级</th>
+                                <th style="width: 18%;">租约 Worker</th>
+                                <th style="width: 12%;">失败</th>
+                                <th style="width: 14%;">下次同步</th>
+                                <th style="width: 12%;">更新</th>
+                            </tr>
+                        </thead>
+                        <tbody id="queueRows">
+                            <tr><td class="empty" colspan="7">暂无数据</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pager">
+                    <button id="prevPage" type="button">上一页</button>
+                    <span id="pageInfo" class="muted">第 1 页</span>
+                    <button id="nextPage" type="button">下一页</button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        (function () {
+            const state = {
+                page: 1,
+                pageSize: 50,
+                status: "",
+                total: 0,
+                hasMore: false,
+                loading: false
+            };
+
+            const els = {
+                statusLine: document.getElementById("statusLine"),
+                summary: document.getElementById("summary"),
+                workerRows: document.getElementById("workerRows"),
+                queueRows: document.getElementById("queueRows"),
+                workerCount: document.getElementById("workerCount"),
+                queueCount: document.getElementById("queueCount"),
+                pageInfo: document.getElementById("pageInfo"),
+                prevPage: document.getElementById("prevPage"),
+                nextPage: document.getElementById("nextPage"),
+                statusFilter: document.getElementById("statusFilter"),
+                pageSize: document.getElementById("pageSize"),
+                refreshButton: document.getElementById("refreshButton")
+            };
+
+            function escapeHtml(value) {
+                return String(value == null ? "" : value)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#39;");
+            }
+
+            function sumCounts(counts) {
+                if (!counts || typeof counts !== "object") {
+                    return 0;
+                }
+                return Object.values(counts).reduce(function (total, value) {
+                    const numberValue = Number(value);
+                    return total + (Number.isFinite(numberValue) ? numberValue : 0);
+                }, 0);
+            }
+
+            function formatTime(value) {
+                if (value === undefined || value === null || value === "") {
+                    return "-";
+                }
+                let dateValue = value;
+                if (typeof value === "number" || /^\d+(\.\d+)?$/.test(String(value))) {
+                    const numeric = Number(value);
+                    dateValue = numeric > 100000000000 ? numeric : numeric * 1000;
+                }
+                const date = new Date(dateValue);
+                if (Number.isNaN(date.getTime())) {
+                    return String(value);
+                }
+                return date.toLocaleString();
+            }
+
+            function badge(value) {
+                const text = value == null || value === "" ? "-" : String(value);
+                const cls = text.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+                return `<span class="badge ${escapeHtml(cls)}">${escapeHtml(text)}</span>`;
+            }
+
+            async function fetchApi(url) {
+                const response = await fetch(url, {cache: "no-store"});
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                if (!payload || payload.status_code !== 0) {
+                    throw new Error((payload && payload.status_msg) || "api_error");
+                }
+                return payload.data;
+            }
+
+            function queueUrl() {
+                const params = new URLSearchParams();
+                if (state.status) {
+                    params.set("status", state.status);
+                }
+                params.set("page", String(state.page));
+                params.set("page_size", String(state.pageSize));
+                return `/jx3bot/api/jjc/sync/queue?${params.toString()}`;
+            }
+
+            function renderSummary(data) {
+                const counts = data.counts || {};
+                const total = sumCounts(counts);
+                const paused = data.paused ? "是" : "否";
+                const background = data.background_running ? "运行中" : "未运行";
+                const metrics = [
+                    ["总数", total],
+                    ["pending", counts.pending || 0],
+                    ["queued", counts.queued || 0],
+                    ["syncing", counts.syncing || 0],
+                    ["cooldown", counts.cooldown || 0],
+                    ["exhausted", counts.exhausted || 0],
+                    ["failed", counts.failed || 0],
+                    ["暂停", paused],
+                    ["后台", background]
+                ];
+                els.summary.innerHTML = metrics.map(function (item) {
+                    return `
+                        <div class="metric">
+                            <div class="metric-label">${escapeHtml(item[0])}</div>
+                            <div class="metric-value">${escapeHtml(item[1])}</div>
+                        </div>
+                    `;
+                }).join("");
+            }
+
+            function renderWorkers(data) {
+                const workers = Array.isArray(data.items) ? data.items : [];
+                els.workerCount.textContent = `${workers.length} 个`;
+                if (!workers.length) {
+                    els.workerRows.innerHTML = `<tr><td class="empty" colspan="4">暂无 worker 心跳</td></tr>`;
+                    return;
+                }
+                els.workerRows.innerHTML = workers.map(function (worker) {
+                    const workerId = worker.worker_id || "-";
+                    const status = worker.effective_status || "-";
+                    const heartbeat = formatTime(worker.heartbeat_at);
+                    const host = worker.host || "";
+                    const pid = worker.pid || "";
+                    const workerMeta = [host, pid ? `pid ${pid}` : ""].filter(Boolean).join(" / ");
+                    const currentServer = worker.current_server || "";
+                    const currentName = worker.current_name || "";
+                    const current = currentServer || currentName
+                        ? `${currentServer || "?"}/${currentName || "?"}`
+                        : (worker.current_identity_key || "-");
+                    return `
+                        <tr>
+                            <td>
+                                <strong>${escapeHtml(workerId)}</strong>
+                                <div class="muted">${escapeHtml(workerMeta)}</div>
+                            </td>
+                            <td>${badge(status)}</td>
+                            <td>${escapeHtml(heartbeat)}</td>
+                            <td>${escapeHtml(current)}</td>
+                        </tr>
+                    `;
+                }).join("");
+            }
+
+            function renderQueue(data) {
+                const items = Array.isArray(data.items) ? data.items : [];
+                state.total = Number(data.total || 0);
+                state.hasMore = Boolean(data.has_more);
+                els.queueCount.textContent = `${state.total || items.length} 条`;
+                els.pageInfo.textContent = `第 ${state.page} 页`;
+                els.prevPage.disabled = state.loading || state.page <= 1;
+                els.nextPage.disabled = state.loading || !state.hasMore;
+
+                if (!items.length) {
+                    els.queueRows.innerHTML = `<tr><td class="empty" colspan="7">暂无队列记录</td></tr>`;
+                    return;
+                }
+
+                els.queueRows.innerHTML = items.map(function (item) {
+                    const server = item.server || "";
+                    const name = item.name || "";
+                    const identityKey = item.identity_key || "";
+                    const lease = item.lease_owner || "-";
+                    return `
+                        <tr>
+                            <td>
+                                <strong>${escapeHtml(server)} / ${escapeHtml(name)}</strong>
+                                <div class="muted">${escapeHtml(identityKey)}</div>
+                            </td>
+                            <td>${badge(item.status || "-")}</td>
+                            <td>${escapeHtml(item.priority || 0)}</td>
+                            <td>${escapeHtml(lease)}</td>
+                            <td>
+                                ${escapeHtml(item.fail_count || 0)}
+                                <div class="muted">${escapeHtml(item.last_error || "")}</div>
+                            </td>
+                            <td>${escapeHtml(formatTime(item.next_sync_after || item.lease_expires_at))}</td>
+                            <td>${escapeHtml(formatTime(item.updated_at))}</td>
+                        </tr>
+                    `;
+                }).join("");
+            }
+
+            function setLoading(loading) {
+                state.loading = loading;
+                els.refreshButton.disabled = loading;
+                els.prevPage.disabled = loading || state.page <= 1;
+                els.nextPage.disabled = loading || !state.hasMore;
+                if (loading) {
+                    els.statusLine.className = "status-line";
+                    els.statusLine.textContent = "正在加载...";
+                }
+            }
+
+            async function refresh() {
+                if (state.loading) {
+                    return;
+                }
+                setLoading(true);
+                try {
+                    const results = await Promise.all([
+                        fetchApi("/jx3bot/api/jjc/sync/status"),
+                        fetchApi("/jx3bot/api/jjc/sync/workers"),
+                        fetchApi(queueUrl())
+                    ]);
+                    renderSummary(results[0]);
+                    renderWorkers(results[1]);
+                    renderQueue(results[2]);
+                    els.statusLine.className = "status-line";
+                    els.statusLine.textContent = `已刷新：${new Date().toLocaleString()}`;
+                } catch (error) {
+                    els.statusLine.className = "status-line error";
+                    els.statusLine.textContent = `加载失败：${error.message || error}`;
+                } finally {
+                    setLoading(false);
+                }
+            }
+
+            els.statusFilter.addEventListener("change", function () {
+                state.status = els.statusFilter.value;
+                state.page = 1;
+                refresh();
+            });
+
+            els.pageSize.addEventListener("change", function () {
+                state.pageSize = Number(els.pageSize.value) || 50;
+                state.page = 1;
+                refresh();
+            });
+
+            els.refreshButton.addEventListener("click", refresh);
+            els.prevPage.addEventListener("click", function () {
+                if (state.page > 1) {
+                    state.page -= 1;
+                    refresh();
+                }
+            });
+            els.nextPage.addEventListener("click", function () {
+                if (state.hasMore) {
+                    state.page += 1;
+                    refresh();
+                }
+            });
+
+            refresh();
+            window.setInterval(refresh, 10000);
+        })();
+    </script>
+</body>
+</html>

@@ -19,6 +19,8 @@ def register(matcher: Any, sync_service: Any, admin_qq: List[int]) -> None:
             await _cmd_add(bot, event, sync_service, text)
         elif text.startswith("/jjc同步开始"):
             await _cmd_start(bot, event, sync_service, text)
+        elif text.startswith("/jjc同步优先级"):
+            await _cmd_priority(bot, event, sync_service, text)
         elif text.startswith("/jjc同步状态"):
             await _cmd_status(bot, event, sync_service)
         elif text.startswith("/jjc同步暂停"):
@@ -30,7 +32,7 @@ def register(matcher: Any, sync_service: Any, admin_qq: List[int]) -> None:
         elif text.startswith("/jjc同步单人"):
             await _cmd_sync_single(bot, event, sync_service, text)
         else:
-            await bot.send(event, "未知命令。支持: /jjc同步添加 /jjc同步开始 /jjc同步状态 /jjc同步暂停 /jjc同步恢复 /jjc同步重置 /jjc同步单人")
+            await bot.send(event, "未知命令。支持: /jjc同步添加 /jjc同步开始 /jjc同步优先级 /jjc同步状态 /jjc同步暂停 /jjc同步恢复 /jjc同步重置 /jjc同步单人")
 
 
 async def _parse_add_args(text: str):
@@ -50,10 +52,39 @@ async def _parse_add_args(text: str):
     return server, name, kwargs
 
 
+def _parse_int_kwarg(kwargs: Dict[str, str], key: str, default: int) -> Optional[int]:
+    if key not in kwargs:
+        return default
+    try:
+        return int(kwargs[key])
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_bool_kwarg(kwargs: Dict[str, str], key: str, default: bool) -> Optional[bool]:
+    value = kwargs.get(key)
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y", "是", "开启"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "否", "不", "关闭"}:
+        return False
+    return None
+
+
 async def _cmd_add(bot: Bot, event: Event, svc: Any, text: str) -> None:
     server, name, kwargs = await _parse_add_args(text)
     if not server or not name:
-        await bot.send(event, "用法: /jjc同步添加 <服务器> <角色名> [global_role_id=...] [role_id=...] [zone=...]")
+        await bot.send(event, "用法: /jjc同步添加 <服务器> <角色名> [priority=100] [queued=1] [global_role_id=...] [role_id=...] [zone=...]")
+        return
+    priority = _parse_int_kwarg(kwargs, "priority", 100)
+    if priority is None:
+        await bot.send(event, "priority 必须是整数")
+        return
+    queue = _parse_bool_kwarg(kwargs, "queued", True)
+    if queue is None:
+        await bot.send(event, "queued 必须是明确的布尔值，例如 queued=1 或 queued=0")
         return
     result = await svc.add_role(
         server=server,
@@ -61,6 +92,8 @@ async def _cmd_add(bot: Bot, event: Event, svc: Any, text: str) -> None:
         global_role_id=kwargs.get("global_role_id"),
         role_id=kwargs.get("role_id"),
         zone=kwargs.get("zone"),
+        priority=priority,
+        queue=queue,
     )
     if result["error"]:
         await bot.send(event, f"添加失败：{result['message']}")
@@ -70,6 +103,7 @@ async def _cmd_add(bot: Bot, event: Event, svc: Any, text: str) -> None:
 
 _STATUS_LABELS = {
     "pending": "待同步",
+    "queued": "排队中",
     "syncing": "同步中",
     "cooldown": "冷却中",
     "exhausted": "已完成",
@@ -87,51 +121,21 @@ async def _cmd_start(bot: Bot, event: Event, svc: Any, text: str) -> None:
     mode = parsed["mode"]
     limit = parsed["limit"]
     max_rounds = parsed["max_rounds"]
-    max_minutes = parsed["max_minutes"]
-    max_seconds = max_minutes * 60
     background = parsed["background"]
 
-    if background:
-        result = await svc.start_background_run(
-            mode=mode,
-            limit=limit,
-            max_rounds=max_rounds,
-            max_seconds=max_seconds,
-        )
-        if result.get("error"):
-            await bot.send(event, f"后台同步启动失败：{result.get('message', 'unknown_error')}")
-            return
-        rounds_text = "auto" if max_rounds is None else str(max_rounds)
-        await bot.send(
-            event,
-            "\n".join([
-                "JJC 后台批量同步已启动",
-                f"模式: {mode}",
-                f"每轮角色: {limit}",
-                f"最大轮数: {rounds_text}",
-                f"最长运行: {max_minutes}分钟",
-            ]),
-        )
-        return
-
-    if max_rounds is not None or parsed["rounds_auto"]:
-        result = await svc.run_until_idle(
-            mode=mode,
-            limit=limit,
-            max_rounds=max_rounds,
-            max_seconds=max_seconds,
-        )
-        await _send_sync_result(bot, event, result, title="JJC 同步批量结果")
-        return
-
-    result = await svc.run_once(mode=mode, limit=limit)
-    await _send_sync_result(bot, event, result, title="JJC 同步本轮结果")
+    result = await svc.enqueue_roles(mode=mode, limit=limit, source="qq_start")
+    await _send_enqueue_result(
+        bot,
+        event,
+        result,
+        ignored_legacy=bool(background or max_rounds is not None or parsed["rounds_auto"]),
+    )
 
 
 def _parse_start_args(text: str) -> Dict[str, Any]:
     parts = text.split()
     mode = "default"
-    limit = 3
+    limit = 10
     max_rounds: Optional[int] = None
     max_minutes = 60
     background = False
@@ -202,39 +206,40 @@ def _start_usage(reason: str) -> Dict[str, Any]:
         "message": (
             f"{reason}\n"
             "用法: /jjc同步开始 [default|full|incremental] "
-            "[limit=3] [rounds=1|auto] [minutes=60] [background|后台]"
+            "[limit=10]\n"
+            "说明: 当前命令只负责入队，实际处理由常驻 worker 进程领取"
         ),
     }
 
 
-async def _send_sync_result(bot: Bot, event: Event, result: Dict[str, Any], title: str) -> None:
+async def _send_enqueue_result(
+    bot: Bot,
+    event: Event,
+    result: Dict[str, Any],
+    ignored_legacy: bool = False,
+) -> None:
     if result.get("error"):
-        await bot.send(event, f"同步启动失败：{result.get('message', 'unknown_error')}")
+        await bot.send(event, f"入队失败：{result.get('message', 'unknown_error')}")
         return
 
-    lines: List[str] = [title]
+    lines: List[str] = ["JJC 同步已入队"]
     if result.get("paused"):
-        lines.append("运行状态：已暂停，本轮未执行")
-    if "rounds" in result:
-        lines.append(f"执行轮数: {result.get('rounds', 0)}")
-    if result.get("stopped_reason"):
-        lines.append(f"停止原因: {result.get('stopped_reason')}")
+        lines[0] = "JJC 同步已暂停，角色已入队但 worker 暂不领取"
+        reason = result.get("pause_reason")
+        if reason:
+            lines.append(f"暂停原因: {reason}")
+    lines.append(f"模式: {result.get('mode', 'incremental_or_full')}")
+    lines.append(f"请求入队: {result.get('limit', 0)}")
+    lines.append(f"实际入队: {result.get('enqueued_roles', 0)}")
     lines.append(f"恢复租约: {result.get('recovered_leases', 0)}")
-    lines.append(f"处理角色: {result.get('processed_roles', 0)}")
-    lines.append(f"发现对局: {result.get('discovered_matches', 0)}")
-    lines.append(f"保存详情: {result.get('saved_details', 0)}")
-    lines.append(f"跳过详情: {result.get('skipped_details', 0)}")
-    lines.append(f"详情失败: {result.get('failed_details', 0)}")
-    lines.append(f"详情不可用: {result.get('unavailable_details', 0)}")
-    lines.append(f"失败角色: {result.get('failed_roles', 0)}")
-    elapsed = result.get("elapsed_seconds")
-    if isinstance(elapsed, (int, float)):
-        lines.append(f"耗时: {elapsed:.1f}s")
-    errors = result.get("errors") or []
-    if errors:
-        lines.append("错误:")
-        for i, err in enumerate(errors[:5], 1):
-            lines.append(f"  {i}. {err}")
+    counts = result.get("counts") or {}
+    if counts:
+        queued = counts.get("queued", 0)
+        syncing = counts.get("syncing", 0)
+        lines.append(f"当前排队: {queued}，同步中: {syncing}")
+    lines.append(f"worker: {'有活跃 worker' if result.get('worker_running') else '无活跃 worker'}")
+    if ignored_legacy:
+        lines.append("提示: rounds/background 参数在队列模式下已忽略")
     await bot.send(event, "\n".join(lines))
 
 
@@ -245,7 +250,9 @@ async def _cmd_status(bot: Bot, event: Event, svc: Any) -> None:
         return
 
     lines: List[str] = ["JJC 同步状态"]
-    lines.append(f"运行状态：{'已暂停' if result['paused'] else '运行中'}")
+    lines.append(f"全局状态：{'已暂停' if result['paused'] else '未暂停'}")
+    if result.get("pause_reason"):
+        lines.append(f"暂停原因：{result.get('pause_reason')}")
 
     counts = result.get("counts", {})
     if counts:
@@ -264,16 +271,57 @@ async def _cmd_status(bot: Bot, event: Event, svc: Any) -> None:
             msg = err.get("last_error", "?")
             lines.append(f"  {i}. {srv}/{nam}: {msg}")
 
-    if result.get("background_running"):
-        lines.append("后台批量同步：运行中")
-    elif result.get("last_background_summary"):
+    if result.get("worker_running"):
+        lines.append("worker：有活跃 worker")
+    else:
+        lines.append("worker：无活跃 worker")
+
+    if result.get("background_running") and not result.get("worker_running"):
+        lines.append("兼容后台任务：运行中")
+    elif not result.get("worker_running") and result.get("last_background_summary"):
         summary = result["last_background_summary"]
         reason = summary.get("stopped_reason") or "unknown"
         rounds = summary.get("rounds", 0)
         processed = summary.get("processed_roles", 0)
         lines.append(f"最近后台批量：已停止({reason})，轮数 {rounds}，处理角色 {processed}")
 
+    workers = result.get("workers") or []
+    if workers:
+        active = [worker for worker in workers if worker.get("online")]
+        lines.append(f"worker 可见: {len(workers)}，活跃: {len(active)}")
+        for worker in workers[:5]:
+            worker_id = str(worker.get("worker_id") or "?")
+            status = str(worker.get("effective_status") or worker.get("status") or "?")
+            server = str(worker.get("current_server") or "")
+            name = str(worker.get("current_name") or "")
+            current = f" {server}/{name}" if server or name else ""
+            lines.append(f"  {worker_id}: {status}{current}")
+
     await bot.send(event, "\n".join(lines))
+
+
+async def _cmd_priority(bot: Bot, event: Event, svc: Any, text: str) -> None:
+    parts = text.split()
+    if len(parts) < 4:
+        await bot.send(event, "用法: /jjc同步优先级 <服务器> <角色名> <priority>")
+        return
+    server = parts[1]
+    name = parts[2]
+    try:
+        priority = int(parts[3])
+    except ValueError:
+        await bot.send(event, "priority 必须是整数")
+        return
+    result = await svc.set_role_priority(
+        server=server,
+        name=name,
+        priority=priority,
+        updated_by=str(getattr(event, "user_id", "")) or None,
+    )
+    if result.get("error"):
+        await bot.send(event, f"优先级调整失败：{result.get('message', 'unknown_error')}")
+    else:
+        await bot.send(event, result.get("message", f"优先级已调整为 {priority}"))
 
 
 async def _cmd_pause(bot: Bot, event: Event, svc: Any, text: str) -> None:

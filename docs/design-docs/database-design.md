@@ -590,7 +590,15 @@
 | `role_info_updated_at` | float/null | 最近一次角色信息补充写入时间 Unix 秒 |
 | `source` | string | 来源：`manual`、`ranking`、`match_detail` |
 | `priority` | int | 调度优先级，手动添加高于自动发现 |
-| `status` | string | 状态：`pending`、`syncing`、`exhausted`、`cooldown`、`failed`、`disabled` |
+| `status` | string | 状态：`pending`、`queued`、`syncing`、`exhausted`、`cooldown`、`failed`、`disabled` |
+| `queued_at` | float/null | 最近一次进入 worker 排队队列的时间 Unix 秒 |
+| `queue_batch_id` | string/null | 最近一次批量入队批次 ID |
+| `queue_mode` | string/null | 入队时指定的同步模式：`incremental_or_full`、`incremental`、`full` |
+| `queue_source` | string/null | 入队来源，如 `qq_start`、`manual_add`、`cli`、`interrupted`；中断回队列时写为 `interrupted` |
+| `priority_updated_at` | float/null | 最近一次优先级调整时间 Unix 秒 |
+| `priority_updated_by` | string/null | 最近一次优先级调整来源 |
+| `interrupted_reason` | string/null | worker 中断、暂停或鉴权失败释放回队列的原因 |
+| `interrupted_at` | float/null | 最近一次中断释放时间 Unix 秒 |
 | `season_id` | string/null | 当前赛季标识 |
 | `season_start_time` | int | 当前赛季开始时间 Unix 秒 |
 | `full_synced_until_time` | int/null | 已完整覆盖到的最新时间点 Unix 秒 |
@@ -599,7 +607,7 @@
 | `history_exhausted` | bool/null | 本赛季是否已经回溯到赛季开始 |
 | `last_cursor` | int | 最近处理 cursor |
 | `lease_owner` | string/null | 当前执行实例标识 |
-| `lease_expires_at` | float/null | 执行租约过期时间 Unix 秒，用于重启恢复 |
+| `lease_expires_at` | float/null | 执行租约过期时间 Unix 秒；过期的 `syncing` 角色会恢复为 `queued` 继续由 worker 处理 |
 | `last_synced_at` | float/null | 最近同步时间 Unix 秒 |
 | `next_sync_after` | float/null | 下一次允许同步时间 Unix 秒 |
 | `fail_count` | int | 连续失败次数 |
@@ -613,6 +621,7 @@
 |---|---|---|
 | `idx_identity_key` | `identity_key` | unique |
 | `idx_status_priority_next_sync_after` | `status`, `priority`, `next_sync_after` | 普通复合索引 |
+| `idx_status_priority_queued_at` | `status`, `priority`, `queued_at` | 普通复合索引 |
 | `idx_normalized_server_name` | `normalized_server`, `normalized_name` | 普通复合索引 |
 | `idx_global_id` | `global_id` | 普通索引 |
 | `idx_global_role_id` | `global_role_id` | 普通索引 |
@@ -681,6 +690,46 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_key` | `key` | unique |
+
+### `jjc_sync_workers`
+
+用途：记录 JJC 对局同步 worker 进程心跳、当前处理角色和最近结果，供状态命令与队列页面展示。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_sync_repo.py`
+- 同步编排：`src/services/jx3/jjc_match_data_sync.py`
+- API 入口：`src/api/routers/jjc_sync.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `worker_id` | string | worker 实例 ID，业务唯一 |
+| `mode` | string | worker 同步模式 |
+| `status` | string | 状态：`starting`、`running`、`idle`、`syncing`、`paused`、`stopped`；状态页只把 5 分钟内有心跳的非 stopped worker 视为活跃 |
+| `pid` | int/null | 进程 ID |
+| `host` | string/null | 主机名 |
+| `current_identity_key` | string/null | 当前处理角色 identity_key |
+| `current_server` | string/null | 当前处理角色服务器 |
+| `current_name` | string/null | 当前处理角色名 |
+| `started_at` | float | worker 首次注册时间 Unix 秒 |
+| `heartbeat_at` | float | 最近心跳时间 Unix 秒 |
+| `last_result` | object/null | 最近一次角色同步摘要 |
+| `last_error` | string/null | 最近 worker 或角色错误 |
+| `stop_reason` | string/null | worker 停止原因 |
+| `updated_at` | float | 更新时间 Unix 秒 |
+
+状态 API 会派生返回 `online` 与 `effective_status`：`online` 表示 `heartbeat_at` 距当前 5 分钟内且 `status` 属于 `starting/running/idle/syncing/paused`；过期心跳展示为 `effective_status=offline`，该派生字段不写入 MongoDB。
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_worker_id` | `worker_id` | unique |
+| `idx_heartbeat_at` | `heartbeat_at` | 普通索引 |
+| `idx_status_heartbeat_at` | `status`, `heartbeat_at` | 普通复合索引 |
 
 ### `announcements`
 

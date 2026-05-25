@@ -195,6 +195,11 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     )
     await _safe_index(
         "jjc_sync_role_queue",
+        [("status", 1), ("priority", -1), ("queued_at", 1)],
+        name="idx_status_priority_queued_at",
+    )
+    await _safe_index(
+        "jjc_sync_role_queue",
         [("normalized_server", 1), ("normalized_name", 1)],
         name="idx_normalized_server_name",
     )
@@ -214,6 +219,15 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
 
     # jjc_sync_state
     await _safe_index("jjc_sync_state", "key", name="idx_key", unique=True)
+
+    # jjc_sync_workers
+    await _safe_index("jjc_sync_workers", "worker_id", name="idx_worker_id", unique=True)
+    await _safe_index("jjc_sync_workers", "heartbeat_at", name="idx_heartbeat_at")
+    await _safe_index(
+        "jjc_sync_workers",
+        [("status", 1), ("heartbeat_at", -1)],
+        name="idx_status_heartbeat_at",
+    )
 
     # announcements
     await _safe_index("announcements", "announcement_id", name="idx_announcement_id", unique=True)

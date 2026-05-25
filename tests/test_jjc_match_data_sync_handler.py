@@ -23,65 +23,45 @@ class FakeBot:
 
 class FakeSyncService:
     def __init__(self) -> None:
-        self.run_modes: List[str] = []
-        self.run_limits: List[int] = []
-        self.batch_calls: List[Dict[str, Any]] = []
-        self.background_calls: List[Dict[str, Any]] = []
+        self.enqueue_calls: List[Dict[str, Any]] = []
+        self.priority_calls: List[Dict[str, Any]] = []
+        self.enqueue_result_overrides: Dict[str, Any] = {}
 
-    async def run_once(self, mode: str = "incremental_or_full", limit: int = 3) -> Dict[str, Any]:
-        self.run_modes.append(mode)
-        self.run_limits.append(limit)
-        return {
-            "error": False,
-            "recovered_leases": 1,
-            "processed_roles": 2,
-            "discovered_matches": 3,
-            "saved_details": 4,
-            "skipped_details": 5,
-            "failed_roles": 0,
-            "elapsed_seconds": 1.2,
-        }
-
-    async def run_until_idle(
+    async def enqueue_roles(
         self,
         mode: str = "incremental_or_full",
-        limit: int = 20,
-        max_rounds: Any = None,
-        max_seconds: int = 3600,
+        limit: int = 10,
+        source: str = "manual",
     ) -> Dict[str, Any]:
-        self.batch_calls.append({
-            "mode": mode,
-            "limit": limit,
-            "max_rounds": max_rounds,
-            "max_seconds": max_seconds,
-        })
-        return {
+        self.enqueue_calls.append({"mode": mode, "limit": limit, "source": source})
+        result = {
             "error": False,
-            "rounds": 2,
-            "stopped_reason": "idle",
-            "recovered_leases": 1,
-            "processed_roles": 4,
-            "discovered_matches": 3,
-            "saved_details": 4,
-            "skipped_details": 5,
-            "failed_roles": 0,
-            "elapsed_seconds": 2.4,
-        }
-
-    async def start_background_run(
-        self,
-        mode: str = "incremental_or_full",
-        limit: int = 20,
-        max_rounds: Any = None,
-        max_seconds: int = 3600,
-    ) -> Dict[str, Any]:
-        self.background_calls.append({
             "mode": mode,
             "limit": limit,
-            "max_rounds": max_rounds,
-            "max_seconds": max_seconds,
+            "enqueued_roles": 2,
+            "recovered_leases": 1,
+            "counts": {"queued": 5, "syncing": 1},
+            "workers": [{"worker_id": "w1", "status": "idle", "online": True, "effective_status": "idle"}],
+            "worker_running": True,
+            "elapsed_seconds": 0.2,
+        }
+        result.update(self.enqueue_result_overrides)
+        return result
+
+    async def set_role_priority(
+        self,
+        server: str,
+        name: str,
+        priority: int,
+        updated_by: Any = None,
+    ) -> Dict[str, Any]:
+        self.priority_calls.append({
+            "server": server,
+            "name": name,
+            "priority": priority,
+            "updated_by": updated_by,
         })
-        return {"error": False}
+        return {"error": False, "message": f"角色 {server}/{name} 优先级已调整为 {priority}"}
 
 
 class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
@@ -102,35 +82,43 @@ class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
 
         await handler._cmd_start(bot, object(), svc, "/jjc同步开始")
 
-        self.assertEqual(svc.run_modes, ["incremental_or_full"])
-        self.assertEqual(svc.run_limits, [3])
-        self.assertIn("JJC 同步本轮结果", bot.messages[0])
-        self.assertIn("处理角色: 2", bot.messages[0])
+        self.assertEqual(svc.enqueue_calls, [{"mode": "incremental_or_full", "limit": 10, "source": "qq_start"}])
+        self.assertIn("JJC 同步已入队", bot.messages[0])
+        self.assertIn("实际入队: 2", bot.messages[0])
+        self.assertIn("worker: 有活跃 worker", bot.messages[0])
 
-    async def test_start_passes_limit_to_run_once(self) -> None:
+    async def test_start_passes_limit_to_enqueue(self) -> None:
         bot = FakeBot()
         svc = FakeSyncService()
 
         await handler._cmd_start(bot, object(), svc, "/jjc同步开始 incremental limit=50")
 
-        self.assertEqual(svc.run_modes, ["incremental"])
-        self.assertEqual(svc.run_limits, [50])
+        self.assertEqual(svc.enqueue_calls, [{"mode": "incremental", "limit": 50, "source": "qq_start"}])
 
-    async def test_start_runs_batch_when_rounds_set(self) -> None:
+    async def test_start_paused_still_reports_enqueued_roles(self) -> None:
+        bot = FakeBot()
+        svc = FakeSyncService()
+        svc.enqueue_result_overrides = {
+            "paused": True,
+            "pause_reason": "更换 ticket",
+            "enqueued_roles": 2,
+        }
+
+        await handler._cmd_start(bot, object(), svc, "/jjc同步开始 limit=2")
+
+        self.assertIn("已暂停，角色已入队但 worker 暂不领取", bot.messages[0])
+        self.assertIn("暂停原因: 更换 ticket", bot.messages[0])
+        self.assertIn("实际入队: 2", bot.messages[0])
+
+    async def test_start_ignores_legacy_rounds_after_enqueue(self) -> None:
         bot = FakeBot()
         svc = FakeSyncService()
 
         await handler._cmd_start(bot, object(), svc, "/jjc同步开始 full limit=50 rounds=20 minutes=10")
 
-        self.assertEqual(svc.run_modes, [])
-        self.assertEqual(svc.batch_calls[0], {
-            "mode": "full",
-            "limit": 50,
-            "max_rounds": 20,
-            "max_seconds": 600,
-        })
-        self.assertIn("JJC 同步批量结果", bot.messages[0])
-        self.assertIn("执行轮数: 2", bot.messages[0])
+        self.assertEqual(svc.enqueue_calls, [{"mode": "full", "limit": 50, "source": "qq_start"}])
+        self.assertIn("JJC 同步已入队", bot.messages[0])
+        self.assertIn("rounds/background 参数在队列模式下已忽略", bot.messages[0])
 
     async def test_start_background_with_auto_rounds(self) -> None:
         bot = FakeBot()
@@ -138,15 +126,9 @@ class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
 
         await handler._cmd_start(bot, object(), svc, "/jjc同步开始 limit=50 rounds=auto background")
 
-        self.assertEqual(svc.background_calls[0], {
-            "mode": "incremental_or_full",
-            "limit": 50,
-            "max_rounds": None,
-            "max_seconds": 3600,
-        })
-        self.assertIn("JJC 后台批量同步已启动", bot.messages[0])
-        self.assertIn("最大轮数: auto", bot.messages[0])
-        self.assertIn("最长运行: 60分钟", bot.messages[0])
+        self.assertEqual(svc.enqueue_calls, [{"mode": "incremental_or_full", "limit": 50, "source": "qq_start"}])
+        self.assertIn("JJC 同步已入队", bot.messages[0])
+        self.assertIn("rounds/background 参数在队列模式下已忽略", bot.messages[0])
 
     async def test_start_rejects_invalid_mode(self) -> None:
         bot = FakeBot()
@@ -154,7 +136,7 @@ class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
 
         await handler._cmd_start(bot, object(), svc, "/jjc同步开始 bad")
 
-        self.assertEqual(svc.run_modes, [])
+        self.assertEqual(svc.enqueue_calls, [])
         self.assertIn("用法: /jjc同步开始", bot.messages[0])
 
     async def test_status_limits_recent_errors(self) -> None:
@@ -163,7 +145,19 @@ class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
                 return {
                     "error": False,
                     "paused": False,
-                    "counts": {"pending": 1},
+                    "counts": {"pending": 1, "queued": 2},
+                    "pause_reason": "",
+                    "workers": [
+                        {
+                            "worker_id": "worker-1",
+                            "status": "syncing",
+                            "effective_status": "syncing",
+                            "online": True,
+                            "current_server": "梦江南",
+                            "current_name": "角色A",
+                        }
+                    ],
+                    "worker_running": True,
                     "background_running": False,
                     "last_background_summary": {
                         "stopped_reason": "idle",
@@ -181,10 +175,66 @@ class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
         await handler._cmd_status(bot, object(), StatusService())
 
         message = bot.messages[0]
+        self.assertIn("全局状态：未暂停", message)
         self.assertIn("待同步: 1", message)
+        self.assertIn("排队中: 2", message)
         self.assertIn("角色4", message)
         self.assertNotIn("角色5", message)
-        self.assertIn("最近后台批量：已停止(idle)，轮数 2，处理角色 10", message)
+        self.assertIn("worker：有活跃 worker", message)
+        self.assertIn("worker-1", message)
+
+    async def test_status_uses_worker_online_flag_for_active_count(self) -> None:
+        class StatusService:
+            async def status(self) -> Dict[str, Any]:
+                return {
+                    "error": False,
+                    "paused": False,
+                    "counts": {"queued": 1},
+                    "pause_reason": "",
+                    "workers": [
+                        {
+                            "worker_id": "worker-old",
+                            "status": "idle",
+                            "effective_status": "offline",
+                            "online": False,
+                        }
+                    ],
+                    "worker_running": False,
+                    "background_running": False,
+                    "recent_errors": [],
+                }
+
+        bot = FakeBot()
+
+        await handler._cmd_status(bot, object(), StatusService())
+
+        message = bot.messages[0]
+        self.assertIn("worker：无活跃 worker", message)
+        self.assertIn("worker 可见: 1，活跃: 0", message)
+        self.assertIn("worker-old: offline", message)
+
+    async def test_add_rejects_invalid_queued_value(self) -> None:
+        bot = FakeBot()
+        svc = FakeSyncService()
+
+        await handler._cmd_add(bot, object(), svc, "/jjc同步添加 梦江南 角色A queued=flase")
+
+        self.assertEqual(bot.messages[0], "queued 必须是明确的布尔值，例如 queued=1 或 queued=0")
+
+    async def test_priority_command_updates_service(self) -> None:
+        bot = FakeBot()
+        svc = FakeSyncService()
+        event = types.SimpleNamespace(user_id=12345)
+
+        await handler._cmd_priority(bot, event, svc, "/jjc同步优先级 梦江南 角色A 500")
+
+        self.assertEqual(svc.priority_calls, [{
+            "server": "梦江南",
+            "name": "角色A",
+            "priority": 500,
+            "updated_by": "12345",
+        }])
+        self.assertIn("优先级已调整为 500", bot.messages[0])
 
 
 if __name__ == "__main__":

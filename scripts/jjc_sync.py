@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """JJC 同步管理命令行工具。
 
-与 QQ 命令 /jjc同步* 使用完全相同的 service 和逻辑，
+复用 /jjc同步* 的 service 能力；CLI start/worker 用于启动前台 worker，
 不依赖 bot 启动，直接命令行执行。
 
 用法:
     python scripts/jjc_sync.py single <服务器> <角色名> [--force] [--global_role_id=...] [--role_id=...] [--zone=...]
-    python scripts/jjc_sync.py add <服务器> <角色名> [--global_role_id=...] [--role_id=...] [--zone=...]
-    python scripts/jjc_sync.py start [--mode=default|full|incremental] [--limit=N] [--rounds=N]
+    python scripts/jjc_sync.py add <服务器> <角色名> [--priority=N] [--no-queue] [--global_role_id=...] [--role_id=...] [--zone=...]
+    python scripts/jjc_sync.py enqueue [--mode=default|full|incremental] [--limit=N]
+    python scripts/jjc_sync.py start [--mode=default|full|incremental] [--limit=N] [--max-roles=N] [--minutes=N] [--idle-sleep=N] [--worker-id=...]
+    python scripts/jjc_sync.py worker [--mode=default|full|incremental] [--max-roles=N] [--minutes=N] [--idle-sleep=N] [--worker-id=...]
+    python scripts/jjc_sync.py priority <服务器> <角色名> <priority>
+    python scripts/jjc_sync.py queue [--status=queued] [--page=1] [--page-size=50]
     python scripts/jjc_sync.py status
     python scripts/jjc_sync.py pause [--reason=...]
     python scripts/jjc_sync.py resume
@@ -66,6 +70,10 @@ from src.services.jx3.singletons import jjc_match_data_sync_service as svc  # no
 
 # ---- 子命令处理 ----
 
+def _normalize_mode(mode: str) -> str:
+    return "incremental_or_full" if mode == "default" else mode
+
+
 async def cmd_single(args: argparse.Namespace) -> None:
     if args.force:
         r = await svc.reset_role(server=args.server, name=args.name)
@@ -103,6 +111,8 @@ async def cmd_add(args: argparse.Namespace) -> None:
         global_role_id=args.global_role_id,
         role_id=args.role_id,
         zone=args.zone,
+        priority=args.priority,
+        queue=not args.no_queue,
     )
     if result.get("error"):
         logger.error("添加失败: %s", result.get("message"))
@@ -111,24 +121,61 @@ async def cmd_add(args: argparse.Namespace) -> None:
 
 
 async def cmd_start(args: argparse.Namespace) -> None:
-    if args.rounds is not None or args.rounds_auto:
-        result = await svc.run_until_idle(
-            mode=args.mode,
-            limit=args.limit,
-            max_rounds=args.rounds,
-            max_seconds=args.minutes * 60,
-        )
-    else:
-        result = await svc.run_once(mode=args.mode, limit=args.limit)
+    await cmd_worker(args)
 
+
+async def cmd_enqueue(args: argparse.Namespace) -> None:
+    mode = _normalize_mode(args.mode)
+    result = await svc.enqueue_roles(
+        mode=mode,
+        limit=args.limit,
+        source="cli",
+    )
     if result.get("error"):
-        logger.error("同步失败: %s", result.get("message", "unknown_error"))
+        logger.error("入队失败: %s", result.get("message", "unknown_error"))
         sys.exit(1)
 
-    rounds_text = str(result.get("rounds", 1))
-    print(f"模式: {args.mode}  轮数: {rounds_text}  处理角色: {result.get('processed_roles', 0)}")
-    print(f"发现对局: {result.get('discovered_matches', 0)}  保存详情: {result.get('saved_details', 0)}")
-    print(f"跳过: {result.get('skipped_details', 0)}  失败: {result.get('failed_details', 0)}")
+    if result.get("paused"):
+        print("同步已暂停，角色已入队但 worker 暂不领取")
+        if result.get("pause_reason"):
+            print(f"暂停原因: {result.get('pause_reason')}")
+
+    print(f"模式: {mode}  请求入队: {args.limit}  实际入队: {result.get('enqueued_roles', 0)}")
+    print(f"恢复租约: {result.get('recovered_leases', 0)}")
+    counts = result.get("counts", {})
+    if counts:
+        print(f"当前排队: {counts.get('queued', 0)}  同步中: {counts.get('syncing', 0)}")
+    print(f"耗时: {result.get('elapsed_seconds', 0):.1f}s")
+
+
+async def cmd_worker(args: argparse.Namespace) -> None:
+    mode = _normalize_mode(args.mode)
+    max_seconds = args.minutes * 60 if getattr(args, "minutes", 0) and args.minutes > 0 else 0
+    max_roles = args.max_roles
+    legacy_limit = getattr(args, "limit", None)
+    if max_roles is None and legacy_limit is not None:
+        max_roles = legacy_limit
+    logger.info(
+        "启动 JJC 同步 worker: mode=%s idle_sleep=%s max_roles=%s max_seconds=%s",
+        mode,
+        args.idle_sleep,
+        max_roles,
+        max_seconds,
+    )
+    result = await svc.run_worker(
+        mode=mode,
+        worker_id=args.worker_id,
+        idle_sleep=args.idle_sleep,
+        max_seconds=max_seconds,
+        max_roles=max_roles,
+    )
+    if result.get("error"):
+        logger.error("worker 退出(错误): %s", result.get("message", "unknown_error"))
+        sys.exit(1)
+    print(f"worker: {result.get('worker_id')}")
+    print(f"停止原因: {result.get('stopped_reason')}")
+    print(f"处理角色: {result.get('processed_roles', 0)}")
+    print(f"空闲 tick: {result.get('idle_ticks', 0)}  暂停 tick: {result.get('paused_ticks', 0)}")
     print(f"耗时: {result.get('elapsed_seconds', 0):.1f}s")
 
 
@@ -139,10 +186,12 @@ async def cmd_status(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     status_labels = {
-        "pending": "待同步", "syncing": "同步中", "cooldown": "冷却中",
+        "pending": "待同步", "queued": "排队中", "syncing": "同步中", "cooldown": "冷却中",
         "exhausted": "已完成", "failed": "失败", "disabled": "已禁用",
     }
-    print(f"运行状态: {'已暂停' if result.get('paused') else '运行中'}")
+    print(f"全局状态: {'已暂停' if result.get('paused') else '未暂停'}")
+    if result.get("pause_reason"):
+        print(f"暂停原因: {result.get('pause_reason')}")
     counts = result.get("counts", {})
     if counts:
         for key in sorted(counts):
@@ -156,6 +205,48 @@ async def cmd_status(args: argparse.Namespace) -> None:
         print("最近错误:")
         for i, err in enumerate(recent_errors[:5], 1):
             print(f"  {i}. {err.get('server', '?')}/{err.get('name', '?')}: {err.get('last_error', '?')}")
+    print(f"worker: {'有活跃 worker' if result.get('worker_running') else '无活跃 worker'}")
+    workers = result.get("workers", [])
+    if workers:
+        print("worker 列表:")
+        for worker in workers[:10]:
+            current = ""
+            if worker.get("current_server") or worker.get("current_name"):
+                current = f" {worker.get('current_server', '?')}/{worker.get('current_name', '?')}"
+            status = worker.get("effective_status") or worker.get("status") or "?"
+            print(f"  {worker.get('worker_id', '?')}: {status}{current}")
+
+
+async def cmd_priority(args: argparse.Namespace) -> None:
+    result = await svc.set_role_priority(
+        server=args.server,
+        name=args.name,
+        priority=args.priority,
+        updated_by="cli",
+    )
+    if result.get("error"):
+        logger.error("优先级调整失败: %s", result.get("message"))
+        sys.exit(1)
+    logger.info(result.get("message"))
+
+
+async def cmd_queue(args: argparse.Namespace) -> None:
+    result = await svc.list_queue(
+        status=args.status,
+        page=args.page,
+        page_size=args.page_size,
+    )
+    if result.get("error"):
+        logger.error("队列查询失败: %s", result.get("message"))
+        sys.exit(1)
+    print(f"队列: page={result.get('page')} page_size={result.get('page_size')} total={result.get('total', 0)}")
+    for item in result.get("items", [])[:args.page_size]:
+        print(
+            f"{item.get('status', '?'):8} "
+            f"{item.get('priority', 0):5} "
+            f"{item.get('server', '?')}/{item.get('name', '?')} "
+            f"owner={item.get('lease_owner') or '-'}"
+        )
 
 
 async def cmd_pause(args: argparse.Namespace) -> None:
@@ -206,15 +297,49 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("--global_role_id", default=None)
     p_add.add_argument("--role_id", default=None)
     p_add.add_argument("--zone", default=None)
+    p_add.add_argument("--priority", type=int, default=100, help="调度优先级，默认 100")
+    p_add.add_argument("--no-queue", action="store_true", help="只添加候选，不立即进入 queued 队列")
 
-    # start
-    p_start = sub.add_parser("start", help="开始批量同步")
+    # enqueue
+    p_enqueue = sub.add_parser("enqueue", help="把候选角色批量放入 queued 队列")
+    p_enqueue.add_argument("--mode", default="incremental_or_full",
+                           choices=["default", "incremental_or_full", "full", "incremental"])
+    p_enqueue.add_argument("--limit", type=int, default=10, help="入队角色数，默认 10")
+
+    # start / worker
+    p_start = sub.add_parser("start", help="启动一个前台常驻 worker 处理 queued 队列")
     p_start.add_argument("--mode", default="incremental_or_full",
-                         choices=["incremental_or_full", "full", "incremental"])
-    p_start.add_argument("--limit", type=int, default=3, help="每轮角色数，默认 3")
-    p_start.add_argument("--rounds", type=int, default=None, help="最大轮数，不指定则执行一轮")
-    p_start.add_argument("--rounds_auto", action="store_true", help="自动运行直到队列空闲")
-    p_start.add_argument("--minutes", type=int, default=60, help="最长运行分钟数，默认 60")
+                         choices=["default", "incremental_or_full", "full", "incremental"])
+    p_start.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="兼容旧参数：最多处理多少个角色；0 或不传表示不限数量，队列暂空时仍常驻等待",
+    )
+    p_start.add_argument("--max-roles", type=int, default=None, help="最多处理多少个角色，不传则常驻")
+    p_start.add_argument("--minutes", type=int, default=0, help="最长运行分钟数，0 表示不限时")
+    p_start.add_argument("--idle-sleep", type=int, default=10, help="空闲/暂停时 sleep 秒数")
+    p_start.add_argument("--worker-id", default=None, help="自定义 worker_id")
+
+    p_worker = sub.add_parser("worker", help="启动一个前台 worker 处理 queued 队列")
+    p_worker.add_argument("--mode", default="incremental_or_full",
+                          choices=["default", "incremental_or_full", "full", "incremental"])
+    p_worker.add_argument("--max-roles", type=int, default=None, help="最多处理多少个角色，不传则常驻")
+    p_worker.add_argument("--minutes", type=int, default=0, help="最长运行分钟数，0 表示不限时")
+    p_worker.add_argument("--idle-sleep", type=int, default=10, help="空闲/暂停时 sleep 秒数")
+    p_worker.add_argument("--worker-id", default=None, help="自定义 worker_id")
+
+    # priority
+    p_priority = sub.add_parser("priority", help="调整角色同步优先级")
+    p_priority.add_argument("server", help="服务器名称")
+    p_priority.add_argument("name", help="角色名")
+    p_priority.add_argument("priority", type=int, help="优先级")
+
+    # queue
+    p_queue = sub.add_parser("queue", help="查看同步队列")
+    p_queue.add_argument("--status", default=None, help="按状态过滤，如 queued/syncing")
+    p_queue.add_argument("--page", type=int, default=1)
+    p_queue.add_argument("--page-size", type=int, default=50)
 
     # status
     sub.add_parser("status", help="查看同步队列状态")
@@ -239,7 +364,8 @@ async def main() -> None:
 
     # 快捷方式：无子命令时当作 single 处理
     if len(sys.argv) >= 3 and sys.argv[1] not in (
-        "single", "add", "start", "status", "pause", "resume", "reset",
+        "single", "add", "enqueue", "start", "worker", "priority", "queue",
+        "status", "pause", "resume", "reset",
         "-h", "--help",
     ):
         args = parser.parse_args(["single"] + sys.argv[1:])
@@ -257,7 +383,11 @@ async def main() -> None:
     handlers = {
         "single": cmd_single,
         "add": cmd_add,
+        "enqueue": cmd_enqueue,
         "start": cmd_start,
+        "worker": cmd_worker,
+        "priority": cmd_priority,
+        "queue": cmd_queue,
         "status": cmd_status,
         "pause": cmd_pause,
         "resume": cmd_resume,
