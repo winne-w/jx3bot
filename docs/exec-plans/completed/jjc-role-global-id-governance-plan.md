@@ -1,7 +1,7 @@
 # JJC 角色 global_id 身份治理总体计划
 
-状态：阶段 1/2/4/5 已完成首轮实现与离线验证；阶段 3 一次性重建脚本仍待落地
-更新时间：2026-05-21
+状态：已完成并归档；阶段 1/2/3/4/5 已完成首轮实现与离线验证
+更新时间：2026-05-22
 
 ## 背景
 
@@ -244,7 +244,7 @@ python -m py_compile src/services/jx3/jjc_match_data_sync.py src/services/jx3/jj
 
 ### 阶段 3：一次性重建身份与同步队列
 
-状态：一次性重建正式脚本未落地；备份、清理、恢复类临时脚本已删除，不再保留为运行手册入口。
+状态：已完成。
 
 重建行为：
 
@@ -255,7 +255,12 @@ python -m py_compile src/services/jx3/jjc_match_data_sync.py src/services/jx3/jj
 - 可执行队列只写入同时具备 `global_id` 与 SK01 `global_role_id` 的角色。
 - 写入 `profile_history`，保留转服/改名/role_id 变化证据。
 
-如后续仍需重建身份表，应重新编写有计划约束的新脚本，并同步新的备份与回滚方案。
+执行结果：
+
+- 已完成 `role_identities` 与 `jjc_sync_role_queue` 的一次性重建。
+- 已移除旧 `name:*` 与 `global:*` 主键记录。
+- 已保留 `jjc_sync_match_seen`、`jjc_match_detail`、`jjc_role_indicator`、`role_jjc_cache` 和装备/奇穴快照集合。
+- 备份、清理、恢复类临时脚本已在脚本清理计划中删除，不再保留为运行手册入口。
 
 ### 阶段 4：离线脚本和审计收敛
 
@@ -360,8 +365,8 @@ git diff --check -- src/services/jx3/role_identity_matching.py src/storage/mongo
   - 缓解：以 replay `global_id` 为准，将 `role_id/zone/server/name` 变化写入 `profile_history`。
 - 风险：SK01 `global_role_id` 与 `global_id` 多对多。
   - 缓解：SK01 只作为 history 请求字段和冲突校验，不作为合并主键。
-- 风险：清空目标集合后重建中断。
-  - 缓解：先显式备份；apply 前检查备份；候选在内存/临时结构生成完成后再清空正式集合。
+- 风险：后续再次重建身份表时误用旧流程。
+  - 缓解：旧备份、清理、恢复类临时脚本已删除；如需再次重建，重新制定受控数据操作计划。
 - 风险：缓存集合仍保留旧身份引用。
   - 缓解：本计划先输出冲突样本，不自动修改缓存；必要时另行制定缓存清理计划。
 

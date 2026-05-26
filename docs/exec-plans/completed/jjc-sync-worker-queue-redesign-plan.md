@@ -1,7 +1,7 @@
 # JJC 对局同步 worker 队列重设计计划
 
-状态：实施中
-更新时间：2026-05-24
+状态：已完成并归档
+更新时间：2026-05-25
 
 ## 背景
 
@@ -257,6 +257,7 @@
 - 2026-05-24：最新 subagent review 修复完成：常驻 worker 遇到 interrupted/stale detail/stale role tick 不再退出，改为计入 `interrupted_ticks` 并按 `idle_sleep` 退避继续；one-shot `stop_when_idle=True` 仍按 interrupted 停止。detail claim 状态判断收敛到 repo `get_match_detail_sync_state()` 的 `action` 合同，service 不再 optional getattr 或硬编码终态 status。测试 `FakeRepo` 补齐 queued claim 后 `syncing` 租约、角色 release/renew owner fencing 和 detail 租约状态模拟。
 - 2026-05-24：修复 JJC 同步 worker 租约 fencing 缺陷。`_sync_match_detail` 在 `role_identity_key` 非空时先强制续租/校验角色租约，角色续租失败则直接抛出 `JjcSyncStaleRoleLeaseError`、不创建任何 detail 租约。FakeRepo `_role_lease_allows` / `_detail_lease_allows` 对不存在的 doc 返回 `False`（与真实 Mongo update filter 语义一致）。修复受影响的测试（显式种子角色租约）。新增服务测试覆盖角色租约过期先于 detail claim 的防护路径，新增 worker queue 测试覆盖过期 owner 不能 `release_role_interrupted` / `release_match_detail_interrupted` 且带 `lease_owner`。
 - 2026-05-25：继续收敛第七次 review 的简洁性问题，移除 `_sync_match_detail()` 中最后一个 repo 方法动态探测，`release_match_detail_interrupted()` 改为明确仓储合约调用。
+- 2026-05-25：新增队列页面可用性小改动计划：`/api/jjc/sync/queue` 增加 `server`、`name` 查询参数并透传到 service/repo；repo 对服务器和角色名做转义后的模糊匹配；页面增加服务器/角色搜索框，状态筛选和 badge 展示改为中文文案，API 原始状态值保持不变以免影响 worker 逻辑。
 
 ## 验证结果
 
@@ -311,6 +312,7 @@ git diff --check -- src/services/jx3/jjc_match_data_sync.py src/storage/mongo_re
 - `git diff --check` 无 whitespace error；Git 仅提示部分已有 CRLF/LF 转换警告。
 - 2026-05-24：修复 JJC 同步 worker 租约 fencing 缺陷后全量验证通过。`python -m py_compile` 无错误；`python -m unittest tests.test_jjc_match_data_sync tests.test_jjc_sync_repo tests.test_jjc_sync_worker_queue tests.test_jjc_sync_router tests.test_jjc_sync_cli` 162 条全部通过；指定范围 `git diff --check` 无 whitespace error。新增覆盖：角色租约过期先于 detail claim 时直接抛出 `JjcSyncStaleRoleLeaseError` 且不创建 detail 状态/租约；过期 owner 不能 `release_role_interrupted` / `release_match_detail_interrupted` 且带 `lease_owner` 参数。
 - 2026-05-25：第七次 review 简洁性收敛后验证通过。指定 `py_compile` 无错误；`python -m unittest tests.test_jjc_match_data_sync_handler tests.test_jjc_match_data_sync tests.test_jjc_sync_repo tests.test_jjc_sync_worker_queue tests.test_jjc_sync_router tests.test_jjc_sync_cli` 173 条全部通过；`python scripts/jjc_sync.py start --help` 通过；指定范围 `git diff --check` 无 whitespace error，仅提示既有 CRLF/LF 转换警告。
+- 2026-05-25：队列页面搜索与中文状态展示改动验证通过。`python -m py_compile src/api/routers/jjc_sync.py src/services/jx3/jjc_match_data_sync.py src/storage/mongo_repos/jjc_sync_repo.py tests/test_jjc_sync_router.py tests/test_jjc_sync_worker_queue.py` 无错误；`python -m unittest tests.test_jjc_sync_router tests.test_jjc_sync_worker_queue` 30 条全部通过；指定范围 `git diff --check` 无 whitespace error，仅提示既有 CRLF/LF 转换警告。
 
 ## 验证计划
 

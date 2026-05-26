@@ -5,16 +5,11 @@
 ## Active
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
-- `active/jjc-role-global-id-governance-plan.md`: JJC 角色 replay `global_id` 主键治理、防回流、重建与审计收敛总体计划
-- `active/jjc-sync-worker-queue-redesign-plan.md`: JJC 对局同步 worker 多进程队列、优先级和队列页面重设计计划
-- `active/jjc-ranking-kungfu-history-win-fallback-plan.md`: JJC 排名心法缺失时基于当前赛季已缓存对局胜场的保守兜底计划
-- `active/jjc-sync-queue-mode-filter-plan.md`: JJC 同步队列页面按入队同步类型筛选计划
-- `active/jjc-ranking-role-cache-ttl-plan.md`: JJC 排名角色弹窗后端缓存统一 24 小时计划
-- `active/jjc-sync-remove-person-history-global-role-id-plan.md`: JJC 同步移除 person-history 补 SK01 计划
+- `active/jjc-identity-backed-sync-queue-plan.md`: JJC 对局保存后身份投影与基于 `role_identities._id` 的同步队列改造计划
 
 ## Superseded
 
-以下计划已合并进 `active/jjc-role-global-id-governance-plan.md`，原文保留作历史参考：
+以下计划已合并进 `completed/jjc-role-global-id-governance-plan.md`，原文保留作历史参考：
 
 - `superseded/jjc-role-identity-governance-plan.md`: JJC 角色身份匹配规则收敛、数据治理与防回流计划
 - `superseded/jjc-audit-conflict-chain-cycle-plan.md`: JJC 审计冲突链环路检测、去重修复与保守退出计划
@@ -23,6 +18,13 @@
 
 ## Completed
 
+- `completed/jjc-role-global-id-governance-plan.md`: JJC 角色 replay `global_id` 主键治理、防回流、重建与审计收敛总体计划
+- `completed/jjc-sync-worker-queue-redesign-plan.md`: JJC 对局同步 worker 多进程队列、优先级和队列页面重设计计划
+- `completed/jjc-ranking-kungfu-history-win-fallback-plan.md`: JJC 排名心法缺失时基于当前赛季已缓存对局胜场的保守兜底计划
+- `completed/jjc-sync-queue-mode-filter-plan.md`: JJC 同步队列页面按入队同步类型筛选计划
+- `completed/jjc-ranking-role-cache-ttl-plan.md`: JJC 排名角色弹窗后端缓存统一 24 小时计划
+- `completed/jjc-sync-remove-person-history-global-role-id-plan.md`: JJC 同步移除 person-history 补 SK01 计划
+- `completed/jjc-sync-indicator-local-identity-plan.md`: JJC 同步详情玩家 indicator 请求优先复用本地身份计划
 - `completed/jjc-ranking-history-selector-plan.md`: JJC 排名历史列表按赛季、周次和结算状态筛选计划
 - `completed/html-py-commit-ignore-plan.md`: 提交指定 HTML/Python 改动并忽略 JJC 审计输出目录计划
 - `completed/admin-command-help-plan.md`: 管理员命令帮助入口计划

@@ -1,6 +1,6 @@
 # JJC 已同步对局重建角色身份与同步队列计划
 
-> 已合并至 `docs/exec-plans/active/jjc-role-global-id-governance-plan.md`，本文仅作历史参考。
+> 已合并至 `docs/exec-plans/completed/jjc-role-global-id-governance-plan.md`，本文仅作历史参考。
 
 状态：待实现
 更新时间：2026-05-21

@@ -1,6 +1,6 @@
 # JJC 角色身份治理计划
 
-> 已合并至 `docs/exec-plans/active/jjc-role-global-id-governance-plan.md`，本文仅作历史参考。
+> 已合并至 `docs/exec-plans/completed/jjc-role-global-id-governance-plan.md`，本文仅作历史参考。
 
 状态：待确认/待实现
 更新时间：2026-05-19
