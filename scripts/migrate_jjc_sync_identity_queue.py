@@ -470,17 +470,11 @@ def resolve_or_create_identity(db: Any, queue_doc: Dict[str, Any], now: float, d
 
 def migrate_forward(args: argparse.Namespace) -> Dict[str, int]:
     db = get_db(args.mongo_uri, args.db_name)
-    query: Dict[str, Any] = {}
+    base_query: Dict[str, Any] = {}
     if not args.include_syncing:
-        query["status"] = {"$ne": "syncing"}
-    if args.after_id:
-        from bson import ObjectId
-
-        query["_id"] = {"$gt": ObjectId(args.after_id)}
-
-    cursor = db.jjc_sync_role_queue.find(query).sort([("_id", 1)])
-    if args.limit:
-        cursor = cursor.limit(args.limit)
+        base_query["status"] = {"$ne": "syncing"}
+    after_id = args.after_id
+    remaining = args.limit if args.limit else None
 
     dry_run = not args.execute or args.dry_run
     stats = {
@@ -495,96 +489,146 @@ def migrate_forward(args: argparse.Namespace) -> Dict[str, int]:
         "failed": 0,
     }
     merged_by_identity: Dict[str, Dict[str, Any]] = {}
-    for old_doc in cursor:
-        stats["seen"] += 1
-        if should_skip_doc(old_doc, args.include_syncing):
-            stats["skipped"] += 1
-            continue
-        now = time.time()
-        try:
-            identity_doc, action = resolve_or_create_identity(db, old_doc, now, dry_run)
-            if identity_doc is None:
-                stats["unresolvable"] += 1
-                if args.verbose:
-                    _log("skip unresolvable identity_key=%s" % old_doc.get("identity_key"))
+    while True:
+        if remaining is not None and remaining <= 0:
+            break
+        query = dict(base_query)
+        if after_id:
+            from bson import ObjectId
+
+            query["_id"] = {"$gt": ObjectId(after_id)}
+        batch_size = max(1, args.batch_size)
+        if remaining is not None:
+            batch_size = min(batch_size, remaining)
+        batch = list(
+            db.jjc_sync_role_queue
+            .find(query)
+            .sort([("_id", 1)])
+            .limit(batch_size)
+        )
+        if not batch:
+            break
+
+        for old_doc in batch:
+            stats["seen"] += 1
+            if remaining is not None:
+                remaining -= 1
+            if old_doc.get("_id") is not None:
+                after_id = str(old_doc.get("_id"))
+            if should_skip_doc(old_doc, args.include_syncing):
+                stats["skipped"] += 1
                 continue
-            stats["created" if action in ("create", "created") else "resolved"] += 1
-            identity_id_key = str(identity_doc.get("_id"))
-            merged_doc = old_doc
-            if identity_id_key in merged_by_identity:
-                stats["duplicates"] += 1
-                merged_doc = merge_legacy_queue_docs(merged_by_identity[identity_id_key], old_doc)
-            elif not dry_run:
-                existing_queue = db.jjc_sync_identity_queue.find_one({"identity_id": identity_doc["_id"]})
-                if existing_queue:
+            now = time.time()
+            try:
+                identity_doc, action = resolve_or_create_identity(db, old_doc, now, dry_run)
+                if identity_doc is None:
+                    stats["unresolvable"] += 1
+                    if args.verbose:
+                        _log("skip unresolvable identity_key=%s" % old_doc.get("identity_key"))
+                    continue
+                stats["created" if action in ("create", "created") else "resolved"] += 1
+                identity_id_key = str(identity_doc.get("_id"))
+                merged_doc = old_doc
+                if identity_id_key in merged_by_identity:
                     stats["duplicates"] += 1
-                    merged_doc = merge_legacy_queue_docs(
-                        existing_queue,
-                        old_doc,
-                        preserve_existing_runtime_state=True,
-                    )
-            merged_by_identity[identity_id_key] = merged_doc
-            update = build_identity_queue_update(merged_doc, identity_doc, now)
-            if args.verbose:
-                _log("migrate identity_key=%s identity_id=%s action=%s status=%s" % (
-                    old_doc.get("identity_key"),
-                    identity_doc.get("_id"),
-                    action,
-                    old_doc.get("status"),
-                ))
-            if dry_run:
-                stats["dry_run"] += 1
-                continue
-            db.jjc_sync_identity_queue.update_one({"identity_id": identity_doc["_id"]}, update, upsert=True)
-            stats["upserted"] += 1
-        except Exception as exc:
-            stats["failed"] += 1
-            _log("failed identity_key=%s error=%s" % (old_doc.get("identity_key"), exc))
+                    merged_doc = merge_legacy_queue_docs(merged_by_identity[identity_id_key], old_doc)
+                elif not dry_run:
+                    existing_queue = db.jjc_sync_identity_queue.find_one({"identity_id": identity_doc["_id"]})
+                    if existing_queue:
+                        stats["duplicates"] += 1
+                        merged_doc = merge_legacy_queue_docs(
+                            existing_queue,
+                            old_doc,
+                            preserve_existing_runtime_state=True,
+                        )
+                merged_by_identity[identity_id_key] = merged_doc
+                update = build_identity_queue_update(merged_doc, identity_doc, now)
+                if args.verbose:
+                    _log("migrate identity_key=%s identity_id=%s action=%s status=%s" % (
+                        old_doc.get("identity_key"),
+                        identity_doc.get("_id"),
+                        action,
+                        old_doc.get("status"),
+                    ))
+                if dry_run:
+                    stats["dry_run"] += 1
+                    continue
+                db.jjc_sync_identity_queue.update_one(
+                    {"identity_id": identity_doc["_id"]},
+                    update,
+                    upsert=True,
+                )
+                stats["upserted"] += 1
+            except Exception as exc:
+                stats["failed"] += 1
+                _log("failed identity_key=%s error=%s" % (old_doc.get("identity_key"), exc))
+        if len(batch) < batch_size:
+            break
     return stats
 
 
 def migrate_reverse(args: argparse.Namespace) -> Dict[str, int]:
     db = get_db(args.mongo_uri, args.db_name)
-    query: Dict[str, Any] = {"identity_key": {"$exists": True, "$ne": ""}}
+    base_query: Dict[str, Any] = {"identity_key": {"$exists": True, "$ne": ""}}
     if not args.include_syncing:
-        query["status"] = {"$ne": "syncing"}
-    if args.after_id:
-        from bson import ObjectId
-
-        query["_id"] = {"$gt": ObjectId(args.after_id)}
-
-    cursor = db.jjc_sync_identity_queue.find(query).sort([("_id", 1)])
-    if args.limit:
-        cursor = cursor.limit(args.limit)
+        base_query["status"] = {"$ne": "syncing"}
+    after_id = args.after_id
+    remaining = args.limit if args.limit else None
 
     dry_run = not args.execute or args.dry_run
     stats = {"seen": 0, "skipped": 0, "upserted": 0, "dry_run": 0, "failed": 0}
-    for new_doc in cursor:
-        stats["seen"] += 1
-        if should_skip_doc(new_doc, args.include_syncing):
-            stats["skipped"] += 1
-            continue
-        now = time.time()
-        update = build_reverse_role_queue_update(new_doc, now)
-        if update is None:
-            stats["skipped"] += 1
-            continue
-        identity_key = update["$set"]["identity_key"]
-        if args.verbose:
-            _log("reverse identity_key=%s identity_id=%s status=%s" % (
-                identity_key,
-                new_doc.get("identity_id"),
-                new_doc.get("status"),
-            ))
-        if dry_run:
-            stats["dry_run"] += 1
-            continue
-        try:
-            db.jjc_sync_role_queue.update_one({"identity_key": identity_key}, update, upsert=True)
-            stats["upserted"] += 1
-        except Exception as exc:
-            stats["failed"] += 1
-            _log("reverse failed identity_key=%s error=%s" % (identity_key, exc))
+    while True:
+        if remaining is not None and remaining <= 0:
+            break
+        query = dict(base_query)
+        if after_id:
+            from bson import ObjectId
+
+            query["_id"] = {"$gt": ObjectId(after_id)}
+        batch_size = max(1, args.batch_size)
+        if remaining is not None:
+            batch_size = min(batch_size, remaining)
+        batch = list(
+            db.jjc_sync_identity_queue
+            .find(query)
+            .sort([("_id", 1)])
+            .limit(batch_size)
+        )
+        if not batch:
+            break
+
+        for new_doc in batch:
+            stats["seen"] += 1
+            if remaining is not None:
+                remaining -= 1
+            if new_doc.get("_id") is not None:
+                after_id = str(new_doc.get("_id"))
+            if should_skip_doc(new_doc, args.include_syncing):
+                stats["skipped"] += 1
+                continue
+            now = time.time()
+            update = build_reverse_role_queue_update(new_doc, now)
+            if update is None:
+                stats["skipped"] += 1
+                continue
+            identity_key = update["$set"]["identity_key"]
+            if args.verbose:
+                _log("reverse identity_key=%s identity_id=%s status=%s" % (
+                    identity_key,
+                    new_doc.get("identity_id"),
+                    new_doc.get("status"),
+                ))
+            if dry_run:
+                stats["dry_run"] += 1
+                continue
+            try:
+                db.jjc_sync_role_queue.update_one({"identity_key": identity_key}, update, upsert=True)
+                stats["upserted"] += 1
+            except Exception as exc:
+                stats["failed"] += 1
+                _log("reverse failed identity_key=%s error=%s" % (identity_key, exc))
+        if len(batch) < batch_size:
+            break
     return stats
 
 
@@ -612,6 +656,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dry-run", action="store_true", help="show intended work without writes; this is also the default")
     parser.add_argument("--execute", action="store_true", help="perform writes; omitted means dry-run")
     parser.add_argument("--limit", type=int, default=0, help="maximum rows to process")
+    parser.add_argument("--batch-size", type=int, default=500, help="source rows fetched per Mongo cursor batch")
     parser.add_argument("--after-id", default=None, help="only process source rows with _id greater than this ObjectId")
     parser.add_argument("--include-syncing", action="store_true", help="include rows with status=syncing")
     parser.add_argument("--verbose", action="store_true", help="print each processed row")
