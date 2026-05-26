@@ -153,6 +153,7 @@ class JjcRankingInspectService:
     role_indicator_fetcher: Callable[..., Optional[dict[str, Any]]]
     kungfu_pinyin_to_chinese: dict[str, str]
     match_replay_client: Optional[MatchReplayClient] = None
+    match_detail_projection_service: Any = None
     role_recent_ttl_seconds: int = 86400
     role_indicator_ttl_seconds: int = 86400
     max_recent_matches: int = 20
@@ -936,6 +937,11 @@ class JjcRankingInspectService:
                     normalized_match_id,
                     {"cached_at": cached.get("cached_at") or time.time(), "data": data},
                 )
+                await self._project_match_detail_payload(
+                    match_id=normalized_match_id,
+                    payload=data,
+                    source="inspect_cache_hit_replay_enrich",
+                )
             data["cache"] = {"hit": True, "cached_at": cached.get("cached_at")}
             return data
 
@@ -981,5 +987,35 @@ class JjcRankingInspectService:
         await self._enrich_detail_payload_with_replay(payload)
         cached_at = time.time()
         await self.cache_repo.save_match_detail(normalized_match_id, {"cached_at": cached_at, "data": payload})
+        await self._project_match_detail_payload(
+            match_id=normalized_match_id,
+            payload=payload,
+            source="inspect_cache_miss",
+        )
         payload["cache"] = {"hit": False, "cached_at": cached_at}
         return payload
+
+    async def _project_match_detail_payload(
+        self,
+        *,
+        match_id: int,
+        payload: dict[str, Any],
+        source: str,
+    ) -> None:
+        if self.match_detail_projection_service is None:
+            return
+        try:
+            await self.match_detail_projection_service.project_payload(
+                match_id=match_id,
+                payload=payload,
+                source=source,
+            )
+        except Exception as exc:
+            logger.warning(
+                "JJC 对局详情身份投影失败: match_id=%s source=%s error=%s",
+                match_id,
+                source,
+                exc,
+            )
+            payload["projection_error"] = True
+            payload["projection_message"] = str(exc) or exc.__class__.__name__

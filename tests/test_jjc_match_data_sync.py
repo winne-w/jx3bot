@@ -64,6 +64,11 @@ class FakeRepo:
         self.stopped_workers: List[Dict[str, Any]] = []
         self.detail_states: Dict[int, Dict[str, Any]] = {}
         self.released_match_details: List[Dict[str, Any]] = []
+        self.identity_lease_renewals: List[Dict[str, Any]] = []
+        self.identity_success_release: Optional[Dict[str, Any]] = None
+        self.identity_failure_release: Optional[Dict[str, Any]] = None
+        self.identity_interrupted_release: Optional[Dict[str, Any]] = None
+        self.renew_identity_lease_result = True
 
     def _find_role(self, identity_key: str) -> Optional[Dict[str, Any]]:
         candidates: List[Dict[str, Any]] = []
@@ -190,6 +195,10 @@ class FakeRepo:
         if role is not None:
             role["lease_expires_at"] = time.time() + kwargs.get("lease_seconds", 600)
         return True
+
+    async def renew_identity_lease(self, **kwargs: Any) -> bool:
+        self.identity_lease_renewals.append(kwargs)
+        return self.renew_identity_lease_result
 
     async def renew_match_detail_lease(self, **kwargs: Any) -> bool:
         self.detail_lease_renewals.append(kwargs)
@@ -360,6 +369,10 @@ class FakeRepo:
             role["lease_expires_at"] = None
         return True
 
+    async def release_identity_success(self, **kwargs: Any) -> bool:
+        self.identity_success_release = kwargs
+        return True
+
     async def release_role_failure(
         self,
         identity_key: str,
@@ -378,6 +391,34 @@ class FakeRepo:
             role["status"] = "pending"
             role["lease_owner"] = None
             role["lease_expires_at"] = None
+        return True
+
+    async def release_identity_failure(
+        self,
+        identity_id: Any,
+        error_message: str = "",
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        self.identity_failure_release = {
+            "identity_id": identity_id,
+            "error_message": error_message,
+            "lease_owner": lease_owner,
+        }
+        return True
+
+    async def release_identity_interrupted(
+        self,
+        identity_id: Any,
+        reason: str,
+        requeue: bool = True,
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        self.identity_interrupted_release = {
+            "identity_id": identity_id,
+            "reason": reason,
+            "requeue": requeue,
+            "lease_owner": lease_owner,
+        }
         return True
 
     async def update_role_identity_fields(self, **kwargs: Any) -> bool:
@@ -480,10 +521,37 @@ class FakeIdentityRepo:
         self.resolve_calls: List[Dict[str, Any]] = []
         self.resolve_results: Any = {}
         self.resolve_error: Optional[Exception] = None
+        self.docs_by_id: Dict[Any, Dict[str, Any]] = {}
+        self.get_by_id_calls: List[Any] = []
+        self.refresh_indicator_calls: List[Dict[str, Any]] = []
 
     async def upsert_from_match_detail(self, **kwargs: Any) -> Dict[str, Any]:
         self.upserted.append(kwargs)
         return kwargs
+
+    async def get_by_id(self, identity_id: Any) -> Optional[Dict[str, Any]]:
+        self.get_by_id_calls.append(identity_id)
+        doc = self.docs_by_id.get(identity_id)
+        return dict(doc) if doc is not None else None
+
+    async def refresh_indicator_fields_by_id(self, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        self.refresh_indicator_calls.append(kwargs)
+        identity_id = kwargs.get("identity_id")
+        doc = dict(self.docs_by_id.get(identity_id) or {"_id": identity_id})
+        for field_name in (
+            "global_role_id",
+            "zone",
+            "game_role_id",
+            "role_id",
+            "person_id",
+            "server",
+            "name",
+        ):
+            if kwargs.get(field_name) is not None:
+                doc[field_name] = kwargs.get(field_name)
+        doc["global_role_id_refreshed_at"] = time.time()
+        self.docs_by_id[identity_id] = doc
+        return dict(doc)
 
     async def resolve_best_identity(
         self,
@@ -542,6 +610,21 @@ class FakeIndicatorClient:
         if self.error_on_call:
             raise RuntimeError("indicator_down")
         return self.indicator_results.get(key, {})
+
+
+class FakeProjectionService:
+    def __init__(self, events: Optional[List[str]] = None, error: Optional[Exception] = None) -> None:
+        self.events = events
+        self.error = error
+        self.calls: List[Dict[str, Any]] = []
+
+    async def project_payload(self, **kwargs: Any) -> Dict[str, Any]:
+        if self.events is not None:
+            self.events.append("project_payload")
+        self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        return {"projected": 1, "queued": 1}
 
 
 class TestExtractHistoryItems(unittest.TestCase):
@@ -1147,6 +1230,64 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(repo.success_release)
         self.assertIsNone(repo.failure_release)
 
+    async def test_worker_tick_identity_id_loads_refreshes_and_uses_identity_queue_methods(self) -> None:
+        repo = FakeRepo()
+        repo.claimed_queued_role = {
+            "status": "queued",
+            "identity_id": "identity-1",
+            "identity_key": "game:zone-a:rid-a",
+            "server": "梦江南",
+            "name": "种子",
+        }
+        identity_repo = FakeIdentityRepo()
+        identity_repo.docs_by_id["identity-1"] = {
+            "_id": "identity-1",
+            "identity_key": "game:zone-a:rid-a",
+            "server": "梦江南",
+            "name": "种子",
+            "zone": "zone-a",
+            "game_role_id": "rid-a",
+        }
+        indicator = FakeIndicatorClient({
+            "zone-a:rid-a:梦江南": {
+                "data": {
+                    "role_info": {
+                        "global_role_id": "SK01-from-indicator",
+                        "role_id": "rid-a",
+                        "zone": "zone-a",
+                    },
+                    "person_info": {"person_id": "pid-a"},
+                }
+            }
+        })
+        history = FakeHistoryClient([
+            {"data": [{"match_id": 31, "match_time": 1810000000, "pvpType": 3}]}
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(),
+            identity_repo=identity_repo,
+            role_indicator_client=indicator,
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.worker_tick(mode="incremental_or_full", worker_id="worker-1")
+
+        self.assertFalse(result["result"]["error"])
+        self.assertEqual(identity_repo.get_by_id_calls, ["identity-1"])
+        self.assertEqual(len(identity_repo.refresh_indicator_calls), 1)
+        self.assertEqual(indicator.calls[0], {"role_id": "rid-a", "zone": "zone-a", "server": "梦江南"})
+        self.assertEqual(history.calls[0]["global_role_id"], "SK01-from-indicator")
+        self.assertTrue(repo.identity_lease_renewals)
+        self.assertEqual(repo.identity_lease_renewals[0]["identity_id"], "identity-1")
+        self.assertEqual(repo.identity_success_release["identity_id"], "identity-1")
+        self.assertEqual(repo.discovered_matches[0]["source_identity_id"], "identity-1")
+        self.assertEqual(repo.discovered_matches[0]["source_identity_key"], "game:zone-a:rid-a")
+        self.assertEqual(repo.worker_heartbeats[0]["current_identity_id"], "identity-1")
+
     async def test_sync_match_detail_passes_lease_owner_to_saved_marker(self) -> None:
         repo = FakeRepo()
         service = JjcMatchDataSyncService(
@@ -1154,6 +1295,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             current_season="赛季",
             current_season_start="2026-04-24",
             inspect_service=FakeInspectService(),
+            match_detail_projection_service=FakeProjectionService(repo.events),
             sleep_func=_noop_sleep,
         )
 
@@ -1174,6 +1316,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             current_season="赛季",
             current_season_start="2026-04-24",
             inspect_service=FakeInspectService(),
+            match_detail_projection_service=FakeProjectionService(repo.events),
             sleep_func=_noop_sleep,
         )
 
@@ -1200,6 +1343,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             current_season="赛季",
             current_season_start="2026-04-24",
             inspect_service=FakeInspectService(),
+            match_detail_projection_service=FakeProjectionService(repo.events),
             sleep_func=_noop_sleep,
         )
 
@@ -1215,7 +1359,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(call["lease_owner"] == "worker-1" for call in repo.role_lease_renewals))
         self.assertGreaterEqual(len(repo.detail_lease_renewals), 4)
         self.assertTrue(all(call["lease_owner"] == "worker-1" for call in repo.detail_lease_renewals))
-        self.assertLess(repo.events.index("upsert_role"), repo.events.index("mark_saved"))
+        self.assertLess(repo.events.index("project_payload"), repo.events.index("mark_saved"))
 
     async def test_sync_match_detail_stale_role_lease_bubbles_without_marking_failed(self) -> None:
         repo = FakeRepo()
@@ -1225,6 +1369,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             current_season="赛季",
             current_season_start="2026-04-24",
             inspect_service=FakeInspectService(),
+            match_detail_projection_service=FakeProjectionService(repo.events),
             sleep_func=_noop_sleep,
         )
 
@@ -1247,6 +1392,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             current_season="赛季",
             current_season_start="2026-04-24",
             inspect_service=FakeInspectService(),
+            match_detail_projection_service=FakeProjectionService(repo.events),
             sleep_func=_noop_sleep,
         )
 
@@ -1272,6 +1418,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             current_season="赛季",
             current_season_start="2026-04-24",
             inspect_service=FakeInspectService(),
+            match_detail_projection_service=FakeProjectionService(repo.events),
             sleep_func=_noop_sleep,
         )
 
@@ -1283,17 +1430,17 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(repo.detail_saved_calls[0]["lease_owner"], "worker-1")
-        self.assertEqual(len(repo.upserted_roles), 1)
-        self.assertLess(repo.events.index("upsert_role"), repo.events.index("mark_saved"))
+        self.assertEqual(repo.upserted_roles, [])
+        self.assertLess(repo.events.index("project_payload"), repo.events.index("mark_saved"))
 
-    async def test_sync_match_detail_postprocess_failure_marks_failed_without_saved(self) -> None:
+    async def test_sync_match_detail_projection_failure_is_nonblocking(self) -> None:
         repo = FakeRepo()
-        repo.upsert_role_exception = RuntimeError("postprocess_down")
         service = JjcMatchDataSyncService(
             repo=repo,
             current_season="赛季",
             current_season_start="2026-04-24",
             inspect_service=FakeInspectService(),
+            match_detail_projection_service=FakeProjectionService(repo.events, RuntimeError("projection_down")),
             sleep_func=_noop_sleep,
         )
 
@@ -1304,10 +1451,11 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             max_attempts=1,
         )
 
-        self.assertEqual(result, "failed")
-        self.assertEqual(repo.detail_saved_calls, [])
-        self.assertEqual(repo.failed_matches, [16])
-        self.assertIn("postprocess_down", repo.failed_messages[16])
+        self.assertEqual(result, "saved")
+        self.assertEqual(repo.detail_saved_calls[0]["match_id"], 16)
+        self.assertEqual(repo.failed_matches, [])
+        self.assertIn("project_payload", repo.events)
+        self.assertLess(repo.events.index("project_payload"), repo.events.index("mark_saved"))
 
     async def test_sync_match_detail_stale_detail_lease_before_postprocess_does_not_mark_saved(self) -> None:
         repo = FakeRepo()

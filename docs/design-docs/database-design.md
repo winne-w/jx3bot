@@ -569,9 +569,9 @@
 | `idx_snapshot_hash` | `snapshot_hash` | unique |
 | `idx_last_seen_at` | `last_seen_at` | 普通索引 |
 
-### `jjc_sync_role_queue`
+### `jjc_sync_identity_queue`
 
-用途：JJC 对局数据同步的角色队列，保存每个待同步角色的本赛季同步进度与执行租约。
+用途：JJC 对局数据同步的当前角色队列，保存每个待同步身份的本赛季同步进度与执行租约。队列以 `role_identities._id` 为业务关联主键，队列内的角色名、服务器、SK01 等字段只作为展示和诊断冗余；worker 领取后会重新读取 `role_identities` 并刷新 indicator。
 
 读写归属：
 
@@ -584,7 +584,8 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `_id` | ObjectId | MongoDB 自动主键 |
-| `identity_key` | string | 角色身份键，优先 `global_id:{global_id}`；旧 `global:{global_role_id}`、`game:{zone}:{role_id}`、`name:{normalized_server}:{normalized_name}` 仅作迁移期兼容，业务唯一 |
+| `identity_id` | ObjectId | 关联 `role_identities._id`，业务唯一 |
+| `identity_key` | string/null | 当前身份键，仅作展示、诊断和迁移期兼容，不再作为队列主键 |
 | `server` | string | 服务器名 |
 | `name` | string | 角色名，只保存纯角色名；对局详情自动发现链路写入前必须先去掉可判定的服务器展示后缀 |
 | `normalized_server` | string | 规范化服务器名 |
@@ -629,13 +630,20 @@
 
 | 索引名 | 字段 | 约束 |
 |---|---|---|
-| `idx_identity_key` | `identity_key` | unique |
+| `idx_identity_id` | `identity_id` | unique |
+| `idx_identity_key` | `identity_key` | 普通索引 |
 | `idx_status_priority_next_sync_after` | `status`, `priority`, `next_sync_after` | 普通复合索引 |
 | `idx_status_priority_queued_at` | `status`, `priority`, `queued_at` | 普通复合索引 |
 | `idx_normalized_server_name` | `normalized_server`, `normalized_name` | 普通复合索引 |
 | `idx_global_id` | `global_id` | 普通索引 |
 | `idx_global_role_id` | `global_role_id` | 普通索引 |
 | `idx_lease_expires_at` | `lease_expires_at` | 普通索引 |
+
+### `jjc_sync_role_queue`
+
+用途：JJC 对局数据同步旧角色队列。当前运行时代码不再以该集合作为主队列；集合保留为 `scripts/migrate_jjc_sync_identity_queue.py` 的迁移源和代码版本回滚前反向同步目标。
+
+业务主键：`identity_key`。旧集合没有 `identity_id`，不能被当前 identity-id 队列代码直接作为运行时集合使用。
 
 ### `jjc_sync_match_seen`
 
@@ -651,6 +659,7 @@
 |---|---|---|
 | `_id` | ObjectId | MongoDB 自动主键 |
 | `match_id` | int | 对局 ID，业务唯一 |
+| `source_identity_id` | ObjectId/null | 首次发现该对局的 `role_identities._id` |
 | `source_identity_key` | string/null | 首次发现该对局的角色身份键 |
 | `source_server` | string/null | 首次发现来源服务器 |
 | `source_role_name` | string/null | 首次发现来源角色名 |
@@ -674,6 +683,7 @@
 |---|---|---|
 | `idx_match_id` | `match_id` | unique |
 | `idx_status_match_time` | `status`, `match_time` | 普通复合索引 |
+| `idx_source_identity_id` | `source_identity_id` | 普通索引 |
 | `idx_source_identity_key` | `source_identity_key` | 普通索引 |
 | `idx_lease_expires_at` | `lease_expires_at` | 普通索引 |
 
@@ -721,6 +731,7 @@
 | `status` | string | 状态：`starting`、`running`、`idle`、`syncing`、`paused`、`stopped`；状态页只把 5 分钟内有心跳的非 stopped worker 视为活跃 |
 | `pid` | int/null | 进程 ID |
 | `host` | string/null | 主机名 |
+| `current_identity_id` | ObjectId/string/null | 当前处理角色的 `role_identities._id`；API 输出时转字符串 |
 | `current_identity_key` | string/null | 当前处理角色 identity_key |
 | `current_server` | string/null | 当前处理角色服务器 |
 | `current_name` | string/null | 当前处理角色名 |
@@ -860,3 +871,4 @@
 | 脚本 | 处理范围 | 写入集合 | 幂等键 |
 |---|---|---|---|
 | `scripts/backfill_jjc_role_id_from_match_replay.py` | 已同步 JJC match/replay 身份补充 | `role_identities`, `jjc_sync_role_queue`, `jjc_match_detail` | `global_id`, `identity_key`, `match_id` |
+| `scripts/migrate_jjc_sync_identity_queue.py` | 旧 JJC 同步队列迁移到 identity-id 队列，或回滚前反向同步水位 | `role_identities`, `jjc_sync_identity_queue`, `jjc_sync_role_queue` | `identity_id`, `identity_key` |

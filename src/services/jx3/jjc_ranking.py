@@ -38,6 +38,7 @@ class JjcRankingService:
     tuilan_request: Callable[[str, dict[str, Any]], Any]
     defget_get: Callable[..., Awaitable[dict[str, Any]]]
     match_replay_url: Optional[str] = None
+    match_detail_projection_service: Any = None
 
     def _api(self) -> JjcApiClient:
         return JjcApiClient(
@@ -173,6 +174,35 @@ class JjcRankingService:
                                 normalized_match_id,
                                 exc,
                             )
+                        else:
+                            await self._project_match_detail_payload(
+                                match_id=normalized_match_id,
+                                payload=payload,
+                                source="ranking_warmup",
+                            )
+
+    async def _project_match_detail_payload(
+        self,
+        *,
+        match_id: int,
+        payload: dict[str, Any],
+        source: str,
+    ) -> None:
+        if self.match_detail_projection_service is None:
+            return
+        try:
+            await self.match_detail_projection_service.project_payload(
+                match_id=match_id,
+                payload=payload,
+                source=source,
+            )
+        except Exception as exc:
+            logger.warning(
+                "定时统计预热 match_detail 身份投影失败: match_id=%s source=%s error=%s",
+                match_id,
+                source,
+                exc,
+            )
 
     async def _merge_cached_weapon(self, server: str, name: str, result: dict[str, Any]) -> None:
         cached = await self._cache().load_kungfu_cache_raw(server, name)

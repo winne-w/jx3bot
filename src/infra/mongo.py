@@ -234,6 +234,28 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await _safe_index("jjc_sync_role_queue", "global_role_id", name="idx_global_role_id")
     await _safe_index("jjc_sync_role_queue", "lease_expires_at", name="idx_lease_expires_at")
 
+    # jjc_sync_identity_queue
+    await _safe_index("jjc_sync_identity_queue", "identity_id", name="idx_identity_id", unique=True)
+    await _safe_index("jjc_sync_identity_queue", "identity_key", name="idx_identity_key")
+    await _safe_index(
+        "jjc_sync_identity_queue",
+        [("status", 1), ("priority", 1), ("next_sync_after", 1)],
+        name="idx_status_priority_next_sync_after",
+    )
+    await _safe_index(
+        "jjc_sync_identity_queue",
+        [("status", 1), ("priority", -1), ("queued_at", 1)],
+        name="idx_status_priority_queued_at",
+    )
+    await _safe_index(
+        "jjc_sync_identity_queue",
+        [("normalized_server", 1), ("normalized_name", 1)],
+        name="idx_normalized_server_name",
+    )
+    await _safe_index("jjc_sync_identity_queue", "global_id", name="idx_global_id")
+    await _safe_index("jjc_sync_identity_queue", "global_role_id", name="idx_global_role_id")
+    await _safe_index("jjc_sync_identity_queue", "lease_expires_at", name="idx_lease_expires_at")
+
     # jjc_sync_match_seen
     await _safe_index("jjc_sync_match_seen", "match_id", name="idx_match_id", unique=True)
     await _safe_index(
@@ -242,6 +264,7 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         name="idx_status_match_time",
     )
     await _safe_index("jjc_sync_match_seen", "source_identity_key", name="idx_source_identity_key")
+    await _safe_index("jjc_sync_match_seen", "source_identity_id", name="idx_source_identity_id")
     await _safe_index("jjc_sync_match_seen", "lease_expires_at", name="idx_lease_expires_at")
 
     # jjc_sync_state

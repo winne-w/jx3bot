@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock
 
+from bson import ObjectId
+
 from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
 
 
@@ -419,6 +421,92 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["$set"]["identity_level"], "global_id")
         self.assertEqual(update["$set"]["global_id"], "99999")
         self.assertIn("global:SK01-abc", update["$addToSet"]["aliases"]["$each"])
+
+    async def test_resolve_best_identity_strips_id_but_with_id_preserves_id(self) -> None:
+        identity_id = ObjectId()
+        db = FakeDb()
+        db.role_identities.find_one.side_effect = [
+            {"_id": identity_id, "identity_key": "global:gid", "global_role_id": "gid"},
+            {"_id": identity_id, "identity_key": "global:gid", "global_role_id": "gid"},
+        ]
+        repo = RoleIdentityRepo(db=db)
+
+        legacy = await repo.resolve_best_identity(
+            server="梦江南",
+            name="角色A",
+            global_role_id="gid",
+        )
+        with_id = await repo.resolve_best_identity_with_id(
+            server="梦江南",
+            name="角色A",
+            global_role_id="gid",
+        )
+
+        self.assertNotIn("_id", legacy)
+        self.assertEqual(with_id["_id"], identity_id)
+
+    async def test_upsert_from_match_detail_with_id_preserves_existing_id(self) -> None:
+        identity_id = ObjectId()
+        db = FakeDb()
+        existing = {
+            "_id": identity_id,
+            "identity_key": "global:gid",
+            "identity_level": "global",
+            "server": "梦江南",
+            "normalized_server": "梦江南",
+            "name": "角色A",
+            "normalized_name": "角色A",
+            "global_role_id": "gid",
+        }
+        db.role_identities.find_one.side_effect = [
+            dict(existing),
+            dict(existing, role_id="rid"),
+        ]
+        repo = RoleIdentityRepo(db=db)
+
+        result = await repo.upsert_from_match_detail_with_id(
+            server="梦江南",
+            name="角色A",
+            global_role_id="gid",
+            role_id="rid",
+        )
+
+        self.assertEqual(result["_id"], identity_id)
+
+    async def test_refresh_indicator_fields_by_id_updates_expected_fields(self) -> None:
+        identity_id = ObjectId()
+        db = FakeDb()
+        db.role_identities.find_one.return_value = {
+            "_id": identity_id,
+            "identity_key": "global:gid-new",
+            "global_role_id": "gid-new",
+        }
+        repo = RoleIdentityRepo(db=db)
+
+        result = await repo.refresh_indicator_fields_by_id(
+            str(identity_id),
+            global_role_id="gid-new",
+            refresh_source="indicator_api",
+            zone="电信区",
+            game_role_id="game-rid",
+            role_id="role-rid",
+            person_id="person-a",
+            server="梦江南",
+            name="角色A",
+        )
+
+        filter_doc, update = db.role_identities.update_one.call_args.args
+        self.assertEqual(filter_doc, {"_id": identity_id})
+        self.assertEqual(update["$set"]["global_role_id"], "gid-new")
+        self.assertIn("global_role_id_refreshed_at", update["$set"])
+        self.assertEqual(update["$set"]["global_role_id_refresh_source"], "indicator_api")
+        self.assertEqual(update["$set"]["zone"], "电信区")
+        self.assertEqual(update["$set"]["game_role_id"], "game-rid")
+        self.assertEqual(update["$set"]["role_id"], "role-rid")
+        self.assertEqual(update["$set"]["person_id"], "person-a")
+        self.assertEqual(update["$set"]["normalized_server"], "梦江南")
+        self.assertEqual(update["$set"]["normalized_name"], "角色a")
+        self.assertEqual(result["_id"], identity_id)
 
 
 if __name__ == "__main__":

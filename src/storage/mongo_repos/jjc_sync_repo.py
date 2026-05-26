@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from re import escape as escape_regex
 from typing import Any, Dict, List, Optional, Union
 
+from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from nonebot import logger
 from pymongo import ReturnDocument
@@ -34,6 +35,25 @@ class JjcSyncRepo:
 
     def _db(self) -> AsyncIOMotorDatabase:
         return self.db if self.db is not None else _get_db()
+
+    def _queue_col(self) -> Any:
+        """Return the active role sync queue collection.
+
+        Production uses the identity-id queue. The fallback keeps focused tests
+        and migration-time fakes that only expose the legacy collection usable.
+        """
+        db = self._db()
+        if hasattr(db, "jjc_sync_identity_queue"):
+            return db.jjc_sync_identity_queue
+        return db.jjc_sync_role_queue
+
+    @staticmethod
+    def _coerce_object_id(value: Any) -> Optional[ObjectId]:
+        if isinstance(value, ObjectId):
+            return value
+        if isinstance(value, str) and ObjectId.is_valid(value):
+            return ObjectId(value)
+        return None
 
     @staticmethod
     def _build_identity_key(
@@ -106,6 +126,46 @@ class JjcSyncRepo:
             if now is not None:
                 filter_doc["lease_expires_at"] = {"$gt": now}
         return filter_doc
+
+    @staticmethod
+    def _leased_identity_filter(
+        identity_id: ObjectId,
+        lease_owner: Optional[str] = None,
+        now: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        filter_doc: Dict[str, Any] = {"identity_id": identity_id}
+        if lease_owner is not None:
+            filter_doc["status"] = "syncing"
+            filter_doc["lease_owner"] = lease_owner
+            if now is not None:
+                filter_doc["lease_expires_at"] = {"$gt": now}
+        return filter_doc
+
+    async def _resolve_identity_id_by_key(self, identity_key: str) -> Optional[ObjectId]:
+        """Best-effort migration helper for legacy identity_key callers."""
+        try:
+            queue_doc = await self._queue_col().find_one(
+                {"identity_key": identity_key},
+                {"identity_id": 1},
+            )
+        except Exception:
+            queue_doc = None
+        if queue_doc:
+            identity_id = self._coerce_object_id(queue_doc.get("identity_id"))
+            if identity_id is not None:
+                return identity_id
+
+        db = self._db()
+        try:
+            identity_doc = await db.role_identities.find_one(
+                {"identity_key": identity_key},
+                {"_id": 1},
+            )
+        except Exception:
+            return None
+        if not identity_doc:
+            return None
+        return self._coerce_object_id(identity_doc.get("_id"))
 
     @staticmethod
     def _leased_match_detail_filter(
@@ -207,7 +267,7 @@ class JjcSyncRepo:
             update_op["$addToSet"] = {"aliases": {"$each": sorted(set(aliases))}}
 
         try:
-            update_result = await db.jjc_sync_role_queue.update_one(
+            update_result = await self._queue_col().update_one(
                 {"identity_key": existing_key, "status": {"$ne": "syncing"}},
                 update_op,
             )
@@ -269,10 +329,10 @@ class JjcSyncRepo:
             server=normalized_server,
             name=normalized_name,
         )
-        existing = await db.jjc_sync_role_queue.find_one({"identity_key": identity_key})
+        existing = await self._queue_col().find_one({"identity_key": identity_key})
         existing_key = identity_key
         if existing is None and global_id and legacy_keys:
-            existing = await db.jjc_sync_role_queue.find_one({"identity_key": {"$in": legacy_keys}})
+            existing = await self._queue_col().find_one({"identity_key": {"$in": legacy_keys}})
             if existing is not None:
                 existing_key = existing.get("identity_key") or identity_key
 
@@ -337,13 +397,13 @@ class JjcSyncRepo:
                 doc["role_info_updated_at"] = now
 
             try:
-                await db.jjc_sync_role_queue.insert_one(doc)
+                await self._queue_col().insert_one(doc)
                 return identity_key
             except DuplicateKeyError:
-                existing = await db.jjc_sync_role_queue.find_one({"identity_key": identity_key})
+                existing = await self._queue_col().find_one({"identity_key": identity_key})
                 existing_key = identity_key
                 if existing is None and global_id and legacy_keys:
-                    existing = await db.jjc_sync_role_queue.find_one({"identity_key": {"$in": legacy_keys}})
+                    existing = await self._queue_col().find_one({"identity_key": {"$in": legacy_keys}})
                     if existing is not None:
                         existing_key = existing.get("identity_key") or identity_key
                 if existing is not None:
@@ -392,6 +452,352 @@ class JjcSyncRepo:
 
         return claimed
 
+    async def upsert_identity_queue_candidate(
+        self,
+        identity_id: Any,
+        identity_key: Optional[str] = None,
+        server: Optional[str] = None,
+        name: Optional[str] = None,
+        normalized_server: Optional[str] = None,
+        normalized_name: Optional[str] = None,
+        global_id: Optional[str] = None,
+        global_role_id: Optional[str] = None,
+        role_id: Optional[str] = None,
+        game_role_id: Optional[str] = None,
+        person_id: Optional[str] = None,
+        zone: Optional[str] = None,
+        source: str = "match_detail",
+        priority: int = 0,
+        season_id: Optional[str] = None,
+        season_start_time: int = 0,
+    ) -> bool:
+        """Create or refresh a queue candidate associated with role_identities._id."""
+        _identity_id = self._coerce_object_id(identity_id)
+        if _identity_id is None:
+            return False
+
+        now = time.time()
+        set_fields: Dict[str, Any] = {"updated_at": now}
+        for field, value in {
+            "identity_key": identity_key,
+            "server": server,
+            "name": name,
+            "normalized_server": normalized_server,
+            "normalized_name": normalized_name,
+            "global_id": global_id,
+            "global_role_id": global_role_id,
+            "role_id": role_id,
+            "game_role_id": game_role_id or role_id,
+            "person_id": person_id,
+            "zone": zone,
+            "season_id": season_id,
+        }.items():
+            if value is not None:
+                set_fields[field] = value
+        if season_start_time:
+            set_fields["season_start_time"] = season_start_time
+        set_on_insert: Dict[str, Any] = {
+            "identity_id": _identity_id,
+            "source": source,
+            "status": "pending",
+            "next_sync_after": None,
+            "fail_count": 0,
+            "last_cursor": 0,
+            "created_at": now,
+        }
+        if not season_start_time:
+            set_on_insert["season_start_time"] = 0
+
+        try:
+            result = await self._queue_col().update_one(
+                {"identity_id": _identity_id},
+                {
+                    "$set": set_fields,
+                    "$setOnInsert": set_on_insert,
+                    "$max": {"priority": priority},
+                },
+                upsert=True,
+            )
+            return bool(getattr(result, "matched_count", 0)) or getattr(result, "upserted_id", None) is not None
+        except Exception as exc:
+            logger.warning(
+                "写入 identity 同步队列候选失败: identity_id={} error={}",
+                identity_id, exc,
+            )
+            return False
+
+    async def upsert_identity_candidate(self, *args: Any, **kwargs: Any) -> bool:
+        """Alias for migration callers using the shorter method name."""
+        return await self.upsert_identity_queue_candidate(*args, **kwargs)
+
+    async def enqueue_identity(
+        self,
+        identity_id: Any,
+        mode: str,
+        source: str,
+        batch_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Queue one identity-id candidate unless it is disabled or currently leased."""
+        _identity_id = self._coerce_object_id(identity_id)
+        if _identity_id is None:
+            return None
+        now = time.time()
+        try:
+            return await self._queue_col().find_one_and_update(
+                filter={
+                    "identity_id": _identity_id,
+                    "status": {"$nin": ["disabled", "syncing"]},
+                },
+                update={"$set": {
+                    "status": "queued",
+                    "queued_at": now,
+                    "queue_batch_id": batch_id,
+                    "queue_mode": mode,
+                    "queue_source": source,
+                    "lease_owner": None,
+                    "lease_expires_at": None,
+                    "updated_at": now,
+                }},
+                return_document=ReturnDocument.AFTER,
+            )
+        except Exception as exc:
+            logger.warning("指定 identity 同步角色入队失败: identity_id={} error={}", identity_id, exc)
+            return None
+
+    async def claim_queued_identity(
+        self,
+        lease_owner: str,
+        lease_seconds: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Claim the next queued identity candidate."""
+        return await self.claim_queued_role(lease_owner=lease_owner, lease_seconds=lease_seconds)
+
+    async def claim_specific_identity(
+        self,
+        identity_id: Any,
+        lease_owner: str = "default",
+        lease_seconds: int = 600,
+    ) -> Optional[Dict[str, Any]]:
+        _identity_id = self._coerce_object_id(identity_id)
+        if _identity_id is None:
+            return None
+        now = time.time()
+        return await self._queue_col().find_one_and_update(
+            filter={
+                "identity_id": _identity_id,
+                "status": {"$in": ["pending", "cooldown", "exhausted"]},
+                "$or": [
+                    {"next_sync_after": None},
+                    {"next_sync_after": {"$lte": now}},
+                ],
+            },
+            update={"$set": {
+                "status": "syncing",
+                "lease_owner": lease_owner,
+                "lease_expires_at": now + lease_seconds,
+                "updated_at": now,
+            }},
+            return_document=ReturnDocument.AFTER,
+        )
+
+    async def renew_identity_lease(
+        self,
+        identity_id: Any,
+        lease_owner: str,
+        lease_seconds: int,
+    ) -> bool:
+        _identity_id = self._coerce_object_id(identity_id)
+        if _identity_id is None:
+            return False
+        now = time.time()
+        try:
+            result = await self._queue_col().update_one(
+                self._leased_identity_filter(_identity_id, lease_owner, now=now),
+                {"$set": {"lease_expires_at": now + lease_seconds, "updated_at": now}},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning("续租 identity 同步角色失败: identity_id={} owner={} error={}", identity_id, lease_owner, exc)
+            return False
+
+    async def release_identity_interrupted(
+        self,
+        identity_id: Any,
+        reason: str,
+        requeue: bool = True,
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        _identity_id = self._coerce_object_id(identity_id)
+        if _identity_id is None:
+            return False
+        now = time.time()
+        set_fields: Dict[str, Any] = {
+            "status": "queued" if requeue else "pending",
+            "next_sync_after": None,
+            "lease_owner": None,
+            "lease_expires_at": None,
+            "interrupted_reason": reason,
+            "interrupted_at": now,
+            "updated_at": now,
+        }
+        if requeue:
+            set_fields["queued_at"] = now
+            set_fields["queue_batch_id"] = None
+            set_fields["queue_source"] = "interrupted"
+        else:
+            set_fields["queued_at"] = None
+            set_fields["queue_batch_id"] = None
+            set_fields["queue_mode"] = None
+            set_fields["queue_source"] = None
+        try:
+            result = await self._queue_col().update_one(
+                self._leased_identity_filter(_identity_id, lease_owner, now=now),
+                {"$set": set_fields},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning("释放中断 identity 同步角色失败: identity_id={} error={}", identity_id, exc)
+            return False
+
+    async def release_identity_success(
+        self,
+        identity_id: Any,
+        full_synced_until_time: Optional[int] = None,
+        oldest_synced_match_time: Optional[int] = None,
+        latest_seen_match_time: Optional[int] = None,
+        history_exhausted: Optional[bool] = None,
+        season_id: Optional[str] = None,
+        last_cursor: int = 0,
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        _identity_id = self._coerce_object_id(identity_id)
+        if _identity_id is None:
+            return False
+        now = time.time()
+        set_fields: Dict[str, Any] = {
+            "status": "exhausted" if history_exhausted else "cooldown",
+            "next_sync_after": now + (21600 if history_exhausted else 3600),
+            "last_synced_at": now,
+            "fail_count": 0,
+            "last_error": None,
+            "last_cursor": last_cursor,
+            "lease_owner": None,
+            "lease_expires_at": None,
+            "updated_at": now,
+        }
+        if full_synced_until_time is not None:
+            set_fields["full_synced_until_time"] = full_synced_until_time
+        if oldest_synced_match_time is not None:
+            set_fields["oldest_synced_match_time"] = oldest_synced_match_time
+        if latest_seen_match_time is not None:
+            set_fields["latest_seen_match_time"] = latest_seen_match_time
+        if season_id is not None:
+            set_fields["season_id"] = season_id
+        if history_exhausted is not None:
+            set_fields["history_exhausted"] = history_exhausted
+        try:
+            result = await self._queue_col().update_one(
+                self._leased_identity_filter(_identity_id, lease_owner, now=now),
+                {"$set": set_fields},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning("释放 identity 同步角色(成功)失败: identity_id={} error={}", identity_id, exc)
+            return False
+
+    async def release_identity_failure(
+        self,
+        identity_id: Any,
+        error_message: str = "",
+        lease_owner: Optional[str] = None,
+    ) -> bool:
+        _identity_id = self._coerce_object_id(identity_id)
+        if _identity_id is None:
+            return False
+        now = time.time()
+        role_filter = self._leased_identity_filter(_identity_id, lease_owner, now=now)
+        existing = await self._queue_col().find_one(role_filter, {"fail_count": 1})
+        if existing is None and lease_owner is not None:
+            return False
+        current_fail_count = 0
+        if existing is not None:
+            current_fail_count = existing.get("fail_count", 0) or 0
+        new_fail_count = current_fail_count + 1
+        new_status = "failed" if new_fail_count >= 3 else "pending"
+        next_sync = now + 1800 if new_fail_count >= 3 else None
+        try:
+            result = await self._queue_col().update_one(
+                role_filter,
+                {"$set": {
+                    "status": new_status,
+                    "next_sync_after": next_sync,
+                    "fail_count": new_fail_count,
+                    "last_error": error_message,
+                    "lease_owner": None,
+                    "lease_expires_at": None,
+                    "updated_at": now,
+                }},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning("释放 identity 同步角色(失败)失败: identity_id={} error={}", identity_id, exc)
+            return False
+
+    async def reset_identity_progress(self, identity_id: Any) -> bool:
+        _identity_id = self._coerce_object_id(identity_id)
+        if _identity_id is None:
+            return False
+        now = time.time()
+        try:
+            result = await self._queue_col().update_one(
+                {"identity_id": _identity_id},
+                {"$set": {
+                    "status": "pending",
+                    "full_synced_until_time": None,
+                    "oldest_synced_match_time": None,
+                    "latest_seen_match_time": None,
+                    "history_exhausted": None,
+                    "last_error": None,
+                    "lease_owner": None,
+                    "lease_expires_at": None,
+                    "fail_count": 0,
+                    "last_cursor": 0,
+                    "next_sync_after": None,
+                    "updated_at": now,
+                }},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning("重置 identity 同步进度失败: identity_id={} error={}", identity_id, exc)
+            return False
+
+    async def update_identity_priority(
+        self,
+        identity_id: Any,
+        priority: int,
+        updated_by: Optional[str] = None,
+    ) -> bool:
+        _identity_id = self._coerce_object_id(identity_id)
+        if _identity_id is None:
+            return False
+        now = time.time()
+        set_fields: Dict[str, Any] = {
+            "priority": priority,
+            "priority_updated_at": now,
+            "updated_at": now,
+        }
+        if updated_by is not None:
+            set_fields["priority_updated_by"] = updated_by
+        try:
+            result = await self._queue_col().update_one(
+                {"identity_id": _identity_id},
+                {"$set": set_fields},
+            )
+            return result.matched_count > 0
+        except Exception as exc:
+            logger.warning("更新 identity 同步角色优先级失败: identity_id={} error={}", identity_id, exc)
+            return False
+
     async def enqueue_next_roles(
         self,
         limit: int,
@@ -413,7 +819,7 @@ class JjcSyncRepo:
         for _ in range(limit):
             now = time.time()
             try:
-                doc = await db.jjc_sync_role_queue.find_one_and_update(
+                doc = await self._queue_col().find_one_and_update(
                     filter={
                         "status": {"$in": ["pending", "cooldown", "exhausted", "failed"]},
                         "$or": [
@@ -452,11 +858,14 @@ class JjcSyncRepo:
         batch_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """将指定的非 disabled、非 syncing 角色转入 queued 状态。"""
-        db = self._db()
+        identity_id = await self._resolve_identity_id_by_key(identity_key)
+        if identity_id is not None:
+            return await self.enqueue_identity(identity_id, mode=mode, source=source, batch_id=batch_id)
+
         now = time.time()
 
         try:
-            return await db.jjc_sync_role_queue.find_one_and_update(
+            return await self._queue_col().find_one_and_update(
                 filter={
                     "identity_key": identity_key,
                     "status": {"$nin": ["disabled", "syncing"]},
@@ -490,7 +899,7 @@ class JjcSyncRepo:
         now = time.time()
 
         try:
-            return await db.jjc_sync_role_queue.find_one_and_update(
+            return await self._queue_col().find_one_and_update(
                 filter={"status": "queued"},
                 update={"$set": {
                     "status": "syncing",
@@ -513,7 +922,15 @@ class JjcSyncRepo:
         lease_owner: Optional[str] = None,
     ) -> bool:
         """释放被中断的角色，不增加 fail_count。"""
-        db = self._db()
+        identity_id = await self._resolve_identity_id_by_key(identity_key)
+        if identity_id is not None:
+            return await self.release_identity_interrupted(
+                identity_id,
+                reason=reason,
+                requeue=requeue,
+                lease_owner=lease_owner,
+            )
+
         now = time.time()
         set_fields: Dict[str, Any] = {
             "status": "queued" if requeue else "pending",
@@ -535,7 +952,7 @@ class JjcSyncRepo:
             set_fields["queue_source"] = None
 
         try:
-            result = await db.jjc_sync_role_queue.update_one(
+            result = await self._queue_col().update_one(
                 self._leased_role_filter(identity_key, lease_owner, now=now),
                 {"$set": set_fields},
             )
@@ -554,7 +971,10 @@ class JjcSyncRepo:
         updated_by: Optional[str] = None,
     ) -> bool:
         """更新角色调度优先级。"""
-        db = self._db()
+        identity_id = await self._resolve_identity_id_by_key(identity_key)
+        if identity_id is not None:
+            return await self.update_identity_priority(identity_id, priority, updated_by=updated_by)
+
         now = time.time()
         set_fields: Dict[str, Any] = {
             "priority": priority,
@@ -565,7 +985,7 @@ class JjcSyncRepo:
             set_fields["priority_updated_by"] = updated_by
 
         try:
-            result = await db.jjc_sync_role_queue.update_one(
+            result = await self._queue_col().update_one(
                 {"identity_key": identity_key},
                 {"$set": set_fields},
             )
@@ -588,9 +1008,16 @@ class JjcSyncRepo:
         仅当角色处于 pending/cooldown/exhausted（且 next_sync_after <= now）时领取成功，
         返回更新后的文档；否则返回 None。
         """
-        db = self._db()
+        identity_id = await self._resolve_identity_id_by_key(identity_key)
+        if identity_id is not None:
+            return await self.claim_specific_identity(
+                identity_id,
+                lease_owner=lease_owner,
+                lease_seconds=lease_seconds,
+            )
+
         now = time.time()
-        return await db.jjc_sync_role_queue.find_one_and_update(
+        return await self._queue_col().find_one_and_update(
             filter={
                 "identity_key": identity_key,
                 "status": {"$in": ["pending", "cooldown", "exhausted"]},
@@ -624,7 +1051,19 @@ class JjcSyncRepo:
         否则: status='cooldown', next_sync_after=now+1h
         清除租约，重置 fail_count/error，更新水位字段。
         """
-        db = self._db()
+        identity_id = await self._resolve_identity_id_by_key(identity_key)
+        if identity_id is not None:
+            return await self.release_identity_success(
+                identity_id,
+                full_synced_until_time=full_synced_until_time,
+                oldest_synced_match_time=oldest_synced_match_time,
+                latest_seen_match_time=latest_seen_match_time,
+                history_exhausted=history_exhausted,
+                season_id=season_id,
+                last_cursor=last_cursor,
+                lease_owner=lease_owner,
+            )
+
         now = time.time()
 
         set_fields: Dict[str, Any] = {
@@ -651,7 +1090,7 @@ class JjcSyncRepo:
             set_fields["history_exhausted"] = history_exhausted
 
         try:
-            result = await db.jjc_sync_role_queue.update_one(
+            result = await self._queue_col().update_one(
                 self._leased_role_filter(identity_key, lease_owner, now=now),
                 {"$set": set_fields},
             )
@@ -674,11 +1113,18 @@ class JjcSyncRepo:
         累加 fail_count。fail_count >= 3 时状态变为 failed，next_sync_after=now+30min，
         否则恢复为 pending。清除租约，记录错误信息。
         """
-        db = self._db()
+        identity_id = await self._resolve_identity_id_by_key(identity_key)
+        if identity_id is not None:
+            return await self.release_identity_failure(
+                identity_id,
+                error_message=error_message,
+                lease_owner=lease_owner,
+            )
+
         now = time.time()
 
         role_filter = self._leased_role_filter(identity_key, lease_owner, now=now)
-        existing = await db.jjc_sync_role_queue.find_one(
+        existing = await self._queue_col().find_one(
             role_filter,
             {"fail_count": 1},
         )
@@ -699,7 +1145,7 @@ class JjcSyncRepo:
             next_sync = None
 
         try:
-            result = await db.jjc_sync_role_queue.update_one(
+            result = await self._queue_col().update_one(
                 role_filter,
                 {"$set": {
                     "status": new_status,
@@ -726,11 +1172,18 @@ class JjcSyncRepo:
         lease_seconds: int,
     ) -> bool:
         """续租正在同步的角色；仅当前租约 owner 可以续租。"""
-        db = self._db()
+        identity_id = await self._resolve_identity_id_by_key(identity_key)
+        if identity_id is not None:
+            return await self.renew_identity_lease(
+                identity_id,
+                lease_owner=lease_owner,
+                lease_seconds=lease_seconds,
+            )
+
         now = time.time()
 
         try:
-            result = await db.jjc_sync_role_queue.update_one(
+            result = await self._queue_col().update_one(
                 self._leased_role_filter(identity_key, lease_owner, now=now),
                 {"$set": {
                     "lease_expires_at": now + lease_seconds,
@@ -764,7 +1217,7 @@ class JjcSyncRepo:
         now = time.time()
         role_filter = self._leased_role_filter(identity_key, lease_owner, now=now)
         set_fields: Dict[str, Any] = {"updated_at": now}
-        existing = await db.jjc_sync_role_queue.find_one(role_filter) or {}
+        existing = await self._queue_col().find_one(role_filter) or {}
         if lease_owner is not None and not existing:
             return False
 
@@ -791,7 +1244,7 @@ class JjcSyncRepo:
             return False
 
         try:
-            result = await db.jjc_sync_role_queue.update_one(
+            result = await self._queue_col().update_one(
                 role_filter,
                 {"$set": set_fields},
             )
@@ -819,7 +1272,7 @@ class JjcSyncRepo:
         db = self._db()
         now = time.time()
         role_filter = self._leased_role_filter(identity_key, lease_owner, now=now)
-        existing = await db.jjc_sync_role_queue.find_one(role_filter)
+        existing = await self._queue_col().find_one(role_filter)
         if not existing:
             return None
         existing_global_id = str(existing.get("global_id") or "").strip()
@@ -886,7 +1339,7 @@ class JjcSyncRepo:
             update_op["$addToSet"] = {"aliases": {"$each": aliases}}
 
         try:
-            result = await db.jjc_sync_role_queue.update_one(
+            result = await self._queue_col().update_one(
                 role_filter,
                 update_op,
             )
@@ -909,11 +1362,14 @@ class JjcSyncRepo:
         fail_count 和 last_cursor 归零。
         成功返回 True。
         """
-        db = self._db()
+        identity_id = await self._resolve_identity_id_by_key(identity_key)
+        if identity_id is not None:
+            return await self.reset_identity_progress(identity_id)
+
         now = time.time()
 
         try:
-            result = await db.jjc_sync_role_queue.update_one(
+            result = await self._queue_col().update_one(
                 {"identity_key": identity_key},
                 {"$set": {
                     "status": "pending",
@@ -951,7 +1407,7 @@ class JjcSyncRepo:
 
         # 恢复超时角色租约
         try:
-            role_result = await db.jjc_sync_role_queue.update_many(
+            role_result = await self._queue_col().update_many(
                 filter={
                     "status": "syncing",
                     "lease_expires_at": {"$lt": now},
@@ -997,6 +1453,7 @@ class JjcSyncRepo:
         match_id: Union[int, str],
         match_time: Optional[int] = None,
         source_identity_key: Optional[str] = None,
+        source_identity_id: Any = None,
         source_server: Optional[str] = None,
         source_role_name: Optional[str] = None,
     ) -> bool:
@@ -1011,6 +1468,7 @@ class JjcSyncRepo:
 
         db = self._db()
         now = time.time()
+        _source_identity_id = self._coerce_object_id(source_identity_id)
 
         try:
             result = await db.jjc_sync_match_seen.update_one(
@@ -1019,6 +1477,7 @@ class JjcSyncRepo:
                     "match_id": _match_id,
                     "match_time": match_time,
                     "source_identity_key": source_identity_key,
+                    "source_identity_id": _source_identity_id,
                     "source_server": source_server,
                     "source_role_name": source_role_name,
                     "status": "discovered",
@@ -1359,7 +1818,7 @@ class JjcSyncRepo:
             pipeline = [
                 {"$group": {"_id": "$status", "count": {"$sum": 1}}},
             ]
-            cursor = db.jjc_sync_role_queue.aggregate(pipeline)
+            cursor = self._queue_col().aggregate(pipeline)
             async for doc in cursor:
                 status_key: str = doc.get("_id") or "unknown"
                 result[status_key] = doc.get("count", 0)
@@ -1375,7 +1834,7 @@ class JjcSyncRepo:
 
         try:
             cursor = (
-                db.jjc_sync_role_queue
+                self._queue_col()
                 .find(
                     {"last_error": {"$exists": True, "$nin": [None, ""]}},
                 )
@@ -1397,7 +1856,7 @@ class JjcSyncRepo:
         """按规范化服务器和角色名查询同步队列角色。"""
         db = self._db()
         try:
-            return await db.jjc_sync_role_queue.find_one(
+            return await self._queue_col().find_one(
                 {
                     "normalized_server": normalized_server,
                     "normalized_name": normalized_name,
@@ -1409,6 +1868,22 @@ class JjcSyncRepo:
                 normalized_server, normalized_name, exc,
             )
             return None
+
+    async def get_identity_by_name(
+        self,
+        normalized_server: str,
+        normalized_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Identity-queue alias for lookup by normalized server/name."""
+        return await self.get_role_by_name(normalized_server, normalized_name)
+
+    async def get_identity_queue_by_name(
+        self,
+        normalized_server: str,
+        normalized_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Explicit identity queue lookup by normalized server/name."""
+        return await self.get_role_by_name(normalized_server, normalized_name)
 
     async def list_queue(
         self,
@@ -1447,9 +1922,9 @@ class JjcSyncRepo:
         docs: List[Dict[str, Any]] = []
         total = 0
         try:
-            total = await db.jjc_sync_role_queue.count_documents(query)
+            total = await self._queue_col().count_documents(query)
             cursor = (
-                db.jjc_sync_role_queue
+                self._queue_col()
                 .find(query)
                 .sort([
                     ("status", 1),
@@ -1475,6 +1950,25 @@ class JjcSyncRepo:
             "page_size": safe_page_size,
             "has_more": safe_page * safe_page_size < total,
         }
+
+    async def list_identity_queue(
+        self,
+        status: Optional[str] = None,
+        mode: Optional[str] = None,
+        server: Optional[str] = None,
+        name: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> Dict[str, Any]:
+        """Identity-queue alias for paginated queue listing."""
+        return await self.list_queue(
+            status=status,
+            mode=mode,
+            server=server,
+            name=name,
+            page=page,
+            page_size=page_size,
+        )
 
     # ---- worker 状态操作 ----
 
@@ -1517,6 +2011,7 @@ class JjcSyncRepo:
         self,
         worker_id: str,
         status: str = "running",
+        current_identity_id: Any = None,
         current_identity_key: Optional[str] = None,
         current_server: Optional[str] = None,
         current_name: Optional[str] = None,
@@ -1526,8 +2021,10 @@ class JjcSyncRepo:
         """更新 worker 心跳和当前处理状态。"""
         db = self._db()
         now = time.time()
+        _current_identity_id = self._coerce_object_id(current_identity_id)
         set_fields: Dict[str, Any] = {
             "status": status,
+            "current_identity_id": _current_identity_id,
             "current_identity_key": current_identity_key,
             "current_server": current_server,
             "current_name": current_name,
@@ -1563,6 +2060,7 @@ class JjcSyncRepo:
                 {"worker_id": worker_id},
                 {"$set": {
                     "status": "stopped",
+                    "current_identity_id": None,
                     "current_identity_key": None,
                     "current_server": None,
                     "current_name": None,

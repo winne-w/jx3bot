@@ -1,11 +1,19 @@
 import asyncio
 import time
 import unittest
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
+from src.services.jx3.match_detail import (
+    MatchDetailBasicInfo,
+    MatchDetailData,
+    MatchDetailPlayerInfo,
+    MatchDetailResponse,
+    MatchDetailTeamInfo,
+)
+from src.services.jx3.match_detail_identity_projection import MatchDetailIdentityProjectionService
 
 
 class FakeMatchHistoryClient:
@@ -26,6 +34,28 @@ class FakeMatchReplayClient:
     def get_match_replay(self, *, match_id: int) -> Dict[str, Any]:
         self.calls.append(match_id)
         return self.replay
+
+
+class FakeMatchDetailClient:
+    def __init__(self, response: MatchDetailResponse) -> None:
+        self.response = response
+        self.calls: List[int] = []
+
+    def get_match_detail_obj(self, *, match_id: int) -> MatchDetailResponse:
+        self.calls.append(match_id)
+        return self.response
+
+
+class FakeProjectionService:
+    def __init__(self, error: Optional[Exception] = None) -> None:
+        self.error = error
+        self.calls: List[Dict[str, Any]] = []
+
+    async def project_payload(self, **kwargs: Any) -> Dict[str, Any]:
+        self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        return {"projected": 1}
 
 
 class DirectJjcRankingInspectService(JjcRankingInspectService):
@@ -113,7 +143,7 @@ class FakeWarmupInspectRepo:
 
 
 class WarmupJjcRankingService(JjcRankingService):
-    def __init__(self, inspect_repo: FakeWarmupInspectRepo) -> None:
+    def __init__(self, inspect_repo: FakeWarmupInspectRepo, projection_service: Any = None) -> None:
         super().__init__(
             token="",
             ticket="",
@@ -130,11 +160,68 @@ class WarmupJjcRankingService(JjcRankingService):
             kungfu_pinyin_to_chinese={"huajian": "花间游"},
             tuilan_request=MagicMock(),
             defget_get=MagicMock(),
+            match_detail_projection_service=projection_service,
         )
         object.__setattr__(self, "inspect_repo", inspect_repo)
 
     def _inspect_cache(self):
         return self.inspect_repo
+
+
+def make_match_detail_response() -> MatchDetailResponse:
+    player = MatchDetailPlayerInfo(
+        role_name="示例角色",
+        global_role_id="SK01-1",
+        role_id="100",
+        person_id="person-1",
+        person_name="",
+        person_avatar="",
+        zone="电信区",
+        server="梦江南",
+        total_count=None,
+        win_count=None,
+        win_rate=None,
+        mvp_count=None,
+        mmr=None,
+        score=None,
+        total_score=None,
+        ranking="",
+        kungfu="huajian",
+        kungfu_id=None,
+        mvp=False,
+        equip_score=None,
+        equip_strength_score=None,
+        stone_score=None,
+        max_hp=None,
+        metrics=[],
+        armors=[],
+        talents=[],
+        body_qualities=[],
+        odd=False,
+        fight_seconds=None,
+    )
+    return MatchDetailResponse(
+        code=0,
+        msg="success",
+        data=MatchDetailData(
+            match_id=12345,
+            match_time=1778000000,
+            query_backend=False,
+            basic_info=MatchDetailBasicInfo(
+                video_url="",
+                screen_shot_url="",
+                start_time=1778000000,
+                duration=180,
+                map="",
+                match_type=3,
+                grade=12,
+            ),
+            team1=MatchDetailTeamInfo(won=True, team_name="", players_info=[player]),
+            team2=MatchDetailTeamInfo(won=False, team_name="", players_info=[]),
+            videos=[],
+            hidden=False,
+        ),
+    )
 
 
 class TestTuilanEndpointLocks(unittest.IsolatedAsyncioTestCase):
@@ -271,6 +358,139 @@ class TestRankingWarmupInspectCache(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(match_id, 12345)
         detail = detail_payload["data"]["detail"]
         self.assertEqual(detail["team1"]["players_info"][0]["kungfu"], "花间游")
+
+    async def test_warmup_projects_match_detail_after_save(self):
+        inspect_repo = FakeWarmupInspectRepo()
+        projection_service = FakeProjectionService()
+        service = WarmupJjcRankingService(inspect_repo, projection_service=projection_service)
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "match_detail": {
+                        "match_id": 12345,
+                        "raw": {
+                            "code": 0,
+                            "msg": "success",
+                            "data": {
+                                "match_id": 12345,
+                                "match_time": 1778000000,
+                                "team1": {
+                                    "players_info": [
+                                        {"role_name": "示例角色", "server": "梦江南", "kungfu": "huajian"}
+                                    ]
+                                },
+                                "team2": {"players_info": []},
+                            },
+                        },
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(len(inspect_repo.saved_match_detail), 1)
+        self.assertEqual(len(projection_service.calls), 1)
+        self.assertEqual(projection_service.calls[0]["match_id"], 12345)
+        self.assertEqual(projection_service.calls[0]["source"], "ranking_warmup")
+
+
+class TestMatchDetailIdentityProjection(unittest.IsolatedAsyncioTestCase):
+    async def test_projects_players_to_identity_and_queue(self):
+        identity_repo = MagicMock()
+        sync_repo = MagicMock()
+        identity_doc = {
+            "_id": "identity-1",
+            "identity_key": "global_id:987",
+            "server": "梦江南",
+            "name": "示例角色",
+            "global_id": "987",
+            "game_role_id": "100",
+        }
+        identity_repo.upsert_from_match_detail_with_id = AsyncMock(return_value=identity_doc)
+        sync_repo.upsert_identity_queue_candidate = AsyncMock()
+        service = MatchDetailIdentityProjectionService(
+            identity_repo=identity_repo,
+            sync_repo=sync_repo,
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+        )
+
+        result = await service.project_payload(
+            match_id=12345,
+            payload={
+                "match_id": 12345,
+                "match_time": 1778000000,
+                "detail": {
+                    "team1": {
+                        "players_info": [
+                            {
+                                "role_name": "示例角色·梦江南",
+                                "server": "梦江南",
+                                "role_id": "100",
+                                "global_id": "987",
+                                "kungfu": "huajian",
+                            }
+                        ]
+                    },
+                    "team2": {"players_info": []},
+                },
+            },
+            source="test",
+            priority=2,
+        )
+
+        self.assertEqual(result["projected"], 1)
+        identity_repo.upsert_from_match_detail_with_id.assert_awaited_once()
+        kwargs = identity_repo.upsert_from_match_detail_with_id.await_args.kwargs
+        self.assertEqual(kwargs["name"], "示例角色")
+        self.assertEqual(kwargs["game_role_id"], "100")
+        self.assertEqual(kwargs["global_id"], "987")
+        self.assertEqual(kwargs["observed_match_time"], 1778000000)
+        sync_repo.upsert_identity_queue_candidate.assert_awaited_once()
+        queue_kwargs = sync_repo.upsert_identity_queue_candidate.await_args.kwargs
+        self.assertEqual(queue_kwargs["identity_id"], "identity-1")
+        self.assertEqual(queue_kwargs["identity_key"], "global_id:987")
+        self.assertEqual(queue_kwargs["server"], "梦江南")
+        self.assertEqual(queue_kwargs["name"], "示例角色")
+        self.assertEqual(queue_kwargs["global_id"], "987")
+        self.assertEqual(queue_kwargs["game_role_id"], "100")
+        self.assertEqual(queue_kwargs["source"], "test")
+        self.assertEqual(queue_kwargs["priority"], 2)
+
+    async def test_tolerates_missing_detail_and_missing_queue_method(self):
+        identity_repo = MagicMock()
+        sync_repo = MagicMock(spec=[])
+        service = MatchDetailIdentityProjectionService(identity_repo=identity_repo, sync_repo=sync_repo)
+
+        missing = await service.project_payload(match_id=1, payload=None)
+        empty = await service.project_payload(
+            match_id=1,
+            payload={"detail": {"team1": {"players_info": []}, "team2": {"players_info": []}}},
+        )
+
+        self.assertTrue(missing["skipped"])
+        self.assertTrue(empty["skipped"])
+        identity_repo.upsert_from_match_detail_with_id.assert_not_called()
+
+    async def test_does_not_require_queue_method(self):
+        identity_repo = MagicMock()
+        identity_repo.upsert_from_match_detail_with_id = AsyncMock(return_value={"_id": "identity-1"})
+        sync_repo = MagicMock(spec=[])
+        service = MatchDetailIdentityProjectionService(identity_repo=identity_repo, sync_repo=sync_repo)
+
+        result = await service.project_payload(
+            match_id=1,
+            payload={
+                "detail": {
+                    "team1": {"players_info": [{"role_name": "示例角色", "server": "梦江南"}]},
+                    "team2": {"players_info": []},
+                }
+            },
+        )
+
+        self.assertEqual(result["projected"], 1)
+        self.assertEqual(result["queued"], 0)
 
 
 class TestHydrateRecentMatchesWithCachedDetails(unittest.IsolatedAsyncioTestCase):
@@ -431,6 +651,31 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["recent_matches"][0]["match_id"], 1039)
         self.assertEqual(payload["recent_matches"][0]["kungfu"], "花间游")
         self.assertTrue(payload["pagination"]["has_more"])
+
+    async def test_match_detail_projection_error_is_nonblocking_after_save(self) -> None:
+        cache_repo = FakeJjcInspectRepo()
+        projection_service = FakeProjectionService(error=RuntimeError("projection failed"))
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=FakeMatchDetailClient(make_match_detail_response()),
+            cache_repo=cache_repo,
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+            match_detail_projection_service=projection_service,
+        )
+
+        result = await service.get_match_detail(match_id=12345)
+
+        self.assertFalse(result.get("error", False))
+        self.assertTrue(result["projection_error"])
+        self.assertEqual(result["projection_message"], "projection failed")
+        self.assertEqual(len(cache_repo.saved_match_detail), 1)
+        self.assertEqual(len(projection_service.calls), 1)
+        saved_player = cache_repo.saved_match_detail[0][1]["data"]["detail"]["team1"]["players_info"][0]
+        self.assertEqual(saved_player["kungfu"], "花间游")
 
     async def test_role_recent_resolves_replay_global_id_into_identity_hints(self) -> None:
         match_history_client = FakeMatchHistoryClient(

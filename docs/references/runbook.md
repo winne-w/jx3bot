@@ -148,7 +148,7 @@ python test_tuilan_match_history.py
 - 重置角色水位：`/jjc同步重置 <服务器> <角色名>`
 - 启动常驻 worker：`python scripts/jjc_sync.py worker --mode=incremental_or_full` 或 `python scripts/jjc_sync.py start --limit=10`；`start --limit` 只限制最多处理数量，队列暂空时仍会继续等待
 - 批量入队脚本：`python scripts/jjc_sync.py enqueue --limit=10`
-- 队列页面：启动 bot 后通过同源 HTTP 访问 `http://<bot-host>:<port>/public/jjc-sync-queue.html`；页面依赖同源 `/api/jjc/sync/...` 接口，不能直接用本地文件方式打开。
+- 队列页面：启动 bot 后通过同源 HTTP 访问 `http://<bot-host>:<port>/public/jjc-sync-queue.html`；页面支持按服务器、角色名搜索，状态以中文展示；页面依赖同源 `/api/jjc/sync/...` 接口，不能直接用本地文件方式打开。
 
 预期:
 
@@ -164,8 +164,9 @@ python test_tuilan_match_history.py
 - 修改推栏 ticket 的推荐流程：先 `/jjc同步暂停 更换ticket`，等待 `/jjc同步状态` 显示无 `syncing` 或 worker 已 paused，重启 bot/worker 加载新配置，再 `/jjc同步恢复`；暂停期间可以继续添加角色或批量入队，worker 暂不领取，但 tick 仍会恢复过期租约。
 - 推栏返回明确 ticket 过期、无权限、鉴权失败时，worker 会自动全局暂停，并把当前角色释放回队列且不增加角色 `fail_count`。
 - JJC 最终身份主键为 replay 数字 ID：`global_id:{global_id}`；`global_id` 来自 `/3c/mine/match/replay` 的 `players[].global_role_id`，不要与 SK01 `global_role_id` 混用。
-- `global_role_id` 专指 `/role/indicator` 返回的 `SK01-...`，用于请求 `match/history`；角色缺少 SK01 且队列中已有 `person_id` 时，同步前仍保留 `mine/match/person-history` 兼容兜底。
-- 同步详情应写入现有 `jjc_match_detail`，并从详情玩家回填 `jjc_sync_role_queue`；详情玩家身份补全主链路为 `match/detail + match/replay + role/indicator`，成功拿到 replay `global_id` 与 SK01 `global_role_id` 后才写入可执行同步队列。
+- `global_role_id` 专指 `/role/indicator` 返回的 `SK01-...`，用于请求 `match/history`；新队列入队不要求 SK01，worker 领取 `identity_id` 后会用 `role_identities` 中的区服、`game_role_id`、服务器先刷新 indicator。
+- 同步详情应写入现有 `jjc_match_detail`，并通过统一对局身份投影把详情玩家写入 `role_identities` 与 `jjc_sync_identity_queue`；投影阶段只使用详情/replay 已知字段，不因缺少 SK01 跳过入队。
+- 旧 `jjc_sync_role_queue` 迁移到 `jjc_sync_identity_queue` 前，先暂停 worker 并确认无活跃 `syncing`；使用 `python scripts/migrate_jjc_sync_identity_queue.py forward --dry-run` 预检查，确认 `unresolvable/failed` 后使用 `forward --execute` 正式迁移，再恢复 worker。分批迁移时配合 `--limit` 和上批最后一个源 `_id` 的 `--after-id` 推进游标。代码版本回滚前使用同脚本 `reverse-sync --dry-run` 和 `reverse-sync --execute` 把新队列水位尽力写回旧队列。
 - 单条详情临时失败不会中断当前角色同步，`/jjc同步开始` 输出中的 `详情失败` 表示对局详情已写入失败状态并等待 `detail_retry_after` 后重试
 - 若 Mongo 领取对局详情租约失败，worker 会释放当前角色回 `queued`，不推进角色水位，等待后续 tick 重试，避免跳过该角色后续对局。
 - 推栏返回 `code=-1`、`msg=no data found`、`data=null` 时，对局写入 `detail_unavailable` 终态；`/jjc同步开始` 输出中的 `详情不可用` 表示后续不会重复请求该对局详情
@@ -175,7 +176,7 @@ python test_tuilan_match_history.py
 离线自动验证：
 
 ```bash
-python -m unittest tests.test_jjc_match_data_sync_handler tests.test_jjc_match_data_sync tests.test_jjc_sync_repo tests.test_jjc_sync_worker_queue tests.test_jjc_sync_router
+python -m unittest tests.test_jjc_match_data_sync_handler tests.test_jjc_match_data_sync tests.test_jjc_sync_repo tests.test_jjc_sync_worker_queue tests.test_jjc_sync_router tests.test_migrate_jjc_sync_identity_queue
 python -m unittest tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot_repo tests.test_jjc_match_detail_hydration tests.test_scripts_jjc_snapshot
 python -m py_compile src/services/jx3/jjc_match_data_sync.py src/storage/mongo_repos/jjc_sync_repo.py src/plugins/jx3bot_handlers/jjc_match_data_sync.py src/api/routers/jjc_sync.py scripts/jjc_sync.py src/infra/mongo.py
 ```

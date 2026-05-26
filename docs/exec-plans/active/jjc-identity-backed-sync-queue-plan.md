@@ -1,7 +1,23 @@
 # JJC 对局身份投影与 `_id` 关联同步队列改造计划
 
-状态：方案待确认
-更新时间：2026-05-25
+状态：已实现，已通过离线相关回归，待提交
+更新时间：2026-05-26
+
+## 实施状态
+
+2026-05-26 已完成：
+
+- 对局详情保存入口接入统一身份投影，页面查看、缓存 replay 补全重存、排名预热、同步 worker 保存详情均会把可解析玩家写入 `role_identities` 与 `jjc_sync_identity_queue`。
+- 新队列以 `role_identities._id` 的 `identity_id` 作为主关联，入队不再要求 SK01 `global_role_id`。
+- worker 领取后按 `identity_id` 回读身份表，按 24 小时刷新规则调用 indicator 更新 SK01，再用 SK01 查询战局历史。
+- `_sync_match_detail()` 已移除保存详情前的 indicator 前置补全和旧队列写入职责，改为 replay 补全后调用统一投影；投影失败记录 warning 且不阻塞详情保存。
+- 已新增迁移脚本 `scripts/migrate_jjc_sync_identity_queue.py`，支持 dry-run、正式迁移、默认跳过 syncing、`--include-syncing` 与 `reverse-sync` 回滚补偿。
+- 已同步数据库设计和 runbook。
+
+已执行验证：
+
+- `python -m py_compile src/services/jx3/match_detail_identity_projection.py src/services/jx3/jjc_match_data_sync.py src/services/jx3/jjc_ranking_inspect.py src/services/jx3/jjc_ranking.py src/services/jx3/singletons.py src/storage/mongo_repos/jjc_sync_repo.py src/storage/mongo_repos/role_identity_repo.py src/infra/mongo.py scripts/migrate_jjc_sync_identity_queue.py`
+- `python -m unittest tests.test_role_identity_repo tests.test_jjc_sync_repo tests.test_jjc_sync_worker_queue tests.test_jjc_ranking_inspect tests.test_jjc_match_data_sync tests.test_jjc_sync_router tests.test_migrate_jjc_sync_identity_queue`
 
 ## 首轮方案审计修订摘要
 
@@ -241,7 +257,7 @@
   - 为 `jjc_sync_identity_queue` 创建索引。
 - `scripts/migrate_jjc_sync_identity_queue.py`（新增）
   - 从旧 `jjc_sync_role_queue` 读取，解析/查找/必要时创建 `role_identities`，按 `identity_id` upsert 新队列。
-  - 支持 `--dry-run`、`--limit`、`--skip-syncing`、`--include-syncing`、`--verbose`。
+  - 支持 `--dry-run`、`--execute`、`--limit`、`--after-id`、`--include-syncing`、`--verbose`；默认 dry-run 且默认跳过 `syncing`。
   - 提供反向同步子命令或独立脚本，将新队列的水位/候选尽力写回旧 `identity_key` 队列，用于代码版本回滚前补偿。
 - `scripts/backfill_jjc_role_id_from_match_replay.py`
   - 更新测试和写入逻辑：不再要求 SK01 `global_role_id` 才写队列，改为写新集合并关联 identity `_id`。

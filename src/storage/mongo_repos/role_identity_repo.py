@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from nonebot import logger
 from pymongo.errors import DuplicateKeyError
@@ -25,6 +26,14 @@ _LEVEL_ORDER = {"name": 0, "game_role": 1, "global": 2, "global_id": 3}
 
 def _normalize(value: str) -> str:
     return (value or "").strip().lower()
+
+
+def _coerce_object_id(value: Any) -> Optional[ObjectId]:
+    if isinstance(value, ObjectId):
+        return value
+    if isinstance(value, str) and ObjectId.is_valid(value):
+        return ObjectId(value)
+    return None
 
 
 def build_identity_key(
@@ -66,6 +75,12 @@ class RoleIdentityRepo:
         db = self.db if self.db is not None else _get_db()
         return db.role_identities_history
 
+    @staticmethod
+    def _strip_id(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if doc:
+            doc.pop("_id", None)
+        return doc
+
     # ---- 查询 ----
 
     async def find_by_global_role_id(self, global_role_id: str) -> Optional[Dict[str, Any]]:
@@ -75,9 +90,7 @@ class RoleIdentityRepo:
                 {"identity_key": f"global:{global_role_id}"},
             ]
         })
-        if doc:
-            doc.pop("_id", None)
-        return doc
+        return self._strip_id(doc)
 
     async def find_by_global_id(self, global_id: str) -> Optional[Dict[str, Any]]:
         doc = await self._col().find_one({
@@ -86,9 +99,7 @@ class RoleIdentityRepo:
                 {"identity_key": f"global_id:{global_id}"},
             ]
         })
-        if doc:
-            doc.pop("_id", None)
-        return doc
+        return self._strip_id(doc)
 
     async def find_by_game_role_id(self, zone: str, game_role_id: str) -> Optional[Dict[str, Any]]:
         doc = await self._col().find_one({
@@ -98,9 +109,7 @@ class RoleIdentityRepo:
                 {"identity_key": f"game:{zone}:{game_role_id}"},
             ]
         })
-        if doc:
-            doc.pop("_id", None)
-        return doc
+        return self._strip_id(doc)
 
     async def find_by_name(self, server: str, name: str) -> List[Dict[str, Any]]:
         """按规范化服务器+角色名查询，可能返回多条（同名同服不同来源的旧记录）。"""
@@ -111,6 +120,13 @@ class RoleIdentityRepo:
         for doc in docs:
             doc.pop("_id", None)
         return docs
+
+    async def get_by_id(self, identity_id: Any) -> Optional[Dict[str, Any]]:
+        """按 role_identities._id 查询身份，返回保留原生 _id 的文档。"""
+        object_id = _coerce_object_id(identity_id)
+        if object_id is None:
+            return None
+        return await self._col().find_one({"_id": object_id})
 
     async def resolve_best_identity(
         self,
@@ -142,6 +158,57 @@ class RoleIdentityRepo:
                 return doc
 
         docs = await self.find_by_name(server, name)
+        return docs[0] if docs else None
+
+    async def resolve_best_identity_with_id(
+        self,
+        server: str,
+        name: str,
+        zone: Optional[str] = None,
+        game_role_id: Optional[str] = None,
+        global_role_id: Optional[str] = None,
+        global_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """按优先级查找最佳匹配身份，返回保留原生 _id 的文档。"""
+        replay_gid = (global_id or "").strip()
+        if replay_gid:
+            doc = await self._col().find_one({
+                "$or": [
+                    {"global_id": replay_gid},
+                    {"identity_key": f"global_id:{replay_gid}"},
+                ]
+            })
+            if doc:
+                return doc
+
+        gid = (global_role_id or "").strip()
+        if gid:
+            doc = await self._col().find_one({
+                "$or": [
+                    {"global_role_id": gid},
+                    {"identity_key": f"global:{gid}"},
+                ]
+            })
+            if doc:
+                return doc
+
+        z = (zone or "").strip()
+        grid = (game_role_id or "").strip()
+        if z and grid:
+            doc = await self._col().find_one({
+                "$or": [
+                    {"zone": z, "game_role_id": grid},
+                    {"zone": z, "role_id": grid},
+                    {"identity_key": f"game:{z}:{grid}"},
+                ]
+            })
+            if doc:
+                return doc
+
+        ns = _normalize(server)
+        nn = _normalize(name)
+        cursor = self._col().find({"normalized_server": ns, "normalized_name": nn})
+        docs = await cursor.to_list(None)
         return docs[0] if docs else None
 
     # ---- upsert 入口 ----
@@ -206,6 +273,72 @@ class RoleIdentityRepo:
             global_id=global_id, source="match_detail", observed_at=observed_at,
             observed_match_time=observed_match_time, cache_repo=cache_repo,
         )
+
+    async def upsert_from_match_detail_with_id(
+        self,
+        server: str,
+        name: str,
+        zone: Optional[str] = None,
+        game_role_id: Optional[str] = None,
+        global_role_id: Optional[str] = None,
+        role_id: Optional[str] = None,
+        person_id: Optional[str] = None,
+        observed_at: Optional[datetime] = None,
+        observed_match_time: Optional[int] = None,
+        global_id: Optional[str] = None,
+        cache_repo: Any = None,
+    ) -> Dict[str, Any]:
+        """从对局详情数据写入或升级身份，返回保留原生 _id 的文档。"""
+        return await self._upsert_identity(
+            server=server, name=name, zone=zone, game_role_id=game_role_id,
+            global_role_id=global_role_id, role_id=role_id, person_id=person_id,
+            global_id=global_id, source="match_detail", observed_at=observed_at,
+            observed_match_time=observed_match_time, cache_repo=cache_repo,
+            preserve_id=True,
+        )
+
+    async def refresh_indicator_fields_by_id(
+        self,
+        identity_id: Any,
+        global_role_id: str,
+        refresh_source: str = "indicator",
+        zone: Optional[str] = None,
+        game_role_id: Optional[str] = None,
+        role_id: Optional[str] = None,
+        person_id: Optional[str] = None,
+        server: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """按 _id 刷新 indicator 解析出的身份字段，返回保留原生 _id 的文档。"""
+        object_id = _coerce_object_id(identity_id)
+        if object_id is None:
+            return None
+
+        now = datetime.now(timezone.utc)
+        set_fields: Dict[str, Any] = {
+            "global_role_id": global_role_id,
+            "global_role_id_refreshed_at": now,
+            "global_role_id_refresh_source": refresh_source,
+            "updated_at": now,
+        }
+        optional_fields = {
+            "zone": zone,
+            "game_role_id": game_role_id,
+            "role_id": role_id,
+            "person_id": person_id,
+            "server": server,
+            "name": name,
+        }
+        for field_name, value in optional_fields.items():
+            if value is not None:
+                set_fields[field_name] = value
+        if server is not None:
+            set_fields["normalized_server"] = _normalize(server)
+        if name is not None:
+            set_fields["normalized_name"] = _normalize(name)
+
+        await self._col().update_one({"_id": object_id}, {"$set": set_fields})
+        return await self.get_by_id(object_id)
 
     # ---- 显式升级 ----
 
@@ -297,6 +430,7 @@ class RoleIdentityRepo:
         observed_at: Optional[datetime] = None,
         observed_match_time: Optional[int] = None,
         cache_repo: Any = None,
+        preserve_id: bool = False,
     ) -> Dict[str, Any]:
         """通用 upsert：查找已有身份 → 可能升级 → 新建或更新。"""
         now = datetime.now(timezone.utc)
@@ -310,18 +444,25 @@ class RoleIdentityRepo:
         ns = _normalize(server)
         nn = _normalize(name)
 
-        existing = await self.resolve_best_identity(
-            server=server, name=name,
-            zone=zone, game_role_id=effective_game_role_id,
-            global_role_id=global_role_id, global_id=global_id,
-        )
+        if preserve_id:
+            existing = await self.resolve_best_identity_with_id(
+                server=server, name=name,
+                zone=zone, game_role_id=effective_game_role_id,
+                global_role_id=global_role_id, global_id=global_id,
+            )
+        else:
+            existing = await self.resolve_best_identity(
+                server=server, name=name,
+                zone=zone, game_role_id=effective_game_role_id,
+                global_role_id=global_role_id, global_id=global_id,
+            )
 
         if existing:
             return await self._update_existing(
                 existing, server, name, ns, nn,
                 zone, effective_game_role_id, global_role_id, global_id, role_id, person_id,
                 source, now, profile_observed_at, profile_observed_match_time,
-                cache_repo=cache_repo,
+                cache_repo=cache_repo, preserve_id=preserve_id,
             )
 
         # 无已有身份 → 新建
@@ -369,21 +510,25 @@ class RoleIdentityRepo:
             doc["global_id"] = global_id
 
         try:
-            await self._col().insert_one(doc)
+            insert_result = await self._col().insert_one(doc)
+            if preserve_id and "_id" not in doc:
+                doc["_id"] = insert_result.inserted_id
         except DuplicateKeyError:
             logger.warning("插入身份冲突（并发写入），重新查找: key={}", identity_key)
             existing = await self._col().find_one({"identity_key": identity_key})
             if existing:
-                existing.pop("_id", None)
+                if not preserve_id:
+                    existing.pop("_id", None)
                 return await self._update_existing(
                     existing, server, name, ns, nn,
                     zone, effective_game_role_id, global_role_id, global_id, role_id, person_id,
                     source, now, profile_observed_at, profile_observed_match_time,
-                    cache_repo=cache_repo,
+                    cache_repo=cache_repo, preserve_id=preserve_id,
                 )
             raise
 
-        doc.pop("_id", None)
+        if not preserve_id:
+            doc.pop("_id", None)
         return doc
 
     async def _update_existing(
@@ -404,6 +549,7 @@ class RoleIdentityRepo:
         profile_observed_at: datetime,
         observed_match_time: Optional[int],
         cache_repo: Any = None,
+        preserve_id: bool = False,
     ) -> Dict[str, Any]:
         """更新已有身份记录，必要时执行身份升级。"""
         current_key: str = existing["identity_key"]
@@ -417,7 +563,8 @@ class RoleIdentityRepo:
                 existing_global_id,
                 incoming_global_id,
             )
-            existing.pop("_id", None)
+            if not preserve_id:
+                existing.pop("_id", None)
             return existing
 
         new_key, new_level = build_identity_key(
@@ -502,7 +649,8 @@ class RoleIdentityRepo:
                 archived_at=now,
             )
             if not archived:
-                existing.pop("_id", None)
+                if not preserve_id:
+                    existing.pop("_id", None)
                 return existing
 
         try:
@@ -515,7 +663,8 @@ class RoleIdentityRepo:
                 "身份升级冲突: old_key={} new_key={} 目标已存在，保留当前记录",
                 current_key, new_key,
             )
-            existing.pop("_id", None)
+            if not preserve_id:
+                existing.pop("_id", None)
             return existing
 
         if needs_upgrade and cache_repo is not None:
@@ -523,7 +672,7 @@ class RoleIdentityRepo:
 
         lookup_key = new_key if needs_upgrade else current_key
         doc = await self._col().find_one({"identity_key": lookup_key})
-        if doc:
+        if doc and not preserve_id:
             doc.pop("_id", None)
         return doc or existing
 

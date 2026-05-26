@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import socket
 import time
@@ -33,6 +34,7 @@ _AUTH_ERROR_KEYWORDS = (
     "失效",
 )
 _WORKER_HEARTBEAT_TTL_SECONDS = 300
+_IDENTITY_INDICATOR_REFRESH_SECONDS = 86400
 
 
 class JjcSyncGlobalPauseError(RuntimeError):
@@ -406,6 +408,7 @@ class JjcMatchDataSyncService:
         person_match_history_client: Optional[Any] = None,
         match_replay_client: Optional[MatchReplayClient] = None,
         role_indicator_client: Optional[RoleIndicatorClient] = None,
+        match_detail_projection_service: Optional[Any] = None,
         sleep_func: Callable[[], Awaitable[None]] = random_sleep,
         page_size: int = 20,
         max_pages_per_role: int = 300,
@@ -420,6 +423,7 @@ class JjcMatchDataSyncService:
         self._person_match_history_client = person_match_history_client
         self._match_replay_client = match_replay_client
         self._role_indicator_client = role_indicator_client
+        self._match_detail_projection_service = match_detail_projection_service
         self._sleep_func = sleep_func
         self._page_size = page_size
         self._max_pages_per_role = max_pages_per_role
@@ -715,17 +719,26 @@ class JjcMatchDataSyncService:
         if role is None:
             return {"error": True, "message": f"未找到角色 {server}/{name}"}
         identity_key = str(role.get("identity_key") or "")
-        success = await self._repo.update_role_priority(
-            identity_key=identity_key,
-            priority=priority,
-            updated_by=updated_by,
-        )
+        identity_id = self._extract_identity_id(role)
+        if identity_id is not None and hasattr(self._repo, "update_identity_priority"):
+            success = await self._repo.update_identity_priority(
+                identity_id=identity_id,
+                priority=priority,
+                updated_by=updated_by,
+            )
+        else:
+            success = await self._repo.update_role_priority(
+                identity_key=identity_key,
+                priority=priority,
+                updated_by=updated_by,
+            )
         if not success:
             return {"error": True, "message": "更新优先级失败"}
         return {
             "error": False,
             "message": f"角色 {server}/{name} 优先级已调整为 {priority}",
             "identity_key": identity_key,
+            "identity_id": str(identity_id or "") if identity_id is not None else None,
             "priority": priority,
         }
 
@@ -825,15 +838,18 @@ class JjcMatchDataSyncService:
         last_error: str = "",
     ) -> None:
         current_identity_key = None
+        current_identity_id = None
         current_server = None
         current_name = None
         if current_role:
             current_identity_key = str(current_role.get("identity_key") or "") or None
+            current_identity_id = self._extract_identity_id(current_role)
             current_server = str(current_role.get("server") or "") or None
             current_name = str(current_role.get("name") or "") or None
         await self._repo.heartbeat_worker(
             worker_id=worker_id,
             status=status,
+            current_identity_id=current_identity_id,
             current_identity_key=current_identity_key,
             current_server=current_server,
             current_name=current_name,
@@ -897,10 +913,12 @@ class JjcMatchDataSyncService:
         identity_key: str,
         reason: str,
         lease_owner: Optional[str] = None,
+        identity_id: Optional[Any] = None,
     ) -> None:
         await self._repo.set_paused(True, reason)
-        await self._repo.release_role_interrupted(
+        await self._release_role_interrupted(
             identity_key=identity_key,
+            identity_id=identity_id,
             reason=reason,
             requeue=True,
             lease_owner=lease_owner,
@@ -915,19 +933,29 @@ class JjcMatchDataSyncService:
         lease_owner: str,
         last_renewed_at: float,
         force: bool = False,
+        identity_id: Optional[Any] = None,
     ) -> float:
         now = time.time()
         if not force and now - last_renewed_at < self._role_lease_renew_interval():
             return last_renewed_at
 
-        renewed = await self._repo.renew_role_lease(
-            identity_key=identity_key,
-            lease_owner=lease_owner,
-            lease_seconds=self._lease_seconds,
-        )
+        if identity_id is not None and hasattr(self._repo, "renew_identity_lease"):
+            renewed = await self._repo.renew_identity_lease(
+                identity_id=identity_id,
+                lease_owner=lease_owner,
+                lease_seconds=self._lease_seconds,
+            )
+            lease_ref = "identity_id={}".format(identity_id)
+        else:
+            renewed = await self._repo.renew_role_lease(
+                identity_key=identity_key,
+                lease_owner=lease_owner,
+                lease_seconds=self._lease_seconds,
+            )
+            lease_ref = "identity_key={}".format(identity_key)
         if not renewed:
             raise JjcSyncStaleRoleLeaseError(
-                "stale_role_lease: identity_key={} owner={}".format(identity_key, lease_owner)
+                "stale_role_lease: {} owner={}".format(lease_ref, lease_owner)
             )
         return now
 
@@ -952,6 +980,245 @@ class JjcMatchDataSyncService:
                 "stale_match_detail_lease: match_id={} owner={}".format(match_id, lease_owner)
             )
         return now
+
+    @staticmethod
+    def _extract_identity_id(doc: Dict[str, Any]) -> Optional[Any]:
+        for key in ("identity_id", "_id"):
+            value = doc.get(key)
+            if value is not None and str(value).strip():
+                return value
+        return None
+
+    @staticmethod
+    def _merge_identity_snapshot(role: Dict[str, Any], identity: Dict[str, Any]) -> Dict[str, Any]:
+        merged = dict(role)
+        if identity.get("_id") is not None and not merged.get("identity_id"):
+            merged["identity_id"] = identity.get("_id")
+        for identity_key, role_key in (
+            ("identity_key", "identity_key"),
+            ("server", "server"),
+            ("name", "name"),
+            ("global_id", "global_id"),
+            ("global_role_id", "global_role_id"),
+            ("role_id", "role_id"),
+            ("game_role_id", "role_id"),
+            ("person_id", "person_id"),
+            ("zone", "zone"),
+            ("full_synced_until_time", "full_synced_until_time"),
+            ("history_exhausted", "history_exhausted"),
+        ):
+            value = identity.get(identity_key)
+            if value is not None and str(value).strip():
+                merged[role_key] = value
+        return merged
+
+    @staticmethod
+    def _timestamp_age_seconds(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        now = time.time()
+        if isinstance(value, datetime):
+            ref = value.timestamp()
+            return max(0.0, now - ref)
+        numeric = _coerce_float(value)
+        if numeric is not None:
+            return max(0.0, now - numeric)
+        return None
+
+    def _identity_indicator_refresh_needed(self, identity: Dict[str, Any]) -> bool:
+        global_role_id = str(identity.get("global_role_id") or "").strip()
+        refreshed_age = self._timestamp_age_seconds(identity.get("global_role_id_refreshed_at"))
+        if not global_role_id.startswith("SK01-"):
+            return True
+        if refreshed_age is None:
+            return True
+        return refreshed_age > _IDENTITY_INDICATOR_REFRESH_SECONDS
+
+    async def _load_identity_for_sync(self, role: Dict[str, Any]) -> Dict[str, Any]:
+        identity_id = self._extract_identity_id(role)
+        if identity_id is None or self._identity_repo is None:
+            return role
+        getter = getattr(self._identity_repo, "get_by_id", None)
+        if not callable(getter):
+            return role
+        try:
+            identity = await getter(identity_id)
+        except Exception as exc:
+            logger.warning("JJC 同步读取角色身份失败: identity_id={} error={}".format(identity_id, exc))
+            return role
+        if not isinstance(identity, dict) or not identity:
+            return role
+        merged = self._merge_identity_snapshot(role, identity)
+        refreshed = await self._refresh_identity_indicator_for_sync(merged, identity)
+        if refreshed is not None:
+            merged = self._merge_identity_snapshot(merged, refreshed)
+        return merged
+
+    async def _refresh_identity_indicator_for_sync(
+        self,
+        role: Dict[str, Any],
+        identity: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        identity_id = self._extract_identity_id(identity) or self._extract_identity_id(role)
+        if identity_id is None or self._identity_repo is None or self._role_indicator_client is None:
+            return None
+        if not self._identity_indicator_refresh_needed(identity):
+            return None
+        refresher = getattr(self._identity_repo, "refresh_indicator_fields_by_id", None)
+        if not callable(refresher):
+            return None
+        role_id = str(
+            identity.get("game_role_id")
+            or identity.get("role_id")
+            or role.get("game_role_id")
+            or role.get("role_id")
+            or ""
+        ).strip()
+        zone = str(identity.get("zone") or role.get("zone") or "").strip()
+        server = str(identity.get("server") or role.get("server") or "").strip()
+        name = str(identity.get("name") or role.get("name") or "").strip()
+        if not (role_id and zone and server):
+            return None
+        try:
+            await self._sleep_func()
+            indicator_data = await asyncio.to_thread(
+                self._role_indicator_client.get_role_indicator,
+                role_id=role_id,
+                zone=zone,
+                server=server,
+            )
+        except Exception as exc:
+            if is_tuilan_auth_error(str(exc)):
+                raise JjcSyncGlobalPauseError(
+                    build_tuilan_auth_pause_reason(str(exc), context="role-indicator")
+                )
+            logger.warning(
+                "JJC 同步刷新角色 indicator 失败: identity_id={} server={} role_id={} error={}".format(
+                    identity_id, server, role_id, exc
+                )
+            )
+            return None
+        if is_tuilan_auth_error(indicator_data):
+            raise JjcSyncGlobalPauseError(
+                build_tuilan_auth_pause_reason(indicator_data, context="role-indicator")
+            )
+        if not isinstance(indicator_data, dict) or indicator_data.get("error"):
+            return None
+        payload = indicator_data.get("data")
+        if not isinstance(payload, dict):
+            payload = indicator_data
+        role_info = payload.get("role_info") if isinstance(payload, dict) else None
+        if not isinstance(role_info, dict):
+            return None
+        sk01_global = str(role_info.get("global_role_id") or "").strip()
+        if not sk01_global.startswith("SK01-"):
+            return None
+        person_info = payload.get("person_info") if isinstance(payload, dict) else None
+        person_id = None
+        if isinstance(person_info, dict):
+            person_id = str(person_info.get("person_id") or "").strip() or None
+        refreshed = await refresher(
+            identity_id=identity_id,
+            global_role_id=sk01_global,
+            refresh_source="indicator",
+            zone=str(role_info.get("zone") or zone).strip() or zone,
+            game_role_id=str(role_info.get("role_id") or role_id).strip() or role_id,
+            role_id=str(role_info.get("role_id") or role_id).strip() or role_id,
+            person_id=person_id,
+            server=str(role_info.get("server") or server).strip() or server,
+            name=name or None,
+        )
+        if isinstance(refreshed, dict):
+            await self._sync_identity_snapshot_if_available(refreshed)
+            return refreshed
+        return None
+
+    async def _sync_identity_snapshot_if_available(self, identity: Dict[str, Any]) -> None:
+        identity_id = self._extract_identity_id(identity)
+        if identity_id is None:
+            return
+        sync_snapshot = getattr(self._repo, "sync_identity_snapshot", None)
+        if callable(sync_snapshot):
+            try:
+                await sync_snapshot(identity=identity)
+            except TypeError:
+                await sync_snapshot(identity_id=identity_id, identity=identity)
+            except Exception as exc:
+                logger.warning("JJC 同步 identity 队列快照失败: identity_id={} error={}".format(identity_id, exc))
+            return
+        upsert_candidate = getattr(self._repo, "upsert_identity_queue_candidate", None)
+        if not callable(upsert_candidate):
+            return
+        try:
+            await upsert_candidate(
+                identity_id=identity_id,
+                identity_key=identity.get("identity_key"),
+                server=identity.get("server"),
+                name=identity.get("name"),
+                normalized_server=identity.get("normalized_server") or identity.get("server"),
+                normalized_name=identity.get("normalized_name") or identity.get("name"),
+                global_id=identity.get("global_id"),
+                global_role_id=identity.get("global_role_id"),
+                role_id=identity.get("role_id") or identity.get("game_role_id"),
+                game_role_id=identity.get("game_role_id") or identity.get("role_id"),
+                person_id=identity.get("person_id"),
+                zone=identity.get("zone"),
+                source="identity_refresh",
+                priority=0,
+            )
+        except Exception as exc:
+            logger.warning("JJC 更新 identity 队列候选快照失败: identity_id={} error={}".format(identity_id, exc))
+
+    async def _release_role_interrupted(
+        self,
+        identity_key: str,
+        reason: str,
+        requeue: bool = True,
+        lease_owner: Optional[str] = None,
+        identity_id: Optional[Any] = None,
+    ) -> bool:
+        if identity_id is not None and hasattr(self._repo, "release_identity_interrupted"):
+            return await self._repo.release_identity_interrupted(
+                identity_id=identity_id,
+                reason=reason,
+                requeue=requeue,
+                lease_owner=lease_owner,
+            )
+        return await self._repo.release_role_interrupted(
+            identity_key=identity_key,
+            reason=reason,
+            requeue=requeue,
+            lease_owner=lease_owner,
+        )
+
+    async def _release_role_success(
+        self,
+        identity_key: str,
+        identity_id: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> bool:
+        if identity_id is not None and hasattr(self._repo, "release_identity_success"):
+            return await self._repo.release_identity_success(identity_id=identity_id, **kwargs)
+        return await self._repo.release_role_success(identity_key=identity_key, **kwargs)
+
+    async def _release_role_failure(
+        self,
+        identity_key: str,
+        error_message: str = "",
+        lease_owner: Optional[str] = None,
+        identity_id: Optional[Any] = None,
+    ) -> bool:
+        if identity_id is not None and hasattr(self._repo, "release_identity_failure"):
+            return await self._repo.release_identity_failure(
+                identity_id=identity_id,
+                error_message=error_message,
+                lease_owner=lease_owner,
+            )
+        return await self._repo.release_role_failure(
+            identity_key,
+            error_message,
+            lease_owner=lease_owner,
+        )
 
     async def run_until_idle(
         self,
@@ -1099,12 +1366,16 @@ class JjcMatchDataSyncService:
         mode: str,
         lease_owner: str,
     ) -> Dict[str, Any]:
+        role = await self._load_identity_for_sync(role)
         identity_key = str(role.get("identity_key") or "")
+        identity_id = self._extract_identity_id(role)
         server = str(role.get("server") or "")
         name = str(role.get("name") or "")
         global_role_id = str(role.get("global_role_id") or "").strip()
         if not identity_key:
-            return {"error": True, "message": "role_missing_identity_key"}
+            if identity_id is None:
+                return {"error": True, "message": "role_missing_identity_key"}
+            identity_key = "identity_id:{}".format(identity_id)
         last_role_lease_renewed_at = 0.0
         last_worker_heartbeat_at = 0.0
         current_role = dict(role)
@@ -1114,6 +1385,7 @@ class JjcMatchDataSyncService:
                 lease_owner,
                 last_role_lease_renewed_at,
                 force=True,
+                identity_id=identity_id,
             )
         except JjcSyncStaleLeaseError as exc:
             return {"error": True, "stale_lease": True, "message": str(exc)}
@@ -1125,6 +1397,7 @@ class JjcMatchDataSyncService:
                 lease_owner,
                 last_role_lease_renewed_at,
                 force=force,
+                identity_id=identity_id,
             )
 
         if not global_role_id:
@@ -1135,50 +1408,57 @@ class JjcMatchDataSyncService:
                 logger.warning(
                     f"JJC 同步身份补全触发全局暂停: server={server} name={name} reason={reason}"
                 )
-                await self._pause_for_global_auth_error(identity_key, reason, lease_owner=lease_owner)
+                await self._pause_for_global_auth_error(
+                    identity_key,
+                    reason,
+                    lease_owner=lease_owner,
+                    identity_id=identity_id,
+                )
                 return {"error": True, "global_paused": True, "message": reason}
             global_role_id = str(identity.get("global_role_id") or "").strip()
             if not global_role_id:
                 message = f"{server}/{name} 缺少 global_role_id，无法同步推栏战局历史"
-                released = await self._repo.release_role_failure(
+                released = await self._release_role_failure(
                     identity_key,
                     message,
                     lease_owner=lease_owner,
+                    identity_id=identity_id,
                 )
                 if released is False:
                     return {"error": True, "stale_lease": True, "message": "stale_role_lease"}
                 return {"error": True, "message": message}
-            migrated_identity_key = await self._repo.update_role_identity_fields_and_key(
-                identity_key=identity_key,
-                global_id=str(identity.get("global_id") or role.get("global_id") or "").strip() or None,
-                global_role_id=global_role_id,
-                role_id=str(identity.get("role_id") or identity.get("game_role_id") or "").strip() or None,
-                person_id=str(identity.get("person_id") or role.get("person_id") or "").strip() or None,
-                zone=str(identity.get("zone") or "").strip() or None,
-                identity_source=str(identity.get("source") or "").strip() or None,
-                lease_owner=lease_owner,
-            )
-            if not migrated_identity_key:
-                return {
-                    "error": True,
-                    "stale_lease": True,
-                    "message": "stale_role_lease: identity_key={} owner={} during_identity_migration".format(
-                        identity_key,
-                        lease_owner,
-                    ),
-                }
-            if migrated_identity_key:
-                identity_key = migrated_identity_key
-                current_role["identity_key"] = identity_key
-                try:
-                    last_role_lease_renewed_at = await self._renew_role_lease_if_due(
-                        identity_key,
-                        lease_owner,
-                        last_role_lease_renewed_at,
-                        force=True,
-                    )
-                except JjcSyncStaleLeaseError as exc:
-                    return {"error": True, "stale_lease": True, "message": str(exc)}
+            if identity_id is None:
+                migrated_identity_key = await self._repo.update_role_identity_fields_and_key(
+                    identity_key=identity_key,
+                    global_id=str(identity.get("global_id") or role.get("global_id") or "").strip() or None,
+                    global_role_id=global_role_id,
+                    role_id=str(identity.get("role_id") or identity.get("game_role_id") or "").strip() or None,
+                    person_id=str(identity.get("person_id") or role.get("person_id") or "").strip() or None,
+                    zone=str(identity.get("zone") or "").strip() or None,
+                    identity_source=str(identity.get("source") or "").strip() or None,
+                    lease_owner=lease_owner,
+                )
+                if not migrated_identity_key:
+                    return {
+                        "error": True,
+                        "stale_lease": True,
+                        "message": "stale_role_lease: identity_key={} owner={} during_identity_migration".format(
+                            identity_key,
+                            lease_owner,
+                        ),
+                    }
+                if migrated_identity_key:
+                    identity_key = migrated_identity_key
+                    current_role["identity_key"] = identity_key
+                    try:
+                        last_role_lease_renewed_at = await self._renew_role_lease_if_due(
+                            identity_key,
+                            lease_owner,
+                            last_role_lease_renewed_at,
+                            force=True,
+                        )
+                    except JjcSyncStaleLeaseError as exc:
+                        return {"error": True, "stale_lease": True, "message": str(exc)}
             await self._upsert_role_identity_from_resolved(server, name, identity)
 
         run_upper_time = int(time.time())
@@ -1218,6 +1498,7 @@ class JjcMatchDataSyncService:
                     identity_key,
                     lease_owner,
                     last_role_lease_renewed_at,
+                    identity_id=identity_id,
                 )
                 await self._sleep_func()
                 payload = await asyncio.to_thread(
@@ -1273,6 +1554,7 @@ class JjcMatchDataSyncService:
                     marked = await self._repo.mark_match_discovered(
                         match_id=match_id,
                         match_time=match_time,
+                        source_identity_id=identity_id,
                         source_identity_key=identity_key,
                         source_server=server,
                         source_role_name=name,
@@ -1284,6 +1566,7 @@ class JjcMatchDataSyncService:
                         match_time=match_time,
                         lease_owner=lease_owner,
                         role_identity_key=identity_key,
+                        role_identity_id=identity_id,
                         server=server,
                         name=name,
                         worker_heartbeat_renewer=renew_worker_heartbeat,
@@ -1310,8 +1593,9 @@ class JjcMatchDataSyncService:
                 raise RuntimeError("history_max_pages_safety_limit")
 
             history_exhausted = bool(role.get("history_exhausted")) or reached_season_start
-            released = await self._repo.release_role_success(
+            released = await self._release_role_success(
                 identity_key=identity_key,
+                identity_id=identity_id,
                 full_synced_until_time=run_upper_time,
                 oldest_synced_match_time=oldest_synced_match_time,
                 latest_seen_match_time=latest_seen_match_time,
@@ -1334,7 +1618,12 @@ class JjcMatchDataSyncService:
                     reason,
                 )
             )
-            await self._pause_for_global_auth_error(identity_key, reason, lease_owner=lease_owner)
+            await self._pause_for_global_auth_error(
+                identity_key,
+                reason,
+                lease_owner=lease_owner,
+                identity_id=identity_id,
+            )
             result["error"] = True
             result["global_paused"] = True
             result["message"] = reason
@@ -1347,8 +1636,9 @@ class JjcMatchDataSyncService:
                     exc,
                 )
             )
-            released = await self._repo.release_role_interrupted(
+            released = await self._release_role_interrupted(
                 identity_key=identity_key,
+                identity_id=identity_id,
                 reason=str(exc),
                 requeue=True,
                 lease_owner=lease_owner,
@@ -1367,8 +1657,9 @@ class JjcMatchDataSyncService:
                     exc,
                 )
             )
-            released = await self._repo.release_role_interrupted(
+            released = await self._release_role_interrupted(
                 identity_key=identity_key,
+                identity_id=identity_id,
                 reason=str(exc),
                 requeue=True,
                 lease_owner=lease_owner,
@@ -1399,10 +1690,11 @@ class JjcMatchDataSyncService:
         except Exception as exc:
             message = f"{server}/{name} 同步失败: {exc}"
             logger.warning(message)
-            released = await self._repo.release_role_failure(
+            released = await self._release_role_failure(
                 identity_key,
                 message,
                 lease_owner=lease_owner,
+                identity_id=identity_id,
             )
             result["error"] = True
             result["message"] = message
@@ -1586,6 +1878,7 @@ class JjcMatchDataSyncService:
         match_time: Optional[int],
         lease_owner: str,
         role_identity_key: str = "",
+        role_identity_id: Optional[Any] = None,
         server: str = "",
         name: str = "",
         max_attempts: int = 3,
@@ -1610,6 +1903,7 @@ class JjcMatchDataSyncService:
                 lease_owner,
                 last_role_lease_renewed_at,
                 force=True,
+                identity_id=role_identity_id,
             )
 
         try:
@@ -1675,6 +1969,7 @@ class JjcMatchDataSyncService:
                 lease_owner,
                 last_role_lease_renewed_at,
                 force=force,
+                identity_id=role_identity_id,
             )
 
         async def renew_detail_context(force: bool = False) -> None:
@@ -1722,6 +2017,10 @@ class JjcMatchDataSyncService:
                             )
                         return "unavailable"
                     if isinstance(detail, dict):
+                        detail_payload = dict(payload)
+                        detail_payload["detail"] = detail
+                        if match_time is not None:
+                            detail_payload.setdefault("match_time", match_time)
                         await renew_processing_context(force=True)
                         await self._enrich_detail_with_replay(
                             detail,
@@ -1730,16 +2029,9 @@ class JjcMatchDataSyncService:
                             lease_renewer=renew_processing_context,
                         )
                         await renew_processing_context(force=True)
-                        await self._enrich_detail_with_indicator(
-                            detail,
-                            match_time=match_time,
-                            lease_renewer=renew_processing_context,
-                        )
-                        await renew_processing_context(force=True)
-                        await self._enqueue_players_from_detail(
-                            detail,
-                            fallback_match_time=match_time,
-                            lease_renewer=renew_processing_context,
+                        await self._project_match_detail_if_configured(
+                            match_id=match_id,
+                            payload=detail_payload,
                         )
                     await renew_processing_context(force=True)
                     marked = await self._repo.mark_match_detail_saved(match_id, lease_owner=lease_owner)
@@ -1774,6 +2066,28 @@ class JjcMatchDataSyncService:
                 "stale_match_detail_lease: match_id={} owner={}".format(match_id, lease_owner)
             )
         return "failed"
+
+    async def _project_match_detail_if_configured(
+        self,
+        match_id: int,
+        payload: Dict[str, Any],
+    ) -> None:
+        if self._match_detail_projection_service is None:
+            return
+        projector = getattr(self._match_detail_projection_service, "project_payload", None)
+        if not callable(projector):
+            return
+        try:
+            result = projector(
+                match_id=match_id,
+                payload=payload,
+                source="match_detail_sync",
+                priority=-10,
+            )
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            logger.warning("JJC 对局详情身份投影失败: match_id={} error={}".format(match_id, exc))
 
     async def _enrich_detail_with_replay(
         self,
@@ -2107,6 +2421,81 @@ class JjcMatchDataSyncService:
             if lease_renewer is not None:
                 await lease_renewer(False)
 
+    async def _upsert_identity_queue_candidate_for_role(
+        self,
+        server: str,
+        name: str,
+        normalized_server: str,
+        normalized_name: str,
+        global_id: Optional[str] = None,
+        global_role_id: Optional[str] = None,
+        role_id: Optional[str] = None,
+        zone: Optional[str] = None,
+        source: str = "manual",
+        priority: int = 0,
+    ) -> Optional[Dict[str, Any]]:
+        """Create/update role identity and queue candidate, preferring identity-id queue APIs."""
+        if self._identity_repo is not None and hasattr(self._identity_repo, "upsert_from_match_detail_with_id"):
+            identity = await self._identity_repo.upsert_from_match_detail_with_id(
+                server=normalized_server,
+                name=normalized_name,
+                zone=(zone or "").strip() or None,
+                game_role_id=(role_id or "").strip() or None,
+                global_id=(global_id or "").strip() or None,
+                global_role_id=(global_role_id or "").strip() or None,
+                role_id=(role_id or "").strip() or None,
+                observed_match_time=None,
+            )
+            if isinstance(identity, dict):
+                identity_id = self._extract_identity_id(identity)
+                if identity_id is not None and hasattr(self._repo, "upsert_identity_queue_candidate"):
+                    queued = await self._repo.upsert_identity_queue_candidate(
+                        identity_id=identity_id,
+                        identity_key=identity.get("identity_key"),
+                        server=identity.get("server") or server,
+                        name=identity.get("name") or name,
+                        normalized_server=identity.get("normalized_server") or normalized_server,
+                        normalized_name=identity.get("normalized_name") or normalized_name,
+                        global_id=identity.get("global_id") or global_id,
+                        global_role_id=identity.get("global_role_id") or global_role_id,
+                        role_id=identity.get("role_id") or role_id,
+                        game_role_id=identity.get("game_role_id") or role_id,
+                        person_id=identity.get("person_id"),
+                        zone=identity.get("zone") or zone,
+                        source=source,
+                        priority=priority,
+                        season_id=self._current_season,
+                        season_start_time=self._season_start_time,
+                    )
+                    return identity if queued else None
+
+        await self._upsert_role_identity_from_resolved(
+            normalized_server,
+            normalized_name,
+            {
+                "global_id": global_id or "",
+                "global_role_id": global_role_id or "",
+                "role_id": role_id or "",
+                "game_role_id": role_id or "",
+                "zone": zone or "",
+            },
+        )
+        identity_key = await self._repo.upsert_role(
+            server=server,
+            name=name,
+            normalized_server=normalized_server,
+            normalized_name=normalized_name,
+            global_id=global_id,
+            global_role_id=global_role_id,
+            role_id=role_id,
+            zone=zone,
+            source=source,
+            priority=priority,
+            season_id=self._current_season,
+            season_start_time=self._season_start_time,
+        )
+        return {"identity_key": identity_key} if identity_key else None
+
     async def add_role(
         self,
         server: str,
@@ -2129,18 +2518,7 @@ class JjcMatchDataSyncService:
             return {"error": True, "message": "invalid_mode"}
 
         try:
-            await self._upsert_role_identity_from_resolved(
-                normalized_server,
-                normalized_name,
-                {
-                    "global_id": global_id or "",
-                    "global_role_id": global_role_id or "",
-                    "role_id": role_id or "",
-                    "game_role_id": role_id or "",
-                    "zone": zone or "",
-                },
-            )
-            identity_key = await self._repo.upsert_role(
+            identity_doc = await self._upsert_identity_queue_candidate_for_role(
                 server=server,
                 name=name,
                 normalized_server=normalized_server,
@@ -2151,19 +2529,27 @@ class JjcMatchDataSyncService:
                 zone=zone,
                 source=source,
                 priority=priority,
-                season_id=self._current_season,
-                season_start_time=self._season_start_time,
             )
+            identity_key = str(identity_doc.get("identity_key") or "") if identity_doc else ""
+            identity_id = self._extract_identity_id(identity_doc or {})
             if not identity_key:
                 return {"error": True, "message": "添加角色失败"}
             queued = False
             if queue:
-                queued_doc = await self._repo.enqueue_role(
-                    identity_key=identity_key,
-                    mode=mode,
-                    source=source,
-                    batch_id=f"jjc-sync-manual:{uuid.uuid4()}",
-                )
+                if identity_id is not None and hasattr(self._repo, "enqueue_identity"):
+                    queued_doc = await self._repo.enqueue_identity(
+                        identity_id=identity_id,
+                        mode=mode,
+                        source=source,
+                        batch_id=f"jjc-sync-manual:{uuid.uuid4()}",
+                    )
+                else:
+                    queued_doc = await self._repo.enqueue_role(
+                        identity_key=identity_key,
+                        mode=mode,
+                        source=source,
+                        batch_id=f"jjc-sync-manual:{uuid.uuid4()}",
+                    )
                 queued = bool(queued_doc)
             return {
                 "error": False,
@@ -2173,6 +2559,7 @@ class JjcMatchDataSyncService:
                     else f"角色 {server}/{name} 已加入同步队列"
                 ),
                 "identity_key": identity_key,
+                "identity_id": str(identity_id or "") if identity_id is not None else None,
                 "priority": priority,
                 "queued": queued,
             }
@@ -2199,18 +2586,7 @@ class JjcMatchDataSyncService:
             return {"error": True, "message": "sync_dependencies_not_configured"}
 
         try:
-            await self._upsert_role_identity_from_resolved(
-                normalized_server,
-                normalized_name,
-                {
-                    "global_id": global_id or "",
-                    "global_role_id": global_role_id or "",
-                    "role_id": role_id or "",
-                    "game_role_id": role_id or "",
-                    "zone": zone or "",
-                },
-            )
-            identity_key = await self._repo.upsert_role(
+            identity_doc = await self._upsert_identity_queue_candidate_for_role(
                 server=server,
                 name=name,
                 normalized_server=normalized_server,
@@ -2220,22 +2596,31 @@ class JjcMatchDataSyncService:
                 role_id=role_id,
                 zone=zone,
                 source="manual",
-                season_id=self._current_season,
-                season_start_time=self._season_start_time,
+                priority=100,
             )
+            identity_key = str(identity_doc.get("identity_key") or "") if identity_doc else ""
+            identity_id = self._extract_identity_id(identity_doc or {})
             if not identity_key:
                 return {"error": True, "message": "添加角色失败"}
 
             lease_owner = f"jjc-sync-single:{uuid.uuid4()}"
-            claimed = await self._repo.claim_specific_role(
-                identity_key=identity_key,
-                lease_owner=lease_owner,
-                lease_seconds=self._lease_seconds,
-            )
+            if identity_id is not None and hasattr(self._repo, "claim_specific_identity"):
+                claimed = await self._repo.claim_specific_identity(
+                    identity_id=identity_id,
+                    lease_owner=lease_owner,
+                    lease_seconds=self._lease_seconds,
+                )
+            else:
+                claimed = await self._repo.claim_specific_role(
+                    identity_key=identity_key,
+                    lease_owner=lease_owner,
+                    lease_seconds=self._lease_seconds,
+                )
             if claimed is None:
                 return {"error": True, "message": f"角色 {server}/{name} 正在冷却中或被其他任务同步，请稍后再试"}
 
             role: Dict[str, Any] = {
+                "identity_id": identity_id,
                 "identity_key": identity_key,
                 "server": normalized_server,
                 "name": normalized_name,
@@ -2288,11 +2673,16 @@ class JjcMatchDataSyncService:
             return {"error": True, "message": f"未找到角色 {server}/{name}"}
 
         identity_key = role.get("identity_key", "")
-        success = await self._repo.reset_role_progress(identity_key)
+        identity_id = self._extract_identity_id(role)
+        if identity_id is not None and hasattr(self._repo, "reset_identity_progress"):
+            success = await self._repo.reset_identity_progress(identity_id)
+        else:
+            success = await self._repo.reset_role_progress(identity_key)
         if success:
             return {
                 "error": False,
                 "message": f"角色 {server}/{name} 同步进度已重置",
                 "identity_key": identity_key,
+                "identity_id": str(identity_id or "") if identity_id is not None else None,
             }
         return {"error": True, "message": f"重置角色 {server}/{name} 同步进度失败"}

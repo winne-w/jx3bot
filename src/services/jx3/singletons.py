@@ -13,6 +13,7 @@ from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.kungfu import get_role_indicator
 from src.services.jx3.match_history import MatchHistoryClient, PersonMatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient
+from src.services.jx3.match_detail_identity_projection import MatchDetailIdentityProjectionService
 from src.services.jx3.match_replay import MatchReplayClient
 from src.services.jx3.role_indicator import RoleIndicatorClient
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
@@ -32,6 +33,12 @@ KUNGFU_DPS_LIST = [value["name"] for value in cfg.KUNGFU_META.values() if value.
 JJC_RANKING_CACHE_DURATION = 7200  # 缓存时间2小时（秒）
 KUNGFU_CACHE_DURATION = 7 * 24 * 60 * 60  # 心法缓存有效期一周（秒）
 
+match_detail_identity_projection_service = MatchDetailIdentityProjectionService(
+    identity_repo=RoleIdentityRepo(),
+    sync_repo=JjcSyncRepo(),
+    kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
+)
+
 jjc_ranking_service = JjcRankingService(
     token=cfg.TOKEN,
     ticket=cfg.TICKET,
@@ -49,6 +56,7 @@ jjc_ranking_service = JjcRankingService(
     tuilan_request=tuilan_request,
     defget_get=get,
     match_replay_url=cfg.API_URLS["竞技场战局回放"],
+    match_detail_projection_service=match_detail_identity_projection_service,
 )
 
 match_detail_client = MatchDetailClient(
@@ -89,6 +97,7 @@ jjc_ranking_inspect_service = JjcRankingInspectService(
     tuilan_request=tuilan_request,
     role_indicator_fetcher=get_role_indicator,
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
+    match_detail_projection_service=match_detail_identity_projection_service,
     role_recent_ttl_seconds=86400,
 )
 
@@ -102,4 +111,5 @@ jjc_match_data_sync_service = JjcMatchDataSyncService(
     role_indicator_client=role_indicator_client,
     inspect_service=jjc_ranking_inspect_service,
     identity_repo=RoleIdentityRepo(),
+    match_detail_projection_service=match_detail_identity_projection_service,
 )
