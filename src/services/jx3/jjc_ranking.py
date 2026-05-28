@@ -584,7 +584,7 @@ class JjcRankingService:
         if cached:
             return cached
 
-        await random_sleep(3, 5)
+        await random_sleep(1, 3)
 
         logger.info(f"优先使用心法查询接口查询心法信息: server={server} name={name}")
 

@@ -6,6 +6,7 @@
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 - `active/jjc-identity-backed-sync-queue-plan.md`: JJC 对局保存后身份投影与基于 `role_identities._id` 的同步队列改造计划
+- `active/jjc-ranking-sleep-interval-plan.md`: JJC 排名心法查询 sleep 调整计划
 
 ## Superseded
 
