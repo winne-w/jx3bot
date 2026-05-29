@@ -5,6 +5,7 @@
 ## Active
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
+- `active/jjc-bot-managed-sync-workers-plan.md`: JJC bot 启动时按配置托管同步 worker 计划
 - `active/jjc-ranking-kungfu-defget-failure-fallback-plan.md`: JJC 排名心法在 defget 失败时继续使用已缓存对局胜场兜底计划
 - `active/jjc-synced-match-list-page-plan.md`: JJC 已同步对局列表页面、identity-only 搜索、本地对局读取与页面入队方案
 - `active/jjc-display-copy-simplification-plan.md`: JJC 排名与已同步对局页面文案、地图名称和排队状态展示简化计划
