@@ -102,6 +102,10 @@ class MemoryCollection:
     def _apply_update(doc: Dict[str, Any], update: Dict[str, Any], insert: bool = False) -> None:
         for field, value in update.get("$set", {}).items():
             doc[field] = value
+        for field, value in update.get("$max", {}).items():
+            current = doc.get(field)
+            if current is None or current < value:
+                doc[field] = value
         for field in update.get("$unset", {}):
             doc.pop(field, None)
         if insert:
@@ -159,6 +163,10 @@ class MemoryCollection:
             return SimpleNamespace(matched_count=0, modified_count=0, upserted_id="upserted")
 
         return SimpleNamespace(matched_count=0, modified_count=0, upserted_id=None)
+
+    async def insert_one(self, doc: Dict[str, Any]) -> Any:
+        self.docs.append(dict(doc))
+        return SimpleNamespace(inserted_id=len(self.docs))
 
     async def update_many(self, filter: Dict[str, Any], update: Dict[str, Any]) -> Any:
         modified_count = 0
@@ -372,6 +380,100 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(doc["status"], "cooldown")
         self.assertIsNone(doc["lease_owner"])
         self.assertEqual(doc["full_synced_until_time"], 100)
+        self.assertEqual(doc["priority"], 0)
+
+    async def test_enqueue_ranking_member_sets_priority_one_and_queues_role(self) -> None:
+        db = MemoryDb()
+        repo = JjcSyncRepo(db=db)
+
+        queued = await repo.enqueue_ranking_member(
+            {
+                "server": "梦江南",
+                "name": "角色A",
+                "global_role_id": "SK01-A",
+                "role_id": "rid-a",
+                "zone": "zone-a",
+            },
+            season_id="赛季",
+            season_start_time=1776960000,
+            priority=1,
+            source="ranking_stats",
+            batch_id="ranking_stats:1",
+        )
+
+        self.assertIsNotNone(queued)
+        assert queued is not None
+        self.assertEqual(queued["status"], "queued")
+        self.assertEqual(queued["priority"], 1)
+        self.assertEqual(queued["queue_source"], "ranking_stats")
+        self.assertEqual(queued["queue_batch_id"], "ranking_stats:1")
+        self.assertEqual(queued["season_id"], "赛季")
+
+    async def test_enqueue_ranking_member_skips_existing_priority_at_least_one(self) -> None:
+        db = MemoryDb(roles=[
+            {
+                "identity_key": "global:SK01-A",
+                "server": "梦江南",
+                "name": "角色A",
+                "normalized_server": "梦江南",
+                "normalized_name": "角色a",
+                "global_role_id": "SK01-A",
+                "status": "cooldown",
+                "priority": 100,
+                "next_sync_after": None,
+            }
+        ])
+        repo = JjcSyncRepo(db=db)
+
+        queued = await repo.enqueue_ranking_member(
+            {
+                "server": "梦江南",
+                "name": "角色A",
+                "global_role_id": "SK01-A",
+            },
+            priority=1,
+            source="ranking_stats",
+            batch_id="ranking_stats:2",
+        )
+
+        self.assertIsNone(queued)
+        doc = db.jjc_sync_role_queue.docs[0]
+        self.assertEqual(doc["status"], "cooldown")
+        self.assertEqual(doc["priority"], 100)
+        self.assertNotIn("priority_updated_by", doc)
+
+    async def test_enqueue_ranking_member_raises_existing_zero_priority_to_one(self) -> None:
+        db = MemoryDb(roles=[
+            {
+                "identity_key": "global:SK01-A",
+                "server": "梦江南",
+                "name": "角色A",
+                "normalized_server": "梦江南",
+                "normalized_name": "角色a",
+                "global_role_id": "SK01-A",
+                "status": "cooldown",
+                "priority": 0,
+                "next_sync_after": None,
+            }
+        ])
+        repo = JjcSyncRepo(db=db)
+
+        queued = await repo.enqueue_ranking_member(
+            {
+                "server": "梦江南",
+                "name": "角色A",
+                "global_role_id": "SK01-A",
+            },
+            priority=1,
+            source="ranking_stats",
+            batch_id="ranking_stats:3",
+        )
+
+        self.assertIsNotNone(queued)
+        doc = db.jjc_sync_role_queue.docs[0]
+        self.assertEqual(doc["status"], "queued")
+        self.assertEqual(doc["priority"], 1)
+        self.assertEqual(doc["priority_updated_by"], "ranking_stats")
 
     async def test_renew_role_lease_requires_current_owner(self) -> None:
         now = time.time()

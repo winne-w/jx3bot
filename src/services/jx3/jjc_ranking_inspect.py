@@ -7,7 +7,7 @@ import threading
 import time
 from weakref import WeakKeyDictionary
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from nonebot import logger
 
@@ -22,6 +22,8 @@ from src.services.jx3.match_history import MatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient, MatchDetailResponse
 from src.services.jx3.match_replay import MatchReplayClient
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
+from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
+from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
 
 
 def _coerce_int(value: Any) -> Optional[int]:
@@ -154,6 +156,9 @@ class JjcRankingInspectService:
     kungfu_pinyin_to_chinese: dict[str, str]
     match_replay_client: Optional[MatchReplayClient] = None
     match_detail_projection_service: Any = None
+    match_detail_participant_projection_service: Any = None
+    role_identity_repo: Any = None
+    sync_repo: Any = None
     role_recent_ttl_seconds: int = 86400
     role_indicator_ttl_seconds: int = 86400
     max_recent_matches: int = 20
@@ -178,6 +183,205 @@ class JjcRankingInspectService:
         if not text:
             return ""
         return self.kungfu_pinyin_to_chinese.get(text, text)
+
+    def _role_identity_repo(self) -> Any:
+        return self.role_identity_repo or RoleIdentityRepo()
+
+    def _sync_repo(self) -> Any:
+        return self.sync_repo or JjcSyncRepo()
+
+    @staticmethod
+    def _serialize_identity(identity: dict[str, Any]) -> dict[str, Any]:
+        identity_id = identity.get("_id") or identity.get("identity_id")
+        result: dict[str, Any] = {}
+        if identity_id is not None:
+            result["identity_id"] = str(identity_id)
+        for key in (
+            "identity_key",
+            "server",
+            "name",
+            "zone",
+            "game_role_id",
+            "global_id",
+            "global_role_id",
+            "role_id",
+        ):
+            value = identity.get(key)
+            if value is not None:
+                result[key] = str(value) if key.endswith("_id") else value
+        return result
+
+    @staticmethod
+    def _serialize_sync_status(doc: Optional[dict[str, Any]]) -> dict[str, Any]:
+        if not doc:
+            return {"exists": False, "status": "not_queued"}
+        result = {
+            "exists": True,
+            "identity_id": str(doc.get("identity_id")) if doc.get("identity_id") is not None else None,
+            "identity_key": doc.get("identity_key"),
+            "status": doc.get("status"),
+            "queued_at": doc.get("queued_at"),
+            "queue_mode": doc.get("queue_mode"),
+            "queue_source": doc.get("queue_source"),
+            "priority": doc.get("priority"),
+            "last_synced_at": doc.get("last_synced_at"),
+            "latest_seen_match_time": doc.get("latest_seen_match_time"),
+            "history_exhausted": doc.get("history_exhausted"),
+            "last_error": doc.get("last_error"),
+            "lease_owner": doc.get("lease_owner"),
+            "lease_expires_at": doc.get("lease_expires_at"),
+        }
+        return result
+
+    async def _serialize_sync_status_with_position(self, doc: Optional[dict[str, Any]]) -> dict[str, Any]:
+        result = self._serialize_sync_status(doc)
+        if doc and str(doc.get("status") or "") == "queued":
+            sync_repo = self._sync_repo()
+            if hasattr(sync_repo, "get_queue_position"):
+                position = await sync_repo.get_queue_position(doc)
+                if position is not None:
+                    result["queue_position"] = position
+        return result
+
+    async def _resolve_synced_identity_only(self, *, server: str, name: str) -> Optional[dict[str, Any]]:
+        repo = self._role_identity_repo()
+        if hasattr(repo, "find_best_by_name_with_id"):
+            return await repo.find_best_by_name_with_id(server, name)
+        return await repo.resolve_best_identity_with_id(server=server, name=name)
+
+    async def _find_synced_role_candidates(self, *, server: str, name: str, limit: int = 8) -> List[Dict[str, Any]]:
+        repo = self._role_identity_repo()
+        finder = getattr(repo, "find_synced_match_page_candidates", None)
+        if not callable(finder):
+            return []
+        try:
+            docs = await finder(server, name, limit=limit)
+        except Exception as exc:
+            logger.warning("JJC 已同步角色候选查询失败: server={} name={} error={}", server, name, exc)
+            return []
+
+        candidates: List[Dict[str, Any]] = []
+        for doc in docs or []:
+            if not isinstance(doc, dict):
+                continue
+            identity = self._serialize_identity(doc)
+            candidate_server = _pick_str(doc.get("server"), identity.get("server")) or ""
+            candidate_name = _normalize_name(_pick_str(doc.get("name"), identity.get("name")) or "")
+            if not candidate_server or not candidate_name:
+                continue
+            reason = "same_name_other_server"
+            if "@" in candidate_name:
+                reason = "name_with_suffix"
+            sync_doc = await self._sync_repo().get_queue_state_by_identity_id(doc.get("_id"))
+            candidates.append({
+                "player": {"server": candidate_server, "name": candidate_name},
+                "identity": identity,
+                "sync_status": await self._serialize_sync_status_with_position(sync_doc),
+                "reason": reason,
+            })
+        return candidates
+
+    async def resolve_synced_role(self, *, server: str, name: str) -> dict[str, Any]:
+        """Resolve a role for the synced-match page using role_identities only."""
+        identity = await self._resolve_synced_identity_only(server=server, name=name)
+        if not identity:
+            candidates = await self._find_synced_role_candidates(server=server, name=name)
+            return {
+                "error": True,
+                "message": "role_identity_not_found",
+                "player": {"server": server, "name": _normalize_name(name)},
+                "candidates": candidates,
+                "guidance": (
+                    "如果目标角色暂未收录，可以搜索和他打过 3v3 的角色，"
+                    "更新该角色对局后，系统会从对局详情里同步目标角色信息。"
+                ),
+            }
+        sync_doc = await self._sync_repo().get_queue_state_by_identity_id(identity.get("_id"))
+        sync_status = await self._serialize_sync_status_with_position(sync_doc)
+        return {
+            "player": {
+                "server": identity.get("server") or server,
+                "name": _normalize_name(_pick_str(identity.get("name")) or name),
+            },
+            "identity": self._serialize_identity(identity),
+            "sync_status": sync_status,
+        }
+
+    async def get_synced_role_matches(
+        self,
+        *,
+        server: str,
+        name: str,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        resolved = await self.resolve_synced_role(server=server, name=name)
+        if resolved.get("error"):
+            return resolved
+        identity = resolved.get("identity") or {}
+        matches = await self.cache_repo.list_saved_local_3v3_matches_for_identity(
+            identity_id=identity.get("identity_id"),
+            identity_key=identity.get("identity_key"),
+            server=identity.get("server") or server,
+            name=identity.get("name") or name,
+            global_id=identity.get("global_id"),
+            global_role_id=identity.get("global_role_id"),
+            role_id=identity.get("role_id"),
+            game_role_id=identity.get("game_role_id"),
+            page=page,
+            page_size=page_size,
+        )
+        return {
+            "player": resolved.get("player"),
+            "identity": identity,
+            "sync_status": resolved.get("sync_status"),
+            "pagination": {
+                "page": matches.get("page", page),
+                "page_size": matches.get("page_size", page_size),
+                "total": matches.get("total", 0),
+                "has_more": matches.get("has_more", False),
+            },
+            "recent_matches": matches.get("items") or [],
+            "cache": {},
+        }
+
+    async def enqueue_synced_role(self, *, server: str, name: str) -> dict[str, Any]:
+        identity = await self._resolve_synced_identity_only(server=server, name=name)
+        if not identity:
+            return {
+                "error": True,
+                "message": "role_identity_not_found",
+                "player": {"server": server, "name": _normalize_name(name)},
+            }
+        sync_doc = await self._sync_repo().enqueue_existing_identity(
+            identity,
+            priority=2,
+            source="synced_match_page",
+            mode="incremental_or_full",
+        )
+        if sync_doc is None:
+            sync_doc = await self._sync_repo().get_queue_state_by_identity_id(identity.get("_id"))
+            if not sync_doc or str(sync_doc.get("status") or "") != "syncing":
+                return {
+                    "error": True,
+                    "message": "enqueue_failed",
+                    "player": {
+                        "server": identity.get("server") or server,
+                        "name": _normalize_name(_pick_str(identity.get("name")) or name),
+                    },
+                    "identity": self._serialize_identity(identity),
+                    "sync_status": await self._serialize_sync_status_with_position(sync_doc),
+                }
+        sync_status = await self._serialize_sync_status_with_position(sync_doc)
+        return {
+            "queued": bool(sync_doc and sync_doc.get("status") == "queued"),
+            "player": {
+                "server": identity.get("server") or server,
+                "name": _normalize_name(_pick_str(identity.get("name")) or name),
+            },
+            "identity": self._serialize_identity(identity),
+            "sync_status": sync_status,
+        }
 
     async def _fetch_match_replay(self, match_id: int) -> Optional[dict[str, Any]]:
         if self.match_replay_client is None:
@@ -327,20 +531,41 @@ class JjcRankingInspectService:
         role_id: Optional[str] = None,
         zone: Optional[str] = None,
         force_refresh: bool = False,
+        identity_only: bool = False,
     ) -> dict[str, Any]:
-        identity = await self._resolve_role_identity(
-            server=server,
-            name=name,
-            identity_hints={
-                "game_role_id": game_role_id or None,
-                "global_role_id": global_role_id or None,
-                "global_id": global_id or None,
-                "role_id": role_id or None,
-                "zone": zone or None,
-            },
-        )
-        if identity.get("error"):
-            return identity
+        if identity_only:
+            raw_identity = await self._resolve_synced_identity_only(server=server, name=name)
+            if not raw_identity:
+                return {
+                    "error": True,
+                    "message": "role_identity_not_found",
+                    "player": {"server": server, "name": _normalize_name(name)},
+                }
+            identity = self._serialize_identity(raw_identity)
+            if game_role_id and not identity.get("game_role_id"):
+                identity["game_role_id"] = game_role_id
+            if global_role_id and not identity.get("global_role_id"):
+                identity["global_role_id"] = global_role_id
+            if global_id and not identity.get("global_id"):
+                identity["global_id"] = global_id
+            if role_id and not identity.get("role_id"):
+                identity["role_id"] = role_id
+            if zone and not identity.get("zone"):
+                identity["zone"] = zone
+        else:
+            identity = await self._resolve_role_identity(
+                server=server,
+                name=name,
+                identity_hints={
+                    "game_role_id": game_role_id or None,
+                    "global_role_id": global_role_id or None,
+                    "global_id": global_id or None,
+                    "role_id": role_id or None,
+                    "zone": zone or None,
+                },
+            )
+            if identity.get("error"):
+                return identity
 
         identity_key = identity.get("identity_key") or ""
         if not identity_key:
@@ -942,6 +1167,11 @@ class JjcRankingInspectService:
                     payload=data,
                     source="inspect_cache_hit_replay_enrich",
                 )
+                await self._project_match_detail_participants(
+                    match_id=normalized_match_id,
+                    payload={"cached_at": cached.get("cached_at") or time.time(), "data": data},
+                    detail_source="ranking_detail",
+                )
             data["cache"] = {"hit": True, "cached_at": cached.get("cached_at")}
             return data
 
@@ -964,6 +1194,10 @@ class JjcRankingInspectService:
             }
             cached_at = time.time()
             await self.cache_repo.save_match_detail(normalized_match_id, {"cached_at": cached_at, "data": payload})
+            await self._clear_match_detail_participants(
+                match_id=normalized_match_id,
+                source="inspect_cache_miss_unavailable",
+            )
             payload["cache"] = {"hit": False, "cached_at": cached_at}
             return payload
         if detail.code != 0 or not detail.data:
@@ -992,6 +1226,11 @@ class JjcRankingInspectService:
             payload=payload,
             source="inspect_cache_miss",
         )
+        await self._project_match_detail_participants(
+            match_id=normalized_match_id,
+            payload={"cached_at": cached_at, "data": payload},
+            detail_source="ranking_detail",
+        )
         payload["cache"] = {"hit": False, "cached_at": cached_at}
         return payload
 
@@ -1019,3 +1258,46 @@ class JjcRankingInspectService:
             )
             payload["projection_error"] = True
             payload["projection_message"] = str(exc) or exc.__class__.__name__
+
+    async def _project_match_detail_participants(
+        self,
+        *,
+        match_id: int,
+        payload: dict[str, Any],
+        detail_source: str,
+    ) -> None:
+        service = self.match_detail_participant_projection_service
+        if service is None:
+            return
+        try:
+            await service.project_payload(
+                match_id=match_id,
+                payload=payload,
+                source=detail_source,
+            )
+        except Exception as exc:
+            logger.warning(
+                "JJC 对局详情参与者投影失败: match_id=%s source=%s error=%s",
+                match_id,
+                detail_source,
+                exc,
+            )
+
+    async def _clear_match_detail_participants(
+        self,
+        *,
+        match_id: int,
+        source: str,
+    ) -> None:
+        service = self.match_detail_participant_projection_service
+        if service is None:
+            return
+        try:
+            await service.clear_match(match_id)
+        except Exception as exc:
+            logger.warning(
+                "JJC 对局详情参与者投影清理失败: match_id=%s source=%s error=%s",
+                match_id,
+                source,
+                exc,
+            )

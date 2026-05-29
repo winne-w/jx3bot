@@ -4,6 +4,9 @@ import unittest
 from typing import Any, Callable, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
 
+import config as cfg
+from bson import ObjectId
+
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
 from src.services.jx3.match_detail import (
@@ -14,6 +17,7 @@ from src.services.jx3.match_detail import (
     MatchDetailTeamInfo,
 )
 from src.services.jx3.match_detail_identity_projection import MatchDetailIdentityProjectionService
+from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 
 
 class FakeMatchHistoryClient:
@@ -99,6 +103,14 @@ class FakeJjcInspectRepo:
         self.saved_role_indicator: list = []
         self.loaded_role_indicator_ttls: list = []
         self.saved_match_detail: list = []
+        self.synced_matches_result: Dict[str, Any] = {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "page_size": 20,
+            "has_more": False,
+        }
+        self.synced_matches_calls: list = []
 
     async def load_role_recent(self, server, name, *, ttl_seconds):
         self.load_role_recent_calls.append((server, name, ttl_seconds))
@@ -128,6 +140,112 @@ class FakeJjcInspectRepo:
     async def load_role_indicator(self, cache_key, *, ttl_seconds):
         self.loaded_role_indicator_ttls.append(ttl_seconds)
         return self.role_indicator_cache.get(cache_key)
+
+    async def list_saved_local_3v3_matches_for_identity(self, **kwargs):
+        self.synced_matches_calls.append(kwargs)
+        return self.synced_matches_result
+
+
+class FakeRoleIdentityRepo:
+    def __init__(
+        self,
+        identity: Optional[Dict[str, Any]],
+        candidates: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        self.identity = identity
+        self.candidates = candidates or []
+        self.calls: List[Dict[str, Any]] = []
+        self.candidate_calls: List[Dict[str, Any]] = []
+
+    async def find_best_by_name_with_id(self, server: str, name: str) -> Optional[Dict[str, Any]]:
+        self.calls.append({"server": server, "name": name})
+        return self.identity
+
+    async def find_synced_match_page_candidates(
+        self,
+        server: str,
+        name: str,
+        *,
+        limit: int = 8,
+    ) -> List[Dict[str, Any]]:
+        self.candidate_calls.append({"server": server, "name": name, "limit": limit})
+        return self.candidates[:limit]
+
+
+class FakeSyncRepo:
+    def __init__(
+        self,
+        sync_state: Optional[Dict[str, Any]] = None,
+        enqueue_result: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.sync_state = sync_state
+        self.enqueue_result = enqueue_result
+        self.state_calls: List[Any] = []
+        self.position_calls: List[Dict[str, Any]] = []
+        self.enqueue_calls: List[Dict[str, Any]] = []
+
+    async def get_queue_state_by_identity_id(self, identity_id: Any) -> Optional[Dict[str, Any]]:
+        self.state_calls.append(identity_id)
+        return self.sync_state
+
+    async def get_queue_position(self, queue_doc: Dict[str, Any]) -> Optional[int]:
+        self.position_calls.append(queue_doc)
+        return queue_doc.get("queue_position")
+
+    async def enqueue_existing_identity(self, identity: Dict[str, Any], **kwargs: Any) -> Optional[Dict[str, Any]]:
+        self.enqueue_calls.append({"identity": identity, "kwargs": kwargs})
+        return self.enqueue_result
+
+
+class FakeChainCursor:
+    def __init__(self, docs: List[Dict[str, Any]]) -> None:
+        self.docs = docs
+
+    def sort(self, *args: Any, **kwargs: Any) -> "FakeChainCursor":
+        return self
+
+    def skip(self, *args: Any, **kwargs: Any) -> "FakeChainCursor":
+        return self
+
+    def limit(self, *args: Any, **kwargs: Any) -> "FakeChainCursor":
+        return self
+
+    async def to_list(self, length: Any = None) -> List[Dict[str, Any]]:
+        return list(self.docs)
+
+
+class FakeFindCollection:
+    def __init__(self, docs: List[Dict[str, Any]]) -> None:
+        self.docs = docs
+        self.find_calls: List[Dict[str, Any]] = []
+        self.count_calls: List[Dict[str, Any]] = []
+
+    async def count_documents(self, query: Dict[str, Any]) -> int:
+        self.count_calls.append(query)
+        return len(self.docs)
+
+    def find(self, query: Dict[str, Any]) -> FakeChainCursor:
+        self.find_calls.append(query)
+        return FakeChainCursor(self.docs)
+
+
+class FakeParticipantRepo:
+    def __init__(self, result: Optional[Dict[str, Any]] = None, error: Optional[Exception] = None) -> None:
+        self.result = result or {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "page_size": 20,
+            "has_more": False,
+        }
+        self.error = error
+        self.calls: List[Dict[str, Any]] = []
+
+    async def list_local_3v3_matches_by_global_id(self, **kwargs: Any) -> Dict[str, Any]:
+        self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        return self.result
 
 
 class FakeWarmupInspectRepo:
@@ -1288,6 +1406,796 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["message"], "indicator_3c_empty_fields")
         self.assertEqual(len(fetch_calls), 1)
         self.assertEqual(len(cache_repo.saved_role_indicator), 0)
+
+
+class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
+    async def test_resolve_synced_role_missing_identity_does_not_call_live_sources(self) -> None:
+        ranking_service = MagicMock()
+        match_history_client = MagicMock()
+        role_identity_repo = FakeRoleIdentityRepo(None)
+        service = DirectJjcRankingInspectService(
+            ranking_service=ranking_service,
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=match_history_client,
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=role_identity_repo,
+            sync_repo=FakeSyncRepo(),
+        )
+
+        result = await service.resolve_synced_role(server="梦江南", name="示例角色")
+
+        self.assertTrue(result["error"])
+        self.assertEqual(result["message"], "role_identity_not_found")
+        self.assertEqual(role_identity_repo.candidate_calls, [{"server": "梦江南", "name": "示例角色", "limit": 8}])
+        ranking_service.query_jjc_ranking.assert_not_called()
+        match_history_client.get_mine_match_history.assert_not_called()
+
+    async def test_resolve_synced_role_missing_identity_returns_local_candidates(self) -> None:
+        candidate_id = ObjectId()
+        sync_repo = FakeSyncRepo(sync_state={
+            "identity_id": candidate_id,
+            "identity_key": "global_id:888",
+            "status": "cooldown",
+            "last_synced_at": 1778000000,
+        })
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=FakeRoleIdentityRepo(None, candidates=[{
+                "_id": candidate_id,
+                "identity_key": "global_id:888",
+                "server": "唯我独尊",
+                "name": "示例角色@old",
+                "global_id": "888",
+                "debug_extra": "must-not-leak",
+            }]),
+            sync_repo=sync_repo,
+        )
+
+        result = await service.resolve_synced_role(server="梦江南", name="示例角色")
+
+        self.assertTrue(result["error"])
+        self.assertEqual(result["message"], "role_identity_not_found")
+        self.assertEqual(len(result["candidates"]), 1)
+        candidate = result["candidates"][0]
+        self.assertEqual(candidate["player"], {"server": "唯我独尊", "name": "示例角色@old"})
+        self.assertEqual(candidate["identity"]["identity_id"], str(candidate_id))
+        self.assertEqual(candidate["identity"]["global_id"], "888")
+        self.assertNotIn("debug_extra", candidate["identity"])
+        self.assertEqual(candidate["reason"], "name_with_suffix")
+        self.assertEqual(candidate["sync_status"]["status"], "cooldown")
+        self.assertEqual(sync_repo.state_calls, [candidate_id])
+
+    async def test_get_synced_role_matches_returns_local_rows_with_sync_metadata(self) -> None:
+        identity_id = ObjectId()
+        identity = {
+            "_id": identity_id,
+            "identity_key": "global_id:987",
+            "server": "梦江南",
+            "name": "示例角色",
+            "global_id": "987",
+            "debug_extra": "must-not-leak",
+        }
+        cache_repo = FakeJjcInspectRepo()
+        cache_repo.synced_matches_result = {
+            "items": [
+                {
+                    "match_id": 1001,
+                    "cached_detail_summary": {"match_id": 1001},
+                    "sync": {"status": "detail_saved", "detail_saved_at": 1778000001},
+                }
+            ],
+            "total": 1,
+            "page": 1,
+            "page_size": 20,
+            "has_more": False,
+        }
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=cache_repo,
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=FakeRoleIdentityRepo(identity),
+            sync_repo=FakeSyncRepo(sync_state={
+                "identity_id": identity_id,
+                "identity_key": "global_id:987",
+                "status": "cooldown",
+                "last_synced_at": 1778000000,
+            }),
+        )
+
+        result = await service.get_synced_role_matches(server="梦江南", name="示例角色")
+
+        self.assertEqual(result["identity"]["identity_id"], str(identity_id))
+        self.assertNotIn("_id", result["identity"])
+        self.assertNotIn("debug_extra", result["identity"])
+        self.assertEqual(result["sync_status"]["status"], "cooldown")
+        self.assertEqual(result["recent_matches"][0]["sync"]["status"], "detail_saved")
+        self.assertEqual(cache_repo.synced_matches_calls[0]["identity_id"], str(identity_id))
+        self.assertEqual(cache_repo.synced_matches_calls[0]["identity_key"], "global_id:987")
+        self.assertEqual(cache_repo.synced_matches_calls[0]["server"], "梦江南")
+        self.assertEqual(cache_repo.synced_matches_calls[0]["name"], "示例角色")
+        self.assertEqual(cache_repo.synced_matches_calls[0]["global_id"], "987")
+
+    async def test_resolve_synced_role_adds_queue_position_for_queued_status(self) -> None:
+        identity_id = ObjectId()
+        identity = {
+            "_id": identity_id,
+            "identity_key": "global_id:987",
+            "server": "梦江南",
+            "name": "示例角色",
+        }
+        sync_repo = FakeSyncRepo(sync_state={
+            "identity_id": identity_id,
+            "identity_key": "global_id:987",
+            "status": "queued",
+            "priority": 2,
+            "queued_at": 1778000000,
+            "queue_position": 3,
+        })
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=FakeRoleIdentityRepo(identity),
+            sync_repo=sync_repo,
+        )
+
+        result = await service.resolve_synced_role(server="梦江南", name="示例角色")
+
+        self.assertEqual(result["sync_status"]["status"], "queued")
+        self.assertEqual(result["sync_status"]["queue_position"], 3)
+        self.assertEqual(sync_repo.position_calls[0]["identity_id"], identity_id)
+
+    async def test_identity_only_indicator_missing_identity_does_not_call_live_sources(self) -> None:
+        ranking_service = MagicMock()
+        indicator_fetcher = MagicMock()
+        service = DirectJjcRankingInspectService(
+            ranking_service=ranking_service,
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=indicator_fetcher,
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=FakeRoleIdentityRepo(None),
+            sync_repo=FakeSyncRepo(),
+        )
+
+        result = await service.get_role_indicator(
+            server="梦江南",
+            name="未收录",
+            identity_only=True,
+        )
+
+        self.assertTrue(result["error"])
+        self.assertEqual(result["message"], "role_identity_not_found")
+        ranking_service.query_jjc_ranking.assert_not_called()
+        indicator_fetcher.assert_not_called()
+
+    async def test_identity_only_indicator_missing_params_does_not_fetch_indicator(self) -> None:
+        identity = {
+            "_id": ObjectId(),
+            "identity_key": "global_id:987",
+            "server": "梦江南",
+            "name": "示例角色",
+            "global_id": "987",
+        }
+        indicator_fetcher = MagicMock()
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=indicator_fetcher,
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=FakeRoleIdentityRepo(identity),
+            sync_repo=FakeSyncRepo(),
+        )
+
+        result = await service.get_role_indicator(
+            server="梦江南",
+            name="示例角色",
+            identity_only=True,
+        )
+
+        self.assertTrue(result["error"])
+        self.assertEqual(result["message"], "indicator_params_missing")
+        self.assertEqual(result["identity"], {
+            "identity_id": str(identity["_id"]),
+            "identity_key": "global_id:987",
+            "server": "梦江南",
+            "name": "示例角色",
+            "global_id": "987",
+        })
+        indicator_fetcher.assert_not_called()
+
+    async def test_enqueue_synced_role_uses_fixed_page_priority_and_source(self) -> None:
+        identity_id = ObjectId()
+        identity = {
+            "_id": identity_id,
+            "identity_key": "global_id:987",
+            "server": "梦江南",
+            "name": "示例角色",
+        }
+        sync_repo = FakeSyncRepo(enqueue_result={
+            "identity_id": identity_id,
+            "identity_key": "global_id:987",
+            "status": "queued",
+            "priority": 2,
+            "queue_source": "synced_match_page",
+            "queue_mode": "incremental_or_full",
+        })
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=FakeRoleIdentityRepo(identity),
+            sync_repo=sync_repo,
+        )
+
+        result = await service.enqueue_synced_role(server="梦江南", name="示例角色")
+
+        self.assertTrue(result["queued"])
+        call = sync_repo.enqueue_calls[0]
+        self.assertIs(call["identity"], identity)
+        self.assertEqual(call["kwargs"]["priority"], 2)
+        self.assertEqual(call["kwargs"]["source"], "synced_match_page")
+        self.assertEqual(call["kwargs"]["mode"], "incremental_or_full")
+
+    async def test_enqueue_synced_role_reports_failed_update_instead_of_silent_pending(self) -> None:
+        identity_id = ObjectId()
+        identity = {
+            "_id": identity_id,
+            "identity_key": "global_id:987",
+            "server": "梦江南",
+            "name": "示例角色",
+        }
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=FakeRoleIdentityRepo(identity),
+            sync_repo=FakeSyncRepo(
+                sync_state={
+                    "identity_id": identity_id,
+                    "identity_key": "global_id:987",
+                    "status": "pending",
+                    "priority": 0,
+                },
+                enqueue_result=None,
+            ),
+        )
+
+        result = await service.enqueue_synced_role(server="梦江南", name="示例角色")
+
+        self.assertTrue(result["error"])
+        self.assertEqual(result["message"], "enqueue_failed")
+        self.assertEqual(result["sync_status"]["status"], "pending")
+
+    async def test_inspect_repo_lists_only_available_local_details(self) -> None:
+        identity_id = ObjectId()
+        seen = [
+            {
+                "match_id": 1001,
+                "status": "queued",
+                "source_identity_id": identity_id,
+                "source_identity_key": "global_id:987",
+                "match_time": 1778000000,
+                "detail_saved_at": 1778000100,
+            },
+            {
+                "match_id": 1002,
+                "status": "detail_saved",
+                "source_identity_id": identity_id,
+                "source_identity_key": "global_id:987",
+                "match_time": 1777000000,
+                "detail_saved_at": 1777000100,
+            },
+            {
+                "match_id": 1003,
+                "status": "detail_saved",
+                "source_identity_id": identity_id,
+                "source_identity_key": "global_id:987",
+                "match_time": 1776000000,
+                "detail_saved_at": 1776000100,
+            },
+        ]
+        details = [
+            {
+                "match_id": 1001,
+                "cached_at": 1778000200,
+                "data": {
+                    "detail": {
+                        "match_time": 1778000000,
+                        "basic_info": {"match_type": 3, "start_time": 1778000000, "duration": 180, "grade": 12},
+                        "team1": {"won": True, "players_info": [{"role_name": "示例角色", "server": "梦江南", "global_id": "987", "kungfu": "花间游"}]},
+                        "team2": {"won": False, "players_info": []},
+                    }
+                },
+            },
+            {"match_id": 1002, "cached_at": 1777000200, "data": {"unavailable": True}},
+            {
+                "match_id": 1003,
+                "cached_at": 1776000200,
+                "data": {
+                    "detail": {
+                        "basic_info": {"match_type": 2},
+                        "team1": {"won": True, "players_info": [{"role_name": "示例角色", "server": "梦江南", "global_id": "987"}]},
+                        "team2": {"won": False, "players_info": []},
+                    }
+                },
+            },
+        ]
+        db = MagicMock()
+        db.jjc_sync_match_seen = FakeFindCollection(seen)
+        db.jjc_match_detail = FakeFindCollection(details)
+        repo = JjcInspectRepo(db=db, snapshot_repo=None)
+
+        result = await repo.list_saved_local_3v3_matches_for_identity(
+            identity_id=str(identity_id),
+            identity_key="global_id:987",
+            server="梦江南",
+            name="示例角色",
+            global_id="987",
+        )
+
+        self.assertEqual([item["match_id"] for item in result["items"]], [1001])
+        self.assertEqual(result["items"][0]["sync"]["status"], "queued")
+        self.assertEqual(result["items"][0]["cached_detail_summary"]["match_id"], 1001)
+        detail_query = db.jjc_match_detail.find_calls[0]
+        self.assertEqual(detail_query["data.unavailable"], {"$ne": True})
+        self.assertIn({"data.detail.team1.players_info.global_id": "987"}, detail_query["$or"])
+        seen_query = db.jjc_sync_match_seen.find_calls[0]
+        self.assertNotIn("status", seen_query)
+        self.assertEqual(seen_query["match_id"], {"$in": [1001, 1002, 1003]})
+
+    async def test_inspect_repo_paginates_after_filtering_invalid_details(self) -> None:
+        identity_id = ObjectId()
+        seen = [
+            {
+                "match_id": 1001,
+                "status": "detail_saved",
+                "source_identity_id": identity_id,
+                "source_identity_key": "global_id:987",
+                "match_time": 1778000000,
+            },
+            {
+                "match_id": 1002,
+                "status": "detail_saved",
+                "source_identity_id": identity_id,
+                "source_identity_key": "global_id:987",
+                "match_time": 1777000000,
+            },
+            {
+                "match_id": 1003,
+                "status": "detail_saved",
+                "source_identity_id": identity_id,
+                "source_identity_key": "global_id:987",
+                "match_time": 1776000000,
+            },
+        ]
+        details = [
+            {"match_id": 1001, "cached_at": 1, "data": {"unavailable": True}},
+            {
+                "match_id": 1002,
+                "cached_at": 2,
+                "data": {
+                    "detail": {
+                        "basic_info": {"match_type": 3, "start_time": 1777000000},
+                        "team1": {"won": True, "players_info": [{"role_name": "示例角色", "server": "梦江南", "global_id": "987"}]},
+                        "team2": {"won": False, "players_info": []},
+                    }
+                },
+            },
+            {
+                "match_id": 1003,
+                "cached_at": 3,
+                "data": {
+                    "detail": {
+                        "basic_info": {"match_type": 3, "start_time": 1776000000},
+                        "team1": {"won": False, "players_info": [{"role_name": "示例角色", "server": "梦江南", "global_id": "987"}]},
+                        "team2": {"won": True, "players_info": []},
+                    }
+                },
+            },
+        ]
+        db = MagicMock()
+        db.jjc_sync_match_seen = FakeFindCollection(seen)
+        db.jjc_match_detail = FakeFindCollection(details)
+        repo = JjcInspectRepo(db=db, snapshot_repo=None)
+
+        result = await repo.list_saved_local_3v3_matches_for_identity(
+            identity_id=str(identity_id),
+            identity_key="global_id:987",
+            server="梦江南",
+            name="示例角色",
+            global_id="987",
+            page=1,
+            page_size=1,
+        )
+
+        self.assertEqual(result["total"], 2)
+        self.assertTrue(result["has_more"])
+        self.assertEqual([item["match_id"] for item in result["items"]], [1002])
+
+    async def test_inspect_repo_derives_row_from_matched_player_not_first_player(self) -> None:
+        identity_id = ObjectId()
+        seen = [{
+            "match_id": 2001,
+            "status": "detail_saved",
+            "source_identity_id": identity_id,
+            "source_identity_key": "global_id:target",
+            "match_time": 1779000000,
+        }]
+        details = [{
+            "match_id": 2001,
+            "cached_at": 1779000100,
+            "data": {
+                "detail": {
+                    "match_time": 1779000000,
+                    "basic_info": {"match_type": 3, "start_time": 1779000000, "duration": 200, "grade": 14},
+                    "team1": {
+                        "won": False,
+                        "players_info": [
+                            {
+                                "role_name": "队友",
+                                "server": "梦江南",
+                                "global_id": "other",
+                                "kungfu": "冰心诀",
+                                "mvp": True,
+                                "score": 2400,
+                            },
+                            {
+                                "role_name": "目标角色",
+                                "server": "梦江南",
+                                "global_id": "target",
+                                "kungfu": "花间游",
+                                "mvp": False,
+                                "score": 2500,
+                                "mmr_delta": -12,
+                            },
+                        ],
+                    },
+                    "team2": {"won": True, "players_info": []},
+                }
+            },
+        }]
+        db = MagicMock()
+        db.jjc_sync_match_seen = FakeFindCollection(seen)
+        db.jjc_match_detail = FakeFindCollection(details)
+        repo = JjcInspectRepo(db=db, snapshot_repo=None)
+
+        result = await repo.list_saved_local_3v3_matches_for_identity(
+            identity_id=str(identity_id),
+            identity_key="global_id:target",
+            server="梦江南",
+            name="目标角色",
+            global_id="target",
+        )
+
+        self.assertEqual(result["total"], 1)
+        row = result["items"][0]
+        self.assertFalse(row["won"])
+        self.assertEqual(row["kungfu"], "花间游")
+        self.assertEqual(row["total_mmr"], 2500)
+        self.assertEqual(row["mmr_delta"], -12)
+        self.assertFalse(row["mvp"])
+
+    async def test_inspect_repo_requires_global_id(self) -> None:
+        db = MagicMock()
+        db.jjc_sync_match_seen = FakeFindCollection([])
+        db.jjc_match_detail = FakeFindCollection([])
+        repo = JjcInspectRepo(db=db, snapshot_repo=None)
+
+        result = await repo.list_saved_local_3v3_matches_for_identity(
+            identity_id=None,
+            identity_key=None,
+            server="天鹅坪",
+            name="海苔小饼",
+        )
+
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(db.jjc_match_detail.find_calls, [])
+        self.assertEqual(db.jjc_sync_match_seen.find_calls, [])
+
+    async def test_inspect_repo_finds_participant_match_by_global_id_without_source_identity(self) -> None:
+        seen = [{
+            "match_id": 3001,
+            "status": "detail_saved",
+            "source_identity_key": "global:other-source",
+            "match_time": 1779100000,
+            "detail_saved_at": 1779100100,
+        }]
+        details = [{
+            "match_id": 3001,
+            "cached_at": 1779100200,
+            "data": {
+                "detail": {
+                    "match_time": 1779100000,
+                    "basic_info": {"match_type": 3, "start_time": 1779100000, "duration": 160, "grade": 13},
+                    "team1": {
+                        "won": True,
+                        "players_info": [
+                            {
+                                "role_name": "海苔小饼·天鹅坪",
+                                "server": "天鹅坪",
+                                "global_id": "432345564261473917",
+                                "kungfu": "花间游",
+                                "score": 2300,
+                                "mvp": True,
+                            }
+                        ],
+                    },
+                    "team2": {"won": False, "players_info": []},
+                }
+            },
+        }]
+        db = MagicMock()
+        db.jjc_sync_match_seen = FakeFindCollection(seen)
+        db.jjc_match_detail = FakeFindCollection(details)
+        repo = JjcInspectRepo(db=db, snapshot_repo=None)
+
+        result = await repo.list_saved_local_3v3_matches_for_identity(
+            identity_id=None,
+            identity_key=None,
+            server="天鹅坪",
+            name="海苔小饼",
+            global_id="432345564261473917",
+        )
+
+        self.assertEqual(result["total"], 1)
+        row = result["items"][0]
+        self.assertEqual(row["match_id"], 3001)
+        self.assertTrue(row["won"])
+        self.assertEqual(row["kungfu"], "花间游")
+        self.assertEqual(row["total_mmr"], 2300)
+        self.assertEqual(row["sync"]["source_identity_key"], "global:other-source")
+        participant_query = db.jjc_match_detail.find_calls[0]
+        self.assertEqual(participant_query["data.unavailable"], {"$ne": True})
+        self.assertIn({"data.detail.team1.players_info.global_id": "432345564261473917"}, participant_query["$or"])
+
+    async def test_inspect_repo_allows_missing_seen_as_not_synced(self) -> None:
+        details = [{
+            "match_id": 4001,
+            "cached_at": 1779200200,
+            "data": {
+                "detail": {
+                    "match_time": 1779200000,
+                    "basic_info": {"match_type": 3, "start_time": 1779200000},
+                    "team1": {
+                        "won": True,
+                        "players_info": [
+                            {"role_name": "目标角色", "server": "梦江南", "global_id": "target", "kungfu": "花间游"}
+                        ],
+                    },
+                    "team2": {"won": False, "players_info": []},
+                }
+            },
+        }]
+        db = MagicMock()
+        db.jjc_sync_match_seen = FakeFindCollection([])
+        db.jjc_match_detail = FakeFindCollection(details)
+        repo = JjcInspectRepo(db=db, snapshot_repo=None)
+
+        result = await repo.list_saved_local_3v3_matches_for_identity(
+            identity_id=None,
+            identity_key=None,
+            server="梦江南",
+            name="目标角色",
+            global_id="target",
+        )
+
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["sync"]["status"], "not_synced")
+        self.assertEqual(result["items"][0]["match_time"], 1779200000)
+
+    async def test_inspect_repo_infers_3v3_when_match_type_missing_and_six_players(self) -> None:
+        players = [
+            {"role_name": f"队员{index}", "server": "梦江南", "global_id": "target" if index == 0 else f"other-{index}"}
+            for index in range(6)
+        ]
+        details = [{
+            "match_id": 4002,
+            "cached_at": 1779300200,
+            "data": {
+                "detail": {
+                    "match_time": 1779300000,
+                    "basic_info": {"start_time": 1779300000},
+                    "team1": {"won": True, "players_info": players[:3]},
+                    "team2": {"won": False, "players_info": players[3:]},
+                }
+            },
+        }]
+        db = MagicMock()
+        db.jjc_sync_match_seen = FakeFindCollection([])
+        db.jjc_match_detail = FakeFindCollection(details)
+        repo = JjcInspectRepo(db=db, snapshot_repo=None)
+
+        result = await repo.list_saved_local_3v3_matches_for_identity(
+            identity_id=None,
+            identity_key=None,
+            server="梦江南",
+            name="队员0",
+            global_id="target",
+        )
+
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["match_id"], 4002)
+
+    async def test_inspect_repo_read_mode_on_uses_projection_and_hydrates_summary(self) -> None:
+        details = [{
+            "match_id": 5001,
+            "cached_at": 1779400200,
+            "data": {
+                "detail": {
+                    "basic_info": {"match_type": 3},
+                    "team1": {"won": True, "players_info": [{"role_name": "目标角色", "server": "梦江南", "kungfu": "花间游"}]},
+                    "team2": {"won": False, "players_info": []},
+                }
+            },
+        }]
+        participant_repo = FakeParticipantRepo({
+            "items": [{
+                "match_id": 5001,
+                "won": True,
+                "kungfu": "花间游",
+                "avg_grade": 13,
+                "total_mmr": 2400,
+                "mmr_delta": 10,
+                "mvp": False,
+                "match_time": 1779400000,
+                "start_time": 1779400000,
+                "duration": 180,
+                "sync_status": "detail_saved",
+                "detail_saved_at": 1779400100,
+                "source_identity_id": ObjectId("64b64c9f6df2d096edcd67a1"),
+                "source_identity_key": "global_id:target",
+            }],
+            "total": 1,
+            "page": 1,
+            "page_size": 20,
+            "has_more": False,
+        })
+        db = MagicMock()
+        db.jjc_sync_match_seen = FakeFindCollection([])
+        db.jjc_match_detail = FakeFindCollection(details)
+        repo = JjcInspectRepo(db=db, snapshot_repo=None, participant_repo=participant_repo)
+        old_mode = getattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE", None)
+        cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = "on"
+        try:
+            result = await repo.list_saved_local_3v3_matches_for_identity(
+                identity_id=None,
+                identity_key=None,
+                server="梦江南",
+                name="目标角色",
+                global_id="target",
+            )
+        finally:
+            if old_mode is None:
+                delattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE")
+            else:
+                cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = old_mode
+
+        self.assertEqual(db.jjc_sync_match_seen.find_calls, [])
+        self.assertEqual(participant_repo.calls[0]["global_id"], "target")
+        row = result["items"][0]
+        self.assertEqual(row["match_id"], 5001)
+        self.assertEqual(row["total_mmr"], 2400)
+        self.assertEqual(row["sync"]["source_identity_id"], "64b64c9f6df2d096edcd67a1")
+        self.assertEqual(row["cached_detail_summary"]["match_id"], 5001)
+
+    async def test_inspect_repo_read_mode_on_empty_projection_does_not_fallback(self) -> None:
+        participant_repo = FakeParticipantRepo({
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "page_size": 20,
+            "has_more": False,
+        })
+        db = MagicMock()
+        db.jjc_sync_match_seen = FakeFindCollection([])
+        db.jjc_match_detail = FakeFindCollection([{
+            "match_id": 5002,
+            "cached_at": 1,
+            "data": {
+                "detail": {
+                    "basic_info": {"match_type": 3},
+                    "team1": {"won": True, "players_info": [{"global_id": "target"}]},
+                    "team2": {"won": False, "players_info": []},
+                }
+            },
+        }])
+        repo = JjcInspectRepo(db=db, snapshot_repo=None, participant_repo=participant_repo)
+        old_mode = getattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE", None)
+        cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = "on"
+        try:
+            result = await repo.list_saved_local_3v3_matches_for_identity(
+                identity_id=None,
+                identity_key=None,
+                server="梦江南",
+                name="目标角色",
+                global_id="target",
+            )
+        finally:
+            if old_mode is None:
+                delattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE")
+            else:
+                cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = old_mode
+
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(db.jjc_match_detail.find_calls, [])
+
+    async def test_inspect_repo_read_mode_on_projection_error_falls_back_to_detail(self) -> None:
+        db = MagicMock()
+        db.jjc_sync_match_seen = FakeFindCollection([])
+        db.jjc_match_detail = FakeFindCollection([{
+            "match_id": 5003,
+            "cached_at": 1,
+            "data": {
+                "detail": {
+                    "match_time": 1779500000,
+                    "basic_info": {"match_type": 3},
+                    "team1": {"won": True, "players_info": [{"global_id": "target"}]},
+                    "team2": {"won": False, "players_info": []},
+                }
+            },
+        }])
+        repo = JjcInspectRepo(
+            db=db,
+            snapshot_repo=None,
+            participant_repo=FakeParticipantRepo(error=RuntimeError("projection_down")),
+        )
+        old_mode = getattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE", None)
+        cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = "on"
+        try:
+            result = await repo.list_saved_local_3v3_matches_for_identity(
+                identity_id=None,
+                identity_key=None,
+                server="梦江南",
+                name="目标角色",
+                global_id="target",
+            )
+        finally:
+            if old_mode is None:
+                delattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE")
+            else:
+                cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = old_mode
+
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(db.jjc_match_detail.find_calls[0]["data.unavailable"], {"$ne": True})
 
 
 if __name__ == "__main__":

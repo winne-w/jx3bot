@@ -1,0 +1,176 @@
+from __future__ import annotations
+
+import unittest
+from typing import Any, Dict, List
+
+from src.storage.mongo_repos.jjc_match_participant_repo import (
+    DETAIL_SOURCE_MATCH_DETAIL,
+    SYNC_STATUS_NOT_SYNCED,
+    JjcMatchParticipantRepo,
+)
+
+
+def _player(global_id: str = "", **kwargs: Any) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        "global_id": global_id,
+        "role_name": "角色" + (global_id or "missing"),
+        "server": "梦江南",
+        "kungfu": "冰心诀",
+    }
+    data.update(kwargs)
+    return data
+
+
+def _team(players: List[Dict[str, Any]], won: bool = False) -> Dict[str, Any]:
+    return {"won": won, "players_info": players}
+
+
+def _payload(
+    team1: List[Dict[str, Any]],
+    team2: List[Dict[str, Any]],
+    *,
+    match_type: Any = 3,
+) -> Dict[str, Any]:
+    basic_info: Dict[str, Any] = {
+        "start_time": 1710000000,
+        "duration": 120,
+        "grade": 12,
+    }
+    if match_type is not None:
+        basic_info["match_type"] = match_type
+    return {
+        "match_id": 1001,
+        "cached_at": 1710000010.0,
+        "detail": {
+            "basic_info": basic_info,
+            "team1": _team(team1, won=True),
+            "team2": _team(team2, won=False),
+        },
+    }
+
+
+class TestJjcMatchParticipantRepoBuild(unittest.TestCase):
+    def test_extracts_explicit_3v3_players(self) -> None:
+        payload = _payload(
+            [_player("g1"), _player("g2"), _player("g3")],
+            [_player("g4"), _player("g5"), _player("g6")],
+        )
+        seen_doc = {
+            "status": "detail_saved",
+            "match_time": 1710000000,
+            "detail_saved_at": 1710000020.0,
+            "source_identity_key": "global_id:g1",
+        }
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload, seen_doc)
+
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(rows[0]["match_id"], 1001)
+        self.assertEqual(rows[0]["global_id"], "g1")
+        self.assertEqual(rows[0]["team_key"], "team1")
+        self.assertEqual(rows[0]["won"], True)
+        self.assertEqual(rows[0]["sync_status"], "detail_saved")
+        self.assertEqual(rows[0]["detail_saved_at"], 1710000020.0)
+        self.assertTrue(rows[0]["detail_available"])
+        self.assertEqual(rows[0]["detail_source"], DETAIL_SOURCE_MATCH_DETAIL)
+        self.assertFalse(rows[0]["match_type_inferred"])
+
+    def test_infers_3v3_from_six_players(self) -> None:
+        payload = _payload(
+            [_player("g1"), _player("g2"), _player("g3")],
+            [_player("g4"), _player("g5"), _player("g6")],
+            match_type=None,
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload)
+
+        self.assertEqual(len(rows), 6)
+        self.assertTrue(all(row["match_type_inferred"] for row in rows))
+        self.assertEqual(rows[0]["match_type"], 3)
+
+    def test_skips_non_3v3_explicit_match_type(self) -> None:
+        payload = _payload(
+            [_player("g1"), _player("g2")],
+            [_player("g3"), _player("g4")],
+            match_type=2,
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload)
+
+        self.assertEqual(rows, [])
+
+    def test_skips_non_3v3_when_not_inferable(self) -> None:
+        payload = _payload(
+            [_player("g1"), _player("g2"), _player("g3")],
+            [_player("g4"), _player("g5")],
+            match_type=None,
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload)
+
+        self.assertEqual(rows, [])
+
+    def test_skips_players_missing_global_id(self) -> None:
+        payload = _payload(
+            [_player("g1"), _player("", role_name="缺失"), _player("g3")],
+            [_player("g4"), _player("g5"), _player("g6")],
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload)
+
+        self.assertEqual([row["global_id"] for row in rows], ["g1", "g3", "g4", "g5", "g6"])
+
+    def test_duplicate_global_id_first_wins(self) -> None:
+        payload = _payload(
+            [_player("g1", role_name="第一个"), _player("g1", role_name="第二个"), _player("g3")],
+            [_player("g4"), _player("g5"), _player("g6")],
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload)
+
+        g1_rows = [row for row in rows if row["global_id"] == "g1"]
+        self.assertEqual(len(g1_rows), 1)
+        self.assertEqual(g1_rows[0]["role_name"], "第一个")
+        self.assertEqual(g1_rows[0]["player_index"], 0)
+
+    def test_sync_status_falls_back_to_not_synced(self) -> None:
+        payload = _payload(
+            [_player("g1"), _player("g2"), _player("g3")],
+            [_player("g4"), _player("g5"), _player("g6")],
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload, seen_doc=None)
+
+        self.assertEqual(rows[0]["sync_status"], SYNC_STATUS_NOT_SYNCED)
+        self.assertIsNone(rows[0]["detail_saved_at"])
+        self.assertIsNone(rows[0]["source_identity_key"])
+
+    def test_uses_outer_cached_at_for_wrapped_payload(self) -> None:
+        payload = {
+            "cached_at": 1710000099.0,
+            "data": _payload(
+                [_player("g1"), _player("g2"), _player("g3")],
+                [_player("g4"), _player("g5"), _player("g6")],
+            ),
+        }
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload, seen_doc=None)
+
+        self.assertEqual(rows[0]["cached_at"], 1710000099.0)
+
+    def test_detail_source_constants(self) -> None:
+        payload = _payload(
+            [_player("g1"), _player("g2"), _player("g3")],
+            [_player("g4"), _player("g5"), _player("g6")],
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload)
+
+        self.assertEqual(JjcMatchParticipantRepo.COLLECTION_NAME, "jjc_match_participants")
+        self.assertEqual(JjcMatchParticipantRepo.DETAIL_SOURCE_MATCH_DETAIL, "match_detail")
+        self.assertEqual(JjcMatchParticipantRepo.SYNC_STATUS_NOT_SYNCED, "not_synced")
+        self.assertEqual(rows[0]["detail_source"], JjcMatchParticipantRepo.DETAIL_SOURCE_MATCH_DETAIL)
+
+
+if __name__ == "__main__":
+    unittest.main()

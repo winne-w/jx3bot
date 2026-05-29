@@ -1,0 +1,2080 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JJC 对局查询</title>
+    <style>
+        :root {
+            --ink: #18212f;
+            --muted: #6d7788;
+            --line: rgba(137, 196, 244, 0.22);
+            --panel: rgba(255, 255, 255, 0.94);
+            --accent: #5b7cfa;
+            --accent-2: #ff78b1;
+            --success: #34b56a;
+            --danger: #d46a6a;
+            --bg: #f5f8fc;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--bg);
+        }
+
+        .page {
+            width: min(1120px, calc(100% - 28px));
+            margin: 0 auto;
+            padding: 24px 0 42px;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        h1 {
+            margin: 0 0 6px;
+            font-size: clamp(1.45rem, 3vw, 2.15rem);
+            letter-spacing: 0;
+        }
+
+        .subtitle,
+        .muted,
+        .player-meta {
+            color: var(--muted);
+        }
+
+        .subtitle {
+            margin: 0;
+            line-height: 1.7;
+            font-size: 0.95rem;
+        }
+
+        .search-panel,
+        .content-panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: 0 16px 44px rgba(24, 33, 47, 0.08);
+        }
+
+        .search-panel {
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .search-form {
+            display: grid;
+            grid-template-columns: minmax(130px, 180px) minmax(160px, 1fr) auto;
+            gap: 12px;
+            align-items: end;
+        }
+
+        label {
+            display: grid;
+            gap: 6px;
+            font-size: 0.82rem;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        input,
+        select {
+            width: 100%;
+            min-height: 38px;
+            border: 1px solid rgba(137, 196, 244, 0.42);
+            border-radius: 6px;
+            padding: 8px 10px;
+            color: var(--ink);
+            font-size: 0.94rem;
+            background: #fff;
+            outline: none;
+        }
+
+        input:focus,
+        select:focus {
+            border-color: rgba(91, 124, 250, 0.68);
+            box-shadow: 0 0 0 3px rgba(91, 124, 250, 0.12);
+        }
+
+        button {
+            font: inherit;
+        }
+
+        .primary-btn,
+        .load-more-btn {
+            border: none;
+            border-radius: 6px;
+            padding: 10px 18px;
+            color: #fff;
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+            cursor: pointer;
+            font-weight: 700;
+            box-shadow: 0 8px 20px rgba(91, 124, 250, 0.2);
+        }
+
+        .secondary-btn,
+        .role-refresh-btn,
+        .match-refresh-btn {
+            border: 1px solid rgba(137, 196, 244, 0.35);
+            background: rgba(255, 255, 255, 0.92);
+            color: var(--ink);
+            border-radius: 6px;
+            padding: 8px 10px;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.58;
+            box-shadow: none;
+        }
+
+        .status-line {
+            margin-top: 10px;
+            min-height: 22px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .status-line.error {
+            color: #8a2d2d;
+        }
+
+        .content-panel {
+            padding: 18px;
+        }
+
+        .empty-state {
+            padding: 24px;
+            border: 1px dashed rgba(94, 125, 245, 0.25);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.62);
+            color: var(--muted);
+        }
+
+        .empty-state strong {
+            color: var(--ink);
+        }
+
+        .guidance-box {
+            margin-top: 14px;
+            padding: 12px 14px;
+            border-radius: 8px;
+            background: rgba(91, 124, 250, 0.08);
+            border: 1px solid rgba(91, 124, 250, 0.16);
+            line-height: 1.7;
+        }
+
+        .candidate-list {
+            display: grid;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .candidate-btn {
+            width: 100%;
+            text-align: left;
+            border-radius: 8px;
+            padding: 12px 14px;
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid var(--line);
+            cursor: pointer;
+        }
+
+        .candidate-btn:hover {
+            border-color: rgba(91, 124, 250, 0.34);
+            box-shadow: 0 8px 18px rgba(91, 124, 250, 0.1);
+        }
+
+        .candidate-main {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .candidate-reason {
+            margin-top: 5px;
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .role-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 14px;
+        }
+
+        .role-title {
+            margin: 0 0 6px;
+            font-size: 1.22rem;
+        }
+
+        .role-overview,
+        .detail-summary-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .role-overview {
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            margin-bottom: 16px;
+        }
+
+        .info-card,
+        .role-overview-card,
+        .detail-summary-card,
+        .team-card {
+            padding: 14px 16px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid var(--line);
+        }
+
+        .info-card strong,
+        .role-overview-card strong,
+        .detail-summary-card strong {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--ink);
+            font-size: 1.03rem;
+        }
+
+        .info-card span,
+        .role-overview-card span {
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .role-overview-toolbar,
+        .match-list-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin: 4px 0 10px;
+        }
+
+        .cache-label {
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        .match-list-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .match-list-title {
+            font-weight: 700;
+            color: var(--ink);
+            font-size: 0.95rem;
+        }
+
+        .match-list-panel {
+            display: grid;
+            gap: 10px;
+        }
+
+        .match-row-btn {
+            width: 100%;
+            text-align: left;
+            border-radius: 8px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid var(--line);
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+
+        .match-row-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 24px rgba(94, 125, 245, 0.12);
+            border-color: rgba(91, 124, 250, 0.28);
+        }
+
+        .match-row-btn.win {
+            border-left: 4px solid var(--success);
+        }
+
+        .match-row-btn.lose {
+            border-left: 4px solid var(--danger);
+        }
+
+        .match-row-top,
+        .match-row-bottom {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 14px;
+        }
+
+        .match-row-top {
+            margin-bottom: 8px;
+        }
+
+        .match-row-meta {
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .match-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(91, 124, 250, 0.1);
+            color: var(--accent);
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        .match-tag.win {
+            background: rgba(52, 181, 106, 0.12);
+            color: #248651;
+        }
+
+        .match-tag.lose {
+            background: rgba(212, 106, 106, 0.12);
+            color: #a34a4a;
+        }
+
+        .match-icons-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+
+        .match-team-icons,
+        .team-kungfu-icons {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+
+        .match-kungfu-icon,
+        .team-kungfu-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 4px;
+            background: #fff;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .match-kungfu-icon img,
+        .team-kungfu-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .match-vs {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--muted);
+        }
+
+        .load-more-wrap {
+            display: flex;
+            justify-content: center;
+            padding: 12px 0 4px;
+        }
+
+        .load-more-wrap.hidden {
+            display: none;
+        }
+
+        .load-more-btn {
+            border-radius: 999px;
+            padding: 10px 32px;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(24, 33, 47, 0.56);
+            backdrop-filter: blur(6px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            z-index: 2000;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal-card {
+            width: min(960px, 100%);
+            max-height: min(86vh, 920px);
+            overflow: auto;
+            border-radius: 8px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(244, 249, 255, 0.98));
+            border: 1px solid var(--line);
+            box-shadow: 0 24px 60px rgba(24, 33, 47, 0.24);
+            padding: 22px;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .modal-title {
+            margin: 0;
+            font-size: 1.18rem;
+        }
+
+        .modal-subtitle {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .modal-close {
+            border: none;
+            background: rgba(91, 124, 250, 0.12);
+            color: var(--accent);
+            width: 34px;
+            height: 34px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            line-height: 1;
+        }
+
+        .modal-loading,
+        .modal-empty {
+            padding: 18px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.82);
+            border: 1px dashed rgba(94, 125, 245, 0.24);
+            color: var(--muted);
+        }
+
+        .detail-summary-grid {
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            margin-bottom: 18px;
+        }
+
+        .team-grid {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        }
+
+        .team-card.won {
+            border-color: rgba(52, 181, 106, 0.3);
+            box-shadow: inset 0 0 0 1px rgba(52, 181, 106, 0.08);
+        }
+
+        .team-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .team-title-row h4 {
+            margin: 0;
+            font-size: 1rem;
+        }
+
+        .team-player-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .team-player {
+            border-radius: 8px;
+            padding: 12px;
+            background: rgba(91, 124, 250, 0.05);
+        }
+
+        .team-player.focus {
+            background: rgba(255, 120, 177, 0.09);
+            border: 1px solid rgba(255, 120, 177, 0.18);
+        }
+
+        .team-player-top,
+        .team-player-bottom {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            align-items: center;
+        }
+
+        .team-player-top {
+            margin-bottom: 6px;
+        }
+
+        .player-name {
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .player-section {
+            margin-top: 10px;
+        }
+
+        .player-section-label {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+
+        .icon-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(36px, 36px));
+            gap: 8px;
+        }
+
+        .icon-chip,
+        .talent-chip-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid var(--line);
+            box-shadow: 0 4px 10px rgba(24, 33, 47, 0.08);
+        }
+
+        .icon-chip.legendary {
+            border: 2px solid #f5a623;
+        }
+
+        .icon-chip img,
+        .talent-chip-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .icon-chip.empty,
+        .talent-chip.empty-chip {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            font-size: 0.72rem;
+        }
+
+        .talent-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .talent-chip {
+            position: relative;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+        }
+
+        .talent-chip-name {
+            font-size: 0.76rem;
+            color: var(--ink);
+            max-width: 60px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            text-align: center;
+            line-height: 1.3;
+        }
+
+        .talent-chip::after {
+            content: attr(data-desc);
+            position: absolute;
+            bottom: calc(100% + 2px);
+            left: 0;
+            transform: translate(0, -4px);
+            background: rgba(30, 40, 55, 0.94);
+            color: #ffffff;
+            font-size: 0.78rem;
+            padding: 6px 10px;
+            border-radius: 8px;
+            white-space: normal;
+            word-break: break-all;
+            max-width: 220px;
+            width: max-content;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            line-height: 1.5;
+        }
+
+        .talent-chip[data-desc=""]::after {
+            display: none;
+        }
+
+        .talent-chip:hover::after {
+            opacity: 1;
+            transform: translate(0, -10px);
+        }
+
+        .announcement-hero {
+            background: linear-gradient(135deg, rgba(91, 124, 250, 0.06), rgba(255, 120, 177, 0.05));
+            border-radius: 8px;
+            padding: 18px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(137, 196, 244, 0.18);
+        }
+
+        .announcement-date {
+            display: inline-block;
+            margin-bottom: 8px;
+            padding: 2px 10px;
+            border-radius: 8px;
+            color: #fff;
+            background: var(--accent);
+            font-size: 0.78rem;
+        }
+
+        .announcement-title {
+            margin: 0 0 6px;
+            font-size: 1.1rem;
+        }
+
+        .announcement-body,
+        .announcement-list-item .item-body {
+            color: var(--muted);
+            line-height: 1.65;
+            white-space: pre-wrap;
+        }
+
+        .announcement-list-title {
+            margin: 0 0 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(137, 196, 244, 0.18);
+            color: var(--muted);
+            font-weight: 700;
+            font-size: 0.88rem;
+        }
+
+        .announcement-list-item {
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(137, 196, 244, 0.1);
+        }
+
+        .announcement-list-item .item-header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .announcement-list-item .item-date {
+            flex-shrink: 0;
+            padding: 1px 8px;
+            border-radius: 8px;
+            color: var(--muted);
+            background: rgba(137, 196, 244, 0.1);
+            font-size: 0.76rem;
+        }
+
+        .announcement-list-item .item-title {
+            color: var(--ink);
+            font-weight: 700;
+            font-size: 0.94rem;
+        }
+
+        .announcement-modal-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding-top: 14px;
+            margin-top: 10px;
+            border-top: 1px solid rgba(137, 196, 244, 0.14);
+        }
+
+        .announcement-feedback-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+
+        .announcement-dismiss-btn {
+            border: none;
+            border-radius: 6px;
+            padding: 9px 22px;
+            background: var(--accent);
+            color: #fff;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        .floating-feedback {
+            position: fixed;
+            right: 32px;
+            bottom: 32px;
+            z-index: 999;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--accent);
+            color: #fff;
+            box-shadow: 0 4px 20px rgba(24, 33, 47, 0.28);
+            cursor: pointer;
+            user-select: none;
+            touch-action: none;
+        }
+
+        .floating-feedback.dragging {
+            opacity: 0.76;
+        }
+
+        .floating-feedback.hidden {
+            display: none;
+        }
+
+        .floating-feedback-text {
+            pointer-events: none;
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+
+        .floating-feedback-close {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            width: 20px;
+            height: 20px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(24, 33, 47, 0.68);
+            color: #fff;
+            cursor: pointer;
+            font-size: 11px;
+            line-height: 20px;
+            opacity: 0;
+        }
+
+        .floating-feedback:hover .floating-feedback-close {
+            opacity: 1;
+        }
+
+        @media (max-width: 720px) {
+            .page {
+                width: min(100% - 20px, 1120px);
+                padding-top: 16px;
+            }
+
+            .topbar,
+            .role-header,
+            .role-overview-toolbar,
+            .match-list-toolbar {
+                display: grid;
+            }
+
+            .search-form {
+                grid-template-columns: 1fr;
+            }
+
+            .primary-btn {
+                width: 100%;
+            }
+
+            .modal-overlay {
+                padding: 10px;
+            }
+
+            .modal-card {
+                padding: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <div class="topbar">
+            <div>
+                <h1>JJC 对局查询</h1>
+                <p class="subtitle">输入服务器和角色名，查看已经记录的 3v3 对局。</p>
+            </div>
+        </div>
+
+        <section class="search-panel">
+            <form class="search-form" id="search-form">
+                <label>
+                    服务器
+                    <select id="server-input" name="server" required>
+                        <option value="">正在加载服务器...</option>
+                    </select>
+                </label>
+                <label>
+                    角色名
+                    <input id="name-input" name="name" autocomplete="off" placeholder="角色名" required>
+                </label>
+                <button class="primary-btn" id="search-btn" type="submit">查询</button>
+            </form>
+            <div class="status-line" id="status-line"></div>
+        </section>
+
+        <section class="content-panel" id="content-panel">
+            <div class="empty-state">输入服务器和角色名后，将展示赛季战绩和可查看的对局。</div>
+        </section>
+    </main>
+
+    <div class="modal-overlay" id="match-modal" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title" id="match-modal-title">对局详情</h3>
+                    <div class="modal-subtitle" id="match-modal-subtitle"></div>
+                </div>
+                <button class="modal-close" type="button" data-close-modal="match" aria-label="关闭">x</button>
+            </div>
+            <div id="match-modal-body"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="announcement-modal" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title">公告 / 更新说明</h3>
+                    <div class="modal-subtitle">最近更新与页面说明</div>
+                </div>
+                <button class="modal-close" type="button" data-close-modal="announcement" aria-label="关闭">x</button>
+            </div>
+            <div id="announcement-modal-body"></div>
+            <div class="announcement-modal-footer">
+                <a href="https://github.com/winne-w/jx3bot/issues" target="_blank" rel="noopener" class="announcement-feedback-link">反馈 & 交流</a>
+                <button class="announcement-dismiss-btn" id="announcement-dismiss-btn" type="button">知道了</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="floating-feedback hidden" id="floating-feedback">
+        <button class="floating-feedback-close" id="floating-feedback-close" type="button" aria-label="关闭">x</button>
+        <span class="floating-feedback-text">反馈</span>
+    </div>
+
+    <script>
+        const BASE_API = "/jx3bot/api/jjc/ranking-stats";
+        const ANNOUNCEMENT_API = "/jx3bot/api/announcements";
+        const ANNOUNCEMENT_SEEN_KEY = "announcement_seen_at";
+        const params = new URLSearchParams(window.location.search);
+        const syncedRoleApiBase = params.get("synced_role_api") || `${BASE_API}/synced-role`;
+        const syncedMatchesApiBase = params.get("synced_matches_api") || `${BASE_API}/synced-role-matches`;
+        const syncedSyncApiBase = params.get("synced_sync_api") || `${BASE_API}/synced-role-sync`;
+        const roleIndicatorApiBase = params.get("role_indicator_api") || `${BASE_API}/role-indicator`;
+        const matchDetailApiBase = params.get("match_detail_api") || `${BASE_API}/match-detail`;
+        const serverListApiBase = params.get("server_list_api") || "/jx3bot/api/jx3/servers";
+        const pageSize = Number(params.get("page_size") || "20") || 20;
+
+        const searchForm = document.getElementById("search-form");
+        let serverInput = document.getElementById("server-input");
+        const nameInput = document.getElementById("name-input");
+        const searchBtn = document.getElementById("search-btn");
+        const statusLine = document.getElementById("status-line");
+        const contentPanel = document.getElementById("content-panel");
+        const matchModal = document.getElementById("match-modal");
+        const matchModalTitle = document.getElementById("match-modal-title");
+        const matchModalSubtitle = document.getElementById("match-modal-subtitle");
+        const matchModalBody = document.getElementById("match-modal-body");
+        const announcementModal = document.getElementById("announcement-modal");
+        const announcementBody = document.getElementById("announcement-modal-body");
+        const announcementDismissBtn = document.getElementById("announcement-dismiss-btn");
+
+        const roleIndicatorCache = new Map();
+        const matchDetailCache = new Map();
+        let currentRole = null;
+        let currentPagination = { page: 1, hasMore: false, isLoading: false };
+        let announcementCursor = null;
+        let announcementHasMore = true;
+        let announcementLoading = false;
+        let announcementObserver = null;
+        let currentPopupSeenAt = null;
+
+        async function loadServerOptions() {
+            serverInput.disabled = true;
+            searchBtn.disabled = true;
+            try {
+                const response = await fetch(serverListApiBase, { cache: "no-store" });
+                const payload = await response.json().catch(() => null);
+                if (!response.ok) {
+                    throw new Error("server_list_unavailable");
+                }
+                const data = unwrapResponse(payload);
+                const servers = Array.isArray(data.servers) ? data.servers : [];
+                if (!servers.length) {
+                    throw new Error("empty_server_list");
+                }
+                const selectedServer = params.get("server") || "";
+                const grouped = new Map();
+                servers.forEach((item) => {
+                    const server = String(item && item.server ? item.server : "").trim();
+                    if (!server) {
+                        return;
+                    }
+                    const zone = String(item.zone || "其他").trim() || "其他";
+                    if (!grouped.has(zone)) {
+                        grouped.set(zone, []);
+                    }
+                    grouped.get(zone).push(server);
+                });
+                const options = ['<option value="">请选择服务器</option>'];
+                grouped.forEach((serverNames, zone) => {
+                    options.push(`<optgroup label="${escapeHtml(zone)}">`);
+                    serverNames.forEach((server) => {
+                        const selected = server === selectedServer ? " selected" : "";
+                        options.push(`<option value="${escapeHtml(server)}"${selected}>${escapeHtml(server)}</option>`);
+                    });
+                    options.push("</optgroup>");
+                });
+                serverInput.innerHTML = options.join("");
+                serverInput.disabled = false;
+                searchBtn.disabled = false;
+                if (!selectedServer && grouped.size) {
+                    serverInput.value = "";
+                }
+                setStatus("");
+            } catch (error) {
+                fallbackToServerTextInput();
+                setStatus("服务器列表加载失败，可手动输入服务器后查询", "error");
+            }
+        }
+
+        function fallbackToServerTextInput() {
+            if (serverInput.tagName.toLowerCase() === "input") {
+                serverInput.disabled = false;
+                searchBtn.disabled = false;
+                return;
+            }
+            const fallbackInput = document.createElement("input");
+            fallbackInput.id = "server-input";
+            fallbackInput.name = "server";
+            fallbackInput.required = true;
+            fallbackInput.autocomplete = "off";
+            fallbackInput.placeholder = "手动输入服务器";
+            fallbackInput.value = params.get("server") || "";
+            serverInput.replaceWith(fallbackInput);
+            serverInput = fallbackInput;
+            searchBtn.disabled = false;
+        }
+
+        function setServerInputValue(server) {
+            const value = String(server || "").trim();
+            if (!value) {
+                return;
+            }
+            if (serverInput.tagName.toLowerCase() === "select") {
+                const exists = Array.from(serverInput.options).some((option) => option.value === value);
+                if (!exists) {
+                    const option = document.createElement("option");
+                    option.value = value;
+                    option.textContent = value;
+                    serverInput.appendChild(option);
+                }
+            }
+            serverInput.value = value;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? "")
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#39;");
+        }
+
+        function unwrapResponse(payload) {
+            if (!payload || typeof payload !== "object") {
+                throw new Error("响应格式异常");
+            }
+            if (Object.prototype.hasOwnProperty.call(payload, "status_code")) {
+                if (payload.status_code !== 0) {
+                    const error = new Error(payload.status_msg || "服务返回错误");
+                    error.data = payload.data || {};
+                    throw error;
+                }
+                return payload.data;
+            }
+            return payload;
+        }
+
+        function formatTime(timestamp) {
+            if (!timestamp) {
+                return "未知时间";
+            }
+            const raw = typeof timestamp === "number" || /^\d+$/.test(String(timestamp))
+                ? Number(timestamp) * 1000
+                : timestamp;
+            const date = new Date(raw);
+            if (Number.isNaN(date.getTime())) {
+                return "未知时间";
+            }
+            return date.toLocaleString("zh-CN", {
+                hour12: false,
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+            });
+        }
+
+        function formatDuration(seconds) {
+            const value = Number(seconds);
+            if (!Number.isFinite(value) || value <= 0) {
+                return "-";
+            }
+            const mins = Math.floor(value / 60);
+            const secs = value % 60;
+            return `${mins}分${String(secs).padStart(2, "0")}秒`;
+        }
+
+        const JJC_MAP_NAMES = {
+            "128": "乐山大佛库",
+            "362": "墟海之眼",
+            "238": "青竹书院",
+            "696": "红叶泽",
+            "277": "拭剑台",
+            "624": "沃石火狱",
+            "127": "天山碎冰谷",
+            "129": "华山之巅",
+        };
+
+        function formatMapName(value) {
+            if (value == null || value === "") {
+                return "-";
+            }
+            const key = String(value);
+            return JJC_MAP_NAMES[key] || key;
+        }
+
+        function formatGrade(value) {
+            if (value == null || value === "") {
+                return "-";
+            }
+            return `${value}段`;
+        }
+
+        function setStatus(message, type) {
+            statusLine.textContent = message || "";
+            statusLine.classList.toggle("error", type === "error");
+        }
+
+        function buildGetUrl(base, server, name, extra) {
+            const url = new URL(base, window.location.origin);
+            url.searchParams.set("server", server);
+            url.searchParams.set("name", name);
+            Object.entries(extra || {}).forEach(([key, value]) => {
+                if (value !== undefined && value !== null && value !== "") {
+                    url.searchParams.set(key, String(value));
+                }
+            });
+            return url.toString();
+        }
+
+        function buildRoleIndicatorUrl(server, name, identityHints, options) {
+            const url = new URL(roleIndicatorApiBase, window.location.origin);
+            url.searchParams.set("server", server);
+            url.searchParams.set("name", name);
+            ["game_role_id", "global_role_id", "role_id", "zone"].forEach((key) => {
+                if (identityHints && identityHints[key]) {
+                    url.searchParams.set(key, identityHints[key]);
+                }
+            });
+            if (options && options.forceRefresh) {
+                url.searchParams.set("force_refresh", "true");
+            }
+            url.searchParams.set("identity_only", "true");
+            return url.toString();
+        }
+
+        function buildMatchDetailUrl(matchId) {
+            const url = new URL(matchDetailApiBase, window.location.origin);
+            url.searchParams.set("match_id", matchId);
+            return url.toString();
+        }
+
+        function getIndicatorCacheKey(role) {
+            if (!role) {
+                return "";
+            }
+            const identity = role.identity || {};
+            return `${role.server}::${role.name}::${identity.global_role_id || ""}::${identity.game_role_id || ""}::${identity.zone || ""}`;
+        }
+
+        function renderValue(value) {
+            return escapeHtml(value == null || value === "" ? "-" : value);
+        }
+
+        function renderSyncTime(syncStatus) {
+            if (!syncStatus) {
+                return "未知时间";
+            }
+            return formatTime(syncStatus.last_synced_at || syncStatus.latest_seen_match_time || syncStatus.queued_at);
+        }
+
+        function renderIndicatorCards(indicatorData) {
+            if (indicatorData && !indicatorData.error) {
+                const ind = indicatorData.indicator || {};
+                const cards = [
+                    { label: "场次", value: ind.total_matches ?? "-" },
+                    { label: "胜率", value: ind.win_rate != null ? `${ind.win_rate}%` : "-" },
+                    { label: "评分", value: ind.score ?? "-" },
+                    { label: "最佳", value: ind.best_score ?? "-" },
+                    { label: "当前段位", value: formatGrade(ind.grade) },
+                ];
+                return cards.map((item) => `
+                    <div class="role-overview-card">
+                        <strong>${escapeHtml(item.value)}</strong>
+                        <span>${escapeHtml(item.label)}</span>
+                    </div>
+                `).join("");
+            }
+            if (indicatorData && indicatorData.error) {
+                return `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">赛季战绩暂时不可用</strong><span>稍后再试</span></div>`;
+            }
+            return `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">正在加载赛季战绩...</strong><span>请稍候</span></div>`;
+        }
+
+        function renderIndicatorCacheLabel(indicatorData) {
+            const cache = indicatorData && indicatorData.cache;
+            if (!cache || !cache.cached_at) {
+                return "";
+            }
+            return `赛季战绩更新时间：${formatTime(cache.cached_at)}`;
+        }
+
+        function updateRoleOverviewIndicator(indicatorData) {
+            const overview = document.getElementById("role-overview");
+            if (overview) {
+                overview.innerHTML = renderIndicatorCards(indicatorData);
+            }
+            const cacheLabel = document.getElementById("role-indicator-cache-label");
+            if (cacheLabel) {
+                cacheLabel.textContent = renderIndicatorCacheLabel(indicatorData);
+            }
+        }
+
+        function renderCachedTeamIcons(cachedDetailSummary) {
+            if (!cachedDetailSummary || typeof cachedDetailSummary !== "object") {
+                return "";
+            }
+            const team1 = cachedDetailSummary.team1 && Array.isArray(cachedDetailSummary.team1.players)
+                ? cachedDetailSummary.team1.players
+                : [];
+            const team2 = cachedDetailSummary.team2 && Array.isArray(cachedDetailSummary.team2.players)
+                ? cachedDetailSummary.team2.players
+                : [];
+            function renderIcons(players) {
+                return players
+                    .filter((p) => p && p.kungfu_id)
+                    .map((p) => `<span class="match-kungfu-icon" title="${escapeHtml(p.role_name || p.kungfu || "")}"><img src="https://img.jx3box.com/image/xf/${escapeHtml(p.kungfu_id)}.png" alt="${escapeHtml(p.kungfu || "kungfu")}"></span>`)
+                    .join("");
+            }
+            const team1Icons = renderIcons(team1);
+            const team2Icons = renderIcons(team2);
+            if (!team1Icons && !team2Icons) {
+                return "";
+            }
+            return `<div class="match-icons-row"><div class="match-team-icons">${team1Icons}</div><span class="match-vs">vs</span><div class="match-team-icons">${team2Icons}</div></div>`;
+        }
+
+        function renderMatchItem(match, playerName, playerServer) {
+            const sync = match.sync || {};
+            return `
+                <button
+                    class="match-row-btn ${match.won ? "win" : "lose"}"
+                    type="button"
+                    data-match-id="${escapeHtml(match.match_id || "")}"
+                    data-focus-name="${escapeHtml(playerName)}"
+                    data-focus-server="${escapeHtml(playerServer)}"
+                >
+                    <div class="match-row-top">
+                        <span class="match-tag ${match.won ? "win" : "lose"}">${match.won ? "胜利" : "失败"}</span>
+                        <span>${escapeHtml(match.kungfu || "未知心法")}</span>
+                        <span>${renderValue(match.total_mmr)}${match.mmr_delta != null ? ` (${match.mmr_delta > 0 ? "+" : ""}${escapeHtml(match.mmr_delta)})` : ""}</span>
+                    </div>
+                    <div class="match-row-bottom match-row-meta">
+                        <span>开始时间：${formatTime(match.start_time || sync.match_time)}</span>
+                        <span>时长：${formatDuration(match.duration)}</span>
+                    </div>
+                    ${renderCachedTeamIcons(match.cached_detail_summary)}
+                </button>
+            `;
+        }
+
+        function paginationHasMore(pagination) {
+            if (!pagination) {
+                return false;
+            }
+            if (Object.prototype.hasOwnProperty.call(pagination, "has_more")) {
+                return !!pagination.has_more;
+            }
+            const page = Number(pagination.page || currentPagination.page || 1);
+            const size = Number(pagination.page_size || pageSize);
+            const total = Number(pagination.total || 0);
+            return total > page * size;
+        }
+
+        function renderLoadMoreButton() {
+            if (!currentPagination.hasMore) {
+                return "<div class='load-more-wrap hidden'></div>";
+            }
+            return `
+                <div class="load-more-wrap">
+                    <button class="load-more-btn" type="button" id="load-more-btn"${currentPagination.isLoading ? " disabled" : ""}>
+                        ${currentPagination.isLoading ? "加载中..." : "加载更多对局"}
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderMatches(data, append) {
+            const matches = Array.isArray(data.recent_matches) ? data.recent_matches : [];
+            const player = data.player || currentRole?.player || {};
+            const playerName = player.name || currentRole?.name || "未知角色";
+            const playerServer = player.server || currentRole?.server || "未知服务器";
+            const pagination = data.pagination || {};
+            const page = Number(pagination.page || currentPagination.page || 1);
+            currentPagination = {
+                page,
+                hasMore: paginationHasMore(pagination),
+                isLoading: false,
+            };
+
+            if (append) {
+                const panel = contentPanel.querySelector(".match-list-panel");
+                const loadMoreWrap = panel && panel.querySelector(".load-more-wrap");
+                if (!panel) {
+                    return;
+                }
+                const html = matches.map((match) => renderMatchItem(match, playerName, playerServer)).join("");
+                if (loadMoreWrap) {
+                    loadMoreWrap.insertAdjacentHTML("beforebegin", html);
+                    loadMoreWrap.outerHTML = renderLoadMoreButton();
+                } else {
+                    panel.insertAdjacentHTML("beforeend", html + renderLoadMoreButton());
+                }
+                return;
+            }
+
+            const listHtml = matches.length
+                ? matches.map((match) => renderMatchItem(match, playerName, playerServer)).join("")
+                : "<div class='modal-empty'>暂无可查看的 3v3 对局</div>";
+            const listPanel = document.getElementById("match-list-panel");
+            if (listPanel) {
+                listPanel.innerHTML = `${listHtml}${renderLoadMoreButton()}`;
+            }
+            const syncLabel = document.getElementById("sync-list-label");
+            if (syncLabel) {
+                syncLabel.textContent = renderListSyncLabel(data);
+            }
+        }
+
+        function renderListSyncLabel(data) {
+            const sync = data && data.sync_status;
+            const isQueued = sync && sync.status === "queued";
+            const position = sync && sync.queue_position;
+            const statusText = isQueued
+                ? `等待更新${position ? `，第 ${position} 位` : ""}`
+                : "当前没有等待更新";
+            return `更新状态：${statusText}，最后更新：${renderSyncTime(sync)}`;
+        }
+
+        function renderRoleContent(data, indicatorData) {
+            const player = data.player || {};
+            const identity = data.identity || {};
+            const canEnqueue = identity && identity.identity_id;
+            currentRole = {
+                server: player.server || identity.server || serverInput.value.trim(),
+                name: player.name || identity.name || nameInput.value.trim(),
+                player,
+                identity,
+            };
+            const matches = Array.isArray(data.recent_matches) ? data.recent_matches : [];
+            const listHtml = matches.length
+                ? matches.map((match) => renderMatchItem(match, currentRole.name, currentRole.server)).join("")
+                : "<div class='modal-empty'>暂无可查看的 3v3 对局</div>";
+            const pagination = data.pagination || {};
+            currentPagination = {
+                page: Number(pagination.page || 1),
+                hasMore: paginationHasMore(pagination),
+                isLoading: false,
+            };
+
+            contentPanel.innerHTML = `
+                <div class="role-header">
+                    <div>
+                        <h2 class="role-title">${escapeHtml(currentRole.name)} · ${escapeHtml(currentRole.server)}</h2>
+                        <div class="muted">这里只展示已经可以查看详情的 3v3 对局。</div>
+                    </div>
+                    <button class="primary-btn" id="enqueue-sync-btn" type="button"${canEnqueue ? "" : " disabled"}>${canEnqueue ? "更新对局" : "暂不可更新"}</button>
+                </div>
+                <div class="role-overview-toolbar">
+                    <span class="cache-label" id="role-indicator-cache-label">${renderIndicatorCacheLabel(indicatorData)}</span>
+                    <button class="role-refresh-btn" id="refresh-role-indicator-btn" type="button">刷新战绩</button>
+                </div>
+                <div class="role-overview" id="role-overview">
+                    ${renderIndicatorCards(indicatorData)}
+                </div>
+                <div class="match-list-toolbar">
+                    <span class="match-list-title">可查看对局</span>
+                    <div class="match-list-actions">
+                        <span class="cache-label" id="sync-list-label">${renderListSyncLabel(data)}</span>
+                    </div>
+                </div>
+                <div class="match-list-panel" id="match-list-panel">
+                    ${listHtml}
+                    ${renderLoadMoreButton()}
+                </div>
+            `;
+        }
+
+        function updateSyncStatusFromPayload(payload) {
+            if (!payload || !currentRole) {
+                return;
+            }
+            const syncStatus = payload.sync_status || {};
+            const syncLabel = document.getElementById("sync-list-label");
+            if (syncLabel) {
+                syncLabel.textContent = renderListSyncLabel({ sync_status: syncStatus });
+            }
+        }
+
+        function renderCandidateReason(candidate) {
+            if (!candidate) {
+                return "可能是同名角色";
+            }
+            if (candidate.reason === "name_with_suffix") {
+                return "角色名带 @ 后缀，可能是改名或转服后的历史身份";
+            }
+            return "其他服务器存在同名角色";
+        }
+
+        function renderCandidateList(candidates) {
+            if (!Array.isArray(candidates) || !candidates.length) {
+                return "";
+            }
+            return `
+                <div class="candidate-list">
+                    ${candidates.map((candidate) => {
+                        const player = candidate.player || {};
+                        return `
+                            <button
+                                class="candidate-btn"
+                                type="button"
+                                data-candidate-server="${escapeHtml(player.server || "")}"
+                                data-candidate-name="${escapeHtml(player.name || "")}"
+                            >
+                                <div class="candidate-main">
+                                    <span>${escapeHtml(player.name || "未知角色")}</span>
+                                    <span class="match-tag">${escapeHtml(player.server || "未知服务器")}</span>
+                                </div>
+                                <div class="candidate-reason">${escapeHtml(renderCandidateReason(candidate))}</div>
+                            </button>
+                        `;
+                    }).join("")}
+                </div>
+            `;
+        }
+
+        function renderNotFound(data) {
+            currentRole = null;
+            currentPagination = { page: 1, hasMore: false, isLoading: false };
+            const message = data && data.message === "role_identity_not_found"
+                ? "暂时查不到这个角色。下面可能有可选的同名或历史后缀角色。"
+                : "暂时查不到这个角色。";
+            const candidates = data && Array.isArray(data.candidates) ? data.candidates : [];
+            const guidance = data && data.guidance
+                ? data.guidance
+                : "如果完全没有候选，可以搜索和他打过 3v3 的角色，更新该角色对局后，系统会从对局详情里同步目标角色信息。";
+            contentPanel.innerHTML = `
+                <div class="empty-state">
+                    <strong>未找到角色</strong>
+                    <div style="margin-top:8px;">${escapeHtml(message)}</div>
+                    ${renderCandidateList(candidates)}
+                    <div class="guidance-box">${escapeHtml(guidance)}</div>
+                </div>
+            `;
+        }
+
+        async function fetchJson(url, options) {
+            const response = await fetch(url, options || { cache: "no-store" });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) {
+                const message = payload && (payload.status_msg || payload.message);
+                throw new Error(message || `HTTP ${response.status}`);
+            }
+            return unwrapResponse(payload);
+        }
+
+        async function loadRoleIndicator(forceRefresh) {
+            if (!currentRole) {
+                return null;
+            }
+            const cacheKey = getIndicatorCacheKey(currentRole);
+            if (!forceRefresh) {
+                const cached = roleIndicatorCache.get(cacheKey);
+                if (cached && Date.now() - cached.fetchedAt < 86400000) {
+                    updateRoleOverviewIndicator(cached.data);
+                    return cached.data;
+                }
+            }
+            try {
+                const data = await fetchJson(
+                    buildRoleIndicatorUrl(currentRole.server, currentRole.name, currentRole.identity, { forceRefresh }),
+                    { cache: "no-store" },
+                );
+                roleIndicatorCache.set(cacheKey, { fetchedAt: Date.now(), data });
+                updateRoleOverviewIndicator(data);
+                return data;
+            } catch (error) {
+                const data = { error: true, message: error.message || "indicator_unavailable" };
+                updateRoleOverviewIndicator(data);
+                return data;
+            }
+        }
+
+        async function searchRole() {
+            const server = serverInput.value.trim();
+            const name = nameInput.value.trim();
+            if (!server || !name) {
+                return;
+            }
+            searchBtn.disabled = true;
+            setStatus("正在查询角色...");
+            contentPanel.innerHTML = "<div class='empty-state'>正在读取角色战绩和对局...</div>";
+            try {
+                const roleData = await fetchJson(buildGetUrl(syncedRoleApiBase, server, name));
+                if (!roleData || roleData.message === "role_identity_not_found" || (!roleData.identity && !roleData.player)) {
+                    renderNotFound(roleData);
+                    setStatus("未找到角色");
+                    return;
+                }
+                currentRole = {
+                    server: roleData.player?.server || roleData.identity?.server || server,
+                    name: roleData.player?.name || roleData.identity?.name || name,
+                    player: roleData.player || {},
+                    identity: roleData.identity || {},
+                };
+                const [matchesData, indicatorData] = await Promise.all([
+                    fetchJson(buildGetUrl(syncedMatchesApiBase, server, name, { page: 1, page_size: pageSize })),
+                    loadRoleIndicator(false).catch(() => ({ error: true, message: "indicator_unavailable" })),
+                ]);
+                renderRoleContent(matchesData, indicatorData);
+                setStatus("已加载对局");
+            } catch (error) {
+                if ((error.message || "") === "role_identity_not_found") {
+                    renderNotFound(error.data || { message: "role_identity_not_found" });
+                    setStatus("未找到角色");
+                    return;
+                }
+                contentPanel.innerHTML = "<div class=\"empty-state\">查询失败，请稍后再试。</div>";
+                setStatus("查询失败，请稍后再试", "error");
+            } finally {
+                searchBtn.disabled = false;
+            }
+        }
+
+        async function loadMoreMatches() {
+            if (!currentRole || currentPagination.isLoading || !currentPagination.hasMore) {
+                return;
+            }
+            currentPagination.isLoading = true;
+            const button = document.getElementById("load-more-btn");
+            if (button) {
+                button.textContent = "加载中...";
+                button.disabled = true;
+            }
+            try {
+                const nextPage = currentPagination.page + 1;
+                const data = await fetchJson(buildGetUrl(
+                    syncedMatchesApiBase,
+                    currentRole.server,
+                    currentRole.name,
+                    { page: nextPage, page_size: pageSize },
+                ));
+                renderMatches(data, true);
+            } catch (error) {
+                if (button) {
+                    button.textContent = "加载失败，点击重试";
+                    button.disabled = false;
+                }
+                currentPagination.isLoading = false;
+            }
+        }
+
+        async function enqueueSync() {
+            if (!currentRole) {
+                return;
+            }
+            const button = document.getElementById("enqueue-sync-btn");
+            if (button) {
+                button.disabled = true;
+                button.textContent = "提交中...";
+            }
+            try {
+                const enqueuePayload = await fetchJson(syncedSyncApiBase, {
+                    method: "POST",
+                    cache: "no-store",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ server: currentRole.server, name: currentRole.name }),
+                });
+                updateSyncStatusFromPayload(enqueuePayload);
+                const data = await fetchJson(buildGetUrl(
+                    syncedMatchesApiBase,
+                    currentRole.server,
+                    currentRole.name,
+                    { page: 1, page_size: pageSize },
+                ));
+                const cachedIndicator = roleIndicatorCache.get(getIndicatorCacheKey(currentRole));
+                renderRoleContent(data, cachedIndicator ? cachedIndicator.data : null);
+                setStatus(`已提交更新请求，${renderListSyncLabel(enqueuePayload)}`);
+            } catch (error) {
+                setStatus("更新请求失败，请稍后再试", "error");
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = "更新对局";
+                }
+            }
+        }
+
+        function openModal(modal) {
+            if (!(modal instanceof HTMLElement)) {
+                return;
+            }
+            modal.classList.add("show");
+            modal.setAttribute("aria-hidden", "false");
+            document.body.style.overflow = "hidden";
+        }
+
+        function closeModal(modal) {
+            if (!(modal instanceof HTMLElement)) {
+                return;
+            }
+            modal.classList.remove("show");
+            modal.setAttribute("aria-hidden", "true");
+            document.body.style.overflow = "";
+        }
+
+        function renderIconGrid(items, emptyText) {
+            if (!Array.isArray(items) || !items.length) {
+                return `<div class="icon-grid"><div class="icon-chip empty">${escapeHtml(emptyText || "无")}</div></div>`;
+            }
+            const chips = items
+                .filter((item) => item && item.icon)
+                .map((item) => `
+                    <div class="icon-chip${String(item.quality) === "5" ? " legendary" : ""}" title="${escapeHtml(item.name || "")}">
+                        <img src="${escapeHtml(item.icon)}" alt="${escapeHtml(item.name || "icon")}">
+                    </div>
+                `);
+            return chips.length ? `<div class="icon-grid">${chips.join("")}</div>` : `<div class="icon-grid"><div class="icon-chip empty">${escapeHtml(emptyText || "无")}</div></div>`;
+        }
+
+        function renderTalentGrid(talents, emptyText) {
+            if (!Array.isArray(talents) || !talents.length) {
+                return `<div class="talent-grid"><div class="talent-chip empty-chip">${escapeHtml(emptyText || "无")}</div></div>`;
+            }
+            const chips = talents
+                .filter((t) => t && t.name)
+                .map((t) => {
+                    const icon = t.icon || "";
+                    const iconHtml = icon
+                        ? `<div class="talent-chip-icon"><img src="${escapeHtml(icon)}" alt="${escapeHtml(t.name)}"></div>`
+                        : `<div class="talent-chip-icon icon-chip empty">-</div>`;
+                    return `<span class="talent-chip" data-desc="${escapeHtml(t.desc || "")}">${iconHtml}<span class="talent-chip-name">${escapeHtml(t.name)}</span></span>`;
+                });
+            return chips.length ? `<div class="talent-grid">${chips.join("")}</div>` : `<div class="talent-grid"><div class="talent-chip empty-chip">${escapeHtml(emptyText || "无")}</div></div>`;
+        }
+
+        function renderTeamKungfuIcons(players) {
+            if (!Array.isArray(players) || !players.length) {
+                return "";
+            }
+            const icons = players
+                .filter((player) => player && player.kungfu_id)
+                .map((player) => `
+                    <span class="team-kungfu-icon" title="${escapeHtml(player.role_name || player.person_name || player.kungfu || "")}">
+                        <img src="https://img.jx3box.com/image/xf/${escapeHtml(player.kungfu_id)}.png" alt="${escapeHtml(player.kungfu || "kungfu")}">
+                    </span>
+                `);
+            return icons.length ? `<div class="team-kungfu-icons">${icons.join("")}</div>` : "";
+        }
+
+        function renderTeam(team, focusPlayer) {
+            if (!team) {
+                return "<div class='modal-empty'>暂无队伍数据</div>";
+            }
+            const players = Array.isArray(team.players_info) ? team.players_info : [];
+            return `
+                <div class="team-card ${team.won ? "won" : ""}">
+                    <div class="team-title-row">
+                        <h4>${escapeHtml(team.team_name || "队伍")} ${team.won ? "· 胜利" : "· 失败"}</h4>
+                        ${renderTeamKungfuIcons(players)}
+                    </div>
+                    <div class="team-player-list">
+                        ${players.map((player) => {
+                            const isFocus = focusPlayer
+                                && player.role_name === focusPlayer.name
+                                && player.server === focusPlayer.server;
+                            return `
+                                <div class="team-player ${isFocus ? "focus" : ""}">
+                                    <div class="team-player-top">
+                                        <span class="player-name">${escapeHtml(player.role_name || "未知")}</span>
+                                        <span class="player-meta">${escapeHtml(player.server || "未知服")}</span>
+                                        <span class="player-meta">${escapeHtml(player.kungfu || "未知心法")}</span>
+                                        ${player.mvp ? "<span class='match-tag win'>MVP</span>" : ""}
+                                    </div>
+                                    <div class="team-player-bottom player-meta">
+                                        <span>推栏分数：${renderValue(player.mmr)}</span>
+                                        <span>游戏分数：${renderValue(player.total_score)}</span>
+                                        <span>装分：${(player.equip_score ?? 0) + (player.equip_strength_score ?? 0) + (player.stone_score ?? 0) || "-"}</span>
+                                        <span>血量：${renderValue(player.max_hp)}</span>
+                                    </div>
+                                    <div class="player-section">
+                                        <div class="player-section-label">装备</div>
+                                        ${renderIconGrid(player.armors || [], "无装备")}
+                                    </div>
+                                    <div class="player-section">
+                                        <div class="player-section-label">奇穴</div>
+                                        ${renderTalentGrid(player.talents || [], "无奇穴")}
+                                    </div>
+                                </div>
+                            `;
+                        }).join("")}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderMatchDetailModal(payload, focusPlayer) {
+            if (payload.unavailable) {
+                matchModalTitle.textContent = "对局详情";
+                matchModalSubtitle.textContent = payload.cache?.cached_at
+                    ? `详情更新时间：${formatTime(payload.cache.cached_at)}`
+                    : "暂时没有可查看的详情";
+                matchModalBody.innerHTML = `
+                    <div class="modal-loading">
+                        该对局查询不到数据
+                        <div class="player-meta">对局编号：${escapeHtml(payload.match_id || "-")}</div>
+                    </div>
+                `;
+                return;
+            }
+
+            const detail = payload.detail || {};
+            const basicInfo = detail.basic_info || {};
+            matchModalTitle.textContent = "对局详情";
+            matchModalSubtitle.textContent = payload.cache?.cached_at
+                ? `详情更新时间：${formatTime(payload.cache.cached_at)}`
+                : "正在查看对局详情";
+            matchModalBody.innerHTML = `
+                <div class="detail-summary-grid">
+                    <div class="detail-summary-card"><strong>${escapeHtml(formatMapName(basicInfo.map))}</strong><span class="player-meta">地图</span></div>
+                    <div class="detail-summary-card"><strong>${formatGrade(basicInfo.grade)}</strong><span class="player-meta">分段</span></div>
+                    <div class="detail-summary-card"><strong>${formatDuration(basicInfo.duration)}</strong><span class="player-meta">时长</span></div>
+                    <div class="detail-summary-card"><strong>${formatTime(basicInfo.start_time || detail.match_time)}</strong><span class="player-meta">开始时间</span></div>
+                </div>
+                <div class="team-grid">
+                    ${renderTeam(detail.team1, focusPlayer)}
+                    ${renderTeam(detail.team2, focusPlayer)}
+                </div>
+            `;
+        }
+
+        async function loadMatchDetail(matchId, focusPlayer) {
+            if (!matchId) {
+                return;
+            }
+            openModal(matchModal);
+            matchModalTitle.textContent = "对局详情";
+            matchModalSubtitle.textContent = "";
+            matchModalBody.innerHTML = "<div class='modal-loading'>正在加载对局详情...</div>";
+            const cached = matchDetailCache.get(String(matchId));
+            if (cached) {
+                renderMatchDetailModal(cached, focusPlayer);
+                return;
+            }
+            try {
+                const data = await fetchJson(buildMatchDetailUrl(matchId), { cache: "no-store" });
+                matchDetailCache.set(String(matchId), data);
+                renderMatchDetailModal(data, focusPlayer);
+            } catch (error) {
+                matchModalBody.innerHTML = "<div class='modal-loading error'>加载对局详情失败，请稍后再试</div>";
+            }
+        }
+
+        function safeGetAnnouncementSeen() {
+            try {
+                return localStorage.getItem(ANNOUNCEMENT_SEEN_KEY);
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function safeSetAnnouncementSeen(value) {
+            try {
+                localStorage.setItem(ANNOUNCEMENT_SEEN_KEY, String(value || ""));
+            } catch (error) {
+                // localStorage can be unavailable in private contexts.
+            }
+        }
+
+        function renderAnnouncementPopup(heroAnnouncement, listItems) {
+            let html = "";
+            if (heroAnnouncement) {
+                html += `<div class="announcement-hero">
+                    <div class="announcement-date">${escapeHtml(heroAnnouncement.date || "")}</div>
+                    <h3 class="announcement-title">${escapeHtml(heroAnnouncement.title || "")}</h3>
+                    <div class="announcement-body">${escapeHtml(heroAnnouncement.content || "")}</div>
+                </div>`;
+            }
+            if (Array.isArray(listItems) && listItems.length) {
+                html += '<div class="announcement-list-title">历史公告</div>';
+                html += listItems.map((item) => `
+                    <div class="announcement-list-item">
+                        <div class="item-header">
+                            <span class="item-date">${escapeHtml(item.date || "")}</span>
+                            <span class="item-title">${escapeHtml(item.title || "")}</span>
+                        </div>
+                        <div class="item-body">${escapeHtml(item.content || "")}</div>
+                    </div>
+                `).join("");
+            }
+            if (announcementHasMore) {
+                html += '<div id="announcement-sentinel" style="height:1px;"></div>';
+                html += '<div id="announcement-loading" class="announcement-modal-loading" style="display:none;">加载中...</div>';
+            }
+            announcementBody.innerHTML = html || '<div class="modal-empty">暂无公告</div>';
+
+            if (announcementHasMore) {
+                const sentinel = document.getElementById("announcement-sentinel");
+                if (sentinel) {
+                    if (announcementObserver) {
+                        announcementObserver.disconnect();
+                    }
+                    const modalCard = announcementModal.querySelector(".modal-card");
+                    announcementObserver = new IntersectionObserver((entries) => {
+                        if (entries[0].isIntersecting && announcementHasMore && !announcementLoading) {
+                            loadMoreAnnouncements();
+                        }
+                    }, { root: modalCard, rootMargin: "80px" });
+                    announcementObserver.observe(sentinel);
+                }
+            }
+        }
+
+        async function loadAnnouncementPage(heroAnnouncement) {
+            announcementBody.innerHTML = '<div class="modal-loading">加载公告...</div>';
+            announcementLoading = true;
+            try {
+                const url = new URL(`${ANNOUNCEMENT_API}/list`, window.location.origin);
+                url.searchParams.set("limit", "5");
+                if (announcementCursor !== null) {
+                    url.searchParams.set("cursor", announcementCursor);
+                }
+                const data = await fetchJson(url.toString(), { cache: "no-store" });
+                const listItems = data.announcements || [];
+                announcementCursor = data.next_cursor;
+                announcementHasMore = !!data.has_more;
+                renderAnnouncementPopup(heroAnnouncement, listItems);
+            } catch (error) {
+                announcementBody.innerHTML = '<div class="modal-loading error">加载公告失败</div>';
+            } finally {
+                announcementLoading = false;
+            }
+        }
+
+        function showAnnouncementPopup(heroAnnouncement, seenAt) {
+            currentPopupSeenAt = seenAt;
+            announcementCursor = null;
+            announcementHasMore = true;
+            announcementLoading = false;
+            loadAnnouncementPage(heroAnnouncement);
+            openModal(announcementModal);
+        }
+
+        async function openAnnouncementFromCircle() {
+            try {
+                const data = await fetchJson(`${ANNOUNCEMENT_API}/latest-date`, { cache: "no-store" });
+                const hero = data.announcement || null;
+                showAnnouncementPopup(hero, hero ? String(hero.created_at || "") : null);
+            } catch (error) {
+                showAnnouncementPopup(null, null);
+            }
+        }
+
+        async function maybeShowAnnouncementOnLoad() {
+            try {
+                const data = await fetchJson(`${ANNOUNCEMENT_API}/latest-date`, { cache: "no-store" });
+                const hero = data.announcement || null;
+                if (!hero) {
+                    return;
+                }
+                const seenAt = String(hero.created_at || "");
+                if (seenAt && safeGetAnnouncementSeen() !== seenAt) {
+                    showAnnouncementPopup(hero, seenAt);
+                }
+            } catch (error) {
+                // Announcement availability is non-critical for the query page.
+            }
+        }
+
+        async function loadMoreAnnouncements() {
+            announcementLoading = true;
+            const loadingEl = document.getElementById("announcement-loading");
+            if (loadingEl) {
+                loadingEl.style.display = "block";
+            }
+            try {
+                const url = new URL(`${ANNOUNCEMENT_API}/list`, window.location.origin);
+                url.searchParams.set("limit", "5");
+                if (announcementCursor !== null) {
+                    url.searchParams.set("cursor", announcementCursor);
+                }
+                const data = await fetchJson(url.toString(), { cache: "no-store" });
+                const items = data.announcements || [];
+                announcementCursor = data.next_cursor;
+                announcementHasMore = !!data.has_more;
+                const sentinel = document.getElementById("announcement-sentinel");
+                const container = sentinel ? sentinel.parentNode : announcementBody;
+                items.forEach((item) => {
+                    const div = document.createElement("div");
+                    div.className = "announcement-list-item";
+                    div.innerHTML = `
+                        <div class="item-header">
+                            <span class="item-date">${escapeHtml(item.date || "")}</span>
+                            <span class="item-title">${escapeHtml(item.title || "")}</span>
+                        </div>
+                        <div class="item-body">${escapeHtml(item.content || "")}</div>
+                    `;
+                    container.insertBefore(div, sentinel);
+                });
+                if (!announcementHasMore && sentinel) {
+                    sentinel.remove();
+                }
+            } catch (error) {
+                if (loadingEl) {
+                    loadingEl.textContent = "加载失败";
+                }
+            } finally {
+                announcementLoading = false;
+                if (loadingEl && announcementHasMore) {
+                    loadingEl.style.display = "none";
+                }
+            }
+        }
+
+        function dismissAnnouncement() {
+            if (currentPopupSeenAt) {
+                safeSetAnnouncementSeen(currentPopupSeenAt);
+            }
+            currentPopupSeenAt = null;
+            if (announcementObserver) {
+                announcementObserver.disconnect();
+            }
+            closeModal(announcementModal);
+        }
+
+        function initFloatingFeedback() {
+            const circle = document.getElementById("floating-feedback");
+            const closeBtn = document.getElementById("floating-feedback-close");
+            if (!circle) {
+                return;
+            }
+            const hiddenKey = "feedback_circle_hidden";
+            try {
+                if (!sessionStorage.getItem(hiddenKey)) {
+                    circle.classList.remove("hidden");
+                }
+            } catch (error) {
+                circle.classList.remove("hidden");
+            }
+            let dragState = null;
+            function setPos(left, top) {
+                circle.style.left = `${left}px`;
+                circle.style.top = `${top}px`;
+                circle.style.right = "auto";
+                circle.style.bottom = "auto";
+            }
+            circle.addEventListener("pointerdown", (event) => {
+                if (event.target === closeBtn) {
+                    return;
+                }
+                const rect = circle.getBoundingClientRect();
+                dragState = {
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    startLeft: rect.left,
+                    startTop: rect.top,
+                };
+                circle.setPointerCapture(event.pointerId);
+                circle.classList.add("dragging");
+            });
+            circle.addEventListener("pointermove", (event) => {
+                if (!dragState) {
+                    return;
+                }
+                setPos(
+                    dragState.startLeft + event.clientX - dragState.startX,
+                    dragState.startTop + event.clientY - dragState.startY,
+                );
+            });
+            circle.addEventListener("pointerup", (event) => {
+                if (!dragState) {
+                    return;
+                }
+                const dx = event.clientX - dragState.startX;
+                const dy = event.clientY - dragState.startY;
+                const wasDrag = Math.abs(dx) > 3 || Math.abs(dy) > 3;
+                dragState = null;
+                circle.classList.remove("dragging");
+                if (!wasDrag) {
+                    openAnnouncementFromCircle();
+                }
+            });
+            circle.addEventListener("pointercancel", () => {
+                dragState = null;
+                circle.classList.remove("dragging");
+            });
+            if (closeBtn) {
+                closeBtn.addEventListener("click", (event) => {
+                    event.stopPropagation();
+                    circle.classList.add("hidden");
+                    try {
+                        sessionStorage.setItem(hiddenKey, "1");
+                    } catch (error) {
+                        // Ignore sessionStorage failures.
+                    }
+                });
+            }
+        }
+
+        searchForm.addEventListener("submit", (event) => {
+            event.preventDefault();
+            searchRole();
+        });
+
+        contentPanel.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target.closest("#enqueue-sync-btn")) {
+                enqueueSync();
+                return;
+            }
+            if (target.closest("#refresh-role-indicator-btn")) {
+                loadRoleIndicator(true);
+                return;
+            }
+            if (target.closest("#load-more-btn")) {
+                loadMoreMatches();
+                return;
+            }
+            const candidateButton = target.closest(".candidate-btn");
+            if (candidateButton) {
+                const server = candidateButton.getAttribute("data-candidate-server") || "";
+                const name = candidateButton.getAttribute("data-candidate-name") || "";
+                if (server && name) {
+                    setServerInputValue(server);
+                    nameInput.value = name;
+                    searchRole();
+                }
+                return;
+            }
+            const matchButton = target.closest(".match-row-btn");
+            if (!matchButton) {
+                return;
+            }
+            const matchId = matchButton.getAttribute("data-match-id") || "";
+            const focusPlayer = {
+                name: matchButton.getAttribute("data-focus-name") || currentRole?.name || "",
+                server: matchButton.getAttribute("data-focus-server") || currentRole?.server || "",
+            };
+            loadMatchDetail(matchId, focusPlayer);
+        });
+
+        matchModal.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target === matchModal || target.closest("[data-close-modal='match']")) {
+                closeModal(matchModal);
+            }
+        });
+
+        announcementModal.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target === announcementModal || target.closest("[data-close-modal='announcement']")) {
+                dismissAnnouncement();
+            }
+        });
+
+        if (announcementDismissBtn) {
+            announcementDismissBtn.addEventListener("click", dismissAnnouncement);
+        }
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key !== "Escape") {
+                return;
+            }
+            if (matchModal.classList.contains("show")) {
+                closeModal(matchModal);
+                return;
+            }
+            if (announcementModal.classList.contains("show")) {
+                dismissAnnouncement();
+            }
+        });
+
+        loadServerOptions();
+        maybeShowAnnouncementOnLoad();
+        initFloatingFeedback();
+    </script>
+</body>
+</html>

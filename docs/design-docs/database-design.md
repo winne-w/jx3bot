@@ -265,6 +265,7 @@
 | `idx_global_role_id` | `global_role_id` | 普通索引；SK01 不再作为最终唯一身份 |
 | `idx_zone_game_role_id` | `zone`, `game_role_id` | 普通复合索引；用于弱身份 fallback 与冲突审计 |
 | `idx_normalized_server_name` | `normalized_server`, `normalized_name` | 普通索引（用于按名称查询入口） |
+| `idx_normalized_name` | `normalized_name` | 普通索引；用于 JJC 对局查询未命中时按同名跨服和 `@` 后缀前缀匹配候选 |
 | `idx_last_seen_at` | `last_seen_at` | 普通索引 |
 
 ### `role_identities_history`
@@ -481,6 +482,8 @@
 | `idx_detail_match_time` | `data.detail.match_time` | 普通索引 |
 | `idx_detail_team1_server_role_name` | `data.detail.team1.players_info.server`, `data.detail.team1.players_info.role_name` | 普通复合索引 |
 | `idx_detail_team2_server_role_name` | `data.detail.team2.players_info.server`, `data.detail.team2.players_info.role_name` | 普通复合索引 |
+| `idx_detail_team1_player_global_id` | `data.detail.team1.players_info.global_id` | 普通索引 |
+| `idx_detail_team2_player_global_id` | `data.detail.team2.players_info.global_id` | 普通索引 |
 | `idx_replay_player_role_id` | `data.replay.data.players.role_id` | 普通索引 |
 | `idx_replay_player_global_role_id` | `data.replay.data.players.global_role_id` | 普通索引 |
 
@@ -516,6 +519,61 @@
 - 若大量爬取导致热表继续增长，应考虑冷热分层：热集合保留近期可快速查询结构，归档集合或对象存储保留完整历史详情。无论是否归档，`match_id` 仍是幂等主键。
 
 计划文档：`docs/exec-plans/active/jjc-match-detail-storage-plan.md`。
+
+### `jjc_match_participants`
+
+用途：JJC 本地已收录对局的玩家级轻量投影表。每场 3v3 对局最多 6 条，用于按 `global_id` 快速分页查询某个角色参与过的本地可展示对局列表。`jjc_match_detail` 仍是详情内容主事实；本集合是可重建读取模型。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_match_participant_repo.py`
+- 业务编排：`src/services/jx3/match_detail_participant_projection.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `match_id` | int | 对局 ID |
+| `global_id` | string | replay 稳定角色 ID，只写非空值 |
+| `identity_id` | ObjectId/null | 可选角色身份 ID，第一版通常为 null |
+| `identity_key` | string/null | 可选角色身份 key |
+| `source_identity_id` | ObjectId/null | `jjc_sync_match_seen.source_identity_id` 冗余 |
+| `source_identity_key` | string/null | `jjc_sync_match_seen.source_identity_key` 冗余 |
+| `sync_status` | string | 同步状态冗余；无 seen 文档时固定为 `not_synced` |
+| `detail_available` | bool | 当前 `jjc_match_detail` 是否存在可展示详情 |
+| `detail_source` | string | 详情写入来源，如 `sync_worker`、`ranking_detail`、`warmup`、`manual`、`unknown` |
+| `server` | string/null | 对局详情中的服务器 |
+| `role_name` | string/null | 对局详情中的原始展示名或规范化名 |
+| `team_key` | string | `team1` 或 `team2` |
+| `won` | bool | 所在队伍是否获胜 |
+| `kungfu` | string/null | 当前场心法 |
+| `match_type` | int/null | 对局类型，3 表示 3v3 |
+| `match_type_inferred` | bool | `match_type` 是否由双方玩家数量推断 |
+| `match_time` | int/null | 对局时间 |
+| `start_time` | int/null | 开始时间 |
+| `duration` | int/null | 时长 |
+| `avg_grade` | int/null | 平均段位/分段 |
+| `total_mmr` | int/null | 当前场总评分 |
+| `mmr_delta` | int/null | 当前场评分变化 |
+| `mvp` | bool | 是否 MVP |
+| `detail_saved_at` | float/null | 同步详情保存时间 |
+| `cached_at` | float/null | `jjc_match_detail` 缓存时间 |
+| `updated_at` | float | 投影更新时间 |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_match_global_id` | `match_id`, `global_id` | unique |
+| `idx_global_available_time` | `global_id`, `match_type`, `detail_available`, `match_time`, `match_id` | 普通复合索引，`match_time` 与 `match_id` 降序 |
+| `idx_match_id` | `match_id` | 普通索引 |
+
+说明：
+
+- 本集合由 `jjc_match_detail` 中的可用详情派生，不以 `jjc_sync_match_seen.status='detail_saved'` 作为展示门槛。
+- `jjc_sync_match_seen` 只补充同步状态展示字段；无 seen 文档的本地详情也可以生成投影。
+- 投影可删除后通过 `scripts/backfill_jjc_match_participants.py` 重建。
 
 ### `jjc_equipment_snapshot`
 

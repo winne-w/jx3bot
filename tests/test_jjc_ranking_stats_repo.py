@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import unittest
 from typing import Any, Dict, List
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 
+from src.services.jx3.jjc_ranking import JjcRankingService
 from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo
 
 
@@ -602,6 +603,79 @@ class TestSaveSnapshotBatch(unittest.IsolatedAsyncioTestCase):
 
         assert summary_col.update_one.call_count == 1
         assert detail_col.update_one.call_count == 3
+
+
+class TestRankingStatsSyncQueue(unittest.IsolatedAsyncioTestCase):
+    async def test_save_ranking_stats_task_enqueues_members_for_sync(self):
+        saved_snapshots: List[Dict[str, Any]] = []
+        sync_instances: List[Any] = []
+
+        class FakeStatsRepo:
+            async def save_snapshot(self, **kwargs: Any) -> None:
+                saved_snapshots.append(kwargs)
+
+        class FakeSyncRepo:
+            def __init__(self) -> None:
+                self.calls: List[Dict[str, Any]] = []
+                sync_instances.append(self)
+
+            async def enqueue_ranking_member(self, member: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+                self.calls.append({"member": member, "kwargs": kwargs})
+                return {"status": "queued"}
+
+        service = JjcRankingService(
+            token="",
+            ticket="",
+            jjc_query_url="",
+            arena_time_tag_url="",
+            arena_ranking_url="",
+            match_detail_url="",
+            jjc_ranking_cache_duration=0,
+            kungfu_cache_duration=0,
+            current_season="S12",
+            current_season_start="2026-04-24",
+            kungfu_healer_list=[],
+            kungfu_dps_list=[],
+            kungfu_pinyin_to_chinese={},
+            tuilan_request=lambda url, payload: {},
+            defget_get=AsyncMock(),
+        )
+        detail_payloads = [
+            {
+                "range": "top_200",
+                "lane": "dps",
+                "kungfu": "花间游",
+                "members": [
+                    {
+                        "server": "梦江南",
+                        "name": "角色A",
+                        "global_role_id": "SK01-A",
+                        "role_id": "rid-a",
+                        "zone": "zone-a",
+                    }
+                ],
+            }
+        ]
+
+        with patch("src.services.jx3.jjc_ranking.JjcRankingStatsRepo", FakeStatsRepo), patch(
+            "src.services.jx3.jjc_ranking.JjcSyncRepo",
+            FakeSyncRepo,
+        ):
+            task = service._save_ranking_stats_to_mongo(
+                timestamp=1777426656,
+                summary_payload={"generated_at": 1},
+                detail_payloads=detail_payloads,
+            )
+            assert task is not None
+            await task
+
+        assert len(saved_snapshots) == 1
+        assert len(sync_instances) == 1
+        assert sync_instances[0].calls[0]["member"]["name"] == "角色A"
+        assert sync_instances[0].calls[0]["kwargs"]["priority"] == 1
+        assert sync_instances[0].calls[0]["kwargs"]["source"] == "ranking_stats"
+        assert sync_instances[0].calls[0]["kwargs"]["season_id"] == "S12"
+        assert sync_instances[0].calls[0]["kwargs"]["season_start_time"] > 0
 
 
 if __name__ == "__main__":

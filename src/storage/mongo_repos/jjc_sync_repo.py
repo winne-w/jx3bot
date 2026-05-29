@@ -89,6 +89,13 @@ class JjcSyncRepo:
                 return None
         return None
 
+    @classmethod
+    def _priority_at_least(cls, doc: Optional[Dict[str, Any]], priority: int) -> bool:
+        if not doc:
+            return False
+        current_priority = cls._coerce_int(doc.get("priority"))
+        return current_priority is not None and current_priority >= priority
+
     @staticmethod
     def _profile_update_fields(
         existing: Dict[str, Any],
@@ -564,6 +571,115 @@ class JjcSyncRepo:
             logger.warning("指定 identity 同步角色入队失败: identity_id={} error={}", identity_id, exc)
             return None
 
+    async def get_queue_state_by_identity_id(self, identity_id: Any) -> Optional[Dict[str, Any]]:
+        """Read the current queue row for a role identity without side effects."""
+        _identity_id = self._coerce_object_id(identity_id)
+        if _identity_id is None:
+            return None
+        try:
+            return await self._queue_col().find_one({"identity_id": _identity_id})
+        except Exception as exc:
+            logger.warning("读取 identity 同步队列状态失败: identity_id={} error={}", identity_id, exc)
+            return None
+
+    async def get_queue_position(self, queue_doc: Dict[str, Any]) -> Optional[int]:
+        """Return the one-based queued position using the worker claim order."""
+        if not queue_doc or str(queue_doc.get("status") or "") != "queued":
+            return None
+        identity_id = self._coerce_object_id(queue_doc.get("identity_id"))
+        if identity_id is None:
+            return None
+        priority = queue_doc.get("priority")
+        queued_at = queue_doc.get("queued_at")
+        if priority is None or queued_at is None:
+            return None
+        try:
+            ahead_count = await self._queue_col().count_documents({
+                "status": "queued",
+                "identity_id": {"$ne": identity_id},
+                "$or": [
+                    {"priority": {"$gt": priority}},
+                    {"priority": priority, "queued_at": {"$lt": queued_at}},
+                ],
+            })
+            return int(ahead_count) + 1
+        except Exception as exc:
+            logger.warning("计算 identity 同步队列位置失败: identity_id={} error={}", identity_id, exc)
+            return None
+
+    async def enqueue_existing_identity(
+        self,
+        identity: Dict[str, Any],
+        *,
+        priority: int,
+        source: str,
+        mode: str,
+        batch_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Create/refresh and queue an existing role identity.
+
+        This path is for UI-triggered queueing of an already known
+        role_identities row. It writes the caller-provided priority exactly and
+        returns a currently syncing row unchanged instead of stealing its lease.
+        """
+        identity_id = self._coerce_object_id(identity.get("_id") or identity.get("identity_id"))
+        if identity_id is None:
+            return None
+
+        now = time.time()
+        existing = await self.get_queue_state_by_identity_id(identity_id)
+        if existing and str(existing.get("status") or "") == "syncing":
+            return existing
+
+        set_fields: Dict[str, Any] = {
+            "identity_id": identity_id,
+            "identity_key": identity.get("identity_key"),
+            "server": identity.get("server"),
+            "name": identity.get("name"),
+            "normalized_server": identity.get("normalized_server"),
+            "normalized_name": identity.get("normalized_name"),
+            "global_id": identity.get("global_id"),
+            "global_role_id": identity.get("global_role_id"),
+            "role_id": identity.get("role_id"),
+            "game_role_id": identity.get("game_role_id") or identity.get("role_id"),
+            "person_id": identity.get("person_id"),
+            "zone": identity.get("zone"),
+            "priority": priority,
+            "status": "queued",
+            "queued_at": now,
+            "queue_batch_id": batch_id,
+            "queue_mode": mode,
+            "queue_source": source,
+            "lease_owner": None,
+            "lease_expires_at": None,
+            "updated_at": now,
+        }
+        set_fields = {key: value for key, value in set_fields.items() if value is not None}
+        set_on_insert: Dict[str, Any] = {
+            "source": source,
+            "next_sync_after": None,
+            "fail_count": 0,
+            "last_cursor": 0,
+            "season_start_time": 0,
+            "created_at": now,
+        }
+        try:
+            return await self._queue_col().find_one_and_update(
+                filter={
+                    "identity_id": identity_id,
+                    "status": {"$nin": ["disabled", "syncing"]},
+                },
+                update={
+                    "$set": set_fields,
+                    "$setOnInsert": set_on_insert,
+                },
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+        except Exception as exc:
+            logger.warning("已知 identity 入队失败: identity_id={} error={}", identity_id, exc)
+            return None
+
     async def claim_queued_identity(
         self,
         lease_owner: str,
@@ -681,6 +797,7 @@ class JjcSyncRepo:
             "fail_count": 0,
             "last_error": None,
             "last_cursor": last_cursor,
+            "priority": 0,
             "lease_owner": None,
             "lease_expires_at": None,
             "updated_at": now,
@@ -1073,6 +1190,7 @@ class JjcSyncRepo:
             "fail_count": 0,
             "last_error": None,
             "last_cursor": last_cursor,
+            "priority": 0,
             "lease_owner": None,
             "lease_expires_at": None,
             "updated_at": now,
@@ -1101,6 +1219,142 @@ class JjcSyncRepo:
                 identity_key, exc,
             )
             return False
+
+    async def enqueue_ranking_member(
+        self,
+        member: Dict[str, Any],
+        *,
+        season_id: Optional[str] = None,
+        season_start_time: int = 0,
+        priority: int = 1,
+        mode: str = "incremental_or_full",
+        source: str = "ranking_stats",
+        batch_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Upsert a ranking-stat member into the sync queue and mark it queued."""
+        server = str(member.get("server") or "").strip()
+        name = str(member.get("name") or member.get("role_name") or "").strip()
+        if not server or not name or server == "未知" or name == "未知":
+            return None
+
+        role_id = str(
+            member.get("role_id")
+            or member.get("game_role_id")
+            or member.get("gameRoleId")
+            or ""
+        ).strip() or None
+        zone = str(member.get("zone") or "").strip() or None
+        global_role_id = str(
+            member.get("global_role_id")
+            or member.get("globalRoleId")
+            or ""
+        ).strip() or None
+        global_id = str(member.get("global_id") or "").strip() or None
+        normalized_server = server.lower()
+        normalized_name = name.lower()
+
+        db = self._db()
+        if hasattr(db, "role_identities"):
+            try:
+                from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
+
+                identity = await RoleIdentityRepo(db=db).upsert_from_ranking_with_id(
+                    server=server,
+                    name=name,
+                    zone=zone or "",
+                    game_role_id=role_id or "",
+                    global_role_id=global_role_id,
+                    role_id=role_id,
+                    global_id=global_id,
+                )
+                identity_id = self._coerce_object_id(identity.get("_id")) if isinstance(identity, dict) else None
+                if identity_id is not None:
+                    existing_queue = await self._queue_col().find_one({"identity_id": identity_id})
+                    if self._priority_at_least(existing_queue, priority):
+                        return None
+                    queued = await self.upsert_identity_queue_candidate(
+                        identity_id=identity_id,
+                        identity_key=identity.get("identity_key"),
+                        server=identity.get("server") or server,
+                        name=identity.get("name") or name,
+                        normalized_server=identity.get("normalized_server") or normalized_server,
+                        normalized_name=identity.get("normalized_name") or normalized_name,
+                        global_id=identity.get("global_id") or global_id,
+                        global_role_id=identity.get("global_role_id") or global_role_id,
+                        role_id=identity.get("role_id") or role_id,
+                        game_role_id=identity.get("game_role_id") or role_id,
+                        person_id=identity.get("person_id"),
+                        zone=identity.get("zone") or zone,
+                        source=source,
+                        priority=priority,
+                        season_id=season_id,
+                        season_start_time=season_start_time,
+                    )
+                    if queued:
+                        await self.update_identity_priority(
+                            identity_id,
+                            priority=priority,
+                            updated_by=source,
+                        )
+                        return await self.enqueue_identity(
+                            identity_id,
+                            mode=mode,
+                            source=source,
+                            batch_id=batch_id,
+                        )
+            except Exception as exc:
+                logger.warning(
+                    "排行榜成员写入 identity 同步队列失败，尝试 legacy 队列: server={} name={} error={}",
+                    server,
+                    name,
+                    exc,
+                )
+
+        identity_key = self._build_identity_key(
+            global_id=global_id,
+            global_role_id=global_role_id,
+            zone=zone,
+            role_id=role_id,
+            normalized_server=normalized_server,
+            normalized_name=normalized_name,
+        )
+        lookup_keys = [identity_key]
+        lookup_keys.extend(legacy_identity_keys(
+            global_role_id=global_role_id,
+            zone=zone,
+            game_role_id=role_id,
+            server=normalized_server,
+            name=normalized_name,
+        ))
+        existing_queue = await self._queue_col().find_one({"identity_key": {"$in": sorted(set(lookup_keys))}})
+        if self._priority_at_least(existing_queue, priority):
+            return None
+
+        identity_key = await self.upsert_role(
+            server=server,
+            name=name,
+            normalized_server=normalized_server,
+            normalized_name=normalized_name,
+            global_id=global_id,
+            global_role_id=global_role_id,
+            role_id=role_id,
+            zone=zone,
+            source=source,
+            priority=priority,
+            season_id=season_id,
+            season_start_time=season_start_time,
+        )
+        await self.update_role_priority(
+            identity_key,
+            priority=priority,
+            updated_by=source,
+        )
+        return await self.enqueue_role(
+            identity_key,
+            mode=mode,
+            source=source,
+            batch_id=batch_id,
+        )
 
     async def release_role_failure(
         self,
@@ -1595,6 +1849,19 @@ class JjcSyncRepo:
             "lease_owner": doc.get("lease_owner"),
             "lease_expires_at": doc.get("lease_expires_at"),
         }
+
+    async def get_match_seen_doc(self, match_id: Union[int, str]) -> Optional[Dict[str, Any]]:
+        """Return the full match-seen document used by read-model projections."""
+        _match_id = self._coerce_int(match_id)
+        if _match_id is None:
+            return None
+        db = self._db()
+        try:
+            doc = await db.jjc_sync_match_seen.find_one({"match_id": _match_id})
+        except Exception as exc:
+            logger.warning("读取对局 seen 文档失败: match_id={} error={}", _match_id, exc)
+            return None
+        return doc if isinstance(doc, dict) else None
 
     async def release_match_detail_interrupted(
         self,

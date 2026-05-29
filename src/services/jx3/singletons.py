@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, Optional
+
 import config as cfg
 from jinja2 import Environment, FileSystemLoader
 
@@ -17,8 +19,10 @@ from src.services.jx3.match_detail_identity_projection import MatchDetailIdentit
 from src.services.jx3.match_replay import MatchReplayClient
 from src.services.jx3.role_indicator import RoleIndicatorClient
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
+from src.storage.mongo_repos.jjc_match_participant_repo import JjcMatchParticipantRepo
 from src.storage.mongo_repos.jjc_match_snapshot_repo import JjcMatchSnapshotRepo
 from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
+from src.services.jx3.match_detail_participant_projection import MatchDetailParticipantProjectionService
 from src.utils.tuilan_request import tuilan_request
 
 env = Environment(loader=FileSystemLoader("templates"))
@@ -33,9 +37,27 @@ KUNGFU_DPS_LIST = [value["name"] for value in cfg.KUNGFU_META.values() if value.
 JJC_RANKING_CACHE_DURATION = 7200  # 缓存时间2小时（秒）
 KUNGFU_CACHE_DURATION = 7 * 24 * 60 * 60  # 心法缓存有效期一周（秒）
 
+jjc_sync_repo = JjcSyncRepo()
+role_identity_repo = RoleIdentityRepo()
+match_participant_repo: Any = JjcMatchParticipantRepo()
+
+match_detail_participant_projection_service: Any = MatchDetailParticipantProjectionService(
+    participant_repo=match_participant_repo,
+    sync_repo=jjc_sync_repo,
+)
+
+
+def _new_jjc_inspect_repo(snapshot_repo: Optional[JjcMatchSnapshotRepo] = None) -> JjcInspectRepo:
+    kwargs: dict[str, Any] = {}
+    if snapshot_repo is not None:
+        kwargs["snapshot_repo"] = snapshot_repo
+    kwargs["participant_repo"] = match_participant_repo
+    return JjcInspectRepo(**kwargs)
+
+
 match_detail_identity_projection_service = MatchDetailIdentityProjectionService(
-    identity_repo=RoleIdentityRepo(),
-    sync_repo=JjcSyncRepo(),
+    identity_repo=role_identity_repo,
+    sync_repo=jjc_sync_repo,
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
 )
 
@@ -57,6 +79,7 @@ jjc_ranking_service = JjcRankingService(
     defget_get=get,
     match_replay_url=cfg.API_URLS["竞技场战局回放"],
     match_detail_projection_service=match_detail_identity_projection_service,
+    match_detail_participant_projection_service=match_detail_participant_projection_service,
 )
 
 match_detail_client = MatchDetailClient(
@@ -93,16 +116,17 @@ jjc_ranking_inspect_service = JjcRankingInspectService(
     match_history_client=match_history_client,
     match_detail_client=match_detail_client,
     match_replay_client=match_replay_client,
-    cache_repo=JjcInspectRepo(snapshot_repo=JjcMatchSnapshotRepo()),
+    cache_repo=_new_jjc_inspect_repo(snapshot_repo=JjcMatchSnapshotRepo()),
     tuilan_request=tuilan_request,
     role_indicator_fetcher=get_role_indicator,
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
     match_detail_projection_service=match_detail_identity_projection_service,
+    match_detail_participant_projection_service=match_detail_participant_projection_service,
     role_recent_ttl_seconds=86400,
 )
 
 jjc_match_data_sync_service = JjcMatchDataSyncService(
-    repo=JjcSyncRepo(),
+    repo=jjc_sync_repo,
     current_season=cfg.CURRENT_SEASON,
     current_season_start=cfg.CURRENT_SEASON_START,
     match_history_client=match_history_client,
@@ -110,6 +134,7 @@ jjc_match_data_sync_service = JjcMatchDataSyncService(
     match_replay_client=match_replay_client,
     role_indicator_client=role_indicator_client,
     inspect_service=jjc_ranking_inspect_service,
-    identity_repo=RoleIdentityRepo(),
+    identity_repo=role_identity_repo,
     match_detail_projection_service=match_detail_identity_projection_service,
+    match_detail_participant_projection_service=match_detail_participant_projection_service,
 )

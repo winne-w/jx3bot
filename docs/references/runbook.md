@@ -148,7 +148,9 @@ python test_tuilan_match_history.py
 - 重置角色水位：`/jjc同步重置 <服务器> <角色名>`
 - 启动常驻 worker：`python scripts/jjc_sync.py worker --mode=incremental_or_full` 或 `python scripts/jjc_sync.py start --limit=10`；`start --limit` 只限制最多处理数量，队列暂空时仍会继续等待
 - 批量入队脚本：`python scripts/jjc_sync.py enqueue --limit=10`
-- 队列页面：启动 bot 后通过同源 HTTP 访问 `http://<bot-host>:<port>/public/jjc-sync-queue.html`；页面支持按服务器、角色名搜索，状态以中文展示；页面依赖同源 `/api/jjc/sync/...` 接口，不能直接用本地文件方式打开。
+- 页面路径与接口路径分开维护：生产静态页面使用 `/jx3/<page>.html`，例如 `https://qike.rickchen.cn/jx3/jjc-sync-queue.html`；API 使用 `/jx3bot/api/...`，例如 `https://qike.rickchen.cn/jx3bot/api/jjc/sync/status`。HTML 页面链接不要加 `/jx3bot` 前缀。
+- 队列页面：生产环境访问 `https://qike.rickchen.cn/jx3/jjc-sync-queue.html`；本地若直接由 bot 暴露静态目录，可按实际挂载访问 `http://<bot-host>:<port>/public/jjc-sync-queue.html`。页面支持按服务器、角色名搜索，状态以中文展示；页面依赖同源 `/jx3bot/api/jjc/sync/...` 或本地 `/api/jjc/sync/...` 接口，不能直接用本地文件方式打开。
+- 已同步对局页面：生产环境访问 `https://qike.rickchen.cn/jx3/jjc-synced-matches.html`；输入服务器和角色名后，页面先查询 `role_identities`，再只按该身份的 `global_id` 匹配 `jjc_match_detail` 中 6 名参赛玩家的 `global_id`，展示该角色参与过的本地已同步 3v3 对局。页面不使用服务器名、昵称、`global_role_id` 或 `role_id` 兜底匹配对局，避免转服、改名造成串号。页面依赖同源 `/jx3bot/api/jjc/ranking-stats/synced-role*`、`role-indicator`、`match-detail` 接口，不能直接用本地文件方式打开。
 
 预期:
 
@@ -172,6 +174,9 @@ python test_tuilan_match_history.py
 - 推栏返回 `code=-1`、`msg=no data found`、`data=null` 时，对局写入 `detail_unavailable` 终态；`/jjc同步开始` 输出中的 `详情不可用` 表示后续不会重复请求该对局详情
 - 若状态中最近错误出现 `role_identity_not_found`，优先检查目标角色是否已能通过最近对局 replay 补到 `global_id`；仅缺 SK01 `global_role_id` 时再用带 `global_role_id=...` 的添加命令补充 history 请求字段。
 - 若服务中断后状态长期存在 `syncing` 或 `detail_syncing`，再次执行 `/jjc同步开始` 或启动 worker 会先恢复过期租约；角色恢复为 `queued`，详情恢复为可重试状态
+- 已同步对局页面输入不存在于 `role_identities` 的角色时，应显示未收录身份空态；已收录但缺少 `global_id`，或详情玩家尚未回填 `global_id` 时，对局列表为空。
+- 已同步对局页面点击“加入同步队列”后，应调用 `POST /jx3bot/api/jjc/ranking-stats/synced-role-sync`（本地无代理时为 `/api/jjc/ranking-stats/synced-role-sync`），POST body 为 `{"server":"...","name":"..."}`；返回后先展示入队接口返回的 `sync_status`，再刷新同步状态和本地对局列表；列表文案使用“同步状态/已同步对局”，不使用对局缓存刷新语义。
+- 已同步对局页面点击单场对局时，应调用 `GET /api/jjc/ranking-stats/match-detail?match_id=<对局ID>` 打开详情弹窗，焦点角色在队伍列表中高亮。
 
 离线自动验证：
 
@@ -231,7 +236,17 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats?action=read&timestamp=<时间�
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/details?timestamp=<时间戳>&range=top_50&lane=healer&kungfu=云裳心经"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/role-recent?server=梦江南&name=示例角色"
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/role-indicator?server=梦江南&name=示例角色&force_refresh=true"
+curl "http://127.0.0.1:5288/api/jjc/ranking-stats/synced-role?server=梦江南&name=示例角色"
+curl "http://127.0.0.1:5288/api/jjc/ranking-stats/synced-role-matches?server=梦江南&name=示例角色&page=1&page_size=20"
+curl -X POST "http://127.0.0.1:5288/api/jjc/ranking-stats/synced-role-sync" -H "Content-Type: application/json" -d '{"server":"梦江南","name":"示例角色"}'
 curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局ID>"
+```
+
+生产代理路径示例：
+
+```bash
+curl "https://qike.rickchen.cn/jx3bot/api/jjc/ranking-stats/synced-role?server=梦江南&name=示例角色"
+curl -X POST "https://qike.rickchen.cn/jx3bot/api/jjc/ranking-stats/synced-role-sync" -H "Content-Type: application/json" -d '{"server":"梦江南","name":"示例角色"}'
 ```
 
 预期:
@@ -243,6 +258,8 @@ curl "http://127.0.0.1:5288/api/jjc/ranking-stats/match-detail?match_id=<对局I
 - `details` 接口可按需返回单个心法成员明细
 - 统计页点击角色时可按需返回最近 3v3 胜负和最近对局列表
 - 统计页角色指标默认使用 1 天内 `jjc_role_indicator` 缓存；页面刷新按钮或 `force_refresh=true` 会绕过缓存并写回最新结果
+- 已同步对局接口只查询本地已收录身份和本地已保存对局详情；对局列表只按 `identity.global_id == detail.team*.players_info.global_id` 匹配，不使用昵称/服务器兜底，不创建新身份
+- 已同步对局页面的“加入同步队列”按钮应只对已命中身份展示，并将角色加入 JJC 同步队列后刷新页面同步状态
 - 统计页点击对局时可按需返回单局详情
 - 统计页历史选择器可按赛季、周次、全部/结算/日常快照切换；切换后详情懒加载仍使用当前快照 timestamp
 - 不可用对局详情返回 `unavailable=true`、`code=-1`、`message=no data found`、`detail=null`，统计页应显示“该对局查询不到数据”

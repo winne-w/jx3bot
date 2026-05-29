@@ -372,7 +372,7 @@ git diff --check -- src/services/jx3/role_identity_matching.py src/storage/mongo
 
 ## 被合并的原计划
 
-以下计划已合并到本文，原文移至 `docs/exec-plans/superseded/` 作为历史记录：
+以下计划已合并到本文，原重复文档已删除：
 
 - `jjc-role-identity-governance-plan.md`
 - `jjc-match-replay-role-id-backfill-plan.md`

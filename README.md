@@ -9,6 +9,7 @@ JX3Bot 是一个基于 NoneBot2 的剑网 3 QQ 机器人，运行在 OneBot V11 
 - 万宝楼检索与订阅能力
 - 定时推送与状态监控
 - HTTP API:
+  - 生产代理路径通常带 `/jx3bot` 前缀，例如 `https://qike.rickchen.cn/jx3bot/api/...`；仓库内路由定义仍按 `/api/...` 记录。
   - `GET /api/arena/recent?server=<服务器>&name=<角色>`
   - `GET /api/jjc/ranking-stats?action=list`
   - `GET /api/jjc/ranking-stats?action=list&page=1&page_size=20`
@@ -16,12 +17,19 @@ JX3Bot 是一个基于 NoneBot2 的剑网 3 QQ 机器人，运行在 OneBot V11 
   - `GET /api/jjc/ranking-stats?action=read&timestamp=<时间戳>`
   - `GET /api/jjc/ranking-stats/details?timestamp=<时间戳>&range=<范围>&lane=<healer|dps>&kungfu=<心法>`
   - `GET /api/jjc/ranking-stats/role-recent?server=<服务器>&name=<角色>`
+  - `GET /api/jjc/ranking-stats/synced-role?server=<服务器>&name=<角色>`：查询本地已收录角色身份和同步状态
+  - `GET /api/jjc/ranking-stats/synced-role-matches?server=<服务器>&name=<角色>&page=1&page_size=20`：按角色 `global_id` 分页读取其参与过的本地已同步 3v3 对局
+  - `POST /api/jjc/ranking-stats/synced-role-sync`：将已收录角色加入 JJC 同步队列
   - `GET /api/jjc/ranking-stats/match-detail?match_id=<对局ID>`
   - `GET /api/jjc/sync/status`：同步队列汇总，包含 `worker_running/background_running`
   - `GET /api/jjc/sync/queue?status=queued&mode=incremental&server=梦江南&name=角色&page=1&page_size=50`：角色队列分页，支持队列状态、同步类型、服务器/角色名搜索，包含 `has_more`
   - `GET /api/jjc/sync/workers`
+  - `GET /api/jx3/servers`：读取当前区服列表，用于前端服务器下拉选择
 - 静态页面:
-  - `GET /public/jjc-sync-queue.html`: JJC 同步队列与 worker 状态页
+  - 生产静态页面通常由站点映射到 `/jx3/<page>.html`，不要加 `/jx3bot` API 前缀。
+  - `GET /jx3/jjc-sync-queue.html`: JJC 同步队列与 worker 状态页
+  - `GET /jx3/jjc-synced-matches.html`: 按角色查询其参与过的本地已同步 JJC 3v3 对局
+  - 本地直接由 bot 暴露静态目录时，可按实际挂载访问 `/public/<page>.html`。
 
 统一响应格式:
 

@@ -18,6 +18,18 @@ from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.tuilan_rate_limit import fixed_sleep, random_sleep
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo
+from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
+
+
+CACHED_MATCH_DETAIL_WIN_KUNGFU_FIELDS = (
+    "cached_match_detail_win_count",
+    "cached_match_detail_total_count",
+    "cached_match_detail_latest_win_match_id",
+    "cached_match_detail_latest_win_time",
+    "cached_match_detail_win_samples",
+    "kungfu_selected_source",
+    "kungfu_id",
+)
 
 
 @dataclass(frozen=True)
@@ -39,6 +51,7 @@ class JjcRankingService:
     defget_get: Callable[..., Awaitable[dict[str, Any]]]
     match_replay_url: Optional[str] = None
     match_detail_projection_service: Any = None
+    match_detail_participant_projection_service: Any = None
 
     def _api(self) -> JjcApiClient:
         return JjcApiClient(
@@ -180,6 +193,11 @@ class JjcRankingService:
                                 payload=payload,
                                 source="ranking_warmup",
                             )
+                            await self._project_match_detail_participants(
+                                match_id=normalized_match_id,
+                                payload={"cached_at": cached_at, "data": payload},
+                                detail_source="warmup",
+                            )
 
     async def _project_match_detail_payload(
         self,
@@ -204,25 +222,76 @@ class JjcRankingService:
                 exc,
             )
 
-    async def _merge_cached_weapon(self, server: str, name: str, result: dict[str, Any]) -> None:
-        cached = await self._cache().load_kungfu_cache_raw(server, name)
-        if not cached:
+    async def _project_match_detail_participants(
+        self,
+        *,
+        match_id: int,
+        payload: dict[str, Any],
+        detail_source: str,
+    ) -> None:
+        service = self.match_detail_participant_projection_service
+        if service is None:
             return
-        cached_weapon = cached.get("weapon")
-        cached_icon = cached.get("weapon_icon")
-        cached_quality = cached.get("weapon_quality")
-        cached_teammates = cached.get("teammates")
-        cached_teammates_checked = cached.get("teammates_checked")
-        if cached_weapon and not result.get("weapon"):
-            result["weapon"] = cached_weapon
-        if cached_icon and not result.get("weapon_icon"):
-            result["weapon_icon"] = cached_icon
-        if cached_quality and not result.get("weapon_quality"):
-            result["weapon_quality"] = cached_quality
-        if cached_teammates and not result.get("teammates"):
-            result["teammates"] = cached_teammates
-        if cached_teammates_checked and not result.get("teammates_checked"):
-            result["teammates_checked"] = cached_teammates_checked
+        try:
+            data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+            if isinstance(data, dict) and data.get("unavailable"):
+                await service.clear_match(match_id)
+            else:
+                await service.project_payload(
+                    match_id=match_id,
+                    payload=payload,
+                    source=detail_source,
+                )
+        except Exception as exc:
+            logger.warning(
+                "定时统计预热 match_detail 参与者投影失败: match_id=%s source=%s error=%s",
+                match_id,
+                detail_source,
+                exc,
+            )
+
+    async def _get_cached_match_detail_win_kungfu(
+        self,
+        *,
+        server: str,
+        name: str,
+        role_id: Optional[Any] = None,
+    ) -> Optional[dict[str, Any]]:
+        return await self._cache().get_kungfu_from_cached_match_detail_win_history(
+            server=server,
+            name=name,
+            season_start=self.current_season_start,
+            # Ranking gameRoleId matches replay players[].role_id; replay numeric global_id is optional.
+            role_id=role_id,
+        )
+
+    @staticmethod
+    def _copy_cached_match_detail_win_kungfu_fields(
+        result: dict[str, Any],
+        history_win_result: dict[str, Any],
+    ) -> None:
+        for key in CACHED_MATCH_DETAIL_WIN_KUNGFU_FIELDS:
+            if key in history_win_result:
+                result[key] = history_win_result[key]
+
+    async def _save_cached_match_detail_win_kungfu_result(
+        self,
+        *,
+        server: str,
+        name: str,
+        history_win_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "server": server,
+            "name": name,
+            "kungfu": history_win_result.get("kungfu"),
+            "found": True,
+            "cache_time": time.time(),
+        }
+        self._copy_cached_match_detail_win_kungfu_fields(result, history_win_result)
+        result.setdefault("weapon_checked", True)
+        await self._cache().save_kungfu_cache(server, name, result)
+        return result
 
     @staticmethod
     def _coerce_score(value: Any) -> Optional[int]:
@@ -354,7 +423,7 @@ class JjcRankingService:
             logger.exception(f"查询竞技场排行榜失败: {exc}")
             return {"error": True, "message": f"查询竞技场排行榜失败: {exc}"}
 
-    async def update_kungfu_cache(self, server: str, name: str, jjc_data: dict[str, Any]) -> None:
+    async def update_kungfu_cache(self, server: str, name: str, jjc_data: dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"优先使用心法查询接口更新心法信息: server={server} name={name}")
 
         kungfu_info = None
@@ -445,9 +514,9 @@ class JjcRankingService:
         if captured_zone and "zone" not in result:
             result["zone"] = captured_zone
         result.setdefault("weapon_checked", True)
-        await self._merge_cached_weapon(server, name, result)
 
         await self._cache().save_kungfu_cache(server, name, result)
+        return result
 
     def save_ranking_stats(
         self,
@@ -563,6 +632,10 @@ class JjcRankingService:
                     detail_payloads=detail_payloads,
                     source="ranking_job",
                 )
+                await self._enqueue_ranking_members_for_sync(
+                    detail_payloads=detail_payloads,
+                    timestamp=timestamp,
+                )
             except Exception as exc:
                 logger.warning("保存竞技场统计到 Mongo 失败: timestamp={} error={}", timestamp, exc)
 
@@ -573,6 +646,54 @@ class JjcRankingService:
             return None
         return loop.create_task(_save())
 
+    async def _enqueue_ranking_members_for_sync(
+        self,
+        *,
+        detail_payloads: List[Dict[str, Any]],
+        timestamp: int,
+    ) -> None:
+        repo = JjcSyncRepo()
+        seen: set[str] = set()
+        enqueued_count = 0
+        batch_id = "ranking_stats:{}".format(timestamp)
+        for detail in detail_payloads:
+            for member in detail.get("members") or []:
+                if not isinstance(member, dict):
+                    continue
+                dedupe_key = "{}|{}|{}|{}|{}".format(
+                    member.get("global_id") or "",
+                    member.get("global_role_id") or "",
+                    member.get("zone") or "",
+                    member.get("role_id") or member.get("game_role_id") or "",
+                    "{}:{}".format(member.get("server") or "", member.get("name") or member.get("role_name") or ""),
+                )
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                queued = await repo.enqueue_ranking_member(
+                    member,
+                    season_id=str(self.current_season) if self.current_season is not None else None,
+                    season_start_time=self._coerce_season_start_time(),
+                    priority=1,
+                    mode="incremental_or_full",
+                    source="ranking_stats",
+                    batch_id=batch_id,
+                )
+                if queued is not None:
+                    enqueued_count += 1
+        logger.info(
+            "竞技排名统计成员加入同步队列完成: timestamp={} members={} enqueued={}",
+            timestamp,
+            len(seen),
+            enqueued_count,
+        )
+
+    def _coerce_season_start_time(self) -> int:
+        try:
+            return int(datetime.strptime(str(self.current_season_start), "%Y-%m-%d").timestamp())
+        except (TypeError, ValueError):
+            return 0
+
     async def get_user_kungfu(
         self,
         server: str,
@@ -580,10 +701,6 @@ class JjcRankingService:
         ranking_data: Optional[dict[str, Any]] = None,
         rank: Optional[int] = None,
     ) -> dict[str, Any]:
-        cached = await self._cache().load_kungfu_cache(server, name)
-        if cached:
-            return cached
-
         await random_sleep(1, 3)
 
         logger.info(f"优先使用心法查询接口查询心法信息: server={server} name={name}")
@@ -645,7 +762,6 @@ class JjcRankingService:
                             if zone:
                                 result.setdefault("zone", zone)
                             result["found"] = result.get("kungfu") is not None
-                            await self._merge_cached_weapon(server, name, result)
 
                             await self._cache().save_kungfu_cache(server, name, result)
                             if result["found"]:
@@ -682,6 +798,36 @@ class JjcRankingService:
 
         if jjc_data.get("error") or jjc_data.get("msg") != "success":
             logger.warning(f"获取竞技场数据失败: {jjc_data}")
+            logger.info(
+                "defget 竞技场数据失败，尝试缓存对局详情胜场心法兜底: server={} name={} role_id={}",
+                server,
+                name,
+                captured_game_role_id,
+            )
+            history_win_result = await self._get_cached_match_detail_win_kungfu(
+                server=server,
+                name=name,
+                role_id=captured_game_role_id,
+            )
+            if history_win_result and history_win_result.get("found"):
+                logger.info(
+                    "defget 失败后缓存对局详情胜场心法兜底命中: server={} name={} kungfu={} win_count={} latest_match_id={}",
+                    server,
+                    name,
+                    history_win_result.get("kungfu"),
+                    history_win_result.get("cached_match_detail_win_count"),
+                    history_win_result.get("cached_match_detail_latest_win_match_id"),
+                )
+                return await self._save_cached_match_detail_win_kungfu_result(
+                    server=server,
+                    name=name,
+                    history_win_result=history_win_result,
+                )
+            logger.info(
+                "defget 失败且缓存对局详情胜场心法兜底未命中，返回原错误: server={} name={}",
+                server,
+                name,
+            )
             return {
                 "error": True,
                 "message": f"获取竞技场数据失败: {jjc_data.get('message', '未知错误')}",
@@ -689,7 +835,9 @@ class JjcRankingService:
                 "name": name,
             }
 
-        await self.update_kungfu_cache(server, name, jjc_data)
+        refreshed_result = await self.update_kungfu_cache(server, name, jjc_data)
+        if refreshed_result.get("found") and refreshed_result.get("kungfu"):
+            return refreshed_result
 
         kungfu_info = None
         history_data = jjc_data.get("data", {}).get("history", [])
@@ -707,11 +855,9 @@ class JjcRankingService:
                 server,
                 name,
             )
-            history_win_result = await self._cache().get_kungfu_from_cached_match_detail_win_history(
+            history_win_result = await self._get_cached_match_detail_win_kungfu(
                 server=server,
                 name=name,
-                season_start=self.current_season_start,
-                # Ranking gameRoleId matches replay players[].role_id; replay numeric global_id is optional.
                 role_id=captured_game_role_id,
             )
             if history_win_result and history_win_result.get("found"):
@@ -725,27 +871,8 @@ class JjcRankingService:
             "cache_time": time.time(),
         }
         if history_win_result:
-            for key in (
-                "cached_match_detail_win_count",
-                "cached_match_detail_total_count",
-                "cached_match_detail_latest_win_match_id",
-                "cached_match_detail_latest_win_time",
-                "cached_match_detail_win_samples",
-                "kungfu_selected_source",
-                "kungfu_id",
-            ):
-                if key in history_win_result:
-                    result[key] = history_win_result[key]
+            self._copy_cached_match_detail_win_kungfu_fields(result, history_win_result)
         result.setdefault("weapon_checked", True)
-        await self._merge_cached_weapon(server, name, result)
-        cached = await self._cache().load_kungfu_cache(server, name)
-        if cached:
-            for k, v in result.items():
-                if v is not None:
-                    if k == "found" and kungfu_info is None:
-                        continue
-                    cached[k] = v
-            result = cached
         await self._cache().save_kungfu_cache(server, name, result)
         return result
 

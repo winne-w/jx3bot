@@ -138,11 +138,35 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         name="idx_detail_team2_server_role_name",
     )
     await _safe_index(
+        "jjc_match_detail",
+        "data.detail.team1.players_info.global_id",
+        name="idx_detail_team1_player_global_id",
+    )
+    await _safe_index(
+        "jjc_match_detail",
+        "data.detail.team2.players_info.global_id",
+        name="idx_detail_team2_player_global_id",
+    )
+    await _safe_index(
         "jjc_match_detail", "data.replay.data.players.role_id", name="idx_replay_player_role_id"
     )
     await _safe_index(
         "jjc_match_detail", "data.replay.data.players.global_role_id", name="idx_replay_player_global_role_id"
     )
+
+    # jjc_match_participants
+    await _safe_index(
+        "jjc_match_participants",
+        [("match_id", 1), ("global_id", 1)],
+        name="idx_match_global_id",
+        unique=True,
+    )
+    await _safe_index(
+        "jjc_match_participants",
+        [("global_id", 1), ("match_type", 1), ("detail_available", 1), ("match_time", -1), ("match_id", -1)],
+        name="idx_global_available_time",
+    )
+    await _safe_index("jjc_match_participants", "match_id", name="idx_match_id")
 
     # jjc_ranking_cache
     await _safe_index("jjc_ranking_cache", "cache_key", name="idx_cache_key", unique=True)
@@ -184,6 +208,7 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         "role_identities", [("normalized_server", 1), ("normalized_name", 1)],
         name="idx_normalized_server_name",
     )
+    await _safe_index("role_identities", "normalized_name", name="idx_normalized_name")
     await _safe_index("role_identities", "last_seen_at", name="idx_last_seen_at")
 
     # role_identities_history

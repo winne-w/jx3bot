@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -34,6 +35,39 @@ def _coerce_object_id(value: Any) -> Optional[ObjectId]:
     if isinstance(value, str) and ObjectId.is_valid(value):
         return ObjectId(value)
     return None
+
+
+def _identity_strength(doc: Dict[str, Any]) -> int:
+    identity_level = str(doc.get("identity_level") or "").strip()
+    if identity_level in _LEVEL_ORDER:
+        return _LEVEL_ORDER[identity_level]
+    identity_key = str(doc.get("identity_key") or "")
+    if doc.get("global_id") or identity_key.startswith("global_id:"):
+        return _LEVEL_ORDER["global_id"]
+    if doc.get("global_role_id") or identity_key.startswith("global:"):
+        return _LEVEL_ORDER["global"]
+    if doc.get("game_role_id") or doc.get("role_id") or identity_key.startswith("game:"):
+        return _LEVEL_ORDER["game_role"]
+    return _LEVEL_ORDER["name"]
+
+
+def _timestamp_value(value: Any) -> float:
+    if isinstance(value, datetime):
+        return value.timestamp()
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
+
+
+def _candidate_role_key(doc: Dict[str, Any]) -> Tuple[str, str]:
+    normalized_server = doc.get("normalized_server")
+    normalized_name = doc.get("normalized_name")
+    server = normalized_server if normalized_server else doc.get("server")
+    name = normalized_name if normalized_name else doc.get("name")
+    return (
+        _normalize(str(server or "")),
+        _normalize(str(name or "")),
+    )
 
 
 def build_identity_key(
@@ -121,6 +155,175 @@ class RoleIdentityRepo:
             doc.pop("_id", None)
         return docs
 
+    async def find_best_by_name_with_id(self, server: str, name: str) -> Optional[Dict[str, Any]]:
+        """按名称查询最佳身份，返回保留原生 _id 的文档。
+
+        同服同名多身份时，优先身份强度 global_id > global > game_role > name，
+        再按 last_seen_at/updated_at 最新记录排序。
+        """
+        ns = _normalize(server)
+        nn = _normalize(name)
+        cursor = self._col().find({"normalized_server": ns, "normalized_name": nn})
+        docs = await cursor.to_list(None)
+        if not docs:
+            return None
+        docs.sort(
+            key=lambda doc: (
+                _identity_strength(doc),
+                max(
+                    _timestamp_value(doc.get("last_seen_at")),
+                    _timestamp_value(doc.get("updated_at")),
+                ),
+            ),
+            reverse=True,
+        )
+        return docs[0]
+
+    async def find_synced_match_page_candidates(
+        self,
+        server: str,
+        name: str,
+        *,
+        limit: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """Find local role identities that can help users recover from an exact miss.
+
+        Candidates are limited to local identities: same normalized name on other
+        servers, or names with an @ suffix based on the queried base name.
+        """
+        ns = _normalize(server)
+        nn = _normalize(name)
+        if not nn:
+            return []
+
+        suffix_pattern = "^" + re.escape(nn + "@")
+        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        pipeline = [
+            {
+                "$match": {
+                    "$or": [
+                        {"normalized_name": nn, "normalized_server": {"$ne": ns}},
+                        {"normalized_name": {"$regex": suffix_pattern}},
+                    ]
+                }
+            },
+            {
+                "$addFields": {
+                    "_candidate_same_server": {
+                        "$cond": [{"$eq": ["$normalized_server", ns]}, 1, 0]
+                    },
+                    "_candidate_identity_strength": {
+                        "$switch": {
+                            "branches": [
+                                {"case": {"$eq": ["$identity_level", "global_id"]}, "then": 3},
+                                {"case": {"$eq": ["$identity_level", "global"]}, "then": 2},
+                                {"case": {"$eq": ["$identity_level", "game_role"]}, "then": 1},
+                                {"case": {"$ne": ["$global_id", None]}, "then": 3},
+                                {"case": {"$ne": ["$global_role_id", None]}, "then": 2},
+                                {"case": {"$ne": ["$game_role_id", None]}, "then": 1},
+                                {"case": {"$ne": ["$role_id", None]}, "then": 1},
+                            ],
+                            "default": 0,
+                        }
+                    },
+                    "_candidate_freshness": {
+                        "$max": [
+                            {"$ifNull": ["$last_seen_at", epoch]},
+                            {"$ifNull": ["$updated_at", epoch]},
+                        ]
+                    },
+                    "_candidate_role_server": {
+                        "$cond": [
+                            {
+                                "$and": [
+                                    {"$ne": ["$normalized_server", None]},
+                                    {"$ne": ["$normalized_server", ""]},
+                                ]
+                            },
+                            "$normalized_server",
+                            {
+                                "$toLower": {
+                                    "$trim": {"input": {"$ifNull": ["$server", ""]}}
+                                }
+                            },
+                        ]
+                    },
+                    "_candidate_role_name": {
+                        "$cond": [
+                            {
+                                "$and": [
+                                    {"$ne": ["$normalized_name", None]},
+                                    {"$ne": ["$normalized_name", ""]},
+                                ]
+                            },
+                            "$normalized_name",
+                            {
+                                "$toLower": {
+                                    "$trim": {"input": {"$ifNull": ["$name", ""]}}
+                                }
+                            },
+                        ]
+                    },
+                }
+            },
+            {
+                "$sort": {
+                    "_candidate_same_server": -1,
+                    "_candidate_identity_strength": -1,
+                    "_candidate_freshness": -1,
+                    "_candidate_role_server": 1,
+                    "_candidate_role_name": 1,
+                    "_id": 1,
+                }
+            },
+            {
+                "$group": {
+                    "_id": {
+                        "server": "$_candidate_role_server",
+                        "name": "$_candidate_role_name",
+                    },
+                    "doc": {"$first": "$$ROOT"},
+                }
+            },
+            {"$replaceRoot": {"newRoot": "$doc"}},
+            {
+                "$sort": {
+                    "_candidate_same_server": -1,
+                    "_candidate_identity_strength": -1,
+                    "_candidate_freshness": -1,
+                    "_candidate_role_server": 1,
+                    "_candidate_role_name": 1,
+                    "_id": 1,
+                }
+            },
+            {"$limit": limit},
+            {
+                "$project": {
+                    "_candidate_same_server": 0,
+                    "_candidate_identity_strength": 0,
+                    "_candidate_freshness": 0,
+                    "_candidate_role_server": 0,
+                    "_candidate_role_name": 0,
+                }
+            },
+        ]
+        cursor = self._col().aggregate(pipeline)
+        docs = await cursor.to_list(limit)
+        deduped: List[Dict[str, Any]] = []
+        seen_role_keys = set()
+        for doc in docs:
+            candidate_server, candidate_name = _candidate_role_key(doc)
+            if candidate_server == ns and candidate_name == nn:
+                continue
+            dedupe_key = (candidate_server, candidate_name)
+            if dedupe_key in seen_role_keys:
+                continue
+            seen_role_keys.add(dedupe_key)
+            deduped.append(doc)
+            if len(deduped) >= limit:
+                break
+        return deduped
+
     async def get_by_id(self, identity_id: Any) -> Optional[Dict[str, Any]]:
         """按 role_identities._id 查询身份，返回保留原生 _id 的文档。"""
         object_id = _coerce_object_id(identity_id)
@@ -207,9 +410,7 @@ class RoleIdentityRepo:
 
         ns = _normalize(server)
         nn = _normalize(name)
-        cursor = self._col().find({"normalized_server": ns, "normalized_name": nn})
-        docs = await cursor.to_list(None)
-        return docs[0] if docs else None
+        return await self.find_best_by_name_with_id(ns, nn)
 
     # ---- upsert 入口 ----
 
@@ -230,6 +431,26 @@ class RoleIdentityRepo:
             server=server, name=name, zone=zone, game_role_id=game_role_id,
             global_role_id=global_role_id, role_id=role_id, person_id=person_id,
             global_id=global_id, source="ranking", cache_repo=cache_repo,
+        )
+
+    async def upsert_from_ranking_with_id(
+        self,
+        server: str,
+        name: str,
+        zone: str,
+        game_role_id: str,
+        global_role_id: Optional[str] = None,
+        role_id: Optional[str] = None,
+        person_id: Optional[str] = None,
+        global_id: Optional[str] = None,
+        cache_repo: Any = None,
+    ) -> Dict[str, Any]:
+        """从排行榜数据写入或升级身份，返回保留原生 _id 的文档。"""
+        return await self._upsert_identity(
+            server=server, name=name, zone=zone, game_role_id=game_role_id,
+            global_role_id=global_role_id, role_id=role_id, person_id=person_id,
+            global_id=global_id, source="ranking", cache_repo=cache_repo,
+            preserve_id=True,
         )
 
     async def upsert_from_indicator(

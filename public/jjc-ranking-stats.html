@@ -1623,6 +1623,25 @@
             return `${mins}分${String(secs).padStart(2, "0")}秒`;
         }
 
+        const JJC_MAP_NAMES = {
+            "128": "乐山大佛库",
+            "362": "墟海之眼",
+            "238": "青竹书院",
+            "696": "红叶泽",
+            "277": "拭剑台",
+            "624": "沃石火狱",
+            "127": "天山碎冰谷",
+            "129": "华山之巅",
+        };
+
+        function formatMapName(value) {
+            if (value == null || value === "") {
+                return "-";
+            }
+            const key = String(value);
+            return JJC_MAP_NAMES[key] || key;
+        }
+
         function formatGrade(value) {
             if (value == null || value === "") {
                 return "-";
@@ -2318,7 +2337,7 @@
                 >
                     <div class="match-row-top">
                         <span class="match-tag ${match.won ? "win" : "lose"}">${match.won ? "胜利" : "失败"}</span>
-                        <span>${formatGrade(match.avg_grade)}局</span>
+                        <span>${formatGrade(match.avg_grade)}</span>
                         <span>${escapeHtml(match.kungfu || "未知心法")}</span>
                         <span>${match.total_mmr ?? "-"}${match.mmr_delta != null ? ` (${match.mmr_delta > 0 ? "+" : ""}${match.mmr_delta})` : ""}</span>
                     </div>
@@ -2597,7 +2616,7 @@
                 : "对局详情数据：实时获取";
             matchModalBody.innerHTML = `
                 <div class="detail-summary-grid">
-                    <div class="detail-summary-card"><strong>${escapeHtml(basicInfo.map || "-")}</strong><span class="player-meta">地图</span></div>
+                    <div class="detail-summary-card"><strong>${escapeHtml(formatMapName(basicInfo.map))}</strong><span class="player-meta">地图</span></div>
                     <div class="detail-summary-card"><strong>${formatGrade(basicInfo.grade)}</strong><span class="player-meta">分段</span></div>
                     <div class="detail-summary-card"><strong>${formatDuration(basicInfo.duration)}</strong><span class="player-meta">时长</span></div>
                     <div class="detail-summary-card"><strong>${formatTime(basicInfo.start_time || detail.match_time)}</strong><span class="player-meta">开始时间</span></div>

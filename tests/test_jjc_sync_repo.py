@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock
 
+from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
@@ -48,6 +49,12 @@ class FakeDb:
         self.jjc_sync_role_queue = FakeCollection()
         self.jjc_sync_match_seen = FakeCollection()
         self.jjc_sync_state = FakeCollection()
+
+
+class FakeIdentityDb(FakeDb):
+    def __init__(self) -> None:
+        super().__init__()
+        self.jjc_sync_identity_queue = FakeCollection()
 
 
 class TestJjcSyncRepoIdentity(unittest.TestCase):
@@ -371,6 +378,128 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.jjc_sync_role_queue.find_one_and_update.call_count, 1)
         filter_doc = db.jjc_sync_role_queue.find_one_and_update.call_args.kwargs["filter"]
         self.assertEqual(filter_doc["status"], "queued")
+
+    async def test_get_queue_state_by_identity_id_reads_identity_queue_row(self) -> None:
+        db = FakeDb()
+        identity_id = ObjectId()
+        db.jjc_sync_role_queue.find_one.return_value = {
+            "identity_id": identity_id,
+            "status": "cooldown",
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.get_queue_state_by_identity_id(str(identity_id))
+
+        self.assertEqual(result["status"], "cooldown")
+        self.assertEqual(db.jjc_sync_role_queue.find_one.call_args.args[0], {"identity_id": identity_id})
+
+    async def test_enqueue_existing_identity_sets_fixed_priority_and_page_source(self) -> None:
+        db = FakeDb()
+        identity_id = ObjectId()
+        queued_doc = {
+            "identity_id": identity_id,
+            "identity_key": "global_id:987",
+            "status": "queued",
+            "priority": 2,
+            "queue_source": "synced_match_page",
+        }
+        db.jjc_sync_role_queue.find_one.return_value = None
+        db.jjc_sync_role_queue.find_one_and_update.return_value = queued_doc
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.enqueue_existing_identity(
+            {
+                "_id": identity_id,
+                "identity_key": "global_id:987",
+                "server": "梦江南",
+                "name": "角色A",
+                "normalized_server": "梦江南",
+                "normalized_name": "角色a",
+            },
+            priority=2,
+            source="synced_match_page",
+            mode="incremental_or_full",
+        )
+
+        self.assertIs(result, queued_doc)
+        call = db.jjc_sync_role_queue.find_one_and_update.call_args
+        self.assertEqual(call.kwargs["filter"]["identity_id"], identity_id)
+        self.assertEqual(call.kwargs["filter"]["status"], {"$nin": ["disabled", "syncing"]})
+        update = call.kwargs["update"]
+        self.assertEqual(update["$set"]["priority"], 2)
+        self.assertEqual(update["$set"]["status"], "queued")
+        self.assertEqual(update["$set"]["identity_id"], identity_id)
+        self.assertNotIn("identity_id", update["$setOnInsert"])
+        self.assertEqual(update["$set"]["queue_source"], "synced_match_page")
+        self.assertEqual(update["$set"]["queue_mode"], "incremental_or_full")
+        self.assertEqual(update["$setOnInsert"]["source"], "synced_match_page")
+
+    async def test_enqueue_existing_identity_uses_identity_queue_when_available(self) -> None:
+        db = FakeIdentityDb()
+        identity_id = ObjectId()
+        queued_doc = {
+            "identity_id": identity_id,
+            "identity_key": "global_id:987",
+            "status": "queued",
+            "priority": 2,
+            "queue_source": "synced_match_page",
+        }
+        db.jjc_sync_identity_queue.find_one.return_value = {
+            "identity_id": identity_id,
+            "identity_key": "global_id:987",
+            "status": "pending",
+            "priority": 0,
+        }
+        db.jjc_sync_identity_queue.find_one_and_update.return_value = queued_doc
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.enqueue_existing_identity(
+            {
+                "_id": identity_id,
+                "identity_key": "global_id:987",
+                "server": "梦江南",
+                "name": "角色A",
+            },
+            priority=2,
+            source="synced_match_page",
+            mode="incremental_or_full",
+        )
+
+        self.assertIs(result, queued_doc)
+        db.jjc_sync_role_queue.find_one.assert_not_called()
+        db.jjc_sync_role_queue.find_one_and_update.assert_not_called()
+        state_filter = db.jjc_sync_identity_queue.find_one.call_args.args[0]
+        self.assertEqual(state_filter, {"identity_id": identity_id})
+        update_call = db.jjc_sync_identity_queue.find_one_and_update.call_args
+        self.assertEqual(update_call.kwargs["filter"], {
+            "identity_id": identity_id,
+            "status": {"$nin": ["disabled", "syncing"]},
+        })
+        self.assertEqual(update_call.kwargs["update"]["$set"]["status"], "queued")
+        self.assertEqual(update_call.kwargs["update"]["$set"]["priority"], 2)
+        self.assertEqual(update_call.kwargs["update"]["$set"]["identity_id"], identity_id)
+        self.assertNotIn("identity_id", update_call.kwargs["update"]["$setOnInsert"])
+
+    async def test_enqueue_existing_identity_returns_syncing_state_without_lease_update(self) -> None:
+        db = FakeDb()
+        identity_id = ObjectId()
+        syncing_doc = {
+            "identity_id": identity_id,
+            "status": "syncing",
+            "lease_owner": "worker-1",
+        }
+        db.jjc_sync_role_queue.find_one.return_value = syncing_doc
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.enqueue_existing_identity(
+            {"_id": identity_id, "identity_key": "global_id:987"},
+            priority=2,
+            source="synced_match_page",
+            mode="incremental_or_full",
+        )
+
+        self.assertIs(result, syncing_doc)
+        db.jjc_sync_role_queue.find_one_and_update.assert_not_called()
 
     async def test_upsert_role_prefers_global_id_and_writes_sk01_as_profile_field(self) -> None:
         db = FakeDb()
@@ -728,6 +857,26 @@ class TestJjcSyncRepoMatchSeen(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["action"], "claimable")
         self.assertFalse(result["terminal"])
         self.assertTrue(result["claimable"])
+
+    async def test_get_match_seen_doc_returns_full_document(self) -> None:
+        db = FakeDb()
+        source_identity_id = ObjectId()
+        db.jjc_sync_match_seen.find_one.return_value = {
+            "match_id": 1001,
+            "status": "detail_saved",
+            "detail_saved_at": 123.4,
+            "source_identity_id": source_identity_id,
+            "source_identity_key": "global_id:abc",
+        }
+        repo = JjcSyncRepo(db=db)
+
+        result = await repo.get_match_seen_doc("1001")
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result["detail_saved_at"], 123.4)
+        self.assertEqual(result["source_identity_id"], source_identity_id)
+        db.jjc_sync_match_seen.find_one.assert_called_once_with({"match_id": 1001})
 
     async def test_mark_match_detail_unavailable_writes_fields_and_clears_lease(self) -> None:
         db = FakeDb()

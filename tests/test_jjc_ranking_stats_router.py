@@ -19,6 +19,13 @@ class _FakeRouter:
 
         return decorator
 
+    def post(self, *args: Any, **kwargs: Any) -> Any:
+        def decorator(func: Any) -> Any:
+            self.routes.append(func)
+            return func
+
+        return decorator
+
 
 class _FakeRepo:
     def __init__(
@@ -58,9 +65,38 @@ class _FakeRepo:
         return self.detail
 
 
+class _FakeInspectService:
+    def __init__(self) -> None:
+        self.synced_role_result: Dict[str, Any] = {}
+        self.synced_matches_result: Dict[str, Any] = {}
+        self.enqueue_result: Dict[str, Any] = {}
+        self.role_indicator_result: Dict[str, Any] = {}
+        self.synced_role_calls: List[Dict[str, Any]] = []
+        self.synced_matches_calls: List[Dict[str, Any]] = []
+        self.enqueue_calls: List[Dict[str, Any]] = []
+        self.role_indicator_calls: List[Dict[str, Any]] = []
+
+    async def resolve_synced_role(self, **kwargs: Any) -> Dict[str, Any]:
+        self.synced_role_calls.append(kwargs)
+        return self.synced_role_result
+
+    async def get_synced_role_matches(self, **kwargs: Any) -> Dict[str, Any]:
+        self.synced_matches_calls.append(kwargs)
+        return self.synced_matches_result
+
+    async def enqueue_synced_role(self, **kwargs: Any) -> Dict[str, Any]:
+        self.enqueue_calls.append(kwargs)
+        return self.enqueue_result
+
+    async def get_role_indicator(self, **kwargs: Any) -> Dict[str, Any]:
+        self.role_indicator_calls.append(kwargs)
+        return self.role_indicator_result
+
+
 def _install_router_import_stubs() -> None:
     fastapi_mod = types.ModuleType("fastapi")
     fastapi_mod.APIRouter = _FakeRouter
+    fastapi_mod.Body = lambda default=None, **kwargs: default
     fastapi_mod.Query = lambda default=..., **kwargs: default
     sys.modules["fastapi"] = fastapi_mod
 
@@ -82,7 +118,7 @@ def _install_router_import_stubs() -> None:
     sys.modules["src.api.response"] = api_response_mod
 
     singletons_mod = types.ModuleType("src.services.jx3.singletons")
-    singletons_mod.jjc_ranking_inspect_service = object()
+    singletons_mod.jjc_ranking_inspect_service = _FakeInspectService()
     sys.modules["src.services.jx3.singletons"] = singletons_mod
 
     repo_mod = types.ModuleType("src.storage.mongo_repos.jjc_ranking_stats_repo")
@@ -268,6 +304,120 @@ class TestRankingStatsMongoHitRoutes(unittest.IsolatedAsyncioTestCase):
             "lane": "dps",
             "kungfu": "花间游",
         }])
+
+
+class TestSyncedRoleRoutes(unittest.IsolatedAsyncioTestCase):
+    async def test_role_indicator_forwards_identity_only_flag(self) -> None:
+        module = _load_router_module()
+        service = _FakeInspectService()
+        service.role_indicator_result = {"indicator": {"score": 2500}}
+        module.jjc_ranking_inspect_service = service
+
+        response = await module.get_ranking_stats_role_indicator(
+            server=" 梦江南 ",
+            name=" 角色A ",
+            game_role_id=" 100 ",
+            global_role_id=None,
+            role_id=None,
+            zone=" 电信区 ",
+            identity_only=True,
+        )
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(service.role_indicator_calls, [{
+            "server": "梦江南",
+            "name": "角色A",
+            "game_role_id": "100",
+            "global_role_id": None,
+            "role_id": None,
+            "zone": "电信区",
+            "force_refresh": False,
+            "identity_only": True,
+        }])
+
+    async def test_synced_role_trims_params_and_returns_standard_success(self) -> None:
+        module = _load_router_module()
+        service = _FakeInspectService()
+        service.synced_role_result = {
+            "identity": {"identity_id": "id-1"},
+            "sync_status": {"status": "not_queued"},
+        }
+        module.jjc_ranking_inspect_service = service
+
+        response = await module.get_ranking_stats_synced_role(server=" 梦江南 ", name=" 角色A ")
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(response["status_msg"], "success")
+        self.assertEqual(service.synced_role_calls, [{"server": "梦江南", "name": "角色A"}])
+
+    async def test_synced_role_missing_returns_role_identity_not_found(self) -> None:
+        module = _load_router_module()
+        service = _FakeInspectService()
+        service.synced_role_result = {"error": True, "message": "role_identity_not_found"}
+        module.jjc_ranking_inspect_service = service
+
+        response = await module.get_ranking_stats_synced_role(server="梦江南", name="不存在")
+
+        self.assertEqual(response["status_code"], 1)
+        self.assertEqual(response["status_msg"], "role_identity_not_found")
+
+    async def test_synced_role_matches_uses_page_params(self) -> None:
+        module = _load_router_module()
+        service = _FakeInspectService()
+        service.synced_matches_result = {
+            "pagination": {"page": 2, "page_size": 5, "total": 0, "has_more": False},
+            "recent_matches": [],
+        }
+        module.jjc_ranking_inspect_service = service
+
+        response = await module.get_ranking_stats_synced_role_matches(
+            server="梦江南",
+            name="角色A",
+            page=2,
+            page_size=5,
+        )
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(service.synced_matches_calls, [{
+            "server": "梦江南",
+            "name": "角色A",
+            "page": 2,
+            "page_size": 5,
+        }])
+
+    async def test_synced_role_sync_accepts_json_payload_and_returns_standard_shape(self) -> None:
+        module = _load_router_module()
+        service = _FakeInspectService()
+        service.enqueue_result = {
+            "queued": True,
+            "sync_status": {"status": "queued", "priority": 2},
+        }
+        module.jjc_ranking_inspect_service = service
+
+        response = await module.post_ranking_stats_synced_role_sync(
+            payload={"server": " 梦江南 ", "name": " 角色A "},
+        )
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(response["data"]["queued"], True)
+        self.assertEqual(service.enqueue_calls, [{"server": "梦江南", "name": "角色A"}])
+
+    async def test_synced_role_sync_accepts_query_fallback(self) -> None:
+        module = _load_router_module()
+        service = _FakeInspectService()
+        service.enqueue_result = {
+            "queued": True,
+            "sync_status": {"status": "queued", "priority": 2},
+        }
+        module.jjc_ranking_inspect_service = service
+
+        response = await module.post_ranking_stats_synced_role_sync(
+            server=" 梦江南 ",
+            name=" 角色A ",
+        )
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(service.enqueue_calls, [{"server": "梦江南", "name": "角色A"}])
 
 
 if __name__ == "__main__":

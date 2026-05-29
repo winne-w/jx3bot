@@ -409,6 +409,7 @@ class JjcMatchDataSyncService:
         match_replay_client: Optional[MatchReplayClient] = None,
         role_indicator_client: Optional[RoleIndicatorClient] = None,
         match_detail_projection_service: Optional[Any] = None,
+        match_detail_participant_projection_service: Optional[Any] = None,
         sleep_func: Callable[[], Awaitable[None]] = random_sleep,
         page_size: int = 20,
         max_pages_per_role: int = 300,
@@ -424,6 +425,7 @@ class JjcMatchDataSyncService:
         self._match_replay_client = match_replay_client
         self._role_indicator_client = role_indicator_client
         self._match_detail_projection_service = match_detail_projection_service
+        self._match_detail_participant_projection_service = match_detail_participant_projection_service
         self._sleep_func = sleep_func
         self._page_size = page_size
         self._max_pages_per_role = max_pages_per_role
@@ -2015,6 +2017,7 @@ class JjcMatchDataSyncService:
                             raise JjcSyncStaleMatchDetailLeaseError(
                                 "stale_match_detail_lease: match_id={} owner={}".format(match_id, lease_owner)
                             )
+                        await self._clear_match_detail_participants_if_configured(match_id=match_id)
                         return "unavailable"
                     if isinstance(detail, dict):
                         detail_payload = dict(payload)
@@ -2033,12 +2036,17 @@ class JjcMatchDataSyncService:
                             match_id=match_id,
                             payload=detail_payload,
                         )
+                        await self._project_match_detail_participants_if_configured(
+                            match_id=match_id,
+                            payload=detail_payload,
+                        )
                     await renew_processing_context(force=True)
                     marked = await self._repo.mark_match_detail_saved(match_id, lease_owner=lease_owner)
                     if not marked:
                         raise JjcSyncStaleMatchDetailLeaseError(
                             "stale_match_detail_lease: match_id={} owner={}".format(match_id, lease_owner)
                         )
+                    await self._refresh_match_detail_participant_sync_status_if_configured(match_id=match_id)
                     return "saved"
             except JjcSyncGlobalPauseError as exc:
                 await self._repo.release_match_detail_interrupted(
@@ -2088,6 +2096,56 @@ class JjcMatchDataSyncService:
                 await result
         except Exception as exc:
             logger.warning("JJC 对局详情身份投影失败: match_id={} error={}".format(match_id, exc))
+
+    async def _project_match_detail_participants_if_configured(
+        self,
+        match_id: int,
+        payload: Dict[str, Any],
+    ) -> None:
+        service = self._match_detail_participant_projection_service
+        if service is None:
+            return
+        projector = getattr(service, "project_payload", None)
+        if not callable(projector):
+            return
+        try:
+            result = projector(
+                match_id=match_id,
+                payload=payload,
+                source="sync_worker",
+            )
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            logger.warning("JJC 对局详情参与者投影失败: match_id={} error={}".format(match_id, exc))
+
+    async def _clear_match_detail_participants_if_configured(self, match_id: int) -> None:
+        service = self._match_detail_participant_projection_service
+        if service is None:
+            return
+        clearer = getattr(service, "clear_match", None)
+        if not callable(clearer):
+            return
+        try:
+            result = clearer(match_id)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            logger.warning("JJC 对局详情参与者投影清理失败: match_id={} error={}".format(match_id, exc))
+
+    async def _refresh_match_detail_participant_sync_status_if_configured(self, match_id: int) -> None:
+        service = self._match_detail_participant_projection_service
+        if service is None:
+            return
+        refresher = getattr(service, "refresh_sync_status", None)
+        if not callable(refresher):
+            return
+        try:
+            result = refresher(match_id=match_id)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            logger.warning("JJC 对局详情参与者同步状态刷新失败: match_id={} error={}".format(match_id, exc))
 
     async def _enrich_detail_with_replay(
         self,

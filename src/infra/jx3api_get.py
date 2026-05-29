@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover
     cfg = None  # type: ignore
 
 
-_server_data_cache: dict | None = None
+_server_data_cache: Optional[dict] = None
 _server_data_file = "server_data.json"
 
 _cache_ttl_seconds = int(getattr(cfg, "SESSION_data", 720) if cfg else 720)
@@ -65,6 +65,26 @@ async def has_server_catalog() -> bool:
     if not _load_server_data_cache_if_needed():
         return False
     return len(_extract_server_items(_server_data_cache)) > 0
+
+
+def list_server_catalog_items() -> list[dict]:
+    if not _load_server_data_cache_if_needed():
+        return []
+
+    items = _extract_server_items(_server_data_cache)
+    deduped: dict[str, dict] = {}
+    for item in items:
+        server_name = str(item.get("server") or "").strip()
+        if not server_name or server_name in deduped:
+            continue
+        deduped[server_name] = {
+            "id": item.get("id"),
+            "zone": item.get("zone") or "",
+            "server": server_name,
+            "status": item.get("status"),
+            "time": item.get("time"),
+        }
+    return sorted(deduped.values(), key=lambda row: (str(row.get("zone") or ""), str(row.get("server") or "")))
 
 
 async def get(
