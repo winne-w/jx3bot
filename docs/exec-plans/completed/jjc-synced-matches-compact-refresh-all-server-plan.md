@@ -5,6 +5,7 @@
 - 已同步对局列表改为更紧凑的单行主信息展示，把双方心法图标放到胜负、心法、分数同一行，减少单条对局高度。
 - 区分“刷新当前列表”和“加入后台同步队列”两个动作：刷新按钮只重新请求当前对局列表；后台同步按钮文案改为“加入同步队列”，排队/同步中时保持禁用状态。
 - 服务器下拉默认提供“全部服务器”。选择全部服务器时不直接命中单个角色，而是按角色名返回本地候选列表，用户点击候选后再进入具体服务器角色。
+- 浏览器本地缓存最近成功搜索过的 10 个具体角色，点击角色名输入框时展示可选提示，方便快速重复查询。
 
 ## 范围
 
@@ -13,6 +14,7 @@
   - 新增对局列表刷新按钮，绑定当前角色第一页列表重载。
   - 调整同步按钮文案：`加入同步队列`、`已在队列中`、`正在同步`。
   - 服务器选择默认增加“全部服务器”，允许空服务器提交查询。
+  - 使用 `localStorage` 保存最近 10 个 `{server, name}`，角色名输入框聚焦/点击时展示提示，点击后自动带入服务器和角色名并查询。
 - `src/api/routers/jjc_ranking_stats.py`
   - `GET /ranking-stats/synced-role` 允许空服务器，只要求角色名非空。
 - `src/services/jx3/jjc_ranking_inspect.py`
@@ -33,6 +35,7 @@
 
 - 风险：空服务器查询可能返回多个历史身份，候选列表应只作为选择入口，不自动进入某个角色。
 - 风险：新增列表刷新按钮和同步按钮文案可能影响用户理解，使用图标按钮和明确文案区分动作。
+- 风险：本地缓存数据可能损坏或不可用，读写需要兜底为无记录，不影响正常查询。
 - 回滚：移除空服务器选项与后端空服务器候选逻辑；恢复原对局行布局和同步按钮文案。
 
 ## 执行记录
@@ -43,5 +46,9 @@
 - 2026-06-02：已验证 `python -m py_compile src/services/jx3/jjc_ranking_inspect.py src/api/routers/jjc_ranking_stats.py src/storage/mongo_repos/role_identity_repo.py`。
 - 2026-06-02：已验证页面内联 JS 语法检查通过，输出 `ok 1`。
 - 2026-06-02：已调用子 Codex agent review 当前 diff；结论为无 blocking/important 问题，抽象和简洁性可接受，无需修复循环。
+- 2026-06-02：追加最近搜索角色本地缓存与输入提示需求，准备实现。
+- 2026-06-02：已实现最近 10 个成功搜索角色的本地缓存；角色名输入框聚焦/点击/输入时展示提示，点击提示会带入服务器和角色并查询。
+- 2026-06-02：已验证页面内联 JS 语法检查通过，输出 `ok 1`；`git diff --check` 无空白错误。
+- 2026-06-02：修复角色名输入删空后提示面板仍保留旧筛选结果的问题；空输入时展示全部最近搜索角色，并增加 keyup 兜底刷新。
 - 2026-06-02：根据 code review 修复已解析角色加载对局仍使用原始输入的问题；为当前列表刷新增加角色快照校验，避免旧请求覆盖切换后的页面；将 queued 文案统一调整为同步队列语义；补充 `RoleIdentityRepo.find_synced_match_page_candidates(server="", name=...)` 真实 repo 单测，证明空服务器表示全服候选契约。
 - 2026-06-02：已重新验证 `python -m unittest tests.test_jjc_ranking_inspect tests.test_jjc_ranking_stats_router tests.test_role_identity_repo`，110 条通过；已重新验证 `python -m py_compile src/services/jx3/jjc_ranking_inspect.py src/api/routers/jjc_ranking_stats.py src/storage/mongo_repos/role_identity_repo.py`；已重新验证页面内联 JS 语法检查通过，输出 `ok 1`。

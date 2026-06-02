@@ -89,6 +89,10 @@
             font-weight: 700;
         }
 
+        .name-field {
+            position: relative;
+        }
+
         input,
         select {
             width: 100%;
@@ -150,6 +154,56 @@
 
         .status-line.error {
             color: #8a2d2d;
+        }
+
+        .recent-role-panel {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(100% + 4px);
+            z-index: 30;
+            display: none;
+            max-height: 280px;
+            overflow: auto;
+            border: 1px solid rgba(137, 196, 244, 0.38);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow: 0 14px 34px rgba(24, 33, 47, 0.14);
+            padding: 6px;
+        }
+
+        .recent-role-panel.show {
+            display: grid;
+            gap: 4px;
+        }
+
+        .recent-role-option {
+            width: 100%;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            padding: 8px 10px;
+            text-align: left;
+            cursor: pointer;
+            color: var(--ink);
+        }
+
+        .recent-role-option:hover {
+            background: rgba(91, 124, 250, 0.09);
+        }
+
+        .recent-role-main {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-weight: 700;
+        }
+
+        .recent-role-server {
+            color: var(--muted);
+            font-size: 0.78rem;
+            white-space: nowrap;
         }
 
         .content-panel {
@@ -853,9 +907,10 @@
                         <option value="">正在加载服务器...</option>
                     </select>
                 </label>
-                <label>
+                <label class="name-field">
                     角色名
                     <input id="name-input" name="name" autocomplete="off" placeholder="角色名" required>
+                    <div class="recent-role-panel" id="recent-role-panel"></div>
                 </label>
                 <button class="primary-btn" id="search-btn" type="submit">查询</button>
             </form>
@@ -906,6 +961,8 @@
         const BASE_API = "/jx3bot/api/jjc/ranking-stats";
         const ANNOUNCEMENT_API = "/jx3bot/api/announcements";
         const ANNOUNCEMENT_SEEN_KEY = "announcement_seen_at";
+        const RECENT_ROLE_KEY = "jjc_synced_matches_recent_roles";
+        const RECENT_ROLE_LIMIT = 10;
         const params = new URLSearchParams(window.location.search);
         const syncedRoleApiBase = params.get("synced_role_api") || `${BASE_API}/synced-role`;
         const syncedMatchesApiBase = params.get("synced_matches_api") || `${BASE_API}/synced-role-matches`;
@@ -919,6 +976,7 @@
         const searchForm = document.getElementById("search-form");
         let serverInput = document.getElementById("server-input");
         const nameInput = document.getElementById("name-input");
+        const recentRolePanel = document.getElementById("recent-role-panel");
         const searchBtn = document.getElementById("search-btn");
         const statusLine = document.getElementById("status-line");
         const contentPanel = document.getElementById("content-panel");
@@ -1004,6 +1062,7 @@
             fallbackInput.value = params.get("server") || "";
             serverInput.replaceWith(fallbackInput);
             serverInput = fallbackInput;
+            serverInput.addEventListener("input", renderRecentRolePanel);
             searchBtn.disabled = false;
         }
 
@@ -1022,6 +1081,102 @@
                 }
             }
             serverInput.value = value;
+        }
+
+        function loadRecentRoles() {
+            try {
+                const raw = localStorage.getItem(RECENT_ROLE_KEY);
+                const parsed = JSON.parse(raw || "[]");
+                if (!Array.isArray(parsed)) {
+                    return [];
+                }
+                return parsed
+                    .map((item) => ({
+                        server: String(item && item.server ? item.server : "").trim(),
+                        name: String(item && item.name ? item.name : "").trim(),
+                    }))
+                    .filter((item) => item.server && item.name)
+                    .slice(0, RECENT_ROLE_LIMIT);
+            } catch (error) {
+                return [];
+            }
+        }
+
+        function saveRecentRole(role) {
+            const server = String(role && role.server ? role.server : "").trim();
+            const name = String(role && role.name ? role.name : "").trim();
+            if (!server || !name) {
+                return;
+            }
+            const next = [{ server, name }];
+            loadRecentRoles().forEach((item) => {
+                if (item.server === server && item.name === name) {
+                    return;
+                }
+                if (next.length < RECENT_ROLE_LIMIT) {
+                    next.push(item);
+                }
+            });
+            try {
+                localStorage.setItem(RECENT_ROLE_KEY, JSON.stringify(next));
+            } catch (error) {
+                // localStorage can be unavailable in private contexts.
+            }
+        }
+
+        function getVisibleRecentRoles() {
+            const keyword = nameInput.value.trim().toLowerCase();
+            const currentServer = serverInput.value.trim();
+            return loadRecentRoles().filter((item) => {
+                if (keyword && !item.name.toLowerCase().includes(keyword)) {
+                    return false;
+                }
+                if (keyword && currentServer && item.server !== currentServer) {
+                    return false;
+                }
+                return true;
+            });
+        }
+
+        function hideRecentRolePanel() {
+            recentRolePanel.classList.remove("show");
+            recentRolePanel.innerHTML = "";
+        }
+
+        function renderRecentRolePanel() {
+            recentRolePanel.innerHTML = "";
+            const roles = getVisibleRecentRoles();
+            if (!roles.length) {
+                hideRecentRolePanel();
+                return;
+            }
+            recentRolePanel.innerHTML = roles.map((role, index) => `
+                <button
+                    class="recent-role-option"
+                    type="button"
+                    data-recent-index="${index}"
+                    data-recent-server="${escapeHtml(role.server)}"
+                    data-recent-name="${escapeHtml(role.name)}"
+                >
+                    <span class="recent-role-main">
+                        <span>${escapeHtml(role.name)}</span>
+                        <span class="recent-role-server">${escapeHtml(role.server)}</span>
+                    </span>
+                </button>
+            `).join("");
+            recentRolePanel.classList.add("show");
+        }
+
+        function selectRecentRole(button) {
+            const server = button.getAttribute("data-recent-server") || "";
+            const name = button.getAttribute("data-recent-name") || "";
+            if (!server || !name) {
+                return;
+            }
+            setServerInputValue(server);
+            nameInput.value = name;
+            hideRecentRolePanel();
+            searchRole();
         }
 
         function escapeHtml(value) {
@@ -1595,6 +1750,7 @@
                     player: roleData.player || {},
                     identity: roleData.identity || {},
                 };
+                saveRecentRole(currentRole);
                 const roleSnapshot = {
                     server: currentRole.server,
                     name: currentRole.name,
@@ -2190,7 +2346,25 @@
 
         searchForm.addEventListener("submit", (event) => {
             event.preventDefault();
+            hideRecentRolePanel();
             searchRole();
+        });
+
+        nameInput.addEventListener("focus", renderRecentRolePanel);
+        nameInput.addEventListener("click", renderRecentRolePanel);
+        nameInput.addEventListener("input", renderRecentRolePanel);
+        nameInput.addEventListener("keyup", renderRecentRolePanel);
+        serverInput.addEventListener("change", renderRecentRolePanel);
+
+        recentRolePanel.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            const option = target.closest(".recent-role-option");
+            if (option) {
+                selectRecentRole(option);
+            }
         });
 
         contentPanel.addEventListener("click", (event) => {
@@ -2221,6 +2395,7 @@
                 if (server && name) {
                     setServerInputValue(server);
                     nameInput.value = name;
+                    hideRecentRolePanel();
                     searchRole();
                 }
                 return;
@@ -2235,6 +2410,17 @@
                 server: matchButton.getAttribute("data-focus-server") || currentRole?.server || "",
             };
             loadMatchDetail(matchId, focusPlayer);
+        });
+
+        document.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target === nameInput || target.closest("#recent-role-panel")) {
+                return;
+            }
+            hideRecentRolePanel();
         });
 
         matchModal.addEventListener("click", (event) => {
@@ -2263,6 +2449,10 @@
 
         document.addEventListener("keydown", (event) => {
             if (event.key !== "Escape") {
+                return;
+            }
+            if (recentRolePanel.classList.contains("show")) {
+                hideRecentRolePanel();
                 return;
             }
             if (matchModal.classList.contains("show")) {

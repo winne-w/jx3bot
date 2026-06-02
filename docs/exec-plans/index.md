@@ -4,12 +4,12 @@
 
 ## Active
 
-- `active/jjc-synced-matches-compact-refresh-all-server-plan.md`: JJC 对局查询紧凑列表、刷新按钮与全服候选计划
 - `active/jjc-bot-managed-sync-workers-plan.md`: JJC bot 启动时按配置托管同步 worker 计划
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Completed
 
+- `completed/jjc-synced-matches-compact-refresh-all-server-plan.md`: JJC 对局查询紧凑列表、刷新按钮与全服候选计划
 - `completed/jjc-query-timeout-diagnostics-plan.md`: JJC 对局查询超时阶段耗时诊断日志计划
 - `completed/jjc-synced-matches-async-render-and-queue-state-plan.md`: JJC 对局查询异步展示与排队状态文案计划
 - `completed/jjc-ranking-role-recent-cache-warmup-plan.md`: JJC 排名查询复用 match history 预热角色近期对局缓存计划
