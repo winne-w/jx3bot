@@ -4,7 +4,7 @@
 
 - JJC 对局查询页中，赛季战绩 `role-indicator` 与本地已同步对局列表分开加载，哪个接口先返回就先展示对应区域，未返回的区域保留加载态。
 - 页面触发同步使用固定优先级 `2`。当角色已经以不低于页面优先级排队时，更新按钮禁用并展示“已在排队”；当已有队列优先级低于页面请求，仍允许重新提交。
-- 当不低于本页面优先级的同步请求已被 worker 领取为 `syncing` 时，页面继续展示更新中状态，避免从“已在排队”退回“当前没有本页面更新请求”。
+- 当同一身份已被 worker 领取为 `syncing` 时，无论队列优先级如何，页面继续展示更新中状态并禁用按钮，避免重复提交。
 - 页面明确说明对局数据来自异步同步，只展示已经同步落库且可查看的对局，列表不保证完整，可提交更新请求等待同步。
 
 ## 范围
@@ -12,7 +12,7 @@
 - `public/jjc-synced-matches.html`
   - 拆分角色信息、赛季战绩和对局列表的渲染状态。
   - 调整同步状态和按钮文案，把 `status=queued && priority>=2` 识别为本页面已排队。
-  - 补充 `status=syncing && priority>=2` 的正在更新展示和按钮禁用。
+  - 补充 `status=syncing` 的正在更新展示和按钮禁用。
   - 增加异步同步说明文案。
 - `src/services/jx3/jjc_ranking_inspect.py`
   - 抽出页面同步优先级常量。
@@ -38,4 +38,5 @@
 - 2026-05-29：已实现前端异步分区展示、页面同步优先级排队判断、相同优先级排队幂等返回和页面说明文案。
 - 2026-05-29：已验证 `python -m unittest tests.test_jjc_ranking_inspect tests.test_jjc_ranking_stats_router`。
 - 2026-05-29：已验证 `python -m py_compile src/services/jx3/jjc_ranking_inspect.py src/api/routers/jjc_ranking_stats.py`。
-- 2026-06-02：已补充页面对 `status=syncing && priority>=2` 的展示，worker 领取后状态显示“正在更新”，按钮禁用；同时将页面排队判断调整为 `priority>=2`。
+- 2026-06-02：已补充页面对 `status=syncing` 的展示，worker 领取后状态显示“正在更新”，按钮禁用；同时将页面排队判断调整为 `priority>=2`。
+- 2026-06-02：已验证页面内联 JS 语法检查通过：`node -e ...` 输出 `ok 1`。任务已完成，准备归档。

@@ -1348,7 +1348,7 @@
             if (!sync || sync.status !== "syncing") {
                 return false;
             }
-            return Number(sync.priority) >= pageSyncPriority;
+            return true;
         }
 
         function isPageSyncActive(sync) {
