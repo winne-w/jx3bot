@@ -4,12 +4,12 @@
 
 ## Active
 
-- `active/jjc-query-timeout-diagnostics-plan.md`: JJC 对局查询超时阶段耗时诊断日志计划
 - `active/jjc-bot-managed-sync-workers-plan.md`: JJC bot 启动时按配置托管同步 worker 计划
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Completed
 
+- `completed/jjc-query-timeout-diagnostics-plan.md`: JJC 对局查询超时阶段耗时诊断日志计划
 - `completed/jjc-synced-matches-async-render-and-queue-state-plan.md`: JJC 对局查询异步展示与排队状态文案计划
 - `completed/jjc-ranking-role-recent-cache-warmup-plan.md`: JJC 排名查询复用 match history 预热角色近期对局缓存计划
 - `completed/jjc-synced-role-matches-index-and-participant-projection-plan.md`: JJC 已同步对局列表页面、identity-only 搜索、本地对局读取、页面入队与参与者投影回填脚本批次日志方案
