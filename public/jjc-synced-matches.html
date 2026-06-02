@@ -1341,14 +1341,28 @@
             if (!sync || sync.status !== "queued") {
                 return false;
             }
-            return Number(sync.priority) === pageSyncPriority;
+            return Number(sync.priority) >= pageSyncPriority;
+        }
+
+        function isPageSyncing(sync) {
+            if (!sync || sync.status !== "syncing") {
+                return false;
+            }
+            return Number(sync.priority) >= pageSyncPriority;
+        }
+
+        function isPageSyncActive(sync) {
+            return isPageSyncQueued(sync) || isPageSyncing(sync);
         }
 
         function renderListSyncLabel(data) {
             const sync = data && data.sync_status;
             const isQueued = isPageSyncQueued(sync);
+            const isSyncing = isPageSyncing(sync);
             const position = sync && sync.queue_position;
-            const statusText = isQueued
+            const statusText = isSyncing
+                ? "正在更新"
+                : isQueued
                 ? `等待更新${position ? `，第 ${position} 位` : ""}`
                 : "当前没有本页面更新请求";
             return `更新状态：${statusText}，最后同步：${renderSyncTime(sync)}`;
@@ -1359,16 +1373,20 @@
             if (!button || !currentRole || !currentRole.identity || !currentRole.identity.identity_id) {
                 return;
             }
-            const alreadyQueued = isPageSyncQueued(syncStatus);
-            button.disabled = alreadyQueued;
-            button.textContent = alreadyQueued ? "已在排队" : "更新对局";
+            const syncActive = isPageSyncActive(syncStatus);
+            button.disabled = syncActive;
+            button.textContent = isPageSyncing(syncStatus)
+                ? "正在更新"
+                : isPageSyncQueued(syncStatus)
+                ? "已在排队"
+                : "更新对局";
         }
 
         function renderRoleContent(data, indicatorData) {
             const player = data.player || {};
             const identity = data.identity || {};
             const canEnqueue = identity && identity.identity_id;
-            const alreadyQueued = isPageSyncQueued(data.sync_status);
+            const syncActive = isPageSyncActive(data.sync_status);
             currentRole = {
                 server: player.server || identity.server || serverInput.value.trim(),
                 name: player.name || identity.name || nameInput.value.trim(),
@@ -1388,7 +1406,7 @@
                         <h2 class="role-title">${escapeHtml(currentRole.name)} · ${escapeHtml(currentRole.server)}</h2>
                         <div class="muted">对局需要后台异步同步；这里只展示已经同步下来且可以查看详情的 3v3 对局，列表不一定完整。可以提交更新请求后等待同步完成。</div>
                     </div>
-                    <button class="primary-btn" id="enqueue-sync-btn" type="button"${canEnqueue && !alreadyQueued ? "" : " disabled"}>${canEnqueue ? (alreadyQueued ? "已在排队" : "更新对局") : "暂不可更新"}</button>
+                    <button class="primary-btn" id="enqueue-sync-btn" type="button"${canEnqueue && !syncActive ? "" : " disabled"}>${canEnqueue ? (isPageSyncing(data.sync_status) ? "正在更新" : isPageSyncQueued(data.sync_status) ? "已在排队" : "更新对局") : "暂不可更新"}</button>
                 </div>
                 <div class="role-overview-toolbar">
                     <span class="cache-label" id="role-indicator-cache-label">${renderIndicatorCacheLabel(indicatorData)}</span>
