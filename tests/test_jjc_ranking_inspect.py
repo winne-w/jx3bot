@@ -1508,6 +1508,36 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(candidate["sync_status"]["status"], "cooldown")
         self.assertEqual(sync_repo.state_calls, [candidate_id])
 
+    async def test_resolve_synced_role_empty_server_returns_candidates_without_exact_lookup(self) -> None:
+        candidate_id = ObjectId()
+        role_identity_repo = FakeRoleIdentityRepo(None, candidates=[{
+            "_id": candidate_id,
+            "identity_key": "global_id:889",
+            "server": "梦江南",
+            "name": "示例角色",
+            "global_id": "889",
+        }])
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=role_identity_repo,
+            sync_repo=FakeSyncRepo(),
+        )
+
+        result = await service.resolve_synced_role(server="", name="示例角色")
+
+        self.assertTrue(result["error"])
+        self.assertEqual(result["message"], "role_identity_not_found")
+        self.assertEqual(role_identity_repo.calls, [])
+        self.assertEqual(role_identity_repo.candidate_calls, [{"server": "", "name": "示例角色", "limit": 8}])
+        self.assertEqual(result["candidates"][0]["player"], {"server": "梦江南", "name": "示例角色"})
+
     async def test_get_synced_role_matches_returns_local_rows_with_sync_metadata(self) -> None:
         identity_id = ObjectId()
         identity = {

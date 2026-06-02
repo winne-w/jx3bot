@@ -350,6 +350,22 @@ class TestSyncedRoleRoutes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["status_msg"], "success")
         self.assertEqual(service.synced_role_calls, [{"server": "梦江南", "name": "角色A"}])
 
+    async def test_synced_role_allows_empty_server_for_candidates(self) -> None:
+        module = _load_router_module()
+        service = _FakeInspectService()
+        service.synced_role_result = {
+            "error": True,
+            "message": "role_identity_not_found",
+            "candidates": [],
+        }
+        module.jjc_ranking_inspect_service = service
+
+        response = await module.get_ranking_stats_synced_role(server=" ", name=" 角色A ")
+
+        self.assertEqual(response["status_code"], 1)
+        self.assertEqual(response["status_msg"], "role_identity_not_found")
+        self.assertEqual(service.synced_role_calls, [{"server": "", "name": "角色A"}])
+
     async def test_synced_role_missing_returns_role_identity_not_found(self) -> None:
         module = _load_router_module()
         service = _FakeInspectService()

@@ -221,12 +221,12 @@ async def get_ranking_stats_role_indicator(
 
 @router.get("/ranking-stats/synced-role")
 async def get_ranking_stats_synced_role(
-    server: str = Query(..., description="服务器名"),
+    server: str = Query("", description="服务器名；为空时返回全服候选"),
     name: str = Query(..., description="角色名"),
 ) -> dict[str, Any]:
     server = server.strip()
     name = name.strip()
-    if not server or not name:
+    if not name:
         return error_response("invalid_params")
 
     result = await jjc_ranking_inspect_service.resolve_synced_role(server=server, name=name)

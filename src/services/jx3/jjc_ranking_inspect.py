@@ -339,7 +339,9 @@ class JjcRankingInspectService:
 
     async def resolve_synced_role(self, *, server: str, name: str) -> dict[str, Any]:
         """Resolve a role for the synced-match page using role_identities only."""
-        identity = await self._resolve_synced_identity_only(server=server, name=name)
+        identity = None
+        if str(server or "").strip():
+            identity = await self._resolve_synced_identity_only(server=server, name=name)
         if not identity:
             candidates = await self._find_synced_role_candidates(server=server, name=name)
             return {

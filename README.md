@@ -17,7 +17,7 @@ JX3Bot 是一个基于 NoneBot2 的剑网 3 QQ 机器人，运行在 OneBot V11 
   - `GET /api/jjc/ranking-stats?action=read&timestamp=<时间戳>`
   - `GET /api/jjc/ranking-stats/details?timestamp=<时间戳>&range=<范围>&lane=<healer|dps>&kungfu=<心法>`
   - `GET /api/jjc/ranking-stats/role-recent?server=<服务器>&name=<角色>`
-  - `GET /api/jjc/ranking-stats/synced-role?server=<服务器>&name=<角色>`：查询本地已收录角色身份和同步状态
+  - `GET /api/jjc/ranking-stats/synced-role?server=<服务器>&name=<角色>`：查询本地已收录角色身份和同步状态；`server` 为空时按角色名返回本地候选
   - `GET /api/jjc/ranking-stats/synced-role-matches?server=<服务器>&name=<角色>&page=1&page_size=20`：按角色 `global_id` 分页读取其参与过的本地已同步 3v3 对局
   - `POST /api/jjc/ranking-stats/synced-role-sync`：将已收录角色加入 JJC 同步队列
   - `GET /api/jjc/ranking-stats/match-detail?match_id=<对局ID>`

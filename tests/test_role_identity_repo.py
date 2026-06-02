@@ -653,6 +653,57 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [])
         self.assertEqual(db.role_identities.pipeline, [])
 
+    async def test_synced_match_page_candidates_empty_server_means_all_servers(self) -> None:
+        docs = [
+            {
+                "_id": "same-name-a",
+                "identity_key": "global_id:a",
+                "identity_level": "global_id",
+                "server": "梦江南",
+                "normalized_server": "梦江南",
+                "name": "角色A",
+                "normalized_name": "角色a",
+                "last_seen_at": datetime(2026, 5, 1, tzinfo=timezone.utc),
+            },
+            {
+                "_id": "same-name-b",
+                "identity_key": "global:b",
+                "identity_level": "global",
+                "server": "唯我独尊",
+                "normalized_server": "唯我独尊",
+                "name": "角色A",
+                "normalized_name": "角色a",
+                "last_seen_at": datetime(2026, 4, 1, tzinfo=timezone.utc),
+            },
+            {
+                "_id": "suffix",
+                "identity_key": "game:suffix",
+                "identity_level": "game_role",
+                "server": "长安城",
+                "normalized_server": "长安城",
+                "name": "角色A@旧服",
+                "normalized_name": "角色a@旧服",
+                "last_seen_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+            },
+        ]
+        db = CandidateDb(docs)
+        repo = RoleIdentityRepo(db=db)
+
+        result = await repo.find_synced_match_page_candidates(
+            server="",
+            name="角色A",
+            limit=8,
+        )
+
+        self.assertEqual(
+            [doc["identity_key"] for doc in result],
+            ["global_id:a", "global:b", "game:suffix"],
+        )
+        self.assertEqual(
+            db.role_identities.pipeline[0]["$match"]["$or"][0]["normalized_server"]["$ne"],
+            "",
+        )
+
     async def test_synced_match_page_candidates_include_suffixes_and_sort_deterministically(self) -> None:
         docs = [
             {

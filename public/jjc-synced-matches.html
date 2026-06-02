@@ -290,16 +290,27 @@
             font-size: 0.95rem;
         }
 
+        .match-refresh-btn {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            line-height: 1;
+        }
+
         .match-list-panel {
             display: grid;
-            gap: 10px;
+            gap: 6px;
         }
 
         .match-row-btn {
             width: 100%;
             text-align: left;
             border-radius: 8px;
-            padding: 14px 16px;
+            padding: 9px 12px;
             background: rgba(255, 255, 255, 0.92);
             border: 1px solid var(--line);
             cursor: pointer;
@@ -325,26 +336,26 @@
             display: flex;
             flex-wrap: wrap;
             align-items: center;
-            gap: 8px 14px;
+            gap: 6px 10px;
         }
 
         .match-row-top {
-            margin-bottom: 8px;
+            margin-bottom: 4px;
         }
 
         .match-row-meta {
             color: var(--muted);
-            font-size: 0.86rem;
+            font-size: 0.82rem;
         }
 
         .match-tag {
             display: inline-flex;
             align-items: center;
-            padding: 4px 10px;
+            padding: 3px 8px;
             border-radius: 999px;
             background: rgba(91, 124, 250, 0.1);
             color: var(--accent);
-            font-size: 0.8rem;
+            font-size: 0.76rem;
             font-weight: 700;
         }
 
@@ -359,10 +370,9 @@
         }
 
         .match-icons-row {
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 8px;
-            margin-top: 8px;
+            gap: 6px;
             flex-wrap: wrap;
         }
 
@@ -376,8 +386,8 @@
 
         .match-kungfu-icon,
         .team-kungfu-icon {
-            width: 22px;
-            height: 22px;
+            width: 20px;
+            height: 20px;
             border-radius: 4px;
             background: #fff;
             border: 1px solid rgba(0, 0, 0, 0.08);
@@ -394,7 +404,7 @@
         }
 
         .match-vs {
-            font-size: 0.78rem;
+            font-size: 0.74rem;
             font-weight: 700;
             color: var(--muted);
         }
@@ -839,7 +849,7 @@
             <form class="search-form" id="search-form">
                 <label>
                     服务器
-                    <select id="server-input" name="server" required>
+                    <select id="server-input" name="server">
                         <option value="">正在加载服务器...</option>
                     </select>
                 </label>
@@ -853,7 +863,7 @@
         </section>
 
         <section class="content-panel" id="content-panel">
-            <div class="empty-state">输入服务器和角色名后，将展示赛季战绩和可查看的对局。</div>
+            <div class="empty-state">输入角色名后可先在全部服务器中查找候选；选中具体角色后展示赛季战绩和可查看的对局。</div>
         </section>
     </main>
 
@@ -958,7 +968,7 @@
                     }
                     grouped.get(zone).push(server);
                 });
-                const options = ['<option value="">请选择服务器</option>'];
+                const options = ['<option value="">全部服务器</option>'];
                 grouped.forEach((serverNames, zone) => {
                     options.push(`<optgroup label="${escapeHtml(zone)}">`);
                     serverNames.forEach((server) => {
@@ -989,9 +999,8 @@
             const fallbackInput = document.createElement("input");
             fallbackInput.id = "server-input";
             fallbackInput.name = "server";
-            fallbackInput.required = true;
             fallbackInput.autocomplete = "off";
-            fallbackInput.placeholder = "手动输入服务器";
+            fallbackInput.placeholder = "留空查询全部服务器";
             fallbackInput.value = params.get("server") || "";
             serverInput.replaceWith(fallbackInput);
             serverInput = fallbackInput;
@@ -1218,7 +1227,17 @@
             if (!team1Icons && !team2Icons) {
                 return "";
             }
-            return `<div class="match-icons-row"><div class="match-team-icons">${team1Icons}</div><span class="match-vs">vs</span><div class="match-team-icons">${team2Icons}</div></div>`;
+            return `<span class="match-icons-row"><span class="match-team-icons">${team1Icons}</span><span class="match-vs">vs</span><span class="match-team-icons">${team2Icons}</span></span>`;
+        }
+
+        function renderSyncButtonText(syncStatus) {
+            if (isPageSyncing(syncStatus)) {
+                return "正在同步";
+            }
+            if (isPageSyncQueued(syncStatus)) {
+                return "已在队列中";
+            }
+            return "加入同步队列";
         }
 
         function renderMatchItem(match, playerName, playerServer) {
@@ -1235,12 +1254,12 @@
                         <span class="match-tag ${match.won ? "win" : "lose"}">${match.won ? "胜利" : "失败"}</span>
                         <span>${escapeHtml(match.kungfu || "未知心法")}</span>
                         <span>${renderValue(match.total_mmr)}${match.mmr_delta != null ? ` (${match.mmr_delta > 0 ? "+" : ""}${escapeHtml(match.mmr_delta)})` : ""}</span>
+                        ${renderCachedTeamIcons(match.cached_detail_summary)}
                     </div>
                     <div class="match-row-bottom match-row-meta">
                         <span>开始时间：${formatTime(match.start_time || sync.match_time)}</span>
                         <span>时长：${formatDuration(match.duration)}</span>
                     </div>
-                    ${renderCachedTeamIcons(match.cached_detail_summary)}
                 </button>
             `;
         }
@@ -1361,11 +1380,11 @@
             const isSyncing = isPageSyncing(sync);
             const position = sync && sync.queue_position;
             const statusText = isSyncing
-                ? "正在更新"
+                ? "正在同步"
                 : isQueued
-                ? `等待更新${position ? `，第 ${position} 位` : ""}`
-                : "当前没有本页面更新请求";
-            return `更新状态：${statusText}，最后同步：${renderSyncTime(sync)}`;
+                ? `已加入同步队列${position ? `，第 ${position} 位` : ""}`
+                : "当前没有本页面同步队列请求";
+            return `同步状态：${statusText}，最后同步：${renderSyncTime(sync)}`;
         }
 
         function updateEnqueueButton(syncStatus) {
@@ -1375,11 +1394,7 @@
             }
             const syncActive = isPageSyncActive(syncStatus);
             button.disabled = syncActive;
-            button.textContent = isPageSyncing(syncStatus)
-                ? "正在更新"
-                : isPageSyncQueued(syncStatus)
-                ? "已在排队"
-                : "更新对局";
+            button.textContent = renderSyncButtonText(syncStatus);
         }
 
         function renderRoleContent(data, indicatorData) {
@@ -1406,7 +1421,7 @@
                         <h2 class="role-title">${escapeHtml(currentRole.name)} · ${escapeHtml(currentRole.server)}</h2>
                         <div class="muted">对局需要后台异步同步；这里只展示已经同步下来且可以查看详情的 3v3 对局，列表不一定完整。可以提交更新请求后等待同步完成。</div>
                     </div>
-                    <button class="primary-btn" id="enqueue-sync-btn" type="button"${canEnqueue && !syncActive ? "" : " disabled"}>${canEnqueue ? (isPageSyncing(data.sync_status) ? "正在更新" : isPageSyncQueued(data.sync_status) ? "已在排队" : "更新对局") : "暂不可更新"}</button>
+                    <button class="primary-btn" id="enqueue-sync-btn" type="button"${canEnqueue && !syncActive ? "" : " disabled"}>${canEnqueue ? renderSyncButtonText(data.sync_status) : "暂不可同步"}</button>
                 </div>
                 <div class="role-overview-toolbar">
                     <span class="cache-label" id="role-indicator-cache-label">${renderIndicatorCacheLabel(indicatorData)}</span>
@@ -1419,6 +1434,7 @@
                     <span class="match-list-title">可查看对局</span>
                     <div class="match-list-actions">
                         <span class="cache-label" id="sync-list-label">${renderListSyncLabel(data)}</span>
+                        <button class="match-refresh-btn" id="refresh-match-list-btn" type="button" title="刷新当前对局列表" aria-label="刷新当前对局列表">↻</button>
                     </div>
                 </div>
                 <div class="match-list-panel" id="match-list-panel">
@@ -1446,6 +1462,9 @@
             }
             if (candidate.reason === "name_with_suffix") {
                 return "角色名带 @ 后缀，可能是改名或转服后的历史身份";
+            }
+            if (!serverInput.value.trim()) {
+                return "本地已收录角色";
             }
             return "其他服务器存在同名角色";
         }
@@ -1480,11 +1499,16 @@
         function renderNotFound(data) {
             currentRole = null;
             currentPagination = { page: 1, hasMore: false, isLoading: false };
-            const message = data && data.message === "role_identity_not_found"
+            const allServerSearch = !serverInput.value.trim();
+            const message = allServerSearch
+                ? "请选择一个本地已收录角色。"
+                : data && data.message === "role_identity_not_found"
                 ? "暂时查不到这个角色。下面可能有可选的同名或历史后缀角色。"
                 : "暂时查不到这个角色。";
             const candidates = data && Array.isArray(data.candidates) ? data.candidates : [];
-            const guidance = data && data.guidance
+            const guidance = allServerSearch
+                ? "点击候选角色后会自动带入服务器并加载该角色的已同步对局。"
+                : data && data.guidance
                 ? data.guidance
                 : "如果完全没有候选，可以搜索和他打过 3v3 的角色，更新该角色对局后，系统会从对局详情里同步目标角色信息。";
             contentPanel.innerHTML = `
@@ -1548,7 +1572,7 @@
         async function searchRole() {
             const server = serverInput.value.trim();
             const name = nameInput.value.trim();
-            if (!server || !name) {
+            if (!name) {
                 return;
             }
             const token = ++searchToken;
@@ -1562,7 +1586,7 @@
                 }
                 if (!roleData || roleData.message === "role_identity_not_found" || (!roleData.identity && !roleData.player)) {
                     renderNotFound(roleData);
-                    setStatus("未找到角色");
+                    setStatus(server ? "未找到角色" : "请选择候选角色");
                     return;
                 }
                 currentRole = {
@@ -1570,6 +1594,10 @@
                     name: roleData.player?.name || roleData.identity?.name || name,
                     player: roleData.player || {},
                     identity: roleData.identity || {},
+                };
+                const roleSnapshot = {
+                    server: currentRole.server,
+                    name: currentRole.name,
                 };
                 renderRoleContent({
                     player: roleData.player || {},
@@ -1583,16 +1611,31 @@
 
                 loadRoleIndicator(false);
 
-                fetchJson(buildGetUrl(syncedMatchesApiBase, server, name, { page: 1, page_size: pageSize }))
+                fetchJson(buildGetUrl(
+                    syncedMatchesApiBase,
+                    roleSnapshot.server,
+                    roleSnapshot.name,
+                    { page: 1, page_size: pageSize },
+                ))
                     .then((matchesData) => {
-                        if (token !== searchToken) {
+                        if (
+                            token !== searchToken ||
+                            !currentRole ||
+                            currentRole.server !== roleSnapshot.server ||
+                            currentRole.name !== roleSnapshot.name
+                        ) {
                             return;
                         }
                         renderMatches(matchesData, false);
                         setStatus("已加载对局");
                     })
                     .catch(() => {
-                        if (token !== searchToken) {
+                        if (
+                            token !== searchToken ||
+                            !currentRole ||
+                            currentRole.server !== roleSnapshot.server ||
+                            currentRole.name !== roleSnapshot.name
+                        ) {
                             return;
                         }
                         renderMatchesError();
@@ -1604,7 +1647,7 @@
                 }
                 if ((error.message || "") === "role_identity_not_found") {
                     renderNotFound(error.data || { message: "role_identity_not_found" });
-                    setStatus("未找到角色");
+                    setStatus(server ? "未找到角色" : "请选择候选角色");
                     return;
                 }
                 contentPanel.innerHTML = "<div class=\"empty-state\">查询失败，请稍后再试。</div>";
@@ -1642,6 +1685,63 @@
             }
         }
 
+        async function refreshCurrentMatches() {
+            if (!currentRole) {
+                return;
+            }
+            const roleSnapshot = {
+                server: currentRole.server,
+                name: currentRole.name,
+            };
+            const button = document.getElementById("refresh-match-list-btn");
+            const listPanel = document.getElementById("match-list-panel");
+            if (button) {
+                button.disabled = true;
+                button.textContent = "…";
+            }
+            if (listPanel) {
+                listPanel.innerHTML = renderMatchListState({ matches_loading: true }, roleSnapshot.name, roleSnapshot.server);
+            }
+            currentPagination = { page: 1, hasMore: false, isLoading: true };
+            try {
+                const data = await fetchJson(buildGetUrl(
+                    syncedMatchesApiBase,
+                    roleSnapshot.server,
+                    roleSnapshot.name,
+                    { page: 1, page_size: pageSize },
+                ));
+                if (
+                    !currentRole ||
+                    currentRole.server !== roleSnapshot.server ||
+                    currentRole.name !== roleSnapshot.name
+                ) {
+                    return;
+                }
+                renderMatches(data, false);
+                setStatus("已刷新当前对局列表");
+            } catch (error) {
+                if (
+                    !currentRole ||
+                    currentRole.server !== roleSnapshot.server ||
+                    currentRole.name !== roleSnapshot.name
+                ) {
+                    return;
+                }
+                renderMatchesError();
+                setStatus("刷新对局列表失败，请稍后再试", "error");
+            } finally {
+                if (
+                    button &&
+                    currentRole &&
+                    currentRole.server === roleSnapshot.server &&
+                    currentRole.name === roleSnapshot.name
+                ) {
+                    button.disabled = false;
+                    button.textContent = "↻";
+                }
+            }
+        }
+
         async function enqueueSync() {
             if (!currentRole) {
                 return;
@@ -1649,7 +1749,7 @@
             const button = document.getElementById("enqueue-sync-btn");
             if (button) {
                 button.disabled = true;
-                button.textContent = "提交中...";
+                button.textContent = "入队中...";
             }
             try {
                 const enqueuePayload = await fetchJson(syncedSyncApiBase, {
@@ -1667,12 +1767,12 @@
                 ));
                 const cachedIndicator = roleIndicatorCache.get(getIndicatorCacheKey(currentRole));
                 renderRoleContent(data, cachedIndicator ? cachedIndicator.data : null);
-                setStatus(`已提交更新请求，${renderListSyncLabel(enqueuePayload)}`);
+                setStatus(`已提交同步队列请求，${renderListSyncLabel(enqueuePayload)}`);
             } catch (error) {
-                setStatus("更新请求失败，请稍后再试", "error");
+                setStatus("加入同步队列失败，请稍后再试", "error");
                 if (button) {
                     button.disabled = false;
-                    button.textContent = "更新对局";
+                    button.textContent = "加入同步队列";
                 }
             }
         }
@@ -2104,6 +2204,10 @@
             }
             if (target.closest("#refresh-role-indicator-btn")) {
                 loadRoleIndicator(true);
+                return;
+            }
+            if (target.closest("#refresh-match-list-btn")) {
+                refreshCurrentMatches();
                 return;
             }
             if (target.closest("#load-more-btn")) {
