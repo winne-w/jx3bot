@@ -2386,6 +2386,8 @@
             if (isAppend) {
                 const panel = roleModalBody.querySelector(".match-list-panel");
                 if (panel) {
+                    const modalEmpty = panel.querySelector(".modal-empty");
+                    if (modalEmpty) modalEmpty.remove();
                     const loadMoreWrap = panel.querySelector(".load-more-wrap");
                     const fragment = document.createElement("div");
                     fragment.innerHTML = matches.map((match) => renderRoleRecentMatchItem(match, playerName, playerServer)).join("");
@@ -2422,9 +2424,10 @@
                 overviewHtml = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">正在加载赛季战绩...</strong><span>等待战绩数据</span></div>`;
             }
 
+            const hasMore = !!(pagination.has_more);
             const matchListHtml = matches.length
                 ? matches.map((match) => renderRoleRecentMatchItem(match, playerName, playerServer)).join("")
-                : "<div class='modal-empty'>暂无最近 3v3 对局数据</div>";
+                : (hasMore ? "" : "<div class='modal-empty'>暂无最近 3v3 对局数据</div>");
 
             roleModalBody.innerHTML = `
                 <div class="role-overview-toolbar">

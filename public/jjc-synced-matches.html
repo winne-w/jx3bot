@@ -904,6 +904,7 @@
         const matchDetailApiBase = params.get("match_detail_api") || `${BASE_API}/match-detail`;
         const serverListApiBase = params.get("server_list_api") || "/jx3bot/api/jx3/servers";
         const pageSize = Number(params.get("page_size") || "20") || 20;
+        const pageSyncPriority = 2;
 
         const searchForm = document.getElementById("search-form");
         let serverInput = document.getElementById("server-input");
@@ -928,6 +929,7 @@
         let announcementLoading = false;
         let announcementObserver = null;
         let currentPopupSeenAt = null;
+        let searchToken = 0;
 
         async function loadServerOptions() {
             serverInput.disabled = true;
@@ -1269,6 +1271,20 @@
             `;
         }
 
+        function renderMatchListState(data, playerName, playerServer) {
+            if (data && data.matches_loading) {
+                return "<div class='modal-loading'>正在加载已同步对局...</div>";
+            }
+            if (data && data.matches_error) {
+                return "<div class='modal-loading error'>对局加载失败，请稍后再试</div>";
+            }
+            const matches = Array.isArray(data && data.recent_matches) ? data.recent_matches : [];
+            if (!matches.length) {
+                return "<div class='modal-empty'>暂无可查看的 3v3 对局</div>";
+            }
+            return matches.map((match) => renderMatchItem(match, playerName, playerServer)).join("");
+        }
+
         function renderMatches(data, append) {
             const matches = Array.isArray(data.recent_matches) ? data.recent_matches : [];
             const player = data.player || currentRole?.player || {};
@@ -1298,43 +1314,67 @@
                 return;
             }
 
-            const listHtml = matches.length
-                ? matches.map((match) => renderMatchItem(match, playerName, playerServer)).join("")
-                : "<div class='modal-empty'>暂无可查看的 3v3 对局</div>";
             const listPanel = document.getElementById("match-list-panel");
             if (listPanel) {
-                listPanel.innerHTML = `${listHtml}${renderLoadMoreButton()}`;
+                listPanel.innerHTML = `${renderMatchListState(data, playerName, playerServer)}${renderLoadMoreButton()}`;
             }
             const syncLabel = document.getElementById("sync-list-label");
             if (syncLabel) {
                 syncLabel.textContent = renderListSyncLabel(data);
             }
+            updateEnqueueButton(data.sync_status);
+        }
+
+        function renderMatchesError() {
+            currentPagination = {
+                page: currentPagination.page || 1,
+                hasMore: false,
+                isLoading: false,
+            };
+            const listPanel = document.getElementById("match-list-panel");
+            if (listPanel) {
+                listPanel.innerHTML = renderMatchListState({ matches_error: true }, currentRole?.name || "", currentRole?.server || "");
+            }
+        }
+
+        function isPageSyncQueued(sync) {
+            if (!sync || sync.status !== "queued") {
+                return false;
+            }
+            return Number(sync.priority) === pageSyncPriority;
         }
 
         function renderListSyncLabel(data) {
             const sync = data && data.sync_status;
-            const isQueued = sync && sync.status === "queued";
+            const isQueued = isPageSyncQueued(sync);
             const position = sync && sync.queue_position;
             const statusText = isQueued
                 ? `等待更新${position ? `，第 ${position} 位` : ""}`
-                : "当前没有等待更新";
-            return `更新状态：${statusText}，最后更新：${renderSyncTime(sync)}`;
+                : "当前没有本页面更新请求";
+            return `更新状态：${statusText}，最后同步：${renderSyncTime(sync)}`;
+        }
+
+        function updateEnqueueButton(syncStatus) {
+            const button = document.getElementById("enqueue-sync-btn");
+            if (!button || !currentRole || !currentRole.identity || !currentRole.identity.identity_id) {
+                return;
+            }
+            const alreadyQueued = isPageSyncQueued(syncStatus);
+            button.disabled = alreadyQueued;
+            button.textContent = alreadyQueued ? "已在排队" : "更新对局";
         }
 
         function renderRoleContent(data, indicatorData) {
             const player = data.player || {};
             const identity = data.identity || {};
             const canEnqueue = identity && identity.identity_id;
+            const alreadyQueued = isPageSyncQueued(data.sync_status);
             currentRole = {
                 server: player.server || identity.server || serverInput.value.trim(),
                 name: player.name || identity.name || nameInput.value.trim(),
                 player,
                 identity,
             };
-            const matches = Array.isArray(data.recent_matches) ? data.recent_matches : [];
-            const listHtml = matches.length
-                ? matches.map((match) => renderMatchItem(match, currentRole.name, currentRole.server)).join("")
-                : "<div class='modal-empty'>暂无可查看的 3v3 对局</div>";
             const pagination = data.pagination || {};
             currentPagination = {
                 page: Number(pagination.page || 1),
@@ -1346,9 +1386,9 @@
                 <div class="role-header">
                     <div>
                         <h2 class="role-title">${escapeHtml(currentRole.name)} · ${escapeHtml(currentRole.server)}</h2>
-                        <div class="muted">这里只展示已经可以查看详情的 3v3 对局。</div>
+                        <div class="muted">对局需要后台异步同步；这里只展示已经同步下来且可以查看详情的 3v3 对局，列表不一定完整。可以提交更新请求后等待同步完成。</div>
                     </div>
-                    <button class="primary-btn" id="enqueue-sync-btn" type="button"${canEnqueue ? "" : " disabled"}>${canEnqueue ? "更新对局" : "暂不可更新"}</button>
+                    <button class="primary-btn" id="enqueue-sync-btn" type="button"${canEnqueue && !alreadyQueued ? "" : " disabled"}>${canEnqueue ? (alreadyQueued ? "已在排队" : "更新对局") : "暂不可更新"}</button>
                 </div>
                 <div class="role-overview-toolbar">
                     <span class="cache-label" id="role-indicator-cache-label">${renderIndicatorCacheLabel(indicatorData)}</span>
@@ -1364,8 +1404,8 @@
                     </div>
                 </div>
                 <div class="match-list-panel" id="match-list-panel">
-                    ${listHtml}
-                    ${renderLoadMoreButton()}
+                    ${renderMatchListState(data, currentRole.name, currentRole.server)}
+                    ${data.matches_loading || data.matches_error ? "" : renderLoadMoreButton()}
                 </div>
             `;
         }
@@ -1379,6 +1419,7 @@
             if (syncLabel) {
                 syncLabel.textContent = renderListSyncLabel({ sync_status: syncStatus });
             }
+            updateEnqueueButton(syncStatus);
         }
 
         function renderCandidateReason(candidate) {
@@ -1452,25 +1493,36 @@
             if (!currentRole) {
                 return null;
             }
+            const roleSnapshot = {
+                server: currentRole.server,
+                name: currentRole.name,
+                identity: currentRole.identity,
+            };
             const cacheKey = getIndicatorCacheKey(currentRole);
             if (!forceRefresh) {
                 const cached = roleIndicatorCache.get(cacheKey);
                 if (cached && Date.now() - cached.fetchedAt < 86400000) {
-                    updateRoleOverviewIndicator(cached.data);
+                    if (getIndicatorCacheKey(currentRole) === cacheKey) {
+                        updateRoleOverviewIndicator(cached.data);
+                    }
                     return cached.data;
                 }
             }
             try {
                 const data = await fetchJson(
-                    buildRoleIndicatorUrl(currentRole.server, currentRole.name, currentRole.identity, { forceRefresh }),
+                    buildRoleIndicatorUrl(roleSnapshot.server, roleSnapshot.name, roleSnapshot.identity, { forceRefresh }),
                     { cache: "no-store" },
                 );
                 roleIndicatorCache.set(cacheKey, { fetchedAt: Date.now(), data });
-                updateRoleOverviewIndicator(data);
+                if (getIndicatorCacheKey(currentRole) === cacheKey) {
+                    updateRoleOverviewIndicator(data);
+                }
                 return data;
             } catch (error) {
                 const data = { error: true, message: error.message || "indicator_unavailable" };
-                updateRoleOverviewIndicator(data);
+                if (getIndicatorCacheKey(currentRole) === cacheKey) {
+                    updateRoleOverviewIndicator(data);
+                }
                 return data;
             }
         }
@@ -1481,11 +1533,15 @@
             if (!server || !name) {
                 return;
             }
+            const token = ++searchToken;
             searchBtn.disabled = true;
             setStatus("正在查询角色...");
-            contentPanel.innerHTML = "<div class='empty-state'>正在读取角色战绩和对局...</div>";
+            contentPanel.innerHTML = "<div class='empty-state'>正在读取角色信息...</div>";
             try {
                 const roleData = await fetchJson(buildGetUrl(syncedRoleApiBase, server, name));
+                if (token !== searchToken) {
+                    return;
+                }
                 if (!roleData || roleData.message === "role_identity_not_found" || (!roleData.identity && !roleData.player)) {
                     renderNotFound(roleData);
                     setStatus("未找到角色");
@@ -1497,13 +1553,37 @@
                     player: roleData.player || {},
                     identity: roleData.identity || {},
                 };
-                const [matchesData, indicatorData] = await Promise.all([
-                    fetchJson(buildGetUrl(syncedMatchesApiBase, server, name, { page: 1, page_size: pageSize })),
-                    loadRoleIndicator(false).catch(() => ({ error: true, message: "indicator_unavailable" })),
-                ]);
-                renderRoleContent(matchesData, indicatorData);
-                setStatus("已加载对局");
+                renderRoleContent({
+                    player: roleData.player || {},
+                    identity: roleData.identity || {},
+                    sync_status: roleData.sync_status,
+                    pagination: { page: 1, page_size: pageSize, total: 0, has_more: false },
+                    recent_matches: [],
+                    matches_loading: true,
+                }, null);
+                setStatus("已找到角色，正在加载战绩和对局...");
+
+                loadRoleIndicator(false);
+
+                fetchJson(buildGetUrl(syncedMatchesApiBase, server, name, { page: 1, page_size: pageSize }))
+                    .then((matchesData) => {
+                        if (token !== searchToken) {
+                            return;
+                        }
+                        renderMatches(matchesData, false);
+                        setStatus("已加载对局");
+                    })
+                    .catch(() => {
+                        if (token !== searchToken) {
+                            return;
+                        }
+                        renderMatchesError();
+                        setStatus("对局加载失败，请稍后再试", "error");
+                    });
             } catch (error) {
+                if (token !== searchToken) {
+                    return;
+                }
                 if ((error.message || "") === "role_identity_not_found") {
                     renderNotFound(error.data || { message: "role_identity_not_found" });
                     setStatus("未找到角色");

@@ -123,9 +123,6 @@ TUILAN_USER_AGENT = "okhttp/3.12.2"
 # 可通过环境变量 MONGO_URI 或 runtime_config.json 覆盖
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://root:password@127.0.0.1:27017/jx3bot?authSource=admin")
 
-# JJC 本地已同步对局参与者投影读取模式: off/shadow/on
-JJC_MATCH_PARTICIPANTS_READ_MODE = os.getenv("JJC_MATCH_PARTICIPANTS_READ_MODE", "off")
-
 # JJC 橙武名称白名单（品质为5且名称在此列表中才视为橙武）
 JJC_LEGENDARY_WEAPON_NAMES = [
     "钗蝶语双", "七月嘉树", "万象金声", "幽微夜", "蜕骨", "伏魔悲音", "意真",
@@ -179,7 +176,6 @@ RUNTIME_CONFIG_KEYS = {
     "calendar_time": int,
     "STATUS_check_time": int,
     "MONGO_URI": str,
-    "JJC_MATCH_PARTICIPANTS_READ_MODE": str,
 }
 
 if os.path.exists(RUNTIME_CONFIG_FILE):

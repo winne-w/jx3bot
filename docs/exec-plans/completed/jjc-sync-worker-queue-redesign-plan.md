@@ -239,7 +239,7 @@
 - 2026-05-23：已新增只读 HTTP API 与 `public/jjc-sync-queue.html` 队列页面。
 - 2026-05-23：已同步 README、数据库设计、runbook 和管理员帮助。
 - 2026-05-23：根据复审补充详情状态写回租约 fencing、身份主键迁移租约 fencing、`start --limit=0` 参数兼容修复，并将队列页挂载为 bot 同源静态页面。
-- 2026-05-23：已通过本计划自动化验证；代码未提交，计划继续保留在 active。
+- 2026-05-23：已通过本计划自动化验证。
 - 2026-05-23：review 后收敛旧执行路径：过期 `syncing` 租约恢复为 `queued`，指定入队不再打断正在同步的角色，旧 `run_once` 兼容入口改为领取 `queued` 角色。
 - 2026-05-23：二次 review 发现 release 缺少 lease fencing、长角色同步缺少续租、`run_once` 与 worker tick 仍有统计语义漂移、页面缺少 `queued` 展示。计划先修无争议阻塞项：release 必须校验租约 owner，长流程定期续租，旧兼容路径复用 worker tick，队列页面展示/筛选 `queued`；CLI `start --limit` 空队列退出语义和暂停期间手动入队语义待用户选择后落地。
 - 2026-05-23：用户确认 `start --limit` 保持常驻等待、仅修改文案；全局暂停只限制 worker 领取，QQ/CLI 批量入队和手动添加仍允许写入 `queued`。

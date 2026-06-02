@@ -67,3 +67,4 @@
 - 2026-05-27：按评审意见修正候选查询：新增 `idx_normalized_name`，将排序前移到 Mongo 聚合，补充 RoleIdentityRepo 候选行为单测。
 - 2026-05-27：第二轮评审修正：候选去重改为按规范化服务器+角色名保留 Mongo 排序中的最佳身份；修正单测 fake aggregate 混合排序方向并补充同角色重复身份与升序 tie-break 覆盖。验收命令已通过。
 - 2026-05-27：第四轮评审修正：`find_synced_match_page_candidates` 在 `$group` + `$replaceRoot` 后新增基于候选 helper 字段的确定性 `$sort`，再执行最终 `$limit`；单测 fake aggregate 主动打乱 `$group` 输出顺序并断言最终排序位置。验收命令已通过。
+- 2026-05-29：已随提交 `99b01e6` 落地并归档到 `completed/`。

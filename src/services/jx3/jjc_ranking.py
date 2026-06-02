@@ -199,6 +199,78 @@ class JjcRankingService:
                                 detail_source="warmup",
                             )
 
+        role_recent = cache_warmup.get("role_recent")
+        if isinstance(role_recent, dict):
+            raw_matches = role_recent.get("raw_matches") or []
+            if raw_matches:
+                from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+                indicator_data = role_indicator if isinstance(role_indicator, dict) else {}
+                game_role_id = indicator_data.get("game_role_id")
+                role_id_val = indicator_data.get("role_id")
+                zone_val = indicator_data.get("zone")
+                global_role_id_val = indicator_data.get("global_role_id")
+                global_id_val = indicator_data.get("global_id")
+
+                identity_key = (
+                    f"global_id:{global_id_val}"
+                    if global_id_val
+                    else (f"global:{global_role_id_val}" if global_role_id_val else None)
+                )
+
+                identity_hints: dict[str, Any] = {}
+                for key, value in [
+                    ("game_role_id", game_role_id),
+                    ("role_id", role_id_val),
+                    ("zone", zone_val),
+                    ("global_role_id", global_role_id_val),
+                    ("global_id", global_id_val),
+                ]:
+                    if value:
+                        identity_hints[key] = value
+
+                identity = {
+                    "server": server,
+                    "name": name,
+                    "game_role_id": game_role_id,
+                    "role_id": role_id_val,
+                    "zone": zone_val,
+                    "global_role_id": global_role_id_val,
+                    "global_id": global_id_val,
+                    "source": "ranking_warmup",
+                    "identity_hints": identity_hints,
+                }
+
+                max_recent = 20
+                recent_matches = normalize_recent_matches(
+                    raw_matches[:max_recent],
+                    kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
+                    max_recent_matches=max_recent,
+                )
+
+                has_more = len(raw_matches) >= max_recent
+                payload: dict[str, Any] = {
+                    "player": {"server": server, "name": name},
+                    "identity": identity,
+                    "identity_key": identity_key,
+                    "pagination": {
+                        "cursor": 0,
+                        "has_more": has_more,
+                        "next_cursor": max_recent if has_more else None,
+                    },
+                    "recent_matches": recent_matches,
+                }
+
+                try:
+                    await repo.save_role_recent(server, name, {"cached_at": cached_at, "data": payload})
+                except Exception as exc:
+                    logger.warning(
+                        "定时统计预热 role_recent 缓存失败: server={} name={} error={}",
+                        server,
+                        name,
+                        exc,
+                    )
+
     async def _project_match_detail_payload(
         self,
         *,

@@ -1062,5 +1062,124 @@ def asyncio_run(coro):
     return future.result()
 
 
+class KungfuDetailRoleRecentWarmupTests(unittest.TestCase):
+    """Tests for _cache_warmup.role_recent in get_kungfu_detail_by_role_info()."""
+
+    def _make_indicator_resp(self, global_role_id="SK01-test", role_id="rid_123"):
+        return {
+            "code": 0,
+            "msg": "success",
+            "data": {
+                "role_info": {
+                    "role_id": role_id,
+                    "global_role_id": global_role_id,
+                },
+                "indicator": [
+                    {
+                        "type": "3c",
+                        "metrics": [{"pvp_type": 3, "win_count": 10, "total_count": 20}],
+                        "performance": {"mmr": 2500, "grade": 14},
+                    }
+                ],
+            },
+        }
+
+    def _make_match_history_resp(self, matches):
+        return {
+            "code": 0,
+            "msg": "success",
+            "data": matches,
+        }
+
+    def _make_match_item(self, match_id, won=True, kungfu="huajian", pvp_type=3):
+        return {
+            "pvpType": pvp_type,
+            "matchId": match_id,
+            "won": won,
+            "kungfu": kungfu,
+            "match_time": 1700000000 + match_id,
+        }
+
+    def test_role_recent_warmup_with_matches(self):
+        """When match_history returns data, _cache_warmup.role_recent is populated."""
+        from src.services.jx3.kungfu import get_kungfu_detail_by_role_info
+
+        matches = [self._make_match_item(i, won=(i % 2 == 0)) for i in range(15)]
+        responses = [self._make_indicator_resp(), self._make_match_history_resp(matches)]
+        call_count = [0]
+
+        def fake_request(url, params):
+            idx = call_count[0]
+            call_count[0] += 1
+            return responses[idx]
+
+        result = get_kungfu_detail_by_role_info(
+            "rid_123", "zone1", "server1",
+            tuilan_request=fake_request,
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+        )
+
+        self.assertIsNotNone(result)
+        cache_warmup = result.get("_cache_warmup")
+        self.assertIsInstance(cache_warmup, dict)
+        self.assertIn("role_recent", cache_warmup)
+        role_recent = cache_warmup["role_recent"]
+        self.assertEqual(len(role_recent["raw_matches"]), 15)
+        self.assertEqual(role_recent["request_size"], 40)
+
+    def test_role_recent_warmup_empty_matches_no_entry(self):
+        """When match_history returns empty data, no role_recent warmup entry."""
+        from src.services.jx3.kungfu import get_kungfu_detail_by_role_info
+
+        responses = [self._make_indicator_resp(), self._make_match_history_resp([])]
+        call_count = [0]
+
+        def fake_request(url, params):
+            idx = call_count[0]
+            call_count[0] += 1
+            return responses[idx]
+
+        result = get_kungfu_detail_by_role_info(
+            "rid_123", "zone1", "server1",
+            tuilan_request=fake_request,
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+        )
+
+        self.assertIsNotNone(result)
+        cache_warmup = result.get("_cache_warmup")
+        self.assertIsInstance(cache_warmup, dict)
+        self.assertNotIn("role_recent", cache_warmup)
+
+    def test_role_recent_warmup_only_dict_items(self):
+        """raw_matches contains only dict entries, non-dict are filtered."""
+        from src.services.jx3.kungfu import get_kungfu_detail_by_role_info
+
+        mixed = [
+            self._make_match_item(1, won=True),
+            None,
+            "not_a_dict",
+            42,
+            self._make_match_item(2, won=False),
+        ]
+        responses = [self._make_indicator_resp(), self._make_match_history_resp(mixed)]
+        call_count = [0]
+
+        def fake_request(url, params):
+            idx = call_count[0]
+            call_count[0] += 1
+            return responses[idx]
+
+        result = get_kungfu_detail_by_role_info(
+            "rid_123", "zone1", "server1",
+            tuilan_request=fake_request,
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+        )
+
+        cache_warmup = result.get("_cache_warmup")
+        raw_matches = cache_warmup["role_recent"]["raw_matches"]
+        self.assertEqual(len(raw_matches), 2)
+        self.assertTrue(all(isinstance(m, dict) for m in raw_matches))
+
+
 if __name__ == "__main__":
     unittest.main()

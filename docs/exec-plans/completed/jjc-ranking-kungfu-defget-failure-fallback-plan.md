@@ -102,7 +102,7 @@
   - 增加 `defget` 失败但本地历史胜场兜底成功的用例。
   - 增加 `defget` 失败且本地兜底未命中时仍返回原错误的用例。
   - 增加未满 3 胜不算成功的回归用例，如 `wins=2`。
-- `docs/exec-plans/active/jjc-ranking-kungfu-defget-failure-fallback-plan.md`
+- `docs/exec-plans/completed/jjc-ranking-kungfu-defget-failure-fallback-plan.md`
   - 本计划文件。
 
 本次不预计修改数据库结构、索引或 API 文档。
@@ -150,4 +150,5 @@ python -m unittest tests.test_jjc_kungfu_global_id tests.test_jjc_weapon_quality
 
 ## 状态
 
-- 2026-05-26：实现已完成，自动化验证已通过；代码尚未提交，计划继续保留在 active。
+- 2026-05-26：实现已完成，自动化验证已通过。
+- 2026-05-29：已随提交 `99b01e6` 落地并归档到 `completed/`。

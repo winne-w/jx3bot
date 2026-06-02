@@ -1,7 +1,7 @@
 # JJC 已同步对局列表页面方案
 
-状态：按计划实现中（global_id 严格匹配修复）
-更新时间：2026-05-27
+状态：已完成，已归档
+更新时间：2026-05-29
 
 ## 背景
 
@@ -9,7 +9,7 @@
 
 本需求要新增一个独立页面，用昵称 + 服务器搜索角色，查看“已经同步到本地”的对局列表。该页面的展示形态应尽量复用竞技排名个人下钻的视觉和交互，但对局来源必须改为本地同步数据，不再实时拉取 `match/history`。同时，原本页面里的“刷新对局”语义要从“重新拉取近期对局”改为“把该角色加入同步队列”。
 
-本方案需要和 `docs/exec-plans/active/jjc-identity-backed-sync-queue-plan.md` 保持兼容：若该计划已落地，以 `role_identities._id` / `jjc_sync_identity_queue.identity_id` 作为队列主关联；若执行时发现线上仍处于旧队列，先完成身份队列改造或在本计划中增加兼容桥接，不直接新增第二套主键语义。
+本方案需要和 `docs/exec-plans/completed/jjc-identity-backed-sync-queue-plan.md` 保持兼容：若该计划已落地，以 `role_identities._id` / `jjc_sync_identity_queue.identity_id` 作为队列主关联；若执行时发现线上仍处于旧队列，先完成身份队列改造或在本计划中增加兼容桥接，不直接新增第二套主键语义。
 
 ## 目标
 
@@ -226,6 +226,10 @@ python -m py_compile src/api/routers/jjc_ranking_stats.py src/services/jx3/jjc_r
 - 取消服务器名、昵称、`global_role_id`、`role_id/game_role_id` 兜底匹配；身份未收录或身份缺 `global_id` 时不返回对局列表。
 - 匹配结果中的胜负、心法、分数仍以 `global_id` 命中的目标玩家所在队伍和目标玩家字段为准。
 - 本次修复不新增集合；如后续线上数据量导致详情玩家 `global_id` 查询过慢，再补充 team1/team2 玩家 `global_id` multikey 索引并同步数据库设计文档。
+
+2026-05-29：
+
+- 已随提交 `99b01e6` 落地并归档到 `completed/`。
 
 ## 风险与回滚
 

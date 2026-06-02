@@ -1,5 +1,11 @@
 # JJC 本地收录角色对局查询索引优化与参与者投影表计划
 
+## 2026-05-29 修订：固定读取参与者投影表
+
+后续超时排查中已移除 `JJC_MATCH_PARTICIPANTS_READ_MODE` 运行时开关，`GET /api/jjc/ranking-stats/synced-role-matches` 当前固定读取 `jjc_match_participants` 投影表，不再通过 `off/shadow/on` 切换，也不再在投影查询异常时 fallback 到 `jjc_match_detail` 详情扫描。
+
+本文件下方关于 `JJC_MATCH_PARTICIPANTS_READ_MODE`、`off/shadow/on`、通过切回 `off` 回滚的内容仅保留为历史计划记录，不代表当前实现。当前回滚方式是代码回滚到详情查询路径，或修复/回填 `jjc_match_participants` 投影数据。
+
 ## 附加变更：回填脚本批次日志
 
 ### 目标
@@ -528,7 +534,8 @@ python -m unittest tests.test_jjc_inspect_repo
 ## 当前状态
 
 - 阶段 1：已实现，`python -m py_compile src/infra/mongo.py` 已通过；待线上索引创建观察。
-- 阶段 2：已按计划实现参与者投影表、读模式切换、保存入口投影、sync metadata 刷新、回填脚本与数据库设计文档更新；代码尚未提交，计划仍保留在 active。
+- 阶段 2：已按计划实现参与者投影表、读模式切换、保存入口投影、sync metadata 刷新、回填脚本与数据库设计文档更新。
+- 2026-05-29：已随提交 `99b01e6` 落地并归档到 `completed/`。
 - 已验证：
   - `python -m py_compile config.py src/infra/mongo.py src/storage/mongo_repos/jjc_match_participant_repo.py src/storage/mongo_repos/jjc_inspect_repo.py src/storage/mongo_repos/jjc_sync_repo.py src/services/jx3/match_detail_participant_projection.py src/services/jx3/singletons.py src/services/jx3/jjc_ranking_inspect.py src/services/jx3/jjc_ranking.py src/services/jx3/jjc_match_data_sync.py scripts/backfill_jjc_match_participants.py`
   - `python -m unittest tests.test_jjc_match_participant_repo tests.test_jjc_ranking_inspect tests.test_jjc_match_data_sync tests.test_jjc_sync_repo`

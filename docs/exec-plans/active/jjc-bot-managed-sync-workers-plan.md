@@ -28,7 +28,11 @@
 
 ## 配置设计
 
-新增配置项放在 `config.py`，优先从环境变量读取，默认关闭：
+新增配置项放在 `config.py`，默认关闭。配置来源按现有项目习惯分三层：
+
+1. `config.py` 默认值。
+2. 环境变量覆盖，方便容器部署。
+3. `runtime_config.json` 覆盖，支持管理员通过 `/修改配置 配置项=值` 写入并自动重启后生效。
 
 | 配置项 | 默认值 | 说明 |
 |---|---:|---|
@@ -38,17 +42,52 @@
 | `JJC_SYNC_WORKER_MAX_SECONDS` | `0` | 单个 worker 最长运行秒数，`0` 表示不限时；生产默认不限时 |
 | `JJC_SYNC_WORKER_MAX_ROLES` | `0` | 单个 worker 最多处理角色数，`0` 表示不限数量；生产默认不限数量 |
 
-配置读取建议：
+`config.py` 中的默认写法：
 
 ```python
-JJC_SYNC_WORKER_COUNT = int(os.getenv("JJC_SYNC_WORKER_COUNT", "0"))
-JJC_SYNC_WORKER_MODE = os.getenv("JJC_SYNC_WORKER_MODE", "incremental_or_full")
-JJC_SYNC_WORKER_IDLE_SLEEP = int(os.getenv("JJC_SYNC_WORKER_IDLE_SLEEP", "10"))
-JJC_SYNC_WORKER_MAX_SECONDS = int(os.getenv("JJC_SYNC_WORKER_MAX_SECONDS", "0"))
-JJC_SYNC_WORKER_MAX_ROLES = int(os.getenv("JJC_SYNC_WORKER_MAX_ROLES", "0"))
+JJC_SYNC_WORKER_COUNT = 0
+JJC_SYNC_WORKER_MODE = "incremental_or_full"
+JJC_SYNC_WORKER_IDLE_SLEEP = 10
+JJC_SYNC_WORKER_MAX_SECONDS = 0
+JJC_SYNC_WORKER_MAX_ROLES = 0
 ```
 
-首版不建议纳入 `RUNTIME_CONFIG_KEYS`，原因是 worker 数量和运行参数只在启动时生效，放进 `/修改配置` 容易造成“配置已改但当前 worker 未变化”的误解。后续如需要热更新，再单独设计 worker supervisor。
+为了保留容器和线上部署的灵活性，实现时可以先用环境变量覆盖这些默认值，例如：
+
+```python
+JJC_SYNC_WORKER_COUNT = int(os.getenv("JJC_SYNC_WORKER_COUNT", JJC_SYNC_WORKER_COUNT))
+JJC_SYNC_WORKER_MODE = os.getenv("JJC_SYNC_WORKER_MODE", JJC_SYNC_WORKER_MODE)
+JJC_SYNC_WORKER_IDLE_SLEEP = int(os.getenv("JJC_SYNC_WORKER_IDLE_SLEEP", JJC_SYNC_WORKER_IDLE_SLEEP))
+JJC_SYNC_WORKER_MAX_SECONDS = int(os.getenv("JJC_SYNC_WORKER_MAX_SECONDS", JJC_SYNC_WORKER_MAX_SECONDS))
+JJC_SYNC_WORKER_MAX_ROLES = int(os.getenv("JJC_SYNC_WORKER_MAX_ROLES", JJC_SYNC_WORKER_MAX_ROLES))
+```
+
+随后把 worker 配置项加入 `RUNTIME_CONFIG_KEYS`，让 `runtime_config.json` 可以覆盖最终值：
+
+```python
+RUNTIME_CONFIG_KEYS = {
+    ...
+    "JJC_SYNC_WORKER_COUNT": int,
+    "JJC_SYNC_WORKER_MODE": str,
+    "JJC_SYNC_WORKER_IDLE_SLEEP": int,
+    "JJC_SYNC_WORKER_MAX_SECONDS": int,
+    "JJC_SYNC_WORKER_MAX_ROLES": int,
+}
+```
+
+`/修改配置` 写入后现有逻辑会自动重启 bot，因此这些启动期配置不需要热更新。需要在回复文案和 runbook 中明确：worker 数量和运行参数修改后通过自动重启生效，不在当前进程中动态增减 task。
+
+启动一个内置 worker 的配置方式：
+
+```python
+JJC_SYNC_WORKER_COUNT = 1
+```
+
+或管理员命令：
+
+```text
+/修改配置 JJC_SYNC_WORKER_COUNT=1
+```
 
 ## 启停设计
 
@@ -79,7 +118,13 @@ shutdown 顺序：
 
 - `config.py`
   - 新增上述 5 个配置项。
-  - 使用环境变量覆盖，默认值保持内置 worker 关闭。
+  - 默认值保持内置 worker 关闭；使用者可以直接改 `config.py`，环境变量覆盖仅作为部署可选能力。
+  - 将 5 个配置项加入 `RUNTIME_CONFIG_KEYS`，支持 `runtime_config.json` 覆盖。
+- `src/plugins/config_manager.py`
+  - `/修改配置` 的 `allowed_keys` 增加 5 个 worker 配置项。
+  - `/查看配置` 展示这 5 个 worker 配置项，便于确认当前运行时配置文件中的值。
+  - 整数项按 int 校验；`JJC_SYNC_WORKER_MODE` 按枚举校验，只允许 `incremental_or_full`、`full`、`incremental`。
+  - 修改成功后沿用现有自动重启流程，使启动期配置在重启后生效。
 - `bot.py`
   - 在现有 `_startup_mongo()` 中完成 Mongo 初始化后调用 worker runtime 的启动函数。
   - 新增 `driver.on_shutdown` 回调调用停止函数。
@@ -92,12 +137,12 @@ shutdown 顺序：
   - 原则上不改业务逻辑。
   - 仅当发现 `run_worker()` 对取消/停止结果不满足 bot 托管场景时，做小范围兼容修正。
 - `README.md`
-  - 增加内置 worker 配置说明和默认关闭说明。
+  - 增加内置 worker 配置说明、默认关闭说明和 `/修改配置 JJC_SYNC_WORKER_COUNT=1` 示例。
 - `README-Docker.md`
-  - 增加 compose 环境变量示例，说明同一容器可以通过 `JJC_SYNC_WORKER_COUNT=1` 随 bot 启动 worker。
+  - 说明同一容器可以通过 `config.py`、`runtime_config.json` 或环境变量配置 `JJC_SYNC_WORKER_COUNT=1` 随 bot 启动 worker；如使用环境变量覆盖，再补充 compose 示例。
 - `docs/references/runbook.md`
   - 更新 JJC 同步运维说明：独立 worker 和 bot 内置 worker 两种模式。
-  - 增加重启、扩容、修改 ticket、观察状态的注意事项。
+  - 增加 `/修改配置` 设置 worker 数量、重启、扩容、修改 ticket、观察状态的注意事项。
 - `docs/exec-plans/index.md`
   - 将本计划加入 Active。
 
@@ -112,6 +157,7 @@ shutdown 顺序：
   - `mode` 非法：记录错误并不启动内置 worker，避免启动后立即失败循环。
   - `idle_sleep < 1`：记录错误并不启动，或规范化为 `1`；首选不启动并暴露日志，避免静默纠正造成误解。
   - `max_seconds/max_roles < 0`：记录错误并不启动。
+- `/修改配置` 层尽量提前拦截非法值，避免把无效配置写入 `runtime_config.json`；启动期 runtime 仍保留二次校验，防止手工编辑配置文件导致异常启动。
 - bot 托管 worker 与 CLI worker 可以同时存在；只要 worker 总量控制合理，Mongo 租约能避免重复领取。
 - QQ `/jjc同步暂停` 仍是软暂停，内置 worker 和外置 worker 都会在下一个 tick 进入 paused。
 
@@ -138,18 +184,22 @@ python -m unittest tests.test_jjc_match_data_sync tests.test_jjc_sync_worker_que
   - `JJC_SYNC_WORKER_COUNT=2` 时创建两个 task，并传入不同 `worker_id`。
   - shutdown 会 cancel task 并等待收尾。
   - 非法 mode/idle/max 参数不启动 worker。
+- `tests/test_config_manager.py` 或现有配置命令测试：
+  - `/修改配置 JJC_SYNC_WORKER_COUNT=1` 能写入 `runtime_config.json` 并触发重启流程。
+  - `/修改配置 JJC_SYNC_WORKER_MODE=bad` 会被拒绝。
+  - `/查看配置` 会展示 worker 配置项。
 
 手工回归：
 
 1. 默认配置启动 `python bot.py`，确认 `/jjc同步状态` 显示无活跃 worker。
-2. 设置 `JJC_SYNC_WORKER_COUNT=1` 启动 `python bot.py`，确认 `/api/jjc/sync/workers` 和 `/jjc同步状态` 能看到 `bot:` 前缀 worker。
+2. 设置 `JJC_SYNC_WORKER_COUNT=1` 启动 `python bot.py`，或执行 `/修改配置 JJC_SYNC_WORKER_COUNT=1` 等待自动重启，确认 `/api/jjc/sync/workers` 和 `/jjc同步状态` 能看到 `bot:` 前缀 worker。
 3. 执行 `/jjc同步开始 limit=1`，确认角色进入 queued 后被内置 worker 领取。
 4. 执行 `/jjc同步暂停 测试`，确认 worker 进入 paused；再 `/jjc同步恢复`，确认继续领取。
 5. 停止 bot，确认 worker 心跳写入 stopped 或在 5 分钟内自然失效，未完成角色可由下一次启动恢复。
 
 ## 回滚方案
 
-- 将 `JJC_SYNC_WORKER_COUNT` 设置为 `0` 并重启 bot，即可关闭内置 worker。
+- 将 `JJC_SYNC_WORKER_COUNT` 设置为 `0` 并重启 bot，即可关闭内置 worker；如果通过管理员命令操作，执行 `/修改配置 JJC_SYNC_WORKER_COUNT=0`。
 - 如需代码级回滚，删除 `config.py` 新增配置、`bot.py` lifecycle 调用、新增 runtime 模块，并回滚 README/runbook 说明。
 - 独立 CLI worker 模式不受影响，回滚后继续使用：
 
@@ -159,10 +209,10 @@ python scripts/jjc_sync.py worker --mode=incremental_or_full
 
 ## 实施步骤
 
-1. 新增配置项，默认关闭。
+1. 新增配置项，默认关闭，并加入 `RUNTIME_CONFIG_KEYS`。
 2. 新增 `jjc_sync_worker_runtime`，实现 startup/shutdown task 管理。
 3. 在 `bot.py` Mongo 初始化后接入 startup，在 shutdown 接入停止。
-4. 补单元测试和 py_compile 验证。
-5. 更新 README、README-Docker、runbook。
-6. 完成后在本计划记录执行结果；代码未提交前计划留在 active。
-
+4. 扩展 `/修改配置`、`/查看配置` 支持 worker 配置项和参数校验。
+5. 补单元测试和 py_compile 验证。
+6. 更新 README、README-Docker、runbook。
+7. 完成后在本计划记录执行结果；代码未提交前计划留在 active。

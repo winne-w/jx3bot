@@ -456,6 +456,8 @@ def get_kungfu_detail_by_role_info(
     latest_win_replay_resp: Optional[dict[str, Any]] = None
     global_id: Optional[str] = None
 
+    cache_warmup: dict[str, Any] = {}
+
     if global_role_id:
         matches: list[dict[str, Any]] = []
         resp = get_match_history(
@@ -468,6 +470,12 @@ def get_kungfu_detail_by_role_info(
             page_data = resp.get("data") or []
             if isinstance(page_data, list):
                 matches.extend([m for m in page_data if isinstance(m, dict)])
+
+        if matches:
+            cache_warmup["role_recent"] = {
+                "raw_matches": matches,
+                "request_size": 40,
+            }
 
         match_history_checked = min(40, len(matches))
         won_kungfus: list[str] = []
@@ -561,7 +569,6 @@ def get_kungfu_detail_by_role_info(
         result["teammates"] = teammates
     result["weapon_checked"] = weapon_checked
     result["teammates_checked"] = weapon_checked
-    cache_warmup: dict[str, Any] = {}
     if isinstance(role_detail, dict):
         cache_warmup["role_indicator"] = {
             "raw": role_detail,

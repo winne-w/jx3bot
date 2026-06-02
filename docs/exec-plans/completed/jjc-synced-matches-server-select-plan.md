@@ -1,7 +1,7 @@
 # JJC 对局查询服务器下拉计划
 
-状态：已实现，待提交
-更新时间：2026-05-27
+状态：已完成，已归档
+更新时间：2026-05-29
 
 ## 背景
 
@@ -47,3 +47,4 @@ node -e "const fs=require('fs'); const html=fs.readFileSync('public/jjc-synced-m
 - 已更新 README API 列表。
 - 已补充区服列表加载失败兜底：下拉框降级为同 `id/name` 的手动输入框，查询按钮保持可用。
 - 已将对局详情加载失败提示改为固定用户文案，避免直接展示 HTTP/status_msg/error.message。
+- 2026-05-29：已随提交 `99b01e6` 落地并归档到 `completed/`。

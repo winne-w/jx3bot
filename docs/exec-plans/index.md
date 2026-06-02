@@ -4,19 +4,22 @@
 
 ## Active
 
-- `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
+- `active/jjc-synced-matches-async-render-and-queue-state-plan.md`: JJC 对局查询异步展示与排队状态文案计划
+- `active/jjc-query-timeout-diagnostics-plan.md`: JJC 对局查询超时阶段耗时诊断日志计划
 - `active/jjc-bot-managed-sync-workers-plan.md`: JJC bot 启动时按配置托管同步 worker 计划
-- `active/jjc-ranking-kungfu-defget-failure-fallback-plan.md`: JJC 排名心法在 defget 失败时继续使用已缓存对局胜场兜底计划
-- `active/jjc-synced-match-list-page-plan.md`: JJC 已同步对局列表页面、identity-only 搜索、本地对局读取与页面入队方案
-- `active/jjc-display-copy-simplification-plan.md`: JJC 排名与已同步对局页面文案、地图名称和排队状态展示简化计划
-- `active/jjc-synced-matches-not-found-guidance-plan.md`: JJC 对局查询未命中候选、引导、公告反馈与入口收敛计划
-- `active/jjc-ranking-schedule-and-live-kungfu-plan.md`: JJC 排名统计时间与实时心法查询计划
-- `active/jjc-synced-matches-server-select-plan.md`: JJC 对局查询页面服务器下拉选择计划
-- `active/jjc-ranking-sleep-interval-plan.md`: JJC 排名心法查询 sleep 调整计划
-- `active/jjc-synced-role-matches-index-and-participant-projection-plan.md`: JJC 已同步对局列表页面、identity-only 搜索、本地对局读取、页面入队与参与者投影回填脚本批次日志方案
+- `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Completed
 
+- `completed/jjc-ranking-role-recent-cache-warmup-plan.md`: JJC 排名查询复用 match history 预热角色近期对局缓存计划
+- `completed/jjc-synced-role-matches-index-and-participant-projection-plan.md`: JJC 已同步对局列表页面、identity-only 搜索、本地对局读取、页面入队与参与者投影回填脚本批次日志方案
+- `completed/jjc-synced-match-list-page-plan.md`: JJC 已同步对局列表页面、identity-only 搜索、本地对局读取与页面入队方案
+- `completed/jjc-synced-matches-not-found-guidance-plan.md`: JJC 对局查询未命中候选、引导、公告反馈与入口收敛计划
+- `completed/jjc-synced-matches-server-select-plan.md`: JJC 对局查询页面服务器下拉选择计划
+- `completed/jjc-display-copy-simplification-plan.md`: JJC 排名与已同步对局页面文案、地图名称和排队状态展示简化计划
+- `completed/jjc-ranking-schedule-and-live-kungfu-plan.md`: JJC 排名统计时间与实时心法查询计划
+- `completed/jjc-ranking-sleep-interval-plan.md`: JJC 排名心法查询 sleep 调整计划
+- `completed/jjc-ranking-kungfu-defget-failure-fallback-plan.md`: JJC 排名心法在 defget 失败时继续使用已缓存对局胜场兜底计划
 - `completed/jjc-ranking-sync-priority-plan.md`: JJC 排名统计触发同步队列优先级与同步成功归零计划
 - `completed/jjc-identity-backed-sync-queue-plan.md`: JJC 对局保存后身份投影与基于 `role_identities._id` 的同步队列改造计划
 - `completed/jjc-role-global-id-governance-plan.md`: JJC 角色 replay `global_id` 主键治理、防回流、重建与审计收敛总体计划

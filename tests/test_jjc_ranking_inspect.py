@@ -3,8 +3,6 @@ import time
 import unittest
 from typing import Any, Callable, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
-
-import config as cfg
 from bson import ObjectId
 
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
@@ -143,6 +141,8 @@ class FakeJjcInspectRepo:
 
     async def list_saved_local_3v3_matches_for_identity(self, **kwargs):
         self.synced_matches_calls.append(kwargs)
+        if isinstance(self.synced_matches_result, Exception):
+            raise self.synced_matches_result
         return self.synced_matches_result
 
 
@@ -252,9 +252,13 @@ class FakeWarmupInspectRepo:
     def __init__(self) -> None:
         self.saved_role_indicator: list = []
         self.saved_match_detail: list = []
+        self.saved_role_recent: list = []
 
     async def save_role_indicator(self, cache_key, payload):
         self.saved_role_indicator.append((cache_key, payload))
+
+    async def save_role_recent(self, server, name, payload):
+        self.saved_role_recent.append((server, name, payload))
 
     async def save_match_detail(self, match_id, payload):
         self.saved_match_detail.append((match_id, payload))
@@ -1409,6 +1413,34 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
 
 
 class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
+    async def _list_saved_matches_from_detail(
+        self,
+        repo: JjcInspectRepo,
+        *,
+        identity_id: Any = None,
+        identity_key: Optional[str] = None,
+        server: Optional[str] = None,
+        name: Optional[str] = None,
+        global_id: str,
+        global_role_id: Optional[str] = None,
+        role_id: Optional[str] = None,
+        game_role_id: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Dict[str, Any]:
+        return await repo._list_saved_matches_from_detail(
+            identity_id=identity_id,
+            identity_key=identity_key,
+            server=server,
+            name=name,
+            global_id=global_id,
+            global_role_id=global_role_id,
+            role_id=role_id,
+            game_role_id=game_role_id,
+            page=page,
+            page_size=page_size,
+        )
+
     async def test_resolve_synced_role_missing_identity_does_not_call_live_sources(self) -> None:
         ranking_service = MagicMock()
         match_history_client = MagicMock()
@@ -1529,6 +1561,38 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cache_repo.synced_matches_calls[0]["identity_key"], "global_id:987")
         self.assertEqual(cache_repo.synced_matches_calls[0]["server"], "梦江南")
         self.assertEqual(cache_repo.synced_matches_calls[0]["name"], "示例角色")
+        self.assertEqual(cache_repo.synced_matches_calls[0]["global_id"], "987")
+
+    async def test_get_synced_role_matches_projection_error_returns_standard_error(self) -> None:
+        identity_id = ObjectId()
+        identity = {
+            "_id": identity_id,
+            "identity_key": "global_id:987",
+            "server": "梦江南",
+            "name": "示例角色",
+            "global_id": "987",
+        }
+        cache_repo = FakeJjcInspectRepo()
+        cache_repo.synced_matches_result = RuntimeError("projection_down")
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=cache_repo,
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=FakeRoleIdentityRepo(identity),
+            sync_repo=FakeSyncRepo(sync_state={"identity_id": identity_id, "status": "queued"}),
+        )
+
+        result = await service.get_synced_role_matches(server="梦江南", name="示例角色")
+
+        self.assertTrue(result["error"])
+        self.assertEqual(result["message"], "match_participants_query_failed")
+        self.assertEqual(result["identity"]["identity_id"], str(identity_id))
+        self.assertEqual(result["sync_status"]["status"], "queued")
         self.assertEqual(cache_repo.synced_matches_calls[0]["global_id"], "987")
 
     async def test_resolve_synced_role_adds_queue_position_for_queued_status(self) -> None:
@@ -1670,6 +1734,91 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call["kwargs"]["source"], "synced_match_page")
         self.assertEqual(call["kwargs"]["mode"], "incremental_or_full")
 
+    async def test_enqueue_synced_role_skips_same_priority_queued_role(self) -> None:
+        identity_id = ObjectId()
+        identity = {
+            "_id": identity_id,
+            "identity_key": "global_id:987",
+            "server": "梦江南",
+            "name": "示例角色",
+        }
+        sync_repo = FakeSyncRepo(
+            sync_state={
+                "identity_id": identity_id,
+                "identity_key": "global_id:987",
+                "status": "queued",
+                "priority": 2,
+                "queue_position": 4,
+            },
+            enqueue_result={
+                "identity_id": identity_id,
+                "identity_key": "global_id:987",
+                "status": "queued",
+                "priority": 2,
+            },
+        )
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=FakeRoleIdentityRepo(identity),
+            sync_repo=sync_repo,
+        )
+
+        result = await service.enqueue_synced_role(server="梦江南", name="示例角色")
+
+        self.assertTrue(result["queued"])
+        self.assertTrue(result["already_queued"])
+        self.assertEqual(result["sync_status"]["queue_position"], 4)
+        self.assertEqual(sync_repo.enqueue_calls, [])
+
+    async def test_enqueue_synced_role_allows_different_priority_queued_role(self) -> None:
+        identity_id = ObjectId()
+        identity = {
+            "_id": identity_id,
+            "identity_key": "global_id:987",
+            "server": "梦江南",
+            "name": "示例角色",
+        }
+        sync_repo = FakeSyncRepo(
+            sync_state={
+                "identity_id": identity_id,
+                "identity_key": "global_id:987",
+                "status": "queued",
+                "priority": 9,
+            },
+            enqueue_result={
+                "identity_id": identity_id,
+                "identity_key": "global_id:987",
+                "status": "queued",
+                "priority": 2,
+            },
+        )
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            role_identity_repo=FakeRoleIdentityRepo(identity),
+            sync_repo=sync_repo,
+        )
+
+        result = await service.enqueue_synced_role(server="梦江南", name="示例角色")
+
+        self.assertTrue(result["queued"])
+        self.assertNotIn("already_queued", result)
+        self.assertEqual(len(sync_repo.enqueue_calls), 1)
+        self.assertEqual(sync_repo.enqueue_calls[0]["kwargs"]["priority"], 2)
+
     async def test_enqueue_synced_role_reports_failed_update_instead_of_silent_pending(self) -> None:
         identity_id = ObjectId()
         identity = {
@@ -1764,7 +1913,8 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         db.jjc_match_detail = FakeFindCollection(details)
         repo = JjcInspectRepo(db=db, snapshot_repo=None)
 
-        result = await repo.list_saved_local_3v3_matches_for_identity(
+        result = await self._list_saved_matches_from_detail(
+            repo,
             identity_id=str(identity_id),
             identity_key="global_id:987",
             server="梦江南",
@@ -1837,7 +1987,8 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         db.jjc_match_detail = FakeFindCollection(details)
         repo = JjcInspectRepo(db=db, snapshot_repo=None)
 
-        result = await repo.list_saved_local_3v3_matches_for_identity(
+        result = await self._list_saved_matches_from_detail(
+            repo,
             identity_id=str(identity_id),
             identity_key="global_id:987",
             server="梦江南",
@@ -1898,7 +2049,8 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         db.jjc_match_detail = FakeFindCollection(details)
         repo = JjcInspectRepo(db=db, snapshot_repo=None)
 
-        result = await repo.list_saved_local_3v3_matches_for_identity(
+        result = await self._list_saved_matches_from_detail(
+            repo,
             identity_id=str(identity_id),
             identity_key="global_id:target",
             server="梦江南",
@@ -1968,7 +2120,8 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         db.jjc_match_detail = FakeFindCollection(details)
         repo = JjcInspectRepo(db=db, snapshot_repo=None)
 
-        result = await repo.list_saved_local_3v3_matches_for_identity(
+        result = await self._list_saved_matches_from_detail(
+            repo,
             identity_id=None,
             identity_key=None,
             server="天鹅坪",
@@ -2010,7 +2163,8 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         db.jjc_match_detail = FakeFindCollection(details)
         repo = JjcInspectRepo(db=db, snapshot_repo=None)
 
-        result = await repo.list_saved_local_3v3_matches_for_identity(
+        result = await self._list_saved_matches_from_detail(
+            repo,
             identity_id=None,
             identity_key=None,
             server="梦江南",
@@ -2044,7 +2198,8 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         db.jjc_match_detail = FakeFindCollection(details)
         repo = JjcInspectRepo(db=db, snapshot_repo=None)
 
-        result = await repo.list_saved_local_3v3_matches_for_identity(
+        result = await self._list_saved_matches_from_detail(
+            repo,
             identity_id=None,
             identity_key=None,
             server="梦江南",
@@ -2055,7 +2210,7 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["items"][0]["match_id"], 4002)
 
-    async def test_inspect_repo_read_mode_on_uses_projection_and_hydrates_summary(self) -> None:
+    async def test_inspect_repo_uses_projection_and_hydrates_summary(self) -> None:
         details = [{
             "match_id": 5001,
             "cached_at": 1779400200,
@@ -2093,21 +2248,13 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         db.jjc_sync_match_seen = FakeFindCollection([])
         db.jjc_match_detail = FakeFindCollection(details)
         repo = JjcInspectRepo(db=db, snapshot_repo=None, participant_repo=participant_repo)
-        old_mode = getattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE", None)
-        cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = "on"
-        try:
-            result = await repo.list_saved_local_3v3_matches_for_identity(
-                identity_id=None,
-                identity_key=None,
-                server="梦江南",
-                name="目标角色",
-                global_id="target",
-            )
-        finally:
-            if old_mode is None:
-                delattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE")
-            else:
-                cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = old_mode
+        result = await repo.list_saved_local_3v3_matches_for_identity(
+            identity_id=None,
+            identity_key=None,
+            server="梦江南",
+            name="目标角色",
+            global_id="target",
+        )
 
         self.assertEqual(db.jjc_sync_match_seen.find_calls, [])
         self.assertEqual(participant_repo.calls[0]["global_id"], "target")
@@ -2117,7 +2264,7 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["sync"]["source_identity_id"], "64b64c9f6df2d096edcd67a1")
         self.assertEqual(row["cached_detail_summary"]["match_id"], 5001)
 
-    async def test_inspect_repo_read_mode_on_empty_projection_does_not_fallback(self) -> None:
+    async def test_inspect_repo_empty_projection_does_not_fallback(self) -> None:
         participant_repo = FakeParticipantRepo({
             "items": [],
             "total": 0,
@@ -2139,26 +2286,18 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
             },
         }])
         repo = JjcInspectRepo(db=db, snapshot_repo=None, participant_repo=participant_repo)
-        old_mode = getattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE", None)
-        cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = "on"
-        try:
-            result = await repo.list_saved_local_3v3_matches_for_identity(
-                identity_id=None,
-                identity_key=None,
-                server="梦江南",
-                name="目标角色",
-                global_id="target",
-            )
-        finally:
-            if old_mode is None:
-                delattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE")
-            else:
-                cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = old_mode
+        result = await repo.list_saved_local_3v3_matches_for_identity(
+            identity_id=None,
+            identity_key=None,
+            server="梦江南",
+            name="目标角色",
+            global_id="target",
+        )
 
         self.assertEqual(result["total"], 0)
         self.assertEqual(db.jjc_match_detail.find_calls, [])
 
-    async def test_inspect_repo_read_mode_on_projection_error_falls_back_to_detail(self) -> None:
+    async def test_inspect_repo_projection_error_does_not_fallback(self) -> None:
         db = MagicMock()
         db.jjc_sync_match_seen = FakeFindCollection([])
         db.jjc_match_detail = FakeFindCollection([{
@@ -2178,9 +2317,7 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
             snapshot_repo=None,
             participant_repo=FakeParticipantRepo(error=RuntimeError("projection_down")),
         )
-        old_mode = getattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE", None)
-        cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = "on"
-        try:
+        with self.assertRaisesRegex(RuntimeError, "projection_down"):
             result = await repo.list_saved_local_3v3_matches_for_identity(
                 identity_id=None,
                 identity_key=None,
@@ -2188,14 +2325,651 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
                 name="目标角色",
                 global_id="target",
             )
-        finally:
-            if old_mode is None:
-                delattr(cfg, "JJC_MATCH_PARTICIPANTS_READ_MODE")
-            else:
-                cfg.JJC_MATCH_PARTICIPANTS_READ_MODE = old_mode
+        self.assertEqual(db.jjc_match_detail.find_calls, [])
 
-        self.assertEqual(result["total"], 1)
-        self.assertEqual(db.jjc_match_detail.find_calls[0]["data.unavailable"], {"$ne": True})
+
+class TestNormalizeRecentMatches(unittest.TestCase):
+    """Tests for the normalize_recent_matches() pure function."""
+
+    def test_filter_3v3_only(self):
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {"pvpType": 3, "match_id": 1, "won": True, "match_time": 1000},
+            {"pvpType": 2, "match_id": 2, "won": False, "match_time": 2000},
+            {"type": 3, "match_id": 3, "won": True, "match_time": 3000},
+            {"pvp_type": 3, "match_id": 4, "won": True, "match_time": 4000},
+            {"pvpType": 1, "match_id": 5, "won": False, "match_time": 5000},
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+            max_recent_matches=20,
+        )
+        match_ids = [item["match_id"] for item in result]
+        self.assertEqual(match_ids, [4, 3, 1])
+
+    def test_kungfu_chinese_translation(self):
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {"pvpType": 3, "match_id": 1, "won": True, "kungfu": "huajian", "match_time": 1000},
+            {"pvpType": 3, "match_id": 2, "won": False, "kungfu": "bingxinjue", "match_time": 2000},
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={"huajian": "花间游", "bingxinjue": "冰心诀"},
+            max_recent_matches=20,
+        )
+        self.assertEqual(result[1]["kungfu"], "花间游")
+        self.assertEqual(result[0]["kungfu"], "冰心诀")
+
+    def test_field_aliases(self):
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {
+                "pvpType": 3,
+                "matchId": 100,
+                "won": True,
+                "kungfu_name": "huajian",
+                "startTime": 1700000100,
+                "endTime": 1700000280,
+                "totalMmr": 2000,
+                "mmr": 15,
+                "avgGrade": 12,
+                "mvp": True,
+                "duration": 180,
+            }
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+            max_recent_matches=20,
+        )
+        item = result[0]
+        self.assertEqual(item["match_id"], 100)
+        self.assertEqual(item["kungfu"], "花间游")
+        self.assertEqual(item["total_mmr"], 2000)
+        self.assertEqual(item["mmr_delta"], 15)
+        self.assertEqual(item["avg_grade"], 12)
+        self.assertTrue(item["mvp"])
+        self.assertEqual(item["match_time"], 1700000100)
+        self.assertEqual(item["start_time"], 1700000100)
+        self.assertEqual(item["end_time"], 1700000280)
+        self.assertEqual(item["duration"], 180)
+
+    def test_sort_descending_by_match_time(self):
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {"pvpType": 3, "match_id": 1, "won": True, "match_time": 1000},
+            {"pvpType": 3, "match_id": 3, "won": True, "match_time": 3000},
+            {"pvpType": 3, "match_id": 2, "won": True, "match_time": 2000},
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={},
+            max_recent_matches=20,
+        )
+        times = [item["match_time"] for item in result]
+        self.assertEqual(times, [3000, 2000, 1000])
+
+    def test_truncate_to_max_recent_matches(self):
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {"pvpType": 3, "match_id": i, "won": True, "match_time": 1000 + i}
+            for i in range(50)
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={},
+            max_recent_matches=10,
+        )
+        self.assertEqual(len(result), 10)
+
+    def test_missing_fields_graceful(self):
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {"pvpType": 3, "match_id": 1},
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={},
+            max_recent_matches=20,
+        )
+        item = result[0]
+        self.assertEqual(item["match_id"], 1)
+        self.assertFalse(item["won"])
+        self.assertEqual(item["kungfu"], "")
+        self.assertIsNone(item["avg_grade"])
+        self.assertIsNone(item["total_mmr"])
+        self.assertIsNone(item["mmr_delta"])
+        self.assertFalse(item["mvp"])
+        self.assertIsNone(item["match_time"])
+
+    def test_non_dict_items_skipped(self):
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {"pvpType": 3, "match_id": 1, "won": True, "match_time": 1000},
+            None,
+            "not_a_dict",
+            {"pvpType": 3, "match_id": 2, "won": False, "match_time": 2000},
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={},
+            max_recent_matches=20,
+        )
+        self.assertEqual(len(result), 2)
+
+    def test_untyped_matches_included(self):
+        """Entries without pvpType/type are included (compatible)."""
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {"match_id": 1, "won": True, "match_time": 1000},
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={},
+            max_recent_matches=20,
+        )
+        self.assertEqual(len(result), 1)
+
+    def test_explicit_zero_pvpType_filtered(self):
+        """pvpType=0 is an explicit non-3 value and must be filtered out."""
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {"pvpType": 3, "match_id": 1, "won": True, "match_time": 3000},
+            {"pvpType": 0, "match_id": 2, "won": False, "match_time": 2000},
+            {"pvpType": 3, "match_id": 3, "won": True, "match_time": 1000},
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={},
+            max_recent_matches=20,
+        )
+        match_ids = [item["match_id"] for item in result]
+        self.assertEqual(match_ids, [1, 3])
+
+    def test_pvpType_false_filtered(self):
+        """pvpType=False is present but not 3 → must be filtered."""
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {"pvpType": False, "match_id": 1, "won": True, "match_time": 3000},
+            {"pvpType": 3, "match_id": 2, "won": True, "match_time": 2000},
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={},
+            max_recent_matches=20,
+        )
+        match_ids = sorted([item["match_id"] for item in result])
+        self.assertEqual(match_ids, [2])
+
+    def test_pvpType_leftmost_wins_over_later_fields(self):
+        """When pvpType is present (even 0), later pvp_type/type must not override it."""
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        raw = [
+            {"pvpType": 0, "pvp_type": 3, "match_id": 1, "won": True, "match_time": 1000},
+            {"pvpType": 3, "type": 0, "match_id": 2, "won": True, "match_time": 2000},
+        ]
+        result = normalize_recent_matches(
+            raw,
+            kungfu_pinyin_to_chinese={},
+            max_recent_matches=20,
+        )
+        # Only item 2 should survive; item 1 has pvpType=0 which is not 3
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["match_id"], 2)
+
+
+class TestWarmupRoleRecentCache(unittest.IsolatedAsyncioTestCase):
+    """Tests for role_recent warmup in _warmup_inspect_cache_from_kungfu_detail()."""
+
+    async def test_warmup_saves_role_recent(self):
+        from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+
+        matches = [
+            {"pvpType": 3, "match_id": i, "won": True, "kungfu": "huajian", "match_time": 1700000000 + i}
+            for i in range(25)
+        ]
+        service = WarmupJjcRankingService(MagicMock())
+        object.__setattr__(service, "inspect_repo", MagicMock())
+        repo = service._inspect_cache()
+        repo.save_role_recent = AsyncMock()
+        repo.save_role_indicator = AsyncMock()
+        repo.save_match_detail = AsyncMock()
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_indicator": {
+                        "game_role_id": "100",
+                        "global_role_id": "global-100",
+                        "global_id": "99999",
+                        "role_id": "100",
+                        "zone": "电信区",
+                    },
+                    "role_recent": {
+                        "raw_matches": matches,
+                        "request_size": 40,
+                    },
+                }
+            },
+        )
+
+        repo.save_role_recent.assert_awaited_once()
+        args = repo.save_role_recent.await_args[0]
+        self.assertEqual(args[0], "梦江南")
+        self.assertEqual(args[1], "示例角色")
+        payload = args[2]
+        self.assertIn("cached_at", payload)
+        self.assertIn("data", payload)
+        data = payload["data"]
+        self.assertEqual(data["player"], {"server": "梦江南", "name": "示例角色"})
+        self.assertEqual(data["identity"]["source"], "ranking_warmup")
+        self.assertEqual(data["identity_key"], "global_id:99999")
+        self.assertEqual(data["pagination"]["cursor"], 0)
+        self.assertTrue(data["pagination"]["has_more"])
+        self.assertEqual(data["pagination"]["next_cursor"], 20)
+        self.assertEqual(len(data["recent_matches"]), 20)
+
+    async def test_warmup_identity_key_global_role_id_fallback(self):
+        matches = [
+            {"pvpType": 3, "match_id": 1, "won": True, "kungfu": "huajian", "match_time": 1700000000}
+        ]
+        service = WarmupJjcRankingService(MagicMock())
+        object.__setattr__(service, "inspect_repo", MagicMock())
+        repo = service._inspect_cache()
+        repo.save_role_recent = AsyncMock()
+        repo.save_role_indicator = AsyncMock()
+        repo.save_match_detail = AsyncMock()
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_indicator": {
+                        "game_role_id": "100",
+                        "global_role_id": "global-100",
+                        "global_id": None,
+                        "role_id": "100",
+                        "zone": "电信区",
+                    },
+                    "role_recent": {
+                        "raw_matches": matches,
+                        "request_size": 40,
+                    },
+                }
+            },
+        )
+
+        repo.save_role_recent.assert_awaited_once()
+        data = repo.save_role_recent.await_args[0][2]["data"]
+        self.assertEqual(data["identity_key"], "global:global-100")
+
+    async def test_warmup_identity_key_none_fallback(self):
+        """When both global_id and global_role_id are missing, identity_key is None."""
+        matches = [
+            {"pvpType": 3, "match_id": 1, "won": True, "kungfu": "huajian", "match_time": 1700000000}
+        ]
+        service = WarmupJjcRankingService(MagicMock())
+        object.__setattr__(service, "inspect_repo", MagicMock())
+        repo = service._inspect_cache()
+        repo.save_role_recent = AsyncMock()
+        repo.save_role_indicator = AsyncMock()
+        repo.save_match_detail = AsyncMock()
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_indicator": {
+                        "game_role_id": "100",
+                        "global_role_id": None,
+                        "global_id": None,
+                        "role_id": "100",
+                        "zone": "电信区",
+                    },
+                    "role_recent": {
+                        "raw_matches": matches,
+                        "request_size": 40,
+                    },
+                }
+            },
+        )
+
+        repo.save_role_recent.assert_awaited_once()
+        data = repo.save_role_recent.await_args[0][2]["data"]
+        self.assertIsNone(data["identity_key"])
+        self.assertEqual(data["identity"]["server"], "梦江南")
+        self.assertEqual(data["identity"]["source"], "ranking_warmup")
+        self.assertEqual(len(data["recent_matches"]), 1)
+
+    async def test_warmup_request_size_has_more_true(self):
+        """When raw matches count reaches request_size, has_more is True."""
+        matches = [
+            {"pvpType": 3, "match_id": i, "won": True, "match_time": 1700000000 + i}
+            for i in range(20)
+        ]
+        service = WarmupJjcRankingService(MagicMock())
+        object.__setattr__(service, "inspect_repo", MagicMock())
+        repo = service._inspect_cache()
+        repo.save_role_recent = AsyncMock()
+        repo.save_role_indicator = AsyncMock()
+        repo.save_match_detail = AsyncMock()
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_indicator": {
+                        "game_role_id": "100",
+                        "global_role_id": "global-100",
+                        "role_id": "100",
+                        "zone": "电信区",
+                    },
+                    "role_recent": {
+                        "raw_matches": matches,
+                        "request_size": 20,
+                    },
+                }
+            },
+        )
+
+        data = repo.save_role_recent.await_args[0][2]["data"]
+        self.assertTrue(data["pagination"]["has_more"])
+        self.assertEqual(data["pagination"]["next_cursor"], 20)
+
+    async def test_warmup_request_size_has_more_false(self):
+        """When raw matches count < request_size, has_more is False."""
+        matches = [
+            {"pvpType": 3, "match_id": i, "won": True, "match_time": 1700000000 + i}
+            for i in range(5)
+        ]
+        service = WarmupJjcRankingService(MagicMock())
+        object.__setattr__(service, "inspect_repo", MagicMock())
+        repo = service._inspect_cache()
+        repo.save_role_recent = AsyncMock()
+        repo.save_role_indicator = AsyncMock()
+        repo.save_match_detail = AsyncMock()
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_indicator": {
+                        "game_role_id": "100",
+                        "global_role_id": "global-100",
+                        "role_id": "100",
+                        "zone": "电信区",
+                    },
+                    "role_recent": {
+                        "raw_matches": matches,
+                        "request_size": 40,
+                    },
+                }
+            },
+        )
+
+        data = repo.save_role_recent.await_args[0][2]["data"]
+        self.assertFalse(data["pagination"]["has_more"])
+        self.assertIsNone(data["pagination"]["next_cursor"])
+
+    async def test_warmup_40_raw_matches_first_page_20_has_more_and_next_cursor_20(self):
+        """raw_matches=40, max_recent_matches=20: has_more=True, next_cursor=20."""
+        matches = [
+            {"pvpType": 3, "match_id": i, "won": True, "match_time": 1700000000 + i}
+            for i in range(40)
+        ]
+        service = WarmupJjcRankingService(MagicMock())
+        object.__setattr__(service, "inspect_repo", MagicMock())
+        repo = service._inspect_cache()
+        repo.save_role_recent = AsyncMock()
+        repo.save_role_indicator = AsyncMock()
+        repo.save_match_detail = AsyncMock()
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_indicator": {
+                        "game_role_id": "100",
+                        "global_role_id": "global-100",
+                        "role_id": "100",
+                        "zone": "电信区",
+                    },
+                    "role_recent": {
+                        "raw_matches": matches,
+                        "request_size": 40,
+                    },
+                }
+            },
+        )
+
+        data = repo.save_role_recent.await_args[0][2]["data"]
+        self.assertTrue(data["pagination"]["has_more"])
+        self.assertEqual(data["pagination"]["next_cursor"], 20)
+        self.assertEqual(len(data["recent_matches"]), 20)
+
+    async def test_warmup_filtered_first_page_keeps_next_cursor_20(self):
+        """When raw first 20 are all non-3v3 (filtered to zero), next_cursor still 20."""
+        matches = [
+            {"pvpType": 2, "match_id": i, "won": True, "match_time": 1700000000 + i}
+            for i in range(20)
+        ]
+        # Add 5 more 3v3 entries beyond the first page (offset 20-24)
+        for i in range(20, 25):
+            matches.append(
+                {"pvpType": 3, "match_id": i, "won": True, "match_time": 1700000000 + i}
+            )
+
+        service = WarmupJjcRankingService(MagicMock())
+        object.__setattr__(service, "inspect_repo", MagicMock())
+        repo = service._inspect_cache()
+        repo.save_role_recent = AsyncMock()
+        repo.save_role_indicator = AsyncMock()
+        repo.save_match_detail = AsyncMock()
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_indicator": {
+                        "game_role_id": "100",
+                        "global_role_id": "global-100",
+                        "role_id": "100",
+                        "zone": "电信区",
+                    },
+                    "role_recent": {
+                        "raw_matches": matches,
+                        "request_size": 40,
+                    },
+                }
+            },
+        )
+
+        data = repo.save_role_recent.await_args[0][2]["data"]
+        self.assertTrue(data["pagination"]["has_more"])
+        self.assertEqual(data["pagination"]["next_cursor"], 20)
+        self.assertEqual(len(data["recent_matches"]), 0)
+
+    async def test_warmup_no_role_indicator_still_writes_role_recent(self):
+        """role_recent can be written even without role_indicator in warmup."""
+        matches = [
+            {"pvpType": 3, "match_id": 1, "won": True, "match_time": 1700000000}
+        ]
+        service = WarmupJjcRankingService(MagicMock())
+        object.__setattr__(service, "inspect_repo", MagicMock())
+        repo = service._inspect_cache()
+        repo.save_role_recent = AsyncMock()
+        repo.save_role_indicator = AsyncMock()
+        repo.save_match_detail = AsyncMock()
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_recent": {
+                        "raw_matches": matches,
+                        "request_size": 40,
+                    },
+                }
+            },
+        )
+
+        repo.save_role_recent.assert_awaited_once()
+        data = repo.save_role_recent.await_args[0][2]["data"]
+        self.assertIsNone(data["identity_key"])
+        self.assertEqual(data["identity"]["server"], "梦江南")
+        self.assertEqual(data["identity"]["source"], "ranking_warmup")
+
+    async def test_warmup_empty_raw_matches_does_not_write(self):
+        """Empty raw_matches list skips save_role_recent."""
+        service = WarmupJjcRankingService(MagicMock())
+        object.__setattr__(service, "inspect_repo", MagicMock())
+        repo = service._inspect_cache()
+        repo.save_role_recent = AsyncMock()
+        repo.save_role_indicator = AsyncMock()
+        repo.save_match_detail = AsyncMock()
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_indicator": {
+                        "game_role_id": "100",
+                        "global_role_id": "global-100",
+                        "role_id": "100",
+                        "zone": "电信区",
+                    },
+                    "role_recent": {
+                        "raw_matches": [],
+                        "request_size": 40,
+                    },
+                }
+            },
+        )
+
+        repo.save_role_recent.assert_not_awaited()
+
+    async def test_warmup_recent_matches_uses_shared_normalization(self):
+        """Verify warmup path uses the same normalize_recent_matches as live path."""
+        raw_matches = [
+            {"pvpType": 2, "match_id": 1, "won": True, "kungfu": "huajian", "match_time": 2000},
+            {"pvpType": 3, "match_id": 2, "won": True, "kungfu": "huajian", "match_time": 1000},
+        ]
+        service = WarmupJjcRankingService(MagicMock())
+        object.__setattr__(service, "inspect_repo", MagicMock())
+        repo = service._inspect_cache()
+        repo.save_role_recent = AsyncMock()
+        repo.save_role_indicator = AsyncMock()
+        repo.save_match_detail = AsyncMock()
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "role_indicator": {
+                        "game_role_id": "100",
+                        "global_role_id": "global-100",
+                        "role_id": "100",
+                        "zone": "电信区",
+                    },
+                    "role_recent": {
+                        "raw_matches": raw_matches,
+                        "request_size": 40,
+                    },
+                }
+            },
+        )
+
+        data = repo.save_role_recent.await_args[0][2]["data"]
+        recent = data["recent_matches"]
+        self.assertEqual(len(recent), 1)  # pvpType=2 filtered out
+        self.assertEqual(recent[0]["match_id"], 2)
+
+    async def test_pipeline_kungfu_detail_to_warmup_recent(self):
+        """Pipeline: get_kungfu_detail_by_role_info → _warmup_inspect_cache_from_kungfu_detail."""
+        from src.services.jx3.kungfu import get_kungfu_detail_by_role_info
+
+        matches = [
+            {"pvpType": 3, "matchId": 10, "won": True, "kungfu": "huajian", "match_time": 1700000100, "avgGrade": 12, "totalMmr": 1800},
+            {"pvpType": 0, "matchId": 11, "won": False, "kungfu": "bingxinjue", "match_time": 1700000200},
+            {"pvpType": 2, "matchId": 12, "won": True, "kungfu": "huajian", "match_time": 1700000300},
+            {"pvpType": 3, "matchId": 13, "won": True, "kungfu": "huajian", "match_time": 1700000400, "avgGrade": 14},
+        ]
+        responses = [
+            {
+                "code": 0, "msg": "success",
+                "data": {
+                    "role_info": {"role_id": "rid_1", "global_role_id": "SK01-g"},
+                    "indicator": [
+                        {"type": "3c", "metrics": [{"pvp_type": 3, "win_count": 10, "total_count": 20}], "performance": {"mmr": 2500}},
+                    ],
+                },
+            },
+            {"code": 0, "msg": "success", "data": matches},
+        ]
+        call_count = [0]
+
+        def fake_request(url, params):
+            idx = call_count[0]
+            call_count[0] += 1
+            return responses[idx]
+
+        kungfu_detail = get_kungfu_detail_by_role_info(
+            "rid_1", "zone1", "server1",
+            tuilan_request=fake_request,
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+        )
+
+        self.assertIsNotNone(kungfu_detail)
+        cache_warmup = kungfu_detail.get("_cache_warmup")
+        self.assertIsInstance(cache_warmup, dict)
+        self.assertIn("role_recent", cache_warmup)
+
+        inspect_repo = FakeWarmupInspectRepo()
+        service = WarmupJjcRankingService(inspect_repo)
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail=kungfu_detail,
+        )
+
+        self.assertEqual(len(inspect_repo.saved_role_recent), 1)
+        server, name, payload = inspect_repo.saved_role_recent[0]
+        self.assertEqual(server, "梦江南")
+        self.assertEqual(name, "示例角色")
+        data = payload["data"]
+        self.assertIn("recent_matches", data)
+        recent = data["recent_matches"]
+        self.assertEqual(len(recent), 2)
+        self.assertEqual(recent[0]["match_id"], 13)
+        self.assertEqual(recent[1]["match_id"], 10)
+        self.assertEqual(recent[0]["kungfu"], "花间游")
+        self.assertEqual(recent[0]["avg_grade"], 14)
+        self.assertFalse(data["pagination"]["has_more"])
 
 
 if __name__ == "__main__":

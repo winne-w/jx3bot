@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, Query
@@ -241,6 +242,7 @@ async def get_ranking_stats_synced_role_matches(
     page: int = Query(1, ge=1, description="分页页码"),
     page_size: int = Query(20, ge=1, le=100, description="分页大小"),
 ) -> dict[str, Any]:
+    started_at = time.perf_counter()
     server = server.strip()
     name = name.strip()
     if not server or not name:
@@ -251,6 +253,20 @@ async def get_ranking_stats_synced_role_matches(
         name=name,
         page=page,
         page_size=page_size,
+    )
+    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+    logger.info(
+        "JJC 对局查询 API 完成: endpoint=synced-role-matches server={} name={} page={} page_size={} "
+        "elapsed_ms={} error={} total={} items={}".format(
+            server,
+            name,
+            page,
+            page_size,
+            elapsed_ms,
+            bool(result.get("error")),
+            ((result.get("pagination") or {}).get("total") if isinstance(result.get("pagination"), dict) else None),
+            len(result.get("recent_matches") or []) if isinstance(result.get("recent_matches"), list) else None,
+        )
     )
     if result.get("error"):
         return error_response(result.get("message") or "unknown_error", data=result)
@@ -282,7 +298,18 @@ async def post_ranking_stats_synced_role_sync(
 async def get_ranking_stats_match_detail(
     match_id: str = Query(..., description="对局 ID"),
 ) -> dict[str, Any]:
+    started_at = time.perf_counter()
     result = await jjc_ranking_inspect_service.get_match_detail(match_id=match_id)
+    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+    cache = result.get("cache") if isinstance(result, dict) else None
+    logger.info(
+        "JJC 对局查询 API 完成: endpoint=match-detail match_id={} elapsed_ms={} error={} cache_hit={}".format(
+            match_id,
+            elapsed_ms,
+            bool(result.get("error")) if isinstance(result, dict) else None,
+            cache.get("hit") if isinstance(cache, dict) else None,
+        )
+    )
     if result.get("error"):
         return error_response(result.get("message") or result.get("error") or "unknown_error", data=result)
     return success_response(result)

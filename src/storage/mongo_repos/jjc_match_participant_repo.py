@@ -342,8 +342,12 @@ class JjcMatchParticipantRepo:
         query = {"global_id": target_global_id, "match_type": 3, "detail_available": True}
         skip = (safe_page - 1) * safe_page_size
         db = self._db()
+        started_at = time.perf_counter()
         try:
+            phase_started_at = time.perf_counter()
             total = await db.jjc_match_participants.count_documents(query)
+            count_ms = int((time.perf_counter() - phase_started_at) * 1000)
+            phase_started_at = time.perf_counter()
             cursor = (
                 db.jjc_match_participants.find(query)
                 .sort([("match_time", -1), ("match_id", -1)])
@@ -351,9 +355,23 @@ class JjcMatchParticipantRepo:
                 .limit(safe_page_size)
             )
             items = await cursor.to_list(length=safe_page_size)
+            find_ms = int((time.perf_counter() - phase_started_at) * 1000)
         except Exception as exc:
             logger.warning(f"按 global_id 读取本地 JJC 参与者投影失败: global_id={target_global_id} error={exc}")
             raise
+        logger.info(
+            "JJC match_participants 查询完成: global_id={} elapsed_ms={} count_ms={} find_ms={} "
+            "skip={} limit={} total={} items={}".format(
+                target_global_id,
+                int((time.perf_counter() - started_at) * 1000),
+                count_ms,
+                find_ms,
+                skip,
+                safe_page_size,
+                total,
+                len(items),
+            )
+        )
 
         return {
             "items": items,

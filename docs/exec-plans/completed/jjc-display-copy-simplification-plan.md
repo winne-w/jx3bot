@@ -1,7 +1,7 @@
 # JJC 展示页面文案与同步状态简化计划
 
-状态：已实现，待提交
-更新时间：2026-05-27
+状态：已完成，已归档
+更新时间：2026-05-29
 
 ## 背景
 
@@ -65,6 +65,10 @@ python -m py_compile src/services/jx3/jjc_ranking_inspect.py src/storage/mongo_r
   - `node -e "const fs=require('fs'); for (const f of ['public/jjc-ranking-stats.html','public/jjc-synced-matches.html']) { const html=fs.readFileSync(f,'utf8'); [...html.matchAll(/<script[^>]*>([\\s\\S]*?)<\\/script>/g)].forEach((m)=>new Function(m[1])); } console.log('scripts ok')"`
   - `python -m unittest tests.test_jjc_ranking_inspect.TestJjcSyncedRoleInspect`
 
+2026-05-29：
+
+- 已随提交 `99b01e6` 落地并归档到 `completed/`。
+
 ## 回滚
 
-回滚上述文件改动，并从 `docs/exec-plans/index.md` 移除本计划条目。
+回滚上述文件改动，并更新 `docs/exec-plans/index.md`。
