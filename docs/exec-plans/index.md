@@ -4,6 +4,7 @@
 
 ## Active
 
+- `active/jjc-role-participant-projection-backfill-script-plan.md`: JJC 单角色参与者投影补齐脚本计划
 - `active/jjc-bot-managed-sync-workers-plan.md`: JJC bot 启动时按配置托管同步 worker 计划
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
