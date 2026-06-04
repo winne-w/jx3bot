@@ -1,6 +1,6 @@
 # 运行与回归手册
 
-更新时间：2026-05-07
+更新时间：2026-06-03
 
 本文面向维护者和 agent，记录当前仓库可执行的启动方式、验证命令和常见排查路径。
 
@@ -18,7 +18,7 @@ python bot.py
 前提:
 
 - `config.py` 已配置
-- MongoDB 已启动且 `runtime_config.json` 中 `MONGO_URI` 配置正确
+- MongoDB 已启动且 `MONGO_URI` 配置正确
 - OneBot 反向 WebSocket 已准备完成
 
 ### 模拟容器入口
@@ -46,16 +46,18 @@ docker compose logs -f
 ### 必备文件
 
 - `config.py`
+- `runtime_config.json`：本地运行时覆盖文件，可从 `runtime_config.example.json` 复制创建；包含凭证和连接串时不得提交到 Git
 
 ### 必备服务
 
-- MongoDB（连接串通过 `runtime_config.json` 中的 `MONGO_URI` 配置）
+- MongoDB（连接串通过环境变量、部署配置或本地 `runtime_config.json` 中的 `MONGO_URI` 配置）
 
 ### 常用环境变量
 
 - `HOST`
 - `PORT`
 - `TZ`
+- `JJC_SYNC_WORKER_COUNT`：可选，bot 内置 JJC 同步 worker 数量，默认 `0` 不启动
 
 ## 最小验证集
 
@@ -146,7 +148,9 @@ python test_tuilan_match_history.py
 - 暂停后续同步：`/jjc同步暂停 [原因]`
 - 恢复同步：`/jjc同步恢复`
 - 重置角色水位：`/jjc同步重置 <服务器> <角色名>`
-- 启动常驻 worker：`python scripts/jjc_sync.py worker --mode=incremental_or_full` 或 `python scripts/jjc_sync.py start --limit=10`；`start --limit` 只限制最多处理数量，队列暂空时仍会继续等待
+- 启动独立常驻 worker：`python scripts/jjc_sync.py worker --mode=incremental_or_full` 或 `python scripts/jjc_sync.py start --limit=10`；`start --limit` 只限制最多处理数量，队列暂空时仍会继续等待
+- 启用 bot 内置 worker：设置 `JJC_SYNC_WORKER_COUNT=1` 后启动 `python bot.py`，或执行 `/修改配置 JJC_SYNC_WORKER_COUNT=1` 写入本地运行时配置并重启；`0` 表示关闭
+- 内置 worker 名称使用稳定槽位 `bot:{host}:{index}`，同一部署实例重启后会复用同一条 worker 心跳记录；升级前已经产生的旧 `bot:{host}:{启动时间}:{pid}:{index}` 离线记录可按需人工清理。
 - 批量入队脚本：`python scripts/jjc_sync.py enqueue --limit=10`
 - 页面路径与接口路径分开维护：生产静态页面使用 `/jx3/<page>.html`，例如 `https://qike.rickchen.cn/jx3/jjc-sync-queue.html`；API 使用 `/jx3bot/api/...`，例如 `https://qike.rickchen.cn/jx3bot/api/jjc/sync/status`。HTML 页面链接不要加 `/jx3bot` 前缀。
 - 队列页面：生产环境访问 `https://qike.rickchen.cn/jx3/jjc-sync-queue.html`；本地若直接由 bot 暴露静态目录，可按实际挂载访问 `http://<bot-host>:<port>/public/jjc-sync-queue.html`。页面支持按服务器、角色名搜索，状态以中文展示；页面依赖同源 `/jx3bot/api/jjc/sync/...` 或本地 `/api/jjc/sync/...` 接口，不能直接用本地文件方式打开。
@@ -159,11 +163,15 @@ python test_tuilan_match_history.py
 - JJC 排名统计快照写入 MongoDB `jjc_ranking_stat_summaries` 与 `jjc_ranking_stat_details`；HTTP API 仅读 Mongo，未命中时返回 `not_found`。
 - 历史 `data/jjc_ranking_stats/` 文件仅作为一次性迁移输入，不再作为运行时 fallback。
 - JJC 同步命令只有 `config.py` 中 `ADMIN_QQ` 管理员可执行
-- `/jjc同步开始` 只负责把角色放入 `queued` 队列，不在当前 bot 进程直接同步；即使全局暂停也允许继续入队，实际处理由 `scripts/jjc_sync.py worker` 常驻进程在恢复后领取。
+- `/jjc同步开始` 只负责把角色放入 `queued` 队列；即使全局暂停也允许继续入队，实际处理由独立 worker 或 bot 内置 worker 在恢复后领取。
 - 多个 worker 可以同时运行；每个 worker 一次只处理一个角色，通过 Mongo `lease_owner/lease_expires_at` 避免重复领取。
+- 内置 worker 与独立 worker 可以共存，总 worker 数等于所有 bot 实例配置数量加独立 worker 数量；不要无意超配。
+- 同一 host 上如果同时运行多个 bot 实例并都启用内置 worker，稳定槽位名可能冲突；当前线上按单 bot 实例部署验证，多实例需要先用不同 hostname 或新增实例名配置区分。
 - 状态命令和队列页面只把 5 分钟内有心跳的 `starting/running/idle/syncing/paused` worker 视为活跃 worker；进程被 kill 后旧心跳不会长期显示为运行中。
 - worker、脚本或容器中断后，已领取的 `syncing/detail_syncing` 记录会在租约过期后由新 worker 恢复，角色水位只在完整成功后推进，重复扫描依赖 match/detail 幂等跳过。
 - 修改推栏 ticket 的推荐流程：先 `/jjc同步暂停 更换ticket`，等待 `/jjc同步状态` 显示无 `syncing` 或 worker 已 paused，重启 bot/worker 加载新配置，再 `/jjc同步恢复`；暂停期间可以继续添加角色或批量入队，worker 暂不领取，但 tick 仍会恢复过期租约。
+- `/修改配置 JJC_SYNC_WORKER_COUNT=<数量>` 会调用当前重启流程退出进程，自动拉起依赖 Docker restart、systemd、supervisor 等外部守护；没有外部守护时进程只会退出。
+- 当前 `/修改配置`、`/重启` 使用 `os._exit(0)`，不会保证 NoneBot shutdown 回调执行。旧内置 worker 可能不立刻写入 `stopped/cancelled` 心跳，状态会依赖约 5 分钟在线判定 TTL 自然失效，角色租约按现有过期恢复机制处理。
 - 推栏返回明确 ticket 过期、无权限、鉴权失败时，worker 会自动全局暂停，并把当前角色释放回队列且不增加角色 `fail_count`。
 - JJC 最终身份主键为 replay 数字 ID：`global_id:{global_id}`；`global_id` 来自 `/3c/mine/match/replay` 的 `players[].global_role_id`，不要与 SK01 `global_role_id` 混用。
 - `global_role_id` 专指 `/role/indicator` 返回的 `SK01-...`，用于请求 `match/history`；新队列入队不要求 SK01，worker 领取 `identity_id` 后会用 `role_identities` 中的区服、`game_role_id`、服务器先刷新 indicator。

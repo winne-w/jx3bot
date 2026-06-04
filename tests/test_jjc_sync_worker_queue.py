@@ -816,6 +816,44 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.jjc_sync_workers.docs[0]["status"], "stopped")
         self.assertEqual(db.jjc_sync_workers.docs[0]["stop_reason"], "done")
 
+    async def test_worker_reregister_refreshes_stable_worker_slot(self) -> None:
+        db = MemoryDb()
+        repo = JjcSyncRepo(db=db)
+
+        await repo.register_worker(
+            worker_id="bot:host-a:0",
+            mode="incremental_or_full",
+            pid=100,
+            host="host-a",
+        )
+        first_started_at = db.jjc_sync_workers.docs[0]["started_at"]
+        await repo.heartbeat_worker(
+            worker_id="bot:host-a:0",
+            status="syncing",
+            current_identity_key="role-1",
+            current_server="server-a",
+            current_name="role-a",
+            last_error="old-error",
+        )
+
+        await repo.register_worker(
+            worker_id="bot:host-a:0",
+            mode="incremental_or_full",
+            pid=101,
+            host="host-a",
+        )
+
+        self.assertEqual(len(db.jjc_sync_workers.docs), 1)
+        worker = db.jjc_sync_workers.docs[0]
+        self.assertEqual(worker["worker_id"], "bot:host-a:0")
+        self.assertEqual(worker["status"], "running")
+        self.assertEqual(worker["pid"], 101)
+        self.assertGreaterEqual(worker["started_at"], first_started_at)
+        self.assertIsNone(worker["current_identity_key"])
+        self.assertIsNone(worker["current_server"])
+        self.assertIsNone(worker["current_name"])
+        self.assertEqual(worker["last_error"], "")
+
     async def test_get_pause_state_returns_details_without_changing_get_paused(self) -> None:
         db = MemoryDb(states=[
             {"key": "global", "paused": True, "reason": "maintenance", "updated_at": 123.0}

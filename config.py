@@ -5,6 +5,18 @@
 import json
 import os
 ADMIN_QQ = [595910443]
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or str(value).strip() == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 # API认证凭证
 TOKEN = ""
 TICKET = ""
@@ -123,6 +135,9 @@ TUILAN_USER_AGENT = "okhttp/3.12.2"
 # 可通过环境变量 MONGO_URI 或 runtime_config.json 覆盖
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://root:password@127.0.0.1:27017/jx3bot?authSource=admin")
 
+# Bot 内置 JJC 同步 worker 数量，0 表示关闭。
+JJC_SYNC_WORKER_COUNT = _env_int("JJC_SYNC_WORKER_COUNT", 0)
+
 # JJC 橙武名称白名单（品质为5且名称在此列表中才视为橙武）
 JJC_LEGENDARY_WEAPON_NAMES = [
     "钗蝶语双", "七月嘉树", "万象金声", "幽微夜", "蜕骨", "伏魔悲音", "意真",
@@ -176,6 +191,7 @@ RUNTIME_CONFIG_KEYS = {
     "calendar_time": int,
     "STATUS_check_time": int,
     "MONGO_URI": str,
+    "JJC_SYNC_WORKER_COUNT": int,
 }
 
 if os.path.exists(RUNTIME_CONFIG_FILE):

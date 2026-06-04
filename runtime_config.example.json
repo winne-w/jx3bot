@@ -1,0 +1,9 @@
+{
+  "TOKEN": "",
+  "TICKET": "",
+  "MONGO_URI": "mongodb://root:password@127.0.0.1:27017/jx3bot?authSource=admin",
+  "SESSION_data": 720,
+  "calendar_time": 9,
+  "STATUS_check_time": 3,
+  "JJC_SYNC_WORKER_COUNT": 0
+}

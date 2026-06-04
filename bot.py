@@ -18,8 +18,17 @@ register_api(app)
 async def _startup_mongo():
     from config import MONGO_URI
     from src.infra.mongo import init_mongo
+    from src.services.jx3.jjc_sync_worker_runtime import start_jjc_sync_workers
 
     await init_mongo(MONGO_URI)
+    await start_jjc_sync_workers()
+
+
+@driver.on_shutdown
+async def _shutdown_jjc_sync_workers():
+    from src.services.jx3.jjc_sync_worker_runtime import stop_jjc_sync_workers
+
+    await stop_jjc_sync_workers()
 
 
 # Please DO NOT modify this file unless you know what you are doing!

@@ -63,10 +63,11 @@ docs/                        补充架构与运行文档
 - Python 3.9+
 - 已安装项目依赖
 - 准备好 `config.py`
-- 准备好 MongoDB 连接（通过 `runtime_config.json` 中的 `MONGO_URI` 配置）
+- 准备好 MongoDB 连接（通过环境变量、部署配置或本地 `runtime_config.json` 中的 `MONGO_URI` 配置）
 - NapCat 或其他 OneBot V11 实现已配置反向 WebSocket
 
 默认运行时会同时启用消息插件和 HTTP API，监听地址由 `HOST`/`PORT` 控制。
+`runtime_config.json` 存放本地凭证和运行时覆盖项，不应提交到 Git；可从 `runtime_config.example.json` 复制后填写本地值。
 
 ## 本地启动
 
@@ -94,6 +95,26 @@ python bot.py
 ```bash
 bash start.sh
 ```
+
+## JJC 同步 Worker
+
+JJC 对局同步默认只入队，不会在 bot 进程内自动处理队列。需要单独扩容或排障时仍可启动独立 worker:
+
+```bash
+python scripts/jjc_sync.py worker --mode=incremental_or_full
+```
+
+单进程部署也可以启用 bot 内置 worker。首版只提供一个配置:
+
+```json
+{
+  "JJC_SYNC_WORKER_COUNT": 1
+}
+```
+
+`JJC_SYNC_WORKER_COUNT=0` 表示关闭；大于 0 时，bot 在 Mongo 初始化完成后创建对应数量的后台 worker。也可以通过环境变量 `JJC_SYNC_WORKER_COUNT=1` 或管理员命令 `/修改配置 JJC_SYNC_WORKER_COUNT=1` 设置。QQ 修改配置会退出当前进程，自动拉起依赖 Docker、systemd、supervisor 等外部守护。
+
+内置 worker 使用稳定槽位名 `bot:{host}:{index}`，例如 `bot:my-host:0`。同一部署实例重启后会复用同一条 worker 心跳记录，不会因为 pid 或启动时间变化持续新增离线 worker。
 
 ## 存储说明
 

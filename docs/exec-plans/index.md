@@ -5,11 +5,12 @@
 ## Active
 
 - `active/jjc-role-participant-projection-backfill-script-plan.md`: JJC 单角色参与者投影补齐脚本计划
-- `active/jjc-bot-managed-sync-workers-plan.md`: JJC bot 启动时按配置托管同步 worker 计划
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Completed
 
+- `completed/jjc-match-detail-identity-projection-log-plan.md`: JJC 对局详情身份投影耗时日志计划
+- `completed/jjc-bot-managed-sync-workers-plan.md`: JJC bot 启动时按配置托管同步 worker 计划
 - `completed/jjc-synced-matches-compact-refresh-all-server-plan.md`: JJC 对局查询紧凑列表、刷新按钮与全服候选计划
 - `completed/jjc-query-timeout-diagnostics-plan.md`: JJC 对局查询超时阶段耗时诊断日志计划
 - `completed/jjc-synced-matches-async-render-and-queue-state-plan.md`: JJC 对局查询异步展示与排队状态文案计划

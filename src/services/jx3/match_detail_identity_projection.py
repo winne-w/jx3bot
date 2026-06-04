@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -141,6 +142,7 @@ class MatchDetailIdentityProjectionService:
                 player.get("gameRoleId"),
             )
             game_role_id = _pick_str(player.get("game_role_id"), player.get("gameRoleId"), role_id)
+            identity_started_at = time.perf_counter()
             identity = await _maybe_await(
                 self.identity_repo.upsert_from_match_detail_with_id(
                     server=server,
@@ -155,9 +157,13 @@ class MatchDetailIdentityProjectionService:
                     observed_match_time=observed_match_time,
                 )
             )
+            identity_ms = int((time.perf_counter() - identity_started_at) * 1000)
             projected += 1
 
+            queue_ms = 0
+            queued_this_player = False
             if hasattr(self.sync_repo, "upsert_identity_queue_candidate") and isinstance(identity, dict):
+                queue_started_at = time.perf_counter()
                 await _maybe_await(
                     self.sync_repo.upsert_identity_queue_candidate(
                         identity_id=identity.get("_id"),
@@ -176,7 +182,21 @@ class MatchDetailIdentityProjectionService:
                         priority=priority,
                     )
                 )
+                queue_ms = int((time.perf_counter() - queue_started_at) * 1000)
                 queued += 1
+                queued_this_player = True
+
+            logger.info(
+                "JJC 对局详情身份投影玩家耗时: match_id=%s server=%s name=%s global_id=%s "
+                "identity_ms=%s queue_ms=%s queued=%s",
+                match_id,
+                server,
+                name,
+                _pick_str(player.get("global_id"), player.get("globalId")),
+                identity_ms,
+                queue_ms,
+                queued_this_player,
+            )
 
         result = {"projected": projected, "skipped_players": skipped, "queued": queued}
         logger.info(

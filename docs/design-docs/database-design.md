@@ -784,7 +784,7 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `_id` | ObjectId | MongoDB 自动主键 |
-| `worker_id` | string | worker 实例 ID，业务唯一 |
+| `worker_id` | string | worker 实例 ID，业务唯一；bot 内置 worker 使用稳定槽位 `bot:{host}:{index}`，独立 CLI worker 可使用进程级 ID |
 | `mode` | string | worker 同步模式 |
 | `status` | string | 状态：`starting`、`running`、`idle`、`syncing`、`paused`、`stopped`；状态页只把 5 分钟内有心跳的非 stopped worker 视为活跃 |
 | `pid` | int/null | 进程 ID |
@@ -793,14 +793,14 @@
 | `current_identity_key` | string/null | 当前处理角色 identity_key |
 | `current_server` | string/null | 当前处理角色服务器 |
 | `current_name` | string/null | 当前处理角色名 |
-| `started_at` | float | worker 首次注册时间 Unix 秒 |
+| `started_at` | float | worker 本轮启动注册时间 Unix 秒；同一稳定 `worker_id` 重新注册时会刷新 |
 | `heartbeat_at` | float | 最近心跳时间 Unix 秒 |
 | `last_result` | object/null | 最近一次角色同步摘要 |
 | `last_error` | string/null | 最近 worker 或角色错误 |
 | `stop_reason` | string/null | worker 停止原因 |
 | `updated_at` | float | 更新时间 Unix 秒 |
 
-状态 API 会派生返回 `online` 与 `effective_status`：`online` 表示 `heartbeat_at` 距当前 5 分钟内且 `status` 属于 `starting/running/idle/syncing/paused`；过期心跳展示为 `effective_status=offline`，该派生字段不写入 MongoDB。
+状态 API 会派生返回 `online` 与 `effective_status`：`online` 表示 `heartbeat_at` 距当前 5 分钟内且 `status` 属于 `starting/running/idle/syncing/paused`；过期心跳展示为 `effective_status=offline`，该派生字段不写入 MongoDB。同一稳定 `worker_id` 重新注册时会清空 `current_identity_id/current_identity_key/current_server/current_name/last_error`，避免重启后展示上一轮残留处理对象。
 
 索引：
 

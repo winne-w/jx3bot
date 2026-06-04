@@ -2256,17 +2256,20 @@ class JjcSyncRepo:
             "status": status,
             "pid": pid,
             "host": host,
+            "current_identity_id": None,
+            "current_identity_key": None,
+            "current_server": None,
+            "current_name": None,
+            "last_error": "",
             "heartbeat_at": now,
+            "started_at": now,
             "updated_at": now,
         }
 
         try:
             result = await db.jjc_sync_workers.update_one(
                 {"worker_id": worker_id},
-                {
-                    "$set": set_fields,
-                    "$setOnInsert": {"started_at": now},
-                },
+                {"$set": set_fields},
                 upsert=True,
             )
             return result.matched_count > 0 or getattr(result, "upserted_id", None) is not None
