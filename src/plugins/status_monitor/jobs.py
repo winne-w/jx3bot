@@ -629,7 +629,7 @@ async def push_daily_gte():
             logger.warning("status_monitor 推送日常出错: {}", e)
 
 
-@scheduler.scheduled_job("cron", hour="4,21", minute=0)
+@scheduler.scheduled_job("cron", hour="4,21", minute=0, max_instances=2)
 async def push_daily_jjc_ranking():
     if BOT_INITIALIZED:
         try:

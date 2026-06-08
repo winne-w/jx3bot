@@ -11,7 +11,7 @@ def register(
     *,
     query_jjc_ranking: Callable[[], Awaitable[dict]],
     calculate_season_week_info: Callable[[int, Optional[float]], str],
-    get_ranking_kungfu_data: Callable[[dict], Awaitable[dict]],
+    get_ranking_kungfu_data: Callable[..., Awaitable[dict]],
     save_ranking_stats: Callable[[dict, dict, str], None],
     generate_split_ranking_images: Callable[[Bot, Event, dict, str, bool], Awaitable[None]],
     generate_combined_ranking_image: Callable[[Bot, Event, dict, str, bool], Awaitable[None]],
@@ -24,9 +24,15 @@ def register(
             is_split_mode = "拆分" in message_text
             is_debug_mode = "debug" in message_text_lower
             show_legendary = "橙武占比" in message_text
+            use_cached_kungfu = "缓存心法" in message_text.split()
 
             if is_split_mode:
-                await bot.send(event, "正在统计竞技场心法排名（拆分模式），请稍候...")
+                mode_text = "拆分模式"
+                if use_cached_kungfu:
+                    mode_text += "，优先使用缓存心法"
+                await bot.send(event, f"正在统计竞技场心法排名（{mode_text}），请稍候...")
+            elif use_cached_kungfu:
+                await bot.send(event, "正在统计竞技场心法排名（优先使用缓存心法），请稍候...")
             else:
                 await bot.send(event, "正在统计竞技场心法排名，请稍候...")
 
@@ -57,7 +63,10 @@ def register(
                 else "第12周"
             )
 
-            result = await get_ranking_kungfu_data(ranking_data=ranking_result)
+            result = await get_ranking_kungfu_data(
+                ranking_data=ranking_result,
+                use_cached_kungfu=use_cached_kungfu,
+            )
             if result is None:
                 await bot.send(event, "获取心法分布数据失败：返回数据为空")
                 return

@@ -772,7 +772,13 @@ class JjcRankingService:
         name: str,
         ranking_data: Optional[dict[str, Any]] = None,
         rank: Optional[int] = None,
+        prefer_cache: bool = False,
     ) -> dict[str, Any]:
+        if prefer_cache:
+            cached_result = await self._load_cached_kungfu_for_ranking(server, name)
+            if cached_result is not None:
+                return cached_result
+
         await random_sleep(1, 3)
 
         logger.info(f"优先使用心法查询接口查询心法信息: server={server} name={name}")
@@ -948,7 +954,45 @@ class JjcRankingService:
         await self._cache().save_kungfu_cache(server, name, result)
         return result
 
-    async def get_ranking_kungfu_data(self, ranking_data: dict[str, Any]) -> dict[str, Any]:
+    async def _load_cached_kungfu_for_ranking(self, server: str, name: str) -> Optional[dict[str, Any]]:
+        cache = self._cache()
+        cached = await cache.load_kungfu_cache(server, name)
+        if cached is not None and cached.get("kungfu") not in (None, ""):
+            result = dict(cached)
+            result.setdefault("server", server)
+            result.setdefault("name", name)
+            result["found"] = True
+            logger.info(
+                "排名统计使用缓存心法(新鲜命中): server={} name={} kungfu={}",
+                server,
+                name,
+                result.get("kungfu"),
+            )
+            return result
+
+        cached = await cache.load_kungfu_cache_raw(server, name)
+
+        if not isinstance(cached, dict) or cached.get("kungfu") in (None, ""):
+            logger.info("排名统计缓存心法未命中: server={} name={}", server, name)
+            return None
+
+        result = dict(cached)
+        result.setdefault("server", server)
+        result.setdefault("name", name)
+        result["found"] = True
+        logger.info(
+            "排名统计使用缓存心法(原始缓存命中): server={} name={} kungfu={}",
+            server,
+            name,
+            result.get("kungfu"),
+        )
+        return result
+
+    async def get_ranking_kungfu_data(
+        self,
+        ranking_data: dict[str, Any],
+        use_cached_kungfu: bool = False,
+    ) -> dict[str, Any]:
         try:
             data_list = ranking_data.get("data", [])
             if not data_list:
@@ -977,6 +1021,7 @@ class JjcRankingService:
                     name,
                     ranking_data=ranking_data,
                     rank=i + 1,
+                    prefer_cache=use_cached_kungfu,
                 )
                 indicator_kungfu = kungfu_info.get("kungfu_indicator")
                 match_history_kungfu = kungfu_info.get("kungfu_match_history")

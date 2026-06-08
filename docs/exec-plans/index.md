@@ -4,6 +4,8 @@
 
 ## Active
 
+- `active/jjc-ranking-schedule-concurrency-plan.md`: JJC 自动排名统计允许并发计划
+- `active/jjc-ranking-use-kungfu-cache-command-plan.md`: JJC 排名统计命令支持优先使用缓存心法计划
 - `active/jjc-role-participant-projection-backfill-script-plan.md`: JJC 单角色参与者投影补齐脚本计划
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 

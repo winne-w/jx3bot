@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from src.services.jx3.jjc_cache_repo import (
     JjcCacheRepo,
@@ -836,6 +836,87 @@ def _build_ranking_service(defget_get: Any) -> JjcRankingService:
 
 
 class GetUserKungfuDefgetFailureFallbackTests(unittest.TestCase):
+    def test_prefer_cache_returns_cached_kungfu_without_live_requests(self):
+        defget_get = AsyncMock(return_value={
+            "msg": "success",
+            "data": {"history": [{"won": True, "kungfu": "旧历史心法"}]},
+        })
+        service = _build_ranking_service(defget_get)
+        cache = MagicMock()
+        cache.load_kungfu_cache = AsyncMock(return_value={
+            "server": "蝶恋花",
+            "name": "测试角色",
+            "kungfu": "孤锋诀",
+            "found": True,
+            "cache_time": 1700000000,
+            "weapon_checked": True,
+            "teammates_checked": True,
+        })
+        cache.load_kungfu_cache_raw = AsyncMock(return_value=None)
+        update_kungfu_cache = AsyncMock()
+
+        with patch.object(
+            JjcRankingService,
+            "update_kungfu_cache",
+            new=update_kungfu_cache,
+        ), patch(
+            "src.services.jx3.jjc_ranking.random_sleep",
+            new=AsyncMock(),
+        ) as sleep_mock, patch.object(JjcRankingService, "_cache", return_value=cache):
+            result = asyncio_run(service.get_user_kungfu(
+                "蝶恋花",
+                "测试角色",
+                ranking_data={"code": 0, "data": []},
+                prefer_cache=True,
+            ))
+
+        self.assertTrue(result["found"])
+        self.assertEqual(result["kungfu"], "孤锋诀")
+        cache.load_kungfu_cache.assert_awaited_once_with("蝶恋花", "测试角色")
+        cache.load_kungfu_cache_raw.assert_not_awaited()
+        sleep_mock.assert_not_awaited()
+        defget_get.assert_not_awaited()
+        update_kungfu_cache.assert_not_awaited()
+
+    def test_prefer_cache_uses_raw_kungfu_cache_when_freshness_cache_misses(self):
+        defget_get = AsyncMock(return_value={
+            "msg": "success",
+            "data": {"history": [{"won": True, "kungfu": "旧历史心法"}]},
+        })
+        service = _build_ranking_service(defget_get)
+        cache = MagicMock()
+        cache.load_kungfu_cache = AsyncMock(return_value=None)
+        cache.load_kungfu_cache_raw = AsyncMock(return_value={
+            "server": "蝶恋花",
+            "name": "测试角色",
+            "kungfu": "孤锋诀",
+            "cache_time": 1600000000,
+        })
+        update_kungfu_cache = AsyncMock()
+
+        with patch.object(
+            JjcRankingService,
+            "update_kungfu_cache",
+            new=update_kungfu_cache,
+        ), patch(
+            "src.services.jx3.jjc_ranking.random_sleep",
+            new=AsyncMock(),
+        ) as sleep_mock, patch.object(JjcRankingService, "_cache", return_value=cache):
+            result = asyncio_run(service.get_user_kungfu(
+                "蝶恋花",
+                "测试角色",
+                ranking_data={"code": 0, "data": []},
+                prefer_cache=True,
+            ))
+
+        self.assertTrue(result["found"])
+        self.assertEqual(result["kungfu"], "孤锋诀")
+        cache.load_kungfu_cache.assert_awaited_once_with("蝶恋花", "测试角色")
+        cache.load_kungfu_cache_raw.assert_awaited_once_with("蝶恋花", "测试角色")
+        sleep_mock.assert_not_awaited()
+        defget_get.assert_not_awaited()
+        update_kungfu_cache.assert_not_awaited()
+
     def test_defget_success_returns_refreshed_live_cache_result_when_found(self):
         defget_get = AsyncMock(return_value={
             "msg": "success",
@@ -1020,6 +1101,51 @@ class GetUserKungfuDefgetFailureFallbackTests(unittest.TestCase):
         self.assertEqual(saved_result["cached_match_detail_latest_win_match_id"], 42)
         self.assertNotIn("weapon", saved_result)
 
+    def test_prefer_cache_with_empty_kungfu_falls_through_to_live_path(self):
+        """prefer_cache=True, cache docs exist but kungfu is empty -> falls through to live."""
+        defget_get = AsyncMock(return_value={
+            "msg": "success",
+            "data": {"history": [{"won": True, "kungfu": "旧历史心法"}]},
+        })
+        service = _build_ranking_service(defget_get)
+        cache = MagicMock()
+        cache.load_kungfu_cache = AsyncMock(return_value=None)
+        cache.load_kungfu_cache_raw = AsyncMock(return_value={
+            "server": "蝶恋花",
+            "name": "测试角色",
+            "kungfu": "",
+            "cache_time": 1600000000,
+        })
+        cache.save_kungfu_cache = AsyncMock()
+        cache.get_kungfu_from_cached_match_detail_win_history = AsyncMock(return_value=None)
+        update_kungfu_cache = AsyncMock(return_value={
+            "server": "蝶恋花",
+            "name": "测试角色",
+            "kungfu": None,
+            "found": False,
+        })
+
+        with patch.object(
+            JjcRankingService,
+            "update_kungfu_cache",
+            new=update_kungfu_cache,
+        ), patch(
+            "src.services.jx3.jjc_ranking.random_sleep",
+            new=AsyncMock(),
+        ) as sleep_mock, patch.object(JjcRankingService, "_cache", return_value=cache):
+            result = asyncio_run(service.get_user_kungfu(
+                "蝶恋花",
+                "测试角色",
+                ranking_data={"code": 0, "data": []},
+                prefer_cache=True,
+            ))
+
+        sleep_mock.assert_awaited_once()
+        defget_get.assert_awaited_once()
+        update_kungfu_cache.assert_awaited_once()
+        self.assertTrue(result["found"])
+        self.assertEqual(result["kungfu"], "旧历史心法")
+
     def test_defget_failure_fallback_miss_returns_original_error_shape(self):
         defget_get = AsyncMock(return_value={
             "error": True,
@@ -1049,6 +1175,76 @@ class GetUserKungfuDefgetFailureFallbackTests(unittest.TestCase):
         })
         cache.load_kungfu_cache.assert_not_awaited()
         cache.save_kungfu_cache.assert_not_awaited()
+
+
+class GetRankingKungfuDataPreferCacheForwardingTests(unittest.TestCase):
+    def test_use_cached_kungfu_forwards_prefer_cache_to_get_user_kungfu(self):
+        """get_ranking_kungfu_data(use_cached_kungfu=True) passes prefer_cache=True downstream."""
+        defget_get = AsyncMock()
+        service = _build_ranking_service(defget_get)
+        get_user_kungfu = AsyncMock(return_value={
+            "server": "蝶恋花",
+            "name": "测试角色",
+            "kungfu": "孤锋诀",
+            "found": True,
+        })
+
+        ranking_data = {
+            "code": 0,
+            "data": [
+                {"personInfo": {"server": "蝶恋花", "roleName": "测试角色", "score": 2500}}
+            ],
+        }
+
+        with patch.object(JjcRankingService, "get_user_kungfu", new=get_user_kungfu):
+            result = asyncio_run(service.get_ranking_kungfu_data(
+                ranking_data=ranking_data,
+                use_cached_kungfu=True,
+            ))
+
+        get_user_kungfu.assert_awaited_once_with(
+            "蝶恋花",
+            "测试角色",
+            ranking_data=ranking_data,
+            rank=1,
+            prefer_cache=True,
+        )
+        self.assertNotIn("error", result)
+
+    def test_use_cached_kungfu_forwards_prefer_cache_for_every_player_in_loop(self):
+        """Multi-player loop: each call receives prefer_cache=True."""
+        defget_get = AsyncMock()
+        service = _build_ranking_service(defget_get)
+        get_user_kungfu = AsyncMock(return_value={
+            "server": "",
+            "name": "",
+            "kungfu": "孤锋诀",
+            "found": True,
+        })
+
+        ranking_data = {
+            "code": 0,
+            "data": [
+                {"personInfo": {"server": "蝶恋花", "roleName": "玩家A", "score": 2500}},
+                {"personInfo": {"server": "唯我独尊", "roleName": "玩家B", "score": 2400}},
+                {"personInfo": {"server": "梦江南", "roleName": "玩家C", "score": 2300}},
+            ],
+        }
+
+        with patch.object(JjcRankingService, "get_user_kungfu", new=get_user_kungfu):
+            result = asyncio_run(service.get_ranking_kungfu_data(
+                ranking_data=ranking_data,
+                use_cached_kungfu=True,
+            ))
+
+        self.assertEqual(get_user_kungfu.call_count, 3)
+        expected_calls = [
+            call("蝶恋花", "玩家A", ranking_data=ranking_data, rank=1, prefer_cache=True),
+            call("唯我独尊", "玩家B", ranking_data=ranking_data, rank=2, prefer_cache=True),
+            call("梦江南", "玩家C", ranking_data=ranking_data, rank=3, prefer_cache=True),
+        ]
+        get_user_kungfu.assert_has_calls(expected_calls)
+        self.assertNotIn("error", result)
 
 
 def asyncio_run(coro):
