@@ -10,6 +10,7 @@
 ## Completed
 
 - `completed/jjc-ranking-schedule-concurrency-plan.md`: JJC 自动排名统计允许并发计划
+- `completed/jjc-match-detail-cache-hit-replay-background-plan.md`: JJC match_detail cache hit replay 后台补全计划
 - `completed/jjc-match-detail-identity-projection-parallel-plan.md`: JJC match_detail 身份投影并发化计划
 - `completed/jjc-ranking-use-kungfu-cache-command-plan.md`: JJC 排名统计命令支持优先使用缓存心法计划
 - `completed/jjc-match-detail-identity-projection-log-plan.md`: JJC 对局详情身份投影耗时日志计划
