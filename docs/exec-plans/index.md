@@ -4,13 +4,13 @@
 
 ## Active
 
-- `active/jjc-ranking-schedule-concurrency-plan.md`: JJC 自动排名统计允许并发计划
-- `active/jjc-ranking-use-kungfu-cache-command-plan.md`: JJC 排名统计命令支持优先使用缓存心法计划
 - `active/jjc-role-participant-projection-backfill-script-plan.md`: JJC 单角色参与者投影补齐脚本计划
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Completed
 
+- `completed/jjc-ranking-schedule-concurrency-plan.md`: JJC 自动排名统计允许并发计划
+- `completed/jjc-ranking-use-kungfu-cache-command-plan.md`: JJC 排名统计命令支持优先使用缓存心法计划
 - `completed/jjc-match-detail-identity-projection-log-plan.md`: JJC 对局详情身份投影耗时日志计划
 - `completed/jjc-bot-managed-sync-workers-plan.md`: JJC bot 启动时按配置托管同步 worker 计划
 - `completed/jjc-synced-matches-compact-refresh-all-server-plan.md`: JJC 对局查询紧凑列表、刷新按钮与全服候选计划
