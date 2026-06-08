@@ -614,6 +614,41 @@ class TestMatchDetailIdentityProjection(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["projected"], 1)
         self.assertEqual(result["queued"], 0)
 
+    async def test_projects_players_concurrently(self):
+        identity_repo = MagicMock()
+        sync_repo = MagicMock(spec=[])
+        active = 0
+        max_active = 0
+
+        async def upsert_with_overlap(**kwargs: Any) -> Dict[str, Any]:
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+            return {"_id": kwargs["global_id"], "identity_key": "global_id:" + kwargs["global_id"]}
+
+        identity_repo.upsert_from_match_detail_with_id = AsyncMock(side_effect=upsert_with_overlap)
+        service = MatchDetailIdentityProjectionService(identity_repo=identity_repo, sync_repo=sync_repo)
+
+        result = await service.project_payload(
+            match_id=1,
+            payload={
+                "detail": {
+                    "team1": {
+                        "players_info": [
+                            {"role_name": "角色A", "server": "梦江南", "global_id": "1"},
+                            {"role_name": "角色B", "server": "唯我独尊", "global_id": "2"},
+                        ]
+                    },
+                    "team2": {"players_info": []},
+                }
+            },
+        )
+
+        self.assertEqual(result["projected"], 2)
+        self.assertGreaterEqual(max_active, 2)
+
 
 class TestHydrateRecentMatchesWithCachedDetails(unittest.IsolatedAsyncioTestCase):
     async def test_adds_summary_when_cached_detail_exists(self):
