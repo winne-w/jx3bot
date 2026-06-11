@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 from nonebot import logger
 
 from src.services.jx3.indicator_utils import parse_3v3_indicator
-from src.services.jx3.kungfu import get_kungfu_detail_by_role_info
+from src.services.jx3.kungfu import get_kungfu_detail_by_role_info, merge_replay_global_ids_into_match_detail
 from src.services.jx3.weapon_quality import extract_member_weapon_name, extract_weapon_name, is_jjc_legendary_weapon
 from src.infra.mongo import get_db
 from src.services.jx3.jjc_api_client import JjcApiClient
@@ -84,6 +84,27 @@ class JjcRankingService:
                 kungfu = player.get("kungfu")
                 if isinstance(kungfu, str) and kungfu:
                     player["kungfu"] = self.kungfu_pinyin_to_chinese.get(kungfu, kungfu)
+
+    async def _enrich_warmup_match_detail_with_replay(self, match_id: int, payload: Dict[str, Any]) -> None:
+        if not self.match_replay_url:
+            return
+        detail = payload.get("detail")
+        if not isinstance(detail, dict):
+            return
+        try:
+            replay = await asyncio.to_thread(
+                self.tuilan_request,
+                self.match_replay_url,
+                {"match_id": match_id},
+            )
+        except Exception as exc:
+            logger.warning("定时统计预热 match_detail replay 请求失败: match_id={} error={}", match_id, exc)
+            return
+        if not isinstance(replay, dict) or replay.get("error"):
+            logger.warning("定时统计预热 match_detail replay 响应无效: match_id={}", match_id)
+            return
+        payload["replay"] = replay
+        merge_replay_global_ids_into_match_detail({"data": detail}, replay)
 
     async def _warmup_inspect_cache_from_kungfu_detail(
         self,
@@ -176,6 +197,7 @@ class JjcRankingService:
                             "detail": detail,
                         }
                     if payload is not None:
+                        await self._enrich_warmup_match_detail_with_replay(normalized_match_id, payload)
                         try:
                             await repo.save_match_detail(
                                 normalized_match_id,

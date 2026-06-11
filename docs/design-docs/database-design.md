@@ -264,6 +264,7 @@
 | `idx_global_id` | `global_id` | unique, partial（仅 `global_id` 不为 null 时） |
 | `idx_global_role_id` | `global_role_id` | 普通索引；SK01 不再作为最终唯一身份 |
 | `idx_zone_game_role_id` | `zone`, `game_role_id` | 普通复合索引；用于弱身份 fallback 与冲突审计 |
+| `idx_zone_role_id` | `zone`, `role_id` | 普通复合索引；用于兼容旧 `role_id` 字段的弱身份 fallback |
 | `idx_normalized_server_name` | `normalized_server`, `normalized_name` | 普通索引（用于按名称查询入口） |
 | `idx_normalized_name` | `normalized_name` | 普通索引；用于 JJC 对局查询未命中时按同名跨服和 `@` 后缀前缀匹配候选 |
 | `idx_last_seen_at` | `last_seen_at` | 普通索引 |

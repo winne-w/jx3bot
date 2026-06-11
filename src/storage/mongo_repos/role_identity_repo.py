@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -35,6 +36,10 @@ def _coerce_object_id(value: Any) -> Optional[ObjectId]:
     if isinstance(value, str) and ObjectId.is_valid(value):
         return ObjectId(value)
     return None
+
+
+def _global_id_string_filter(global_id: str) -> Dict[str, str]:
+    return {"$eq": global_id, "$type": "string"}
 
 
 def _identity_strength(doc: Dict[str, Any]) -> int:
@@ -129,7 +134,7 @@ class RoleIdentityRepo:
     async def find_by_global_id(self, global_id: str) -> Optional[Dict[str, Any]]:
         doc = await self._col().find_one({
             "$or": [
-                {"global_id": global_id},
+                {"global_id": _global_id_string_filter(global_id)},
                 {"identity_key": f"global_id:{global_id}"},
             ]
         })
@@ -377,7 +382,7 @@ class RoleIdentityRepo:
         if replay_gid:
             doc = await self._col().find_one({
                 "$or": [
-                    {"global_id": replay_gid},
+                    {"global_id": _global_id_string_filter(replay_gid)},
                     {"identity_key": f"global_id:{replay_gid}"},
                 ]
             })
@@ -654,6 +659,7 @@ class RoleIdentityRepo:
         preserve_id: bool = False,
     ) -> Dict[str, Any]:
         """通用 upsert：查找已有身份 → 可能升级 → 新建或更新。"""
+        started_at = time.perf_counter()
         now = datetime.now(timezone.utc)
         profile_observed_at = observed_at or now
         profile_observed_match_time = (
@@ -665,6 +671,7 @@ class RoleIdentityRepo:
         ns = _normalize(server)
         nn = _normalize(name)
 
+        phase_started_at = time.perf_counter()
         if preserve_id:
             existing = await self.resolve_best_identity_with_id(
                 server=server, name=name,
@@ -677,14 +684,28 @@ class RoleIdentityRepo:
                 zone=zone, game_role_id=effective_game_role_id,
                 global_role_id=global_role_id, global_id=global_id,
             )
+        resolve_ms = int((time.perf_counter() - phase_started_at) * 1000)
 
         if existing:
-            return await self._update_existing(
+            result = await self._update_existing(
                 existing, server, name, ns, nn,
                 zone, effective_game_role_id, global_role_id, global_id, role_id, person_id,
                 source, now, profile_observed_at, profile_observed_match_time,
                 cache_repo=cache_repo, preserve_id=preserve_id,
             )
+            if source == "match_detail":
+                logger.info(
+                    "JJC role_identities match_detail upsert 完成: path=existing identity_key={} global_id={} "
+                    "server={} name={} resolve_ms={} total_ms={}".format(
+                        result.get("identity_key") if isinstance(result, dict) else existing.get("identity_key"),
+                        global_id,
+                        server,
+                        name,
+                        resolve_ms,
+                        int((time.perf_counter() - started_at) * 1000),
+                    )
+                )
+            return result
 
         # 无已有身份 → 新建
         identity_key, identity_level = build_identity_key(
@@ -731,7 +752,9 @@ class RoleIdentityRepo:
             doc["global_id"] = global_id
 
         try:
+            phase_started_at = time.perf_counter()
             insert_result = await self._col().insert_one(doc)
+            insert_ms = int((time.perf_counter() - phase_started_at) * 1000)
             if preserve_id and "_id" not in doc:
                 doc["_id"] = insert_result.inserted_id
         except DuplicateKeyError:
@@ -748,6 +771,19 @@ class RoleIdentityRepo:
                 )
             raise
 
+        if source == "match_detail":
+            logger.info(
+                "JJC role_identities match_detail upsert 完成: path=insert identity_key={} global_id={} "
+                "server={} name={} resolve_ms={} insert_ms={} total_ms={}".format(
+                    identity_key,
+                    global_id,
+                    server,
+                    name,
+                    resolve_ms,
+                    insert_ms,
+                    int((time.perf_counter() - started_at) * 1000),
+                )
+            )
         if not preserve_id:
             doc.pop("_id", None)
         return doc
@@ -773,6 +809,7 @@ class RoleIdentityRepo:
         preserve_id: bool = False,
     ) -> Dict[str, Any]:
         """更新已有身份记录，必要时执行身份升级。"""
+        started_at = time.perf_counter()
         current_key: str = existing["identity_key"]
         current_level: str = existing.get("identity_level", "name")
         existing_global_id = (existing.get("global_id") or "").strip()
@@ -861,6 +898,7 @@ class RoleIdentityRepo:
 
         should_archive = self._should_archive_profile_change(existing, set_fields)
         if should_archive:
+            phase_started_at = time.perf_counter()
             archived = await self._archive_profile_snapshot(
                 existing,
                 replaced_by_identity_key=new_key if needs_upgrade else current_key,
@@ -869,16 +907,21 @@ class RoleIdentityRepo:
                 observed_match_time=observed_match_time,
                 archived_at=now,
             )
+            archive_ms = int((time.perf_counter() - phase_started_at) * 1000)
             if not archived:
                 if not preserve_id:
                     existing.pop("_id", None)
                 return existing
+        else:
+            archive_ms = 0
 
         try:
+            phase_started_at = time.perf_counter()
             await self._col().update_one(
                 {"identity_key": current_key},
                 update_op,
             )
+            update_ms = int((time.perf_counter() - phase_started_at) * 1000)
         except DuplicateKeyError:
             logger.warning(
                 "身份升级冲突: old_key={} new_key={} 目标已存在，保留当前记录",
@@ -892,7 +935,28 @@ class RoleIdentityRepo:
             await cache_repo.migrate_identity_key(current_key, new_key)
 
         lookup_key = new_key if needs_upgrade else current_key
+        phase_started_at = time.perf_counter()
         doc = await self._col().find_one({"identity_key": lookup_key})
+        reload_ms = int((time.perf_counter() - phase_started_at) * 1000)
+        if source == "match_detail":
+            global_id_same = bool(existing_global_id and incoming_global_id and existing_global_id == incoming_global_id)
+            logger.info(
+                "JJC role_identities match_detail 更新阶段耗时: identity_key={} new_key={} existing_global_id={} incoming_global_id={} "
+                "global_id_same={} needs_upgrade={} should_archive={} set_fields={} archive_ms={} update_ms={} reload_ms={} total_ms={}".format(
+                    current_key,
+                    new_key,
+                    existing_global_id,
+                    global_id,
+                    global_id_same,
+                    needs_upgrade,
+                    should_archive,
+                    sorted(set_fields.keys()),
+                    archive_ms,
+                    update_ms,
+                    reload_ms,
+                    int((time.perf_counter() - started_at) * 1000),
+                )
+            )
         if doc and not preserve_id:
             doc.pop("_id", None)
         return doc or existing

@@ -205,6 +205,10 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         name="idx_zone_game_role_id",
     )
     await _safe_index(
+        "role_identities", [("zone", 1), ("role_id", 1)],
+        name="idx_zone_role_id",
+    )
+    await _safe_index(
         "role_identities", [("normalized_server", 1), ("normalized_name", 1)],
         name="idx_normalized_server_name",
     )

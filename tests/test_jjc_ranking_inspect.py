@@ -277,7 +277,13 @@ class FakeWarmupInspectRepo:
 
 
 class WarmupJjcRankingService(JjcRankingService):
-    def __init__(self, inspect_repo: FakeWarmupInspectRepo, projection_service: Any = None) -> None:
+    def __init__(
+        self,
+        inspect_repo: FakeWarmupInspectRepo,
+        projection_service: Any = None,
+        tuilan_request: Any = None,
+        match_replay_url: Optional[str] = None,
+    ) -> None:
         super().__init__(
             token="",
             ticket="",
@@ -292,8 +298,9 @@ class WarmupJjcRankingService(JjcRankingService):
             kungfu_healer_list=[],
             kungfu_dps_list=[],
             kungfu_pinyin_to_chinese={"huajian": "花间游"},
-            tuilan_request=MagicMock(),
+            tuilan_request=tuilan_request or MagicMock(),
             defget_get=MagicMock(),
+            match_replay_url=match_replay_url,
             match_detail_projection_service=projection_service,
         )
         object.__setattr__(self, "inspect_repo", inspect_repo)
@@ -528,6 +535,71 @@ class TestRankingWarmupInspectCache(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(projection_service.calls), 1)
         self.assertEqual(projection_service.calls[0]["match_id"], 12345)
         self.assertEqual(projection_service.calls[0]["source"], "ranking_warmup")
+
+    async def test_warmup_saves_match_detail_with_replay(self):
+        inspect_repo = FakeWarmupInspectRepo()
+
+        def fake_tuilan_request(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+            self.assertEqual(url, "match-replay-url")
+            self.assertEqual(params, {"match_id": 12345})
+            return {
+                "code": 0,
+                "data": {
+                    "players": [
+                        {
+                            "role_name": "示例角色·梦江南",
+                            "role_id": "100",
+                            "global_role_id": "987654321",
+                            "zone": "电信区",
+                        }
+                    ]
+                },
+            }
+
+        service = WarmupJjcRankingService(
+            inspect_repo,
+            tuilan_request=fake_tuilan_request,
+            match_replay_url="match-replay-url",
+        )
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "match_detail": {
+                        "match_id": 12345,
+                        "raw": {
+                            "code": 0,
+                            "msg": "success",
+                            "data": {
+                                "match_id": 12345,
+                                "match_time": 1778000000,
+                                "team1": {
+                                    "players_info": [
+                                        {
+                                            "role_name": "示例角色",
+                                            "server": "梦江南",
+                                            "kungfu": "huajian",
+                                            "role_id": "100",
+                                        }
+                                    ]
+                                },
+                                "team2": {"players_info": []},
+                            },
+                        },
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(len(inspect_repo.saved_match_detail), 1)
+        _, detail_payload = inspect_repo.saved_match_detail[0]
+        data = detail_payload["data"]
+        self.assertEqual(data["replay"]["data"]["players"][0]["global_role_id"], "987654321")
+        player = data["detail"]["team1"]["players_info"][0]
+        self.assertEqual(player["global_id"], "987654321")
+        self.assertEqual(player["role_id"], "100")
 
 
 class TestMatchDetailIdentityProjection(unittest.IsolatedAsyncioTestCase):

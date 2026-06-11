@@ -581,6 +581,30 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("_id", legacy)
         self.assertEqual(with_id["_id"], identity_id)
 
+    async def test_global_id_lookup_includes_partial_index_type_filter(self) -> None:
+        identity_id = ObjectId()
+        db = FakeDb()
+        db.role_identities.find_one.side_effect = [
+            {"_id": identity_id, "identity_key": "global_id:gid", "global_id": "gid"},
+            {"_id": identity_id, "identity_key": "global_id:gid", "global_id": "gid"},
+        ]
+        repo = RoleIdentityRepo(db=db)
+
+        legacy = await repo.find_by_global_id("gid")
+        with_id = await repo.resolve_best_identity_with_id(
+            server="梦江南",
+            name="角色A",
+            global_id="gid",
+        )
+
+        self.assertNotIn("_id", legacy)
+        self.assertEqual(with_id["_id"], identity_id)
+        find_by_global_id_query = db.role_identities.find_one.call_args_list[0].args[0]
+        resolve_query = db.role_identities.find_one.call_args_list[1].args[0]
+        expected_global_id_filter = {"global_id": {"$eq": "gid", "$type": "string"}}
+        self.assertIn(expected_global_id_filter, find_by_global_id_query["$or"])
+        self.assertIn(expected_global_id_filter, resolve_query["$or"])
+
     async def test_upsert_from_match_detail_with_id_preserves_existing_id(self) -> None:
         identity_id = ObjectId()
         db = FakeDb()
