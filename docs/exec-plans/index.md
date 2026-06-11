@@ -4,14 +4,15 @@
 
 ## Active
 
+- `active/jjc-role-identity-profile-history-cleanup-plan.md`: JJC role_identities profile_history 清理与热路径瘦身计划
 - `active/jjc-role-participant-projection-backfill-script-plan.md`: JJC 单角色参与者投影补齐脚本计划
-- `active/jjc-role-identity-global-id-index-query-plan.md`: JJC role_identities global_id partial index 查询命中修复计划
-- `active/jjc-role-identity-zone-role-id-index-plan.md`: JJC role_identities zone + role_id 查询索引计划
 - `active/jjc-match-detail-replay-save-unification-plan.md`: JJC match_detail 写入入口统一保存 replay 计划
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Completed
 
+- `completed/jjc-role-identity-global-id-index-query-plan.md`: JJC role_identities global_id partial index 查询命中修复计划
+- `completed/jjc-role-identity-zone-role-id-index-plan.md`: JJC role_identities zone + role_id 查询索引计划
 - `completed/jjc-match-detail-cache-hit-replay-background-plan.md`: JJC match_detail cache hit replay 后台补全计划
 - `completed/tuilan-loguru-placeholder-fix-plan.md`: 推栏请求日志占位符修复计划
 - `completed/jjc-match-detail-identity-projection-parallel-plan.md`: JJC match_detail 身份投影并发化计划
