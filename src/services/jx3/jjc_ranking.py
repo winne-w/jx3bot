@@ -637,10 +637,10 @@ class JjcRankingService:
                 detail_payloads=detail_payloads,
             )
 
-            logger.info("保存竞技场统计到 Mongo: timestamp=%s details=%s", ranking_timestamp, len(detail_payloads))
+            logger.info("保存竞技场统计到 Mongo: timestamp={} details={}", ranking_timestamp, len(detail_payloads))
             return mongo_task
         except Exception as exc:
-            logger.warning("保存竞技场统计结果失败: %s", exc)
+            logger.warning("保存竞技场统计结果失败: {}", exc)
             return None
 
     def _build_summary_payload(self, stats_payload: dict[str, Any]) -> dict[str, Any]:

@@ -45,11 +45,11 @@ class MatchReplayClient:
                 return {"error": "请求返回None"}
 
             if isinstance(result, dict) and "error" in result:
-                logger.warning("推栏战局回放请求失败: %s", result.get("error"))
+                logger.warning("推栏战局回放请求失败: {}", result.get("error"))
                 return result
 
             logger.info("推栏战局回放请求成功")
             return result
         except Exception as exc:
-            logger.exception("推栏战局回放请求异常: %s", exc)
+            logger.exception("推栏战局回放请求异常: {}", exc)
             return {"error": f"请求异常: {exc}"}

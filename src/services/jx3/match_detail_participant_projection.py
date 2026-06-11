@@ -46,7 +46,7 @@ class MatchDetailParticipantProjectionService:
         status = state.get("status")
         if status in (None, "", "missing", "invalid_match_id"):
             return None
-        logger.warning("JJC 对局 seen 文档读取接口缺失，使用同步状态兜底: match_id=%s", match_id)
+        logger.warning("JJC 对局 seen 文档读取接口缺失，使用同步状态兜底: match_id={}", match_id)
         return {
             "match_id": match_id,
             "status": status,
@@ -85,7 +85,7 @@ class MatchDetailParticipantProjectionService:
                 ),
             }
         except Exception as exc:
-            logger.warning("JJC 对局参与者投影失败: match_id=%s error=%s", match_id, exc)
+            logger.warning("JJC 对局参与者投影失败: match_id={} error={}", match_id, exc)
             return {
                 "projected": 0,
                 "skipped": True,
@@ -97,7 +97,7 @@ class MatchDetailParticipantProjectionService:
             deleted = await self.participant_repo.clear_match_participants(match_id)
             return {"deleted": deleted}
         except Exception as exc:
-            logger.warning("JJC 对局参与者投影清理失败: match_id=%s error=%s", match_id, exc)
+            logger.warning("JJC 对局参与者投影清理失败: match_id={} error={}", match_id, exc)
             return {"deleted": 0, "error": str(exc)}
 
     async def refresh_sync_status(
@@ -112,5 +112,5 @@ class MatchDetailParticipantProjectionService:
             modified = await self.participant_repo.refresh_sync_status(match_id, actual_seen_doc)
             return {"modified": modified}
         except Exception as exc:
-            logger.warning("JJC 对局参与者同步状态投影失败: match_id=%s error=%s", match_id, exc)
+            logger.warning("JJC 对局参与者同步状态投影失败: match_id={} error={}", match_id, exc)
             return {"modified": 0, "error": str(exc)}

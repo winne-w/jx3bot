@@ -44,7 +44,7 @@ def get_role_indicator(
             return None
 
         if "error" in result:
-            logger.warning("获取角色信息失败: %s", result.get("error"))
+            logger.warning("获取角色信息失败: {}", result.get("error"))
             return None
 
         rank_text = f"#{rank}" if rank is not None else "#-"
@@ -53,7 +53,7 @@ def get_role_indicator(
         logger.info("角色信息获取成功: {} {} {}", rank_text, server_text, name_text)
         return result
     except Exception as exc:
-        logger.exception("获取角色信息异常: %s", exc)
+        logger.exception("获取角色信息异常: {}", exc)
         return None
 
 
@@ -247,7 +247,7 @@ def fetch_match_replay_global_id(
     try:
         replay_resp = tuilan_request(match_replay_url, {"match_id": int(match_id)})
     except Exception as exc:
-        logger.exception("获取战局回放失败: %s", exc)
+        logger.exception("获取战局回放失败: {}", exc)
         return None, None
     if not isinstance(replay_resp, dict) or replay_resp.get("error"):
         return None, replay_resp if isinstance(replay_resp, dict) else None
@@ -513,7 +513,7 @@ def get_kungfu_detail_by_role_info(
                         server=server,
                     )
             except Exception as exc:
-                logger.exception("获取战局详情失败: %s", exc)
+                logger.exception("获取战局详情失败: {}", exc)
 
         if len(won_kungfus) >= 10:
             sample = won_kungfus[:10]

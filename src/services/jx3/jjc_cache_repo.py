@@ -488,7 +488,7 @@ class JjcCacheRepo:
 
                     break
         except Exception as exc:
-            logger.warning("从 jjc_match_detail 查询历史胜场心法失败: %s", exc)
+            logger.warning("从 jjc_match_detail 查询历史胜场心法失败: {}", exc)
             return None
 
         qualified = {

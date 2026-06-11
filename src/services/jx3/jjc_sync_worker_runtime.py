@@ -25,7 +25,7 @@ async def _run_worker(worker_id: str) -> None:
     except asyncio.CancelledError:
         raise
     except Exception:
-        logger.exception("Bot-managed JJC sync worker exited with error: worker_id=%s", worker_id)
+        logger.exception("Bot-managed JJC sync worker exited with error: worker_id={}", worker_id)
 
 
 async def start_jjc_sync_workers() -> None:
@@ -34,7 +34,7 @@ async def start_jjc_sync_workers() -> None:
     active_tasks = [task for task in _TASKS if not task.done()]
     if active_tasks:
         _TASKS = active_tasks
-        logger.warning("Bot-managed JJC sync workers already running: count=%s", len(_TASKS))
+        logger.warning("Bot-managed JJC sync workers already running: count={}", len(_TASKS))
         return
 
     try:
@@ -45,7 +45,7 @@ async def start_jjc_sync_workers() -> None:
         return
 
     if worker_count < 0:
-        logger.error("Invalid JJC_SYNC_WORKER_COUNT=%s, skip bot-managed workers", worker_count)
+        logger.error("Invalid JJC_SYNC_WORKER_COUNT={}, skip bot-managed workers", worker_count)
         _TASKS = []
         return
 
@@ -58,7 +58,7 @@ async def start_jjc_sync_workers() -> None:
         asyncio.create_task(_run_worker(_build_worker_id(index)))
         for index in range(worker_count)
     ]
-    logger.info("Started bot-managed JJC sync workers: count=%s", worker_count)
+    logger.info("Started bot-managed JJC sync workers: count={}", worker_count)
 
 
 async def stop_jjc_sync_workers() -> None:
@@ -75,9 +75,9 @@ async def stop_jjc_sync_workers() -> None:
     try:
         results = await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as exc:
-        logger.warning("Failed to stop bot-managed JJC sync workers: error=%s", exc)
+        logger.warning("Failed to stop bot-managed JJC sync workers: error={}", exc)
         return
 
     for result in results:
         if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
-            logger.warning("Bot-managed JJC sync worker stopped with error: error=%s", result)
+            logger.warning("Bot-managed JJC sync worker stopped with error: error={}", result)

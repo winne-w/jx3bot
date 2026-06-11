@@ -44,13 +44,13 @@ class MatchHistoryClient:
                 return {"error": "请求返回None"}
 
             if isinstance(result, dict) and "error" in result:
-                logger.warning("推栏战局历史请求失败: %s", result.get("error"))
+                logger.warning("推栏战局历史请求失败: {}", result.get("error"))
                 return result
 
             logger.info("推栏战局历史请求成功")
             return result
         except Exception as exc:
-            logger.exception("推栏战局历史请求异常: %s", exc)
+            logger.exception("推栏战局历史请求异常: {}", exc)
             return {"error": f"请求异常: {exc}"}
 
     def iter_mine_match_history(
@@ -124,11 +124,11 @@ class PersonMatchHistoryClient:
                 return {"error": "请求返回None"}
 
             if isinstance(result, dict) and "error" in result:
-                logger.warning("推栏个人战局历史请求失败: %s", result.get("error"))
+                logger.warning("推栏个人战局历史请求失败: {}", result.get("error"))
                 return result
 
             logger.info("推栏个人战局历史请求成功")
             return result
         except Exception as exc:
-            logger.exception("推栏个人战局历史请求异常: %s", exc)
+            logger.exception("推栏个人战局历史请求异常: {}", exc)
             return {"error": f"请求异常: {exc}"}
