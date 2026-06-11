@@ -66,7 +66,7 @@ class TestBackfillJjcRoleIdFromMatchReplay(unittest.TestCase):
         self.assertEqual(doc["identity_level"], "global_id")
         self.assertEqual(doc["global_role_id"], "SK01-a")
         self.assertEqual(doc["person_id"], "person-a")
-        self.assertEqual(doc["profile_history"][0]["global_id"], "gid-a")
+        self.assertNotIn("profile_history", doc)
         self.assertIsInstance(doc["profile_observed_at"], datetime)
         self.assertIsInstance(doc["first_seen_at"], datetime)
         self.assertIsInstance(doc["last_seen_at"], datetime)
@@ -74,7 +74,7 @@ class TestBackfillJjcRoleIdFromMatchReplay(unittest.TestCase):
         self.assertIsInstance(doc["role_info_updated_at"], float)
         self.assertNotIn("created_at", doc)
 
-    def test_role_identity_insert_history_omits_empty_person_id(self) -> None:
+    def test_role_identity_insert_omits_profile_history(self) -> None:
         player = {
             "role_id": "rid-a",
             "global_id": "gid-a",
@@ -94,7 +94,7 @@ class TestBackfillJjcRoleIdFromMatchReplay(unittest.TestCase):
 
         self.assertIsNotNone(doc)
         assert doc is not None
-        self.assertNotIn("person_id", doc["profile_history"][0])
+        self.assertNotIn("profile_history", doc)
 
     def test_queue_insert_requires_sk01_global_role_id(self) -> None:
         player = {
@@ -116,7 +116,7 @@ class TestBackfillJjcRoleIdFromMatchReplay(unittest.TestCase):
 
         self.assertIsNone(doc)
 
-    def test_role_identity_update_uses_datetime_and_profile_history_entry(self) -> None:
+    def test_role_identity_update_uses_datetime_and_omits_profile_history(self) -> None:
         player = {
             "role_id": "rid-a",
             "global_id": "gid-a",
@@ -150,9 +150,8 @@ class TestBackfillJjcRoleIdFromMatchReplay(unittest.TestCase):
         assert update is not None
         self.assertIsInstance(update["$set"]["updated_at"], datetime)
         self.assertIsInstance(update["$set"]["role_info_updated_at"], float)
-        history_entry = update["$addToSet"]["profile_history"]
-        self.assertEqual(history_entry["source"], "match_replay_indicator_backfill")
-        self.assertNotIn("person_id", history_entry)
+        self.assertEqual(update["$addToSet"]["sources"], "match_replay_indicator_backfill")
+        self.assertNotIn("profile_history", update["$addToSet"])
 
     def test_resolve_range_supports_one_based_closed_interval(self) -> None:
         args = Namespace(match_id=None, start=21, end=40, skip=0, limit=20)

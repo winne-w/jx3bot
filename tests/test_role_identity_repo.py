@@ -23,7 +23,7 @@ class FakeCollection:
         self.update_one = AsyncMock(return_value=SimpleNamespace(matched_count=1))
         self.insert_one = AsyncMock(return_value=SimpleNamespace(inserted_id="id"))
 
-    def find(self, query: Dict[str, Any]) -> AsyncListCursor:
+    def find(self, query: Dict[str, Any], projection: Any = None) -> AsyncListCursor:
         return AsyncListCursor([])
 
 
@@ -48,7 +48,7 @@ class CandidateCollection:
         self.docs = docs
         self.pipeline: List[Dict[str, Any]] = []
 
-    def find(self, query: Dict[str, Any]) -> AsyncListCursor:
+    def find(self, query: Dict[str, Any], projection: Any = None) -> AsyncListCursor:
         raise AssertionError("candidate lookup must use aggregate")
 
     def aggregate(self, pipeline: List[Dict[str, Any]]) -> AggregateListCursor:
@@ -202,7 +202,7 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("global_role_id", update["$set"])
         self.assertEqual(update["$set"]["role_id"], "rid")
         self.assertEqual(update["$addToSet"]["sources"], "match_detail")
-        self.assertEqual(update["$addToSet"]["profile_history"]["source"], "match_detail")
+        self.assertNotIn("profile_history", update["$addToSet"])
 
     async def test_match_detail_overwrites_profile_when_match_time_is_newer(self) -> None:
         db = FakeDb()
@@ -472,7 +472,7 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["identity_level"], "global_id")
         self.assertEqual(result["global_id"], "99999")
         self.assertEqual(result["global_role_id"], "SK01-abc")
-        self.assertEqual(result["profile_history"][0]["global_id"], "99999")
+        self.assertNotIn("profile_history", result)
 
     async def test_indicator_new_identity_writes_person_id(self) -> None:
         db = FakeDb()
@@ -489,9 +489,10 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["person_id"], "person-a")
-        self.assertEqual(result["profile_history"][0]["person_id"], "person-a")
+        self.assertNotIn("profile_history", result)
         inserted = db.role_identities.insert_one.call_args.args[0]
         self.assertEqual(inserted["person_id"], "person-a")
+        self.assertNotIn("profile_history", inserted)
 
     async def test_indicator_fills_missing_person_id_on_existing_identity(self) -> None:
         db = FakeDb()
@@ -522,7 +523,7 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
 
         _, update = db.role_identities.update_one.call_args.args
         self.assertEqual(update["$set"]["person_id"], "person-a")
-        self.assertEqual(update["$addToSet"]["profile_history"]["person_id"], "person-a")
+        self.assertNotIn("profile_history", update["$addToSet"])
 
     async def test_legacy_global_role_identity_upgrades_to_global_id(self) -> None:
         db = FakeDb()
@@ -632,6 +633,39 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["_id"], identity_id)
+
+    async def test_match_detail_with_id_uses_slim_projection_for_lookup_and_reload(self) -> None:
+        identity_id = ObjectId()
+        db = FakeDb()
+        existing = {
+            "_id": identity_id,
+            "identity_key": "global_id:gid-a",
+            "identity_level": "global_id",
+            "server": "梦江南",
+            "normalized_server": "梦江南",
+            "name": "角色A",
+            "normalized_name": "角色a",
+            "global_id": "gid-a",
+        }
+        db.role_identities.find_one.side_effect = [
+            dict(existing),
+            dict(existing, role_id="rid-a"),
+        ]
+        repo = RoleIdentityRepo(db=db)
+
+        await repo.upsert_from_match_detail_with_id(
+            server="梦江南",
+            name="角色A",
+            global_id="gid-a",
+            role_id="rid-a",
+        )
+
+        lookup_call = db.role_identities.find_one.call_args_list[0]
+        reload_call = db.role_identities.find_one.call_args_list[1]
+        self.assertEqual(lookup_call.args[1]["profile_observed_at"], 1)
+        self.assertEqual(reload_call.args[1]["role_info_observed_match_time"], 1)
+        self.assertNotIn("profile_history", lookup_call.args[1])
+        self.assertNotIn("profile_history", reload_call.args[1])
 
     async def test_refresh_indicator_fields_by_id_updates_expected_fields(self) -> None:
         identity_id = ObjectId()

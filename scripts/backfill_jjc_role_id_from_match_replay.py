@@ -22,7 +22,6 @@ from pymongo import MongoClient  # noqa: E402
 from src.services.jx3.jjc_match_data_sync import normalize_role_name  # noqa: E402
 from src.services.jx3.role_identity_matching import (  # noqa: E402
     build_identity_key,
-    build_profile_history_entry,
     legacy_identity_keys,
 )
 from src.utils.tuilan_request import tuilan_request  # noqa: E402
@@ -278,7 +277,6 @@ def build_update(
         return None, "older_or_equal_complete"
 
     now_dt = datetime.fromtimestamp(now, tz=timezone.utc)
-    observed_at = _observed_datetime(match_time) or now_dt
     set_fields: Dict[str, Any] = {
         "role_id": role_id,
         "role_info_source": source,
@@ -300,18 +298,6 @@ def build_update(
     if collection == "role_identities":
         update_op["$addToSet"] = {
             "sources": source,
-            "profile_history": build_profile_history_entry(
-                server=_text(doc.get("server") or player.get("server")),
-                name=_text(doc.get("name") or player.get("name")),
-                zone=_text(doc.get("zone") or player.get("zone")) or None,
-                role_id=role_id,
-                game_role_id=role_id,
-                global_role_id=global_role_id or existing_global_role_id or None,
-                global_id=global_id or existing_global_id or None,
-                person_id=person_id or _text(doc.get("person_id")) or None,
-                source=source,
-                observed_at=observed_at,
-            ),
         }
     if global_id:
         old_key = _text(doc.get("identity_key"))
@@ -422,20 +408,6 @@ def build_insert_doc(
             ),
             "sources": [source],
             "profile_observed_at": observed_at,
-            "profile_history": [
-                build_profile_history_entry(
-                    server=player["server"],
-                    name=player["name"],
-                    zone=zone or None,
-                    role_id=role_id or None,
-                    game_role_id=role_id or None,
-                    global_id=common.get("global_id") or None,
-                    global_role_id=global_role_id or None,
-                    person_id=person_id or None,
-                    source=source,
-                    observed_at=observed_at,
-                )
-            ],
             "first_seen_at": observed_at,
             "last_seen_at": observed_at,
             "schema_version": 1,

@@ -15,7 +15,6 @@ from src.infra.mongo import get_db as _get_db
 from src.services.jx3.role_identity_matching import (
     build_guarded_profile_set_fields,
     build_identity_key as _build_role_identity_key,
-    build_profile_history_entry,
     coerce_match_time,
     legacy_identity_keys,
     should_overwrite_profile_fields,
@@ -24,6 +23,28 @@ from src.services.jx3.role_identity_matching import (
 SCHEMA_VERSION = 1
 
 _LEVEL_ORDER = {"name": 0, "game_role": 1, "global": 2, "global_id": 3}
+
+MATCH_DETAIL_IDENTITY_PROJECTION: Dict[str, int] = {
+    "_id": 1,
+    "identity_key": 1,
+    "identity_level": 1,
+    "server": 1,
+    "normalized_server": 1,
+    "name": 1,
+    "normalized_name": 1,
+    "zone": 1,
+    "game_role_id": 1,
+    "role_id": 1,
+    "person_id": 1,
+    "global_role_id": 1,
+    "global_id": 1,
+    "aliases": 1,
+    "sources": 1,
+    "profile_observed_at": 1,
+    "role_info_observed_match_time": 1,
+    "last_seen_at": 1,
+    "updated_at": 1,
+}
 
 
 def _normalize(value: str) -> str:
@@ -160,7 +181,12 @@ class RoleIdentityRepo:
             doc.pop("_id", None)
         return docs
 
-    async def find_best_by_name_with_id(self, server: str, name: str) -> Optional[Dict[str, Any]]:
+    async def find_best_by_name_with_id(
+        self,
+        server: str,
+        name: str,
+        projection: Optional[Dict[str, int]] = None,
+    ) -> Optional[Dict[str, Any]]:
         """按名称查询最佳身份，返回保留原生 _id 的文档。
 
         同服同名多身份时，优先身份强度 global_id > global > game_role > name，
@@ -168,7 +194,8 @@ class RoleIdentityRepo:
         """
         ns = _normalize(server)
         nn = _normalize(name)
-        cursor = self._col().find({"normalized_server": ns, "normalized_name": nn})
+        query = {"normalized_server": ns, "normalized_name": nn}
+        cursor = self._col().find(query, projection) if projection is not None else self._col().find(query)
         docs = await cursor.to_list(None)
         if not docs:
             return None
@@ -376,6 +403,7 @@ class RoleIdentityRepo:
         game_role_id: Optional[str] = None,
         global_role_id: Optional[str] = None,
         global_id: Optional[str] = None,
+        projection: Optional[Dict[str, int]] = None,
     ) -> Optional[Dict[str, Any]]:
         """按优先级查找最佳匹配身份，返回保留原生 _id 的文档。"""
         replay_gid = (global_id or "").strip()
@@ -385,7 +413,7 @@ class RoleIdentityRepo:
                     {"global_id": _global_id_string_filter(replay_gid)},
                     {"identity_key": f"global_id:{replay_gid}"},
                 ]
-            })
+            }, projection)
             if doc:
                 return doc
 
@@ -396,7 +424,7 @@ class RoleIdentityRepo:
                     {"global_role_id": gid},
                     {"identity_key": f"global:{gid}"},
                 ]
-            })
+            }, projection)
             if doc:
                 return doc
 
@@ -409,13 +437,13 @@ class RoleIdentityRepo:
                     {"zone": z, "role_id": grid},
                     {"identity_key": f"game:{z}:{grid}"},
                 ]
-            })
+            }, projection)
             if doc:
                 return doc
 
         ns = _normalize(server)
         nn = _normalize(name)
-        return await self.find_best_by_name_with_id(ns, nn)
+        return await self.find_best_by_name_with_id(ns, nn, projection)
 
     # ---- upsert 入口 ----
 
@@ -673,10 +701,12 @@ class RoleIdentityRepo:
 
         phase_started_at = time.perf_counter()
         if preserve_id:
+            projection = MATCH_DETAIL_IDENTITY_PROJECTION if source == "match_detail" else None
             existing = await self.resolve_best_identity_with_id(
                 server=server, name=name,
                 zone=zone, game_role_id=effective_game_role_id,
                 global_role_id=global_role_id, global_id=global_id,
+                projection=projection,
             )
         else:
             existing = await self.resolve_best_identity(
@@ -712,13 +742,6 @@ class RoleIdentityRepo:
             global_role_id=global_role_id, zone=zone, game_role_id=effective_game_role_id,
             server=server, name=name, global_id=global_id,
         )
-        history_entry = build_profile_history_entry(
-            server=server, name=name, zone=zone, role_id=role_id,
-            game_role_id=effective_game_role_id, global_role_id=global_role_id,
-            global_id=global_id, person_id=person_id, source=source,
-            observed_at=profile_observed_at,
-        )
-
         doc = {
             "identity_key": identity_key,
             "identity_level": identity_level,
@@ -731,7 +754,6 @@ class RoleIdentityRepo:
             "aliases": [],
             "sources": [source],
             "profile_observed_at": profile_observed_at,
-            "profile_history": [history_entry],
             "first_seen_at": now,
             "last_seen_at": now,
             "updated_at": now,
@@ -877,12 +899,6 @@ class RoleIdentityRepo:
             "$set": set_fields,
             "$addToSet": {
                 "sources": source,
-                "profile_history": build_profile_history_entry(
-                    server=server, name=name, zone=zone, role_id=role_id,
-                    game_role_id=game_role_id, global_role_id=global_role_id,
-                    global_id=global_id, person_id=person_id, source=source,
-                    observed_at=profile_observed_at,
-                ),
             },
         }
         if needs_upgrade:
@@ -936,7 +952,8 @@ class RoleIdentityRepo:
 
         lookup_key = new_key if needs_upgrade else current_key
         phase_started_at = time.perf_counter()
-        doc = await self._col().find_one({"identity_key": lookup_key})
+        projection = MATCH_DETAIL_IDENTITY_PROJECTION if source == "match_detail" and preserve_id else None
+        doc = await self._col().find_one({"identity_key": lookup_key}, projection)
         reload_ms = int((time.perf_counter() - phase_started_at) * 1000)
         if source == "match_detail":
             global_id_same = bool(existing_global_id and incoming_global_id and existing_global_id == incoming_global_id)

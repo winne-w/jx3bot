@@ -235,6 +235,8 @@
 
 `created_at` 不是 `role_identities` 标准必需字段；历史脚本写入的旧字段可存在，线上规范化脚本只做兼容转换，新写入逻辑不依赖它。
 
+`profile_history` 已废弃：历史文档可能仍残留该数组字段，但运行时写入和补数脚本不再维护它。需要清理存量大文档时，使用 `scripts/cleanup_role_identity_profile_history.py` 默认 dry-run 核对规模，再通过 `--execute` 对 `role_identities` 执行 `$unset profile_history`。当前画像保留在 `role_identities` 主文档；重要画像覆盖前的旧快照由 `role_identities_history` 承担回溯。
+
 `identity_key` 生成规则：
 
 | 优先级 | 条件 | key 格式 | identity_level |
