@@ -11,6 +11,7 @@
 
 ## Completed
 
+- `completed/development-flow-review-smoke-plan.md`: 开发流程补充 review 与冒烟计划
 - `completed/jjc-role-identity-global-id-index-query-plan.md`: JJC role_identities global_id partial index 查询命中修复计划
 - `completed/jjc-role-identity-zone-role-id-index-plan.md`: JJC role_identities zone + role_id 查询索引计划
 - `completed/jjc-match-detail-cache-hit-replay-background-plan.md`: JJC match_detail cache hit replay 后台补全计划
