@@ -4,6 +4,7 @@
 
 ## Active
 
+- `active/jjc-sync-log-noise-reduction-plan.md`: JJC 同步高频 INFO 进度日志降噪计划
 - `active/jjc-queue-sync-window-plan.md`: JJC 队列一次性同步窗口、默认 full 与排名 7 天入队计划
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 

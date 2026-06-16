@@ -1545,8 +1545,6 @@ class JjcMatchDataSyncService:
         }
 
         try:
-            logger.info(f"JJC 开始同步角色: {server} / {name}")
-
             async def renew_worker_heartbeat(force: bool = False) -> None:
                 nonlocal last_worker_heartbeat_at
                 last_worker_heartbeat_at = await self._heartbeat_worker_if_due(
@@ -1951,16 +1949,6 @@ class JjcMatchDataSyncService:
         max_attempts: int = 3,
         worker_heartbeat_renewer: Optional[Callable[[bool], Awaitable[None]]] = None,
     ) -> str:
-        match_time_str = (
-            datetime.fromtimestamp(match_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            if match_time
-            else "unknown"
-        )
-        logger.info(
-            f"JJC 同步对局详情: match_id={match_id} match_time={match_time_str} "
-            f"server={server} name={name}"
-        )
-
         last_role_lease_renewed_at = 0.0
         last_detail_lease_renewed_at = 0.0
 
