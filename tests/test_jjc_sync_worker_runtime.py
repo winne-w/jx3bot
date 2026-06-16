@@ -97,7 +97,7 @@ class TestJjcSyncWorkerRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(worker_ids[0].split(":")), 3)
         self.assertEqual(
             service.calls[0],
-            {"mode": "incremental_or_full", "worker_id": worker_ids[0]},
+            {"mode": "full", "worker_id": worker_ids[0]},
         )
 
         tasks = list(module._TASKS)

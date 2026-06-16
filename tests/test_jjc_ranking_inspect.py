@@ -1901,7 +1901,7 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
             "status": "queued",
             "priority": 2,
             "queue_source": "synced_match_page",
-            "queue_mode": "incremental_or_full",
+            "queue_mode": "full",
         })
         service = DirectJjcRankingInspectService(
             ranking_service=MagicMock(),
@@ -1923,7 +1923,8 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         self.assertIs(call["identity"], identity)
         self.assertEqual(call["kwargs"]["priority"], 2)
         self.assertEqual(call["kwargs"]["source"], "synced_match_page")
-        self.assertEqual(call["kwargs"]["mode"], "incremental_or_full")
+        self.assertEqual(call["kwargs"]["mode"], "full")
+        self.assertIsNone(call["kwargs"]["queue_sync_until_time"])
 
     async def test_enqueue_synced_role_skips_same_priority_queued_role(self) -> None:
         identity_id = ObjectId()

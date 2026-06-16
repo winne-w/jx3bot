@@ -42,6 +42,7 @@
 - 已通过 `python -m py_compile scripts/backfill_jjc_match_participants_for_role.py`。
 - 已对 `唯满侠 桃桃白糖` 示例参数执行线上 dry-run，只读验证通过；未执行写库。
 - 已将触发条件调整为整场投影集合比对；对 `天鹅坪 观剑生 --limit 3` dry-run 验证，待重建样本均为整场 6 个 `global_id` 缺失；未执行写库。
+- 2026-06-15：用户确认线上补齐已执行完成，本计划归档为 completed。
 
 ## 回滚
 

@@ -19,7 +19,7 @@ def _build_worker_id(index: int) -> str:
 async def _run_worker(worker_id: str) -> None:
     try:
         await jjc_match_data_sync_service.run_worker(
-            mode="incremental_or_full",
+            mode="full",
             worker_id=worker_id,
         )
     except asyncio.CancelledError:

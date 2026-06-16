@@ -280,6 +280,7 @@ class JjcRankingInspectService:
             "queued_at": doc.get("queued_at"),
             "queue_mode": doc.get("queue_mode"),
             "queue_source": doc.get("queue_source"),
+            "queue_sync_until_time": doc.get("queue_sync_until_time"),
             "priority": doc.get("priority"),
             "last_synced_at": doc.get("last_synced_at"),
             "latest_seen_match_time": doc.get("latest_seen_match_time"),
@@ -490,7 +491,8 @@ class JjcRankingInspectService:
             identity,
             priority=SYNCED_MATCH_PAGE_SYNC_PRIORITY,
             source="synced_match_page",
-            mode="incremental_or_full",
+            mode="full",
+            queue_sync_until_time=None,
         )
         if sync_doc is None:
             sync_doc = existing_sync_doc or await sync_repo.get_queue_state_by_identity_id(identity.get("_id"))

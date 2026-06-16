@@ -211,16 +211,18 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
 
         enqueued = await repo.enqueue_next_roles(
             limit=3,
-            mode="incremental",
+            mode="full",
             source="qq_start",
             batch_id="batch-1",
+            queue_sync_until_time=1770000000,
         )
 
         self.assertEqual([doc["identity_key"] for doc in enqueued], ["b", "c", "a"])
         self.assertEqual([doc["status"] for doc in enqueued], ["queued", "queued", "queued"])
-        self.assertEqual(enqueued[0]["queue_mode"], "incremental")
+        self.assertEqual(enqueued[0]["queue_mode"], "full")
         self.assertEqual(enqueued[0]["queue_source"], "qq_start")
         self.assertEqual(enqueued[0]["queue_batch_id"], "batch-1")
+        self.assertEqual(enqueued[0]["queue_sync_until_time"], 1770000000)
         self.assertIsNone(enqueued[0]["lease_owner"])
 
     async def test_enqueue_role_sets_specific_non_disabled_role_to_queued(self) -> None:
@@ -246,6 +248,7 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
             mode="full",
             source="manual_add",
             batch_id="batch-2",
+            queue_sync_until_time=None,
         )
         syncing = await repo.enqueue_role("syncing", mode="full", source="manual_add")
         disabled = await repo.enqueue_role("disabled", mode="full", source="manual_add")
@@ -255,6 +258,7 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queued["status"], "queued")
         self.assertEqual(queued["queue_source"], "manual_add")
         self.assertEqual(queued["queue_batch_id"], "batch-2")
+        self.assertIsNone(queued.get("queue_sync_until_time"))
         self.assertIsNone(queued["lease_owner"])
         self.assertIsNone(queued["lease_expires_at"])
         self.assertEqual(queued["fail_count"], 4)
@@ -399,6 +403,7 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
             priority=1,
             source="ranking_stats",
             batch_id="ranking_stats:1",
+            queue_sync_until_time=1770000000,
         )
 
         self.assertIsNotNone(queued)
@@ -407,6 +412,7 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queued["priority"], 1)
         self.assertEqual(queued["queue_source"], "ranking_stats")
         self.assertEqual(queued["queue_batch_id"], "ranking_stats:1")
+        self.assertEqual(queued["queue_sync_until_time"], 1770000000)
         self.assertEqual(queued["season_id"], "赛季")
 
     async def test_enqueue_ranking_member_skips_existing_priority_at_least_one(self) -> None:

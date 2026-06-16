@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Optional
 
 from nonebot.adapters.onebot.v11 import Bot, Event
 
+from src.services.jx3.jjc_match_data_sync import resolve_queue_sync_until_time
+
 
 def register(matcher: Any, sync_service: Any, admin_qq: List[int]) -> None:
     @matcher.handle()
@@ -122,8 +124,14 @@ async def _cmd_start(bot: Bot, event: Event, svc: Any, text: str) -> None:
     limit = parsed["limit"]
     max_rounds = parsed["max_rounds"]
     background = parsed["background"]
+    queue_sync_until_time = parsed["queue_sync_until_time"]
 
-    result = await svc.enqueue_roles(mode=mode, limit=limit, source="qq_start")
+    result = await svc.enqueue_roles(
+        mode=mode,
+        limit=limit,
+        source="qq_start",
+        queue_sync_until_time=queue_sync_until_time,
+    )
     await _send_enqueue_result(
         bot,
         event,
@@ -138,6 +146,8 @@ def _parse_start_args(text: str) -> Dict[str, Any]:
     limit = 10
     max_rounds: Optional[int] = None
     max_minutes = 60
+    queue_sync_days: Optional[int] = None
+    queue_sync_until_raw: Optional[str] = None
     background = False
     rounds_auto = False
 
@@ -169,6 +179,13 @@ def _parse_start_args(text: str) -> Dict[str, Any]:
                     return _start_usage("minutes 必须是正整数")
             elif key == "seconds":
                 return _start_usage("请使用 minutes 参数，例如 minutes=60")
+            elif key == "days":
+                try:
+                    queue_sync_days = int(value)
+                except ValueError:
+                    return _start_usage("days 必须是正整数")
+            elif key == "until":
+                queue_sync_until_raw = value
             else:
                 return _start_usage(f"未知参数: {key}")
             continue
@@ -178,9 +195,9 @@ def _parse_start_args(text: str) -> Dict[str, Any]:
             return _start_usage(f"未知参数: {part}")
 
     if mode == "default":
-        mode = "incremental_or_full"
-    if mode not in ("incremental_or_full", "full", "incremental"):
-        return _start_usage("mode 必须是 default/full/incremental")
+        mode = "full"
+    if mode not in ("full",):
+        return _start_usage("mode 必须是 default/full")
     if limit < 1:
         return _start_usage("limit 必须是正整数")
     if limit > 200:
@@ -189,9 +206,19 @@ def _parse_start_args(text: str) -> Dict[str, Any]:
         return _start_usage("rounds 必须是正整数或 auto")
     if max_minutes < 1:
         return _start_usage("minutes 必须是正整数")
+    try:
+        queue_sync_until_time = resolve_queue_sync_until_time(
+            days=queue_sync_days,
+            until=queue_sync_until_raw,
+        )
+    except ValueError as exc:
+        if str(exc) == "queue_sync_window_conflict":
+            return _start_usage("days 和 until 不能同时指定")
+        return _start_usage("同步窗口参数错误，days 必须是正整数，until 支持 Unix 秒或 YYYY-MM-DD")
     return {
         "error": False,
         "mode": mode,
+        "queue_sync_until_time": queue_sync_until_time,
         "limit": limit,
         "max_rounds": max_rounds,
         "max_minutes": max_minutes,
@@ -205,8 +232,8 @@ def _start_usage(reason: str) -> Dict[str, Any]:
         "error": True,
         "message": (
             f"{reason}\n"
-            "用法: /jjc同步开始 [default|full|incremental] "
-            "[limit=10]\n"
+            "用法: /jjc同步开始 [default|full] "
+            "[limit=10] [days=7|until=YYYY-MM-DD]\n"
             "说明: 当前命令只负责入队，实际处理由常驻 worker 进程领取"
         ),
     }
@@ -228,7 +255,9 @@ async def _send_enqueue_result(
         reason = result.get("pause_reason")
         if reason:
             lines.append(f"暂停原因: {reason}")
-    lines.append(f"模式: {result.get('mode', 'incremental_or_full')}")
+    lines.append(f"模式: {result.get('mode', 'full')}")
+    if result.get("queue_sync_until_time"):
+        lines.append(f"同步截止: {result.get('queue_sync_until_time')}")
     lines.append(f"请求入队: {result.get('limit', 0)}")
     lines.append(f"实际入队: {result.get('enqueued_roles', 0)}")
     lines.append(f"恢复租约: {result.get('recovered_leases', 0)}")

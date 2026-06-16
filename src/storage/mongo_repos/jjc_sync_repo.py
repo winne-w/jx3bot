@@ -543,6 +543,7 @@ class JjcSyncRepo:
         mode: str,
         source: str,
         batch_id: Optional[str] = None,
+        queue_sync_until_time: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """Queue one identity-id candidate unless it is disabled or currently leased."""
         _identity_id = self._coerce_object_id(identity_id)
@@ -561,6 +562,7 @@ class JjcSyncRepo:
                     "queue_batch_id": batch_id,
                     "queue_mode": mode,
                     "queue_source": source,
+                    "queue_sync_until_time": queue_sync_until_time,
                     "lease_owner": None,
                     "lease_expires_at": None,
                     "updated_at": now,
@@ -615,6 +617,7 @@ class JjcSyncRepo:
         source: str,
         mode: str,
         batch_id: Optional[str] = None,
+        queue_sync_until_time: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """Create/refresh and queue an existing role identity.
 
@@ -650,11 +653,13 @@ class JjcSyncRepo:
             "queue_batch_id": batch_id,
             "queue_mode": mode,
             "queue_source": source,
+            "queue_sync_until_time": queue_sync_until_time,
             "lease_owner": None,
             "lease_expires_at": None,
             "updated_at": now,
         }
         set_fields = {key: value for key, value in set_fields.items() if value is not None}
+        set_fields["queue_sync_until_time"] = queue_sync_until_time
         set_on_insert: Dict[str, Any] = {
             "source": source,
             "next_sync_after": None,
@@ -921,6 +926,7 @@ class JjcSyncRepo:
         mode: str,
         source: str,
         batch_id: Optional[str],
+        queue_sync_until_time: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """将下一批可同步角色原子转入 queued 状态。
 
@@ -950,6 +956,7 @@ class JjcSyncRepo:
                         "queue_batch_id": batch_id,
                         "queue_mode": mode,
                         "queue_source": source,
+                        "queue_sync_until_time": queue_sync_until_time,
                         "lease_owner": None,
                         "lease_expires_at": None,
                         "updated_at": now,
@@ -973,11 +980,18 @@ class JjcSyncRepo:
         mode: str,
         source: str,
         batch_id: Optional[str] = None,
+        queue_sync_until_time: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """将指定的非 disabled、非 syncing 角色转入 queued 状态。"""
         identity_id = await self._resolve_identity_id_by_key(identity_key)
         if identity_id is not None:
-            return await self.enqueue_identity(identity_id, mode=mode, source=source, batch_id=batch_id)
+            return await self.enqueue_identity(
+                identity_id,
+                mode=mode,
+                source=source,
+                batch_id=batch_id,
+                queue_sync_until_time=queue_sync_until_time,
+            )
 
         now = time.time()
 
@@ -993,6 +1007,7 @@ class JjcSyncRepo:
                     "queue_batch_id": batch_id,
                     "queue_mode": mode,
                     "queue_source": source,
+                    "queue_sync_until_time": queue_sync_until_time,
                     "lease_owner": None,
                     "lease_expires_at": None,
                     "updated_at": now,
@@ -1227,9 +1242,10 @@ class JjcSyncRepo:
         season_id: Optional[str] = None,
         season_start_time: int = 0,
         priority: int = 1,
-        mode: str = "incremental_or_full",
+        mode: str = "full",
         source: str = "ranking_stats",
         batch_id: Optional[str] = None,
+        queue_sync_until_time: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """Upsert a ranking-stat member into the sync queue and mark it queued."""
         server = str(member.get("server") or "").strip()
@@ -1301,6 +1317,7 @@ class JjcSyncRepo:
                             mode=mode,
                             source=source,
                             batch_id=batch_id,
+                            queue_sync_until_time=queue_sync_until_time,
                         )
             except Exception as exc:
                 logger.warning(
@@ -1354,6 +1371,7 @@ class JjcSyncRepo:
             mode=mode,
             source=source,
             batch_id=batch_id,
+            queue_sync_until_time=queue_sync_until_time,
         )
 
     async def release_role_failure(

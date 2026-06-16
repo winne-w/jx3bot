@@ -817,11 +817,11 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             sleep_func=_noop_sleep,
         )
 
-        result = await service.enqueue_roles(mode="incremental", limit=10, source="test")
+        result = await service.enqueue_roles(mode="full", limit=10, source="test")
 
         self.assertFalse(result["error"])
         self.assertEqual(result["enqueued_roles"], 2)
-        self.assertEqual(result["mode"], "incremental")
+        self.assertEqual(result["mode"], "full")
         self.assertEqual(result["recovered_leases"], 2)
 
     async def test_enqueue_roles_when_paused_still_queues_roles(self) -> None:
@@ -840,12 +840,27 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
             sleep_func=_noop_sleep,
         )
 
-        result = await service.enqueue_roles(mode="incremental", limit=10, source="test")
+        result = await service.enqueue_roles(mode="full", limit=10, source="test")
 
         self.assertFalse(result["error"])
         self.assertTrue(result["paused"])
         self.assertEqual(result["pause_reason"], "更换 ticket")
         self.assertEqual(result["enqueued_roles"], 1)
+
+    async def test_enqueue_roles_rejects_incremental_mode(self) -> None:
+        service = JjcMatchDataSyncService(
+            repo=FakeRepo(),
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.enqueue_roles(mode="incremental", limit=10, source="test")
+
+        self.assertTrue(result["error"])
+        self.assertEqual(result["message"], "invalid_mode")
 
     async def test_worker_tick_claims_queued_role(self) -> None:
         repo = FakeRepo()
@@ -1678,6 +1693,38 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(repo.success_release)
         self.assertEqual(repo.success_release["oldest_synced_match_time"], 1810000000)
         self.assertEqual(len(history.calls), 1)
+
+    async def test_queue_sync_until_time_stops_full_sync_at_task_window(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [{
+            "status": "queued",
+            "identity_key": "global:seed",
+            "server": "梦江南",
+            "name": "种子",
+            "global_role_id": "seed",
+            "queue_mode": "full",
+            "queue_sync_until_time": 1810000000,
+        }]
+        history = FakeHistoryClient([
+            {"data": [
+                {"match_id": 12, "match_time": 1810000100, "pvpType": 3},
+                {"match_id": 13, "match_time": 1810000000, "pvpType": 3},
+            ]}
+        ])
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=history,
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service.run_once(mode="full")
+
+        self.assertFalse(result["error"])
+        self.assertEqual([item["match_id"] for item in repo.discovered_matches], [12])
+        self.assertEqual(result["saved_details"], 1)
 
     async def test_detail_failure_does_not_fail_role_continues_to_success(self) -> None:
         repo = FakeRepo()

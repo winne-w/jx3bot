@@ -1,6 +1,6 @@
 # JJC match_detail 写入入口统一保存 replay 计划
 
-状态：执行中
+状态：已完成，待提交
 更新时间：2026-06-04
 
 ## 背景
@@ -34,6 +34,13 @@
 python -m py_compile src/services/jx3/jjc_ranking.py
 python -m unittest tests.test_jjc_ranking_inspect
 ```
+
+验证结果：
+
+- 2026-06-15：代码对比确认 ranking warmup 已在保存 `match_detail` 前查询并合并 replay，保存后身份投影与参与者投影使用带 replay 的 payload。
+- 2026-06-15：`python -m py_compile src/services/jx3/jjc_ranking.py` 通过。
+- 2026-06-15：`python -m unittest tests.test_jjc_ranking_inspect` 通过，76 个测试 OK。
+- 2026-06-15：计划归档到 completed。
 
 ## 回滚
 

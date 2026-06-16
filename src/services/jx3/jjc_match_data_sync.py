@@ -35,6 +35,9 @@ _AUTH_ERROR_KEYWORDS = (
 )
 _WORKER_HEARTBEAT_TTL_SECONDS = 300
 _IDENTITY_INDICATOR_REFRESH_SECONDS = 86400
+_QUEUE_MODE_FULL = "full"
+_SUPPORTED_QUEUE_MODES = (_QUEUE_MODE_FULL,)
+_WORKER_COMPAT_MODES = ("incremental_or_full", "full", "incremental")
 
 
 class JjcSyncGlobalPauseError(RuntimeError):
@@ -133,6 +136,62 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def is_supported_queue_mode(mode: str) -> bool:
+    return mode in _SUPPORTED_QUEUE_MODES
+
+
+def parse_queue_sync_until_time(value: Any) -> Optional[int]:
+    """Parse a one-time queue sync cutoff timestamp."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        raise ValueError("invalid_queue_sync_until_time")
+    if isinstance(value, (int, float)):
+        parsed = int(value)
+        if parsed <= 0:
+            raise ValueError("invalid_queue_sync_until_time")
+        return parsed
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        parsed = int(text)
+        if parsed <= 0:
+            raise ValueError("invalid_queue_sync_until_time")
+        return parsed
+    normalized = text.replace("T", " ")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            parsed_dt = datetime.strptime(normalized, fmt)
+            return int(parsed_dt.timestamp())
+        except ValueError:
+            pass
+    try:
+        parsed_dt = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError("invalid_queue_sync_until_time") from exc
+    return int(parsed_dt.timestamp())
+
+
+def resolve_queue_sync_until_time(
+    *,
+    days: Optional[int] = None,
+    until: Any = None,
+    now: Optional[float] = None,
+) -> Optional[int]:
+    """Resolve one-time queue sync window from days or an explicit cutoff."""
+    if days is not None and until not in (None, ""):
+        raise ValueError("queue_sync_window_conflict")
+    if days is not None:
+        if days < 1:
+            raise ValueError("invalid_queue_sync_days")
+        base = time.time() if now is None else now
+        return int(base - days * 86400)
+    return parse_queue_sync_until_time(until)
 
 
 def build_identity_key(
@@ -435,7 +494,7 @@ class JjcMatchDataSyncService:
 
     async def run_once(
         self,
-        mode: str = "incremental_or_full",
+        mode: str = "full",
         limit: int = 3,
     ) -> Dict[str, Any]:
         """执行一轮同步，由管理员命令显式触发。"""
@@ -458,14 +517,15 @@ class JjcMatchDataSyncService:
 
     async def enqueue_roles(
         self,
-        mode: str = "incremental_or_full",
+        mode: str = "full",
         limit: int = 10,
         source: str = "manual",
         batch_id: Optional[str] = None,
+        queue_sync_until_time: Optional[int] = None,
     ) -> Dict[str, Any]:
         """把可执行角色放入 queued 队列，不在当前调用里同步。"""
         started_at = time.time()
-        if mode not in ("incremental_or_full", "full", "incremental"):
+        if not is_supported_queue_mode(mode):
             return {"error": True, "message": "invalid_mode"}
         if limit < 1:
             return {"error": True, "message": "invalid_limit"}
@@ -481,6 +541,7 @@ class JjcMatchDataSyncService:
             mode=mode,
             source=source,
             batch_id=batch,
+            queue_sync_until_time=queue_sync_until_time,
         )
         enqueued_count = len(items)
         counts = await self._repo.count_by_status()
@@ -491,6 +552,7 @@ class JjcMatchDataSyncService:
             "paused": paused,
             "pause_reason": pause_state.get("reason") or "",
             "mode": mode,
+            "queue_sync_until_time": queue_sync_until_time,
             "limit": limit,
             "batch_id": batch,
             "enqueued_roles": enqueued_count,
@@ -507,7 +569,7 @@ class JjcMatchDataSyncService:
 
     async def run_worker(
         self,
-        mode: str = "incremental_or_full",
+        mode: str = "full",
         worker_id: Optional[str] = None,
         idle_sleep: int = 10,
         max_seconds: int = 0,
@@ -516,7 +578,7 @@ class JjcMatchDataSyncService:
     ) -> Dict[str, Any]:
         """常驻 worker 循环：每次从 queued 领取一个角色处理。"""
         started_at = time.time()
-        if mode not in ("incremental_or_full", "full", "incremental"):
+        if mode not in _WORKER_COMPAT_MODES:
             return {"error": True, "message": "invalid_mode"}
         if idle_sleep < 1:
             return {"error": True, "message": "invalid_idle_sleep"}
@@ -670,7 +732,7 @@ class JjcMatchDataSyncService:
             "syncing",
             current_role=role,
         )
-        role_mode = str(role.get("queue_mode") or mode or "incremental_or_full")
+        role_mode = str(role.get("queue_mode") or mode or "full")
         result = await self._sync_one_role(
             role=role,
             mode=role_mode,
@@ -1224,7 +1286,7 @@ class JjcMatchDataSyncService:
 
     async def run_until_idle(
         self,
-        mode: str = "incremental_or_full",
+        mode: str = "full",
         limit: int = 20,
         max_rounds: Optional[int] = None,
         max_seconds: int = 3600,
@@ -1303,7 +1365,7 @@ class JjcMatchDataSyncService:
 
     async def start_background_run(
         self,
-        mode: str = "incremental_or_full",
+        mode: str = "full",
         limit: int = 20,
         max_rounds: Optional[int] = None,
         max_seconds: int = 3600,
@@ -1867,6 +1929,9 @@ class JjcMatchDataSyncService:
             )
 
     def _resolve_stop_time(self, role: Dict[str, Any], mode: str) -> Optional[int]:
+        queue_sync_until_time = _coerce_int(role.get("queue_sync_until_time"))
+        if queue_sync_until_time is not None:
+            return queue_sync_until_time
         if mode == "full":
             return None
         full_synced_until_time = _coerce_int(role.get("full_synced_until_time"))
@@ -2565,14 +2630,15 @@ class JjcMatchDataSyncService:
         global_id: Optional[str] = None,
         priority: int = 100,
         queue: bool = False,
-        mode: str = "incremental_or_full",
+        mode: str = "full",
+        queue_sync_until_time: Optional[int] = None,
     ) -> Dict[str, Any]:
         """添加角色到同步队列候选池，可选择立即排队。"""
         normalized_server = server.strip()
         normalized_name = name.strip()
         if not normalized_server or not normalized_name:
             return {"error": True, "message": "服务器和角色名不能为空"}
-        if mode not in ("incremental_or_full", "full", "incremental"):
+        if not is_supported_queue_mode(mode):
             return {"error": True, "message": "invalid_mode"}
 
         try:
@@ -2600,6 +2666,7 @@ class JjcMatchDataSyncService:
                         mode=mode,
                         source=source,
                         batch_id=f"jjc-sync-manual:{uuid.uuid4()}",
+                        queue_sync_until_time=queue_sync_until_time,
                     )
                 else:
                     queued_doc = await self._repo.enqueue_role(
@@ -2607,6 +2674,7 @@ class JjcMatchDataSyncService:
                         mode=mode,
                         source=source,
                         batch_id=f"jjc-sync-manual:{uuid.uuid4()}",
+                        queue_sync_until_time=queue_sync_until_time,
                     )
                 queued = bool(queued_doc)
             return {
@@ -2689,7 +2757,7 @@ class JjcMatchDataSyncService:
             }
             result = await self._sync_one_role(
                 role=role,
-                mode="incremental_or_full",
+                mode="full",
                 lease_owner=lease_owner,
             )
             return result

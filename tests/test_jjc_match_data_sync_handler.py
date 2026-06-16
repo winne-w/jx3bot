@@ -29,14 +29,21 @@ class FakeSyncService:
 
     async def enqueue_roles(
         self,
-        mode: str = "incremental_or_full",
+        mode: str = "full",
         limit: int = 10,
         source: str = "manual",
+        queue_sync_until_time: Any = None,
     ) -> Dict[str, Any]:
-        self.enqueue_calls.append({"mode": mode, "limit": limit, "source": source})
+        self.enqueue_calls.append({
+            "mode": mode,
+            "limit": limit,
+            "source": source,
+            "queue_sync_until_time": queue_sync_until_time,
+        })
         result = {
             "error": False,
             "mode": mode,
+            "queue_sync_until_time": queue_sync_until_time,
             "limit": limit,
             "enqueued_roles": 2,
             "recovered_leases": 1,
@@ -76,13 +83,13 @@ class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["role_id"], "rid")
         self.assertEqual(kwargs["zone"], "zone-a")
 
-    async def test_start_defaults_to_incremental_or_full(self) -> None:
+    async def test_start_defaults_to_full(self) -> None:
         bot = FakeBot()
         svc = FakeSyncService()
 
         await handler._cmd_start(bot, object(), svc, "/jjc同步开始")
 
-        self.assertEqual(svc.enqueue_calls, [{"mode": "incremental_or_full", "limit": 10, "source": "qq_start"}])
+        self.assertEqual(svc.enqueue_calls, [{"mode": "full", "limit": 10, "source": "qq_start", "queue_sync_until_time": None}])
         self.assertIn("JJC 同步已入队", bot.messages[0])
         self.assertIn("实际入队: 2", bot.messages[0])
         self.assertIn("worker: 有活跃 worker", bot.messages[0])
@@ -91,9 +98,19 @@ class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
         bot = FakeBot()
         svc = FakeSyncService()
 
-        await handler._cmd_start(bot, object(), svc, "/jjc同步开始 incremental limit=50")
+        await handler._cmd_start(bot, object(), svc, "/jjc同步开始 full limit=50")
 
-        self.assertEqual(svc.enqueue_calls, [{"mode": "incremental", "limit": 50, "source": "qq_start"}])
+        self.assertEqual(svc.enqueue_calls, [{"mode": "full", "limit": 50, "source": "qq_start", "queue_sync_until_time": None}])
+
+    async def test_start_passes_days_window_to_enqueue(self) -> None:
+        bot = FakeBot()
+        svc = FakeSyncService()
+
+        await handler._cmd_start(bot, object(), svc, "/jjc同步开始 full days=7")
+
+        self.assertEqual(svc.enqueue_calls[0]["mode"], "full")
+        self.assertIsInstance(svc.enqueue_calls[0]["queue_sync_until_time"], int)
+        self.assertIn("同步截止:", bot.messages[0])
 
     async def test_start_paused_still_reports_enqueued_roles(self) -> None:
         bot = FakeBot()
@@ -116,7 +133,7 @@ class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
 
         await handler._cmd_start(bot, object(), svc, "/jjc同步开始 full limit=50 rounds=20 minutes=10")
 
-        self.assertEqual(svc.enqueue_calls, [{"mode": "full", "limit": 50, "source": "qq_start"}])
+        self.assertEqual(svc.enqueue_calls, [{"mode": "full", "limit": 50, "source": "qq_start", "queue_sync_until_time": None}])
         self.assertIn("JJC 同步已入队", bot.messages[0])
         self.assertIn("rounds/background 参数在队列模式下已忽略", bot.messages[0])
 
@@ -126,7 +143,7 @@ class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
 
         await handler._cmd_start(bot, object(), svc, "/jjc同步开始 limit=50 rounds=auto background")
 
-        self.assertEqual(svc.enqueue_calls, [{"mode": "incremental_or_full", "limit": 50, "source": "qq_start"}])
+        self.assertEqual(svc.enqueue_calls, [{"mode": "full", "limit": 50, "source": "qq_start", "queue_sync_until_time": None}])
         self.assertIn("JJC 同步已入队", bot.messages[0])
         self.assertIn("rounds/background 参数在队列模式下已忽略", bot.messages[0])
 
@@ -138,6 +155,15 @@ class TestJjcMatchDataSyncHandler(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(svc.enqueue_calls, [])
         self.assertIn("用法: /jjc同步开始", bot.messages[0])
+
+    async def test_start_rejects_incremental_mode(self) -> None:
+        bot = FakeBot()
+        svc = FakeSyncService()
+
+        await handler._cmd_start(bot, object(), svc, "/jjc同步开始 incremental")
+
+        self.assertEqual(svc.enqueue_calls, [])
+        self.assertIn("mode 必须是 default/full", bot.messages[0])
 
     async def test_status_limits_recent_errors(self) -> None:
         class StatusService:

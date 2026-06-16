@@ -665,8 +665,11 @@
 | `status` | string | 状态：`pending`、`queued`、`syncing`、`exhausted`、`cooldown`、`failed`、`disabled` |
 | `queued_at` | float/null | 最近一次进入 worker 排队队列的时间 Unix 秒 |
 | `queue_batch_id` | string/null | 最近一次批量入队批次 ID |
-| `queue_mode` | string/null | 入队时指定的同步模式：`incremental_or_full`、`incremental`、`full` |
+| `queue_mode` | string/null | 入队时指定的同步模式；新入队统一写 `full`，历史值 `incremental_or_full`、`incremental` 仅兼容读取 |
+| `queue_sync_until_time` | int/null | 本次入队任务的一次性同步窗口截止时间 Unix 秒；为空表示 full；每次重新入队应覆盖或清空 |
 | `queue_source` | string/null | 入队来源，如 `qq_start`、`manual_add`、`cli`、`interrupted`；中断回队列时写为 `interrupted` |
+| `queue_window_migrated_at` | float/null | 历史队列窗口迁移脚本最近写入时间 Unix 秒 |
+| `queue_window_migrated_by` | string/null | 历史队列窗口迁移脚本标识 |
 | `priority_updated_at` | float/null | 最近一次优先级调整时间 Unix 秒 |
 | `priority_updated_by` | string/null | 最近一次优先级调整来源 |
 | `interrupted_reason` | string/null | worker 中断、暂停或鉴权失败释放回队列的原因 |

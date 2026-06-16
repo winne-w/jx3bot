@@ -84,7 +84,7 @@ docker compose up --build -d
 - 在本地 `runtime_config.json` 中写入 `"JJC_SYNC_WORKER_COUNT": 1`
 - 通过 QQ 管理命令 `/修改配置 JJC_SYNC_WORKER_COUNT=1` 写入运行时配置
 
-内置 worker 与 `python scripts/jjc_sync.py worker --mode=incremental_or_full` 独立 worker 可以共存，总并发数等于所有 bot 实例和独立 worker 数量之和。通过 QQ 修改配置时当前实现会退出进程，容器需要 `restart` 策略或其他外部守护来自动拉起。
+内置 worker 与 `python scripts/jjc_sync.py worker` 独立 worker 可以共存，总并发数等于所有 bot 实例和独立 worker 数量之和。通过 QQ 修改配置时当前实现会退出进程，容器需要 `restart` 策略或其他外部守护来自动拉起。同步窗口由入队记录决定，不由 worker 参数决定。
 
 内置 worker 使用稳定槽位名 `bot:{host}:{index}`。同一容器或主机重启后会复用同一条 worker 心跳记录，不会因为 pid 或启动时间变化持续新增离线 worker；如果同一 host 上同时部署多个 bot 实例，需要先用不同 hostname 或后续实例名配置区分。
 

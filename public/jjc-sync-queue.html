@@ -404,16 +404,17 @@
                             <tr>
                                 <th style="width: 20%;">角色</th>
                                 <th style="width: 12%;">状态</th>
-                                <th style="width: 12%;">同步类型</th>
+                                <th style="width: 10%;">同步类型</th>
+                                <th style="width: 10%;">同步窗口</th>
                                 <th style="width: 9%;">优先级</th>
-                                <th style="width: 17%;">租约 Worker</th>
+                                <th style="width: 15%;">租约 Worker</th>
                                 <th style="width: 11%;">失败</th>
                                 <th style="width: 11%;">下次同步</th>
                                 <th style="width: 8%;">更新</th>
                             </tr>
                         </thead>
                         <tbody id="queueRows">
-                            <tr><td class="empty" colspan="8">暂无数据</td></tr>
+                            <tr><td class="empty" colspan="9">暂无数据</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -623,7 +624,7 @@
                 els.nextPage.disabled = state.loading || !state.hasMore;
 
                 if (!items.length) {
-                    els.queueRows.innerHTML = `<tr><td class="empty" colspan="8">暂无队列记录</td></tr>`;
+                    els.queueRows.innerHTML = `<tr><td class="empty" colspan="9">暂无队列记录</td></tr>`;
                     return;
                 }
 
@@ -640,6 +641,7 @@
                             </td>
                             <td>${badge(item.status || "-")}</td>
                             <td>${escapeHtml(modeLabels[item.queue_mode] || item.queue_mode || "-")}</td>
+                            <td>${escapeHtml(item.queue_sync_until_time ? `至 ${formatTime(item.queue_sync_until_time)}` : "full")}</td>
                             <td>${escapeHtml(item.priority || 0)}</td>
                             <td>${escapeHtml(lease)}</td>
                             <td>

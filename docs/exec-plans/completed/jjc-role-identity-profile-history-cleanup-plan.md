@@ -238,3 +238,4 @@ db.role_identities.countDocuments({"profile_history": {"$exists": true}})
 - 2026-06-11：方案确认，待实现。
 - 2026-06-11：已实现仓储瘦投影、停止运行时与 replay 回填脚本写入 `profile_history`，新增 `scripts/cleanup_role_identity_profile_history.py`，并更新数据库设计文档；待自动化验证和 review。
 - 2026-06-11：自动化验证通过，已完成自查 review；清理脚本已执行线上 dry-run，只读确认待清理 54708 条，未执行 `--execute` 写库。
+- 2026-06-15：用户确认线上清理已执行完成，本计划归档为 completed。

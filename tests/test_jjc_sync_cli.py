@@ -23,7 +23,11 @@ def _load_cli_module() -> Any:
     async def init_mongo(uri: str) -> None:
         return None
 
+    def get_db() -> None:
+        return None
+
     mongo_mod.init_mongo = init_mongo
+    mongo_mod.get_db = get_db
     sys.modules["src.infra.mongo"] = mongo_mod
 
     singletons_mod = types.ModuleType("src.services.jx3.singletons")
@@ -108,7 +112,7 @@ class TestJjcSyncCli(unittest.IsolatedAsyncioTestCase):
         fake_service = _FakeService()
         module.svc = fake_service
         args = SimpleNamespace(
-            mode="incremental_or_full",
+            mode="full",
             minutes=0,
             idle_sleep=1,
             max_roles=None,
@@ -126,7 +130,7 @@ class TestJjcSyncCli(unittest.IsolatedAsyncioTestCase):
         fake_service = _FakeService()
         module.svc = fake_service
         args = SimpleNamespace(
-            mode="incremental_or_full",
+            mode="full",
             minutes=0,
             idle_sleep=1,
             max_roles=5,
@@ -138,6 +142,12 @@ class TestJjcSyncCli(unittest.IsolatedAsyncioTestCase):
             await module.cmd_worker(args)
 
         self.assertEqual(fake_service.worker_calls[0]["max_roles"], 5)
+
+    async def test_worker_parser_rejects_incremental_mode(self) -> None:
+        module = _load_cli_module()
+
+        with self.assertRaises(SystemExit):
+            module.build_parser().parse_args(["worker", "--mode=incremental"])
 
     async def test_cmd_status_prints_heartbeat_aware_worker_state(self) -> None:
         module = _load_cli_module()

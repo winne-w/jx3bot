@@ -22,7 +22,7 @@ JX3Bot 是一个基于 NoneBot2 的剑网 3 QQ 机器人，运行在 OneBot V11 
   - `POST /api/jjc/ranking-stats/synced-role-sync`：将已收录角色加入 JJC 同步队列
   - `GET /api/jjc/ranking-stats/match-detail?match_id=<对局ID>`
   - `GET /api/jjc/sync/status`：同步队列汇总，包含 `worker_running/background_running`
-  - `GET /api/jjc/sync/queue?status=queued&mode=incremental&server=梦江南&name=角色&page=1&page_size=50`：角色队列分页，支持队列状态、同步类型、服务器/角色名搜索，包含 `has_more`
+  - `GET /api/jjc/sync/queue?status=queued&mode=full&server=梦江南&name=角色&page=1&page_size=50`：角色队列分页，支持队列状态、同步类型、服务器/角色名搜索，包含 `has_more`
   - `GET /api/jjc/sync/workers`
   - `GET /api/jx3/servers`：读取当前区服列表，用于前端服务器下拉选择
 - 静态页面:
@@ -101,8 +101,10 @@ bash start.sh
 JJC 对局同步默认只入队，不会在 bot 进程内自动处理队列。需要单独扩容或排障时仍可启动独立 worker:
 
 ```bash
-python scripts/jjc_sync.py worker --mode=incremental_or_full
+python scripts/jjc_sync.py worker
 ```
+
+入队默认按 full 处理；需要限制本次入队同步窗口时使用 `days` 或 `until`，例如 `/jjc同步开始 full days=7` 或 `python scripts/jjc_sync.py enqueue --days=7`。worker 只消费队列，不决定同步窗口。
 
 单进程部署也可以启用 bot 内置 worker。首版只提供一个配置:
 

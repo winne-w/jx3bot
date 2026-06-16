@@ -750,6 +750,7 @@ class JjcRankingService:
         seen: set[str] = set()
         enqueued_count = 0
         batch_id = "ranking_stats:{}".format(timestamp)
+        queue_sync_until_time = int(time.time()) - 7 * 86400
         for detail in detail_payloads:
             for member in detail.get("members") or []:
                 if not isinstance(member, dict):
@@ -769,9 +770,10 @@ class JjcRankingService:
                     season_id=str(self.current_season) if self.current_season is not None else None,
                     season_start_time=self._coerce_season_start_time(),
                     priority=1,
-                    mode="incremental_or_full",
+                    mode="full",
                     source="ranking_stats",
                     batch_id=batch_id,
+                    queue_sync_until_time=queue_sync_until_time,
                 )
                 if queued is not None:
                     enqueued_count += 1

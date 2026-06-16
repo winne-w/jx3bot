@@ -143,15 +143,15 @@ python test_tuilan_match_history.py
 - `竞技排名 拆分`
 - 添加并默认排队指定角色：`/jjc同步添加 <服务器> <角色名> [priority=100] [queued=1] [global_role_id=...] [role_id=...] [zone=...]`
 - 查看状态：`/jjc同步状态`
-- 批量入队：`/jjc同步开始 [default|full|incremental] [limit=10]`
+- 批量入队：`/jjc同步开始 [default|full] [limit=10] [days=7|until=YYYY-MM-DD]`
 - 调整优先级：`/jjc同步优先级 <服务器> <角色名> <priority>`
 - 暂停后续同步：`/jjc同步暂停 [原因]`
 - 恢复同步：`/jjc同步恢复`
 - 重置角色水位：`/jjc同步重置 <服务器> <角色名>`
-- 启动独立常驻 worker：`python scripts/jjc_sync.py worker --mode=incremental_or_full` 或 `python scripts/jjc_sync.py start --limit=10`；`start --limit` 只限制最多处理数量，队列暂空时仍会继续等待
+- 启动独立常驻 worker：`python scripts/jjc_sync.py worker` 或 `python scripts/jjc_sync.py start --limit=10`；`start --limit` 只限制最多处理数量，队列暂空时仍会继续等待；worker 不决定同步窗口
 - 启用 bot 内置 worker：设置 `JJC_SYNC_WORKER_COUNT=1` 后启动 `python bot.py`，或执行 `/修改配置 JJC_SYNC_WORKER_COUNT=1` 写入本地运行时配置并重启；`0` 表示关闭
 - 内置 worker 名称使用稳定槽位 `bot:{host}:{index}`，同一部署实例重启后会复用同一条 worker 心跳记录；升级前已经产生的旧 `bot:{host}:{启动时间}:{pid}:{index}` 离线记录可按需人工清理。
-- 批量入队脚本：`python scripts/jjc_sync.py enqueue --limit=10`
+- 批量入队脚本：`python scripts/jjc_sync.py enqueue --limit=10`，本次只同步最近 7 天可用 `python scripts/jjc_sync.py enqueue --limit=10 --days=7`
 - 页面路径与接口路径分开维护：生产静态页面使用 `/jx3/<page>.html`，例如 `https://qike.rickchen.cn/jx3/jjc-sync-queue.html`；API 使用 `/jx3bot/api/...`，例如 `https://qike.rickchen.cn/jx3bot/api/jjc/sync/status`。HTML 页面链接不要加 `/jx3bot` 前缀。
 - 队列页面：生产环境访问 `https://qike.rickchen.cn/jx3/jjc-sync-queue.html`；本地若直接由 bot 暴露静态目录，可按实际挂载访问 `http://<bot-host>:<port>/public/jjc-sync-queue.html`。页面支持按服务器、角色名搜索，状态以中文展示；页面依赖同源 `/jx3bot/api/jjc/sync/...` 或本地 `/api/jjc/sync/...` 接口，不能直接用本地文件方式打开。
 - 已同步对局页面：生产环境访问 `https://qike.rickchen.cn/jx3/jjc-synced-matches.html`；输入服务器和角色名后，页面先查询 `role_identities`，再只按该身份的 `global_id` 匹配 `jjc_match_detail` 中 6 名参赛玩家的 `global_id`，展示该角色参与过的本地已同步 3v3 对局。页面不使用服务器名、昵称、`global_role_id` 或 `role_id` 兜底匹配对局，避免转服、改名造成串号。页面依赖同源 `/jx3bot/api/jjc/ranking-stats/synced-role*`、`role-indicator`、`match-detail` 接口，不能直接用本地文件方式打开。
@@ -194,7 +194,7 @@ python -m unittest tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot
 python -m py_compile src/services/jx3/jjc_match_data_sync.py src/storage/mongo_repos/jjc_sync_repo.py src/plugins/jx3bot_handlers/jjc_match_data_sync.py src/api/routers/jjc_sync.py scripts/jjc_sync.py src/infra/mongo.py
 ```
 
-在线手工回归需要真实 QQ/推栏环境：先启动一个 `python scripts/jjc_sync.py worker --mode=incremental_or_full`，再 `/jjc同步添加 <服务器> <角色名>`、`/jjc同步状态`、打开 `http://<bot-host>:<port>/public/jjc-sync-queue.html`，确认角色进入 queued 后被 worker 领取、对局详情写入、单条详情失败时仍继续处理后续对局和后续页。
+在线手工回归需要真实 QQ/推栏环境：先启动一个 `python scripts/jjc_sync.py worker`，再 `/jjc同步添加 <服务器> <角色名>`、`/jjc同步状态`、打开 `http://<bot-host>:<port>/public/jjc-sync-queue.html`，确认角色进入 queued 后被 worker 领取、对局详情写入、单条详情失败时仍继续处理后续对局和后续页。
 
 JJC replay 角色 ID / global_id 回填：
 

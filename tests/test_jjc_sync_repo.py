@@ -418,7 +418,8 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
             },
             priority=2,
             source="synced_match_page",
-            mode="incremental_or_full",
+            mode="full",
+            queue_sync_until_time=None,
         )
 
         self.assertIs(result, queued_doc)
@@ -431,7 +432,8 @@ class TestJjcSyncRepoRoleQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["$set"]["identity_id"], identity_id)
         self.assertNotIn("identity_id", update["$setOnInsert"])
         self.assertEqual(update["$set"]["queue_source"], "synced_match_page")
-        self.assertEqual(update["$set"]["queue_mode"], "incremental_or_full")
+        self.assertEqual(update["$set"]["queue_mode"], "full")
+        self.assertIsNone(update["$set"]["queue_sync_until_time"])
         self.assertEqual(update["$setOnInsert"]["source"], "synced_match_page")
 
     async def test_enqueue_existing_identity_uses_identity_queue_when_available(self) -> None:

@@ -7,9 +7,9 @@
 用法:
     python scripts/jjc_sync.py single <服务器> <角色名> [--force] [--global_role_id=...] [--role_id=...] [--zone=...]
     python scripts/jjc_sync.py add <服务器> <角色名> [--priority=N] [--no-queue] [--global_role_id=...] [--role_id=...] [--zone=...]
-    python scripts/jjc_sync.py enqueue [--mode=default|full|incremental] [--limit=N]
-    python scripts/jjc_sync.py start [--mode=default|full|incremental] [--limit=N] [--max-roles=N] [--minutes=N] [--idle-sleep=N] [--worker-id=...]
-    python scripts/jjc_sync.py worker [--mode=default|full|incremental] [--max-roles=N] [--minutes=N] [--idle-sleep=N] [--worker-id=...]
+    python scripts/jjc_sync.py enqueue [--mode=default|full] [--limit=N] [--days=N|--until=YYYY-MM-DD]
+    python scripts/jjc_sync.py start [--limit=N] [--max-roles=N] [--minutes=N] [--idle-sleep=N] [--worker-id=...]
+    python scripts/jjc_sync.py worker [--max-roles=N] [--minutes=N] [--idle-sleep=N] [--worker-id=...]
     python scripts/jjc_sync.py priority <服务器> <角色名> <priority>
     python scripts/jjc_sync.py queue [--status=queued] [--page=1] [--page-size=50]
     python scripts/jjc_sync.py status
@@ -65,13 +65,25 @@ logger = logging.getLogger("jjc_sync")
 # ---- 配置与依赖（复用 singletons.py，与 QQ 命令完全一致） ----
 import config as cfg  # noqa: E402
 from src.infra.mongo import init_mongo  # noqa: E402
+from src.services.jx3.jjc_match_data_sync import resolve_queue_sync_until_time  # noqa: E402
 from src.services.jx3.singletons import jjc_match_data_sync_service as svc  # noqa: E402
 
 
 # ---- 子命令处理 ----
 
 def _normalize_mode(mode: str) -> str:
-    return "incremental_or_full" if mode == "default" else mode
+    return "full" if mode == "default" else mode
+
+
+def _resolve_cli_queue_sync_until_time(args: argparse.Namespace):
+    try:
+        return resolve_queue_sync_until_time(days=args.days, until=args.until)
+    except ValueError as exc:
+        if str(exc) == "queue_sync_window_conflict":
+            logger.error("days 和 until 不能同时指定")
+        else:
+            logger.error("同步窗口参数错误，days 必须是正整数，until 支持 Unix 秒或 YYYY-MM-DD")
+        sys.exit(1)
 
 
 async def cmd_single(args: argparse.Namespace) -> None:
@@ -130,6 +142,7 @@ async def cmd_enqueue(args: argparse.Namespace) -> None:
         mode=mode,
         limit=args.limit,
         source="cli",
+        queue_sync_until_time=_resolve_cli_queue_sync_until_time(args),
     )
     if result.get("error"):
         logger.error("入队失败: %s", result.get("message", "unknown_error"))
@@ -140,7 +153,7 @@ async def cmd_enqueue(args: argparse.Namespace) -> None:
         if result.get("pause_reason"):
             print(f"暂停原因: {result.get('pause_reason')}")
 
-    print(f"模式: {mode}  请求入队: {args.limit}  实际入队: {result.get('enqueued_roles', 0)}")
+    print(f"模式: {mode}  同步截止: {result.get('queue_sync_until_time') or '-'}  请求入队: {args.limit}  实际入队: {result.get('enqueued_roles', 0)}")
     print(f"恢复租约: {result.get('recovered_leases', 0)}")
     counts = result.get("counts", {})
     if counts:
@@ -149,15 +162,14 @@ async def cmd_enqueue(args: argparse.Namespace) -> None:
 
 
 async def cmd_worker(args: argparse.Namespace) -> None:
-    mode = _normalize_mode(args.mode)
+    mode = "full"
     max_seconds = args.minutes * 60 if getattr(args, "minutes", 0) and args.minutes > 0 else 0
     max_roles = args.max_roles
     legacy_limit = getattr(args, "limit", None)
     if max_roles is None and legacy_limit is not None:
         max_roles = legacy_limit
     logger.info(
-        "启动 JJC 同步 worker: mode=%s idle_sleep=%s max_roles=%s max_seconds=%s",
-        mode,
+        "启动 JJC 同步 worker: idle_sleep=%s max_roles=%s max_seconds=%s",
         args.idle_sleep,
         max_roles,
         max_seconds,
@@ -302,14 +314,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     # enqueue
     p_enqueue = sub.add_parser("enqueue", help="把候选角色批量放入 queued 队列")
-    p_enqueue.add_argument("--mode", default="incremental_or_full",
-                           choices=["default", "incremental_or_full", "full", "incremental"])
+    p_enqueue.add_argument("--mode", default="full", choices=["default", "full"])
     p_enqueue.add_argument("--limit", type=int, default=10, help="入队角色数，默认 10")
+    p_enqueue.add_argument("--days", type=int, default=None, help="本次入队只同步最近 N 天")
+    p_enqueue.add_argument("--until", default=None, help="本次入队同步到指定截止时间，支持 Unix 秒或 YYYY-MM-DD")
 
     # start / worker
     p_start = sub.add_parser("start", help="启动一个前台常驻 worker 处理 queued 队列")
-    p_start.add_argument("--mode", default="incremental_or_full",
-                         choices=["default", "incremental_or_full", "full", "incremental"])
     p_start.add_argument(
         "--limit",
         type=int,
@@ -322,8 +333,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_start.add_argument("--worker-id", default=None, help="自定义 worker_id")
 
     p_worker = sub.add_parser("worker", help="启动一个前台 worker 处理 queued 队列")
-    p_worker.add_argument("--mode", default="incremental_or_full",
-                          choices=["default", "incremental_or_full", "full", "incremental"])
     p_worker.add_argument("--max-roles", type=int, default=None, help="最多处理多少个角色，不传则常驻")
     p_worker.add_argument("--minutes", type=int, default=0, help="最长运行分钟数，0 表示不限时")
     p_worker.add_argument("--idle-sleep", type=int, default=10, help="空闲/暂停时 sleep 秒数")
