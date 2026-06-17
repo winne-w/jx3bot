@@ -4,12 +4,12 @@
 
 ## Active
 
-- `active/jjc-match-detail-player-navigation-plan.md`: JJC 对局详情玩家跳转对局查询计划
 - `active/jjc-queue-sync-window-plan.md`: JJC 队列一次性同步窗口、默认 full 与排名 7 天入队计划
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Completed
 
+- `completed/jjc-match-detail-player-navigation-plan.md`: JJC 对局详情玩家跳转对局查询计划
 - `completed/development-flow-requirements-gate-plan.md`: 开发流程迁移到需求目录体系计划
 - `completed/jjc-role-indicator-mvp-count-plan.md`: JJC 角色 indicator 最佳字段改为 mvp_count 计划
 - `completed/jjc-role-indicator-best-count-plan.md`: JJC 角色 indicator 最佳次数展示修复计划

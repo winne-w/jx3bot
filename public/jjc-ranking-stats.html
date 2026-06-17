@@ -949,6 +949,17 @@
             background: rgba(91, 124, 250, 0.05);
         }
 
+        .team-player.is-clickable {
+            cursor: pointer;
+            transition: background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .team-player.is-clickable:hover {
+            background: rgba(91, 124, 250, 0.1);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 14px rgba(24, 33, 47, 0.08);
+        }
+
         .team-player.focus {
             background: rgba(255, 120, 177, 0.09);
             border: 1px solid rgba(255, 120, 177, 0.18);
@@ -2550,6 +2561,21 @@
             return `<div class="team-kungfu-icons">${icons.join("")}</div>`;
         }
 
+        function normalizeDetailPlayerName(name, server) {
+            const rawName = String(name || "").trim();
+            const serverName = String(server || "").trim();
+            if (!rawName || !serverName) {
+                return rawName;
+            }
+            for (const separator of ["·", "@"]) {
+                const suffix = `${separator}${serverName}`;
+                if (rawName.endsWith(suffix)) {
+                    return rawName.slice(0, -suffix.length).trim();
+                }
+            }
+            return rawName;
+        }
+
         function renderTeam(team, focusPlayer) {
             if (!team) {
                 return "<div class='modal-empty'>暂无队伍数据</div>";
@@ -2563,11 +2589,19 @@
                     </div>
                     <div class="team-player-list">
                         ${players.map((player) => {
+                            const playerServer = String(player.server || "").trim();
+                            const playerName = normalizeDetailPlayerName(player.role_name, playerServer);
                             const isFocus = focusPlayer
-                                && player.role_name === focusPlayer.name
-                                && player.server === focusPlayer.server;
+                                && playerName === focusPlayer.name
+                                && playerServer === focusPlayer.server;
+                            const canNavigate = Boolean(playerName && playerServer);
                             return `
-                                <div class="team-player ${isFocus ? "focus" : ""}">
+                                <div
+                                    class="team-player ${isFocus ? "focus" : ""} ${canNavigate ? "is-clickable" : ""}"
+                                    data-role-nav="${canNavigate ? "1" : "0"}"
+                                    data-player-name="${escapeHtml(playerName)}"
+                                    data-player-server="${escapeHtml(playerServer)}"
+                                >
                                     <div class="team-player-top">
                                         <span class="player-name">${escapeHtml(player.role_name || "未知")}</span>
                                         <span class="player-meta">${escapeHtml(player.server || "未知服")}</span>
@@ -2594,6 +2628,20 @@
                     </div>
                 </div>
             `;
+        }
+
+        function buildSyncedMatchesRoleUrl(server, name) {
+            const url = new URL("jjc-synced-matches.html", window.location.href);
+            url.searchParams.set("server", server);
+            url.searchParams.set("name", name);
+            return url.toString();
+        }
+
+        function openSyncedMatchesForPlayer(server, name) {
+            if (!server || !name) {
+                return;
+            }
+            window.open(buildSyncedMatchesRoleUrl(server, name), "_blank", "noopener");
         }
 
         function renderMatchDetailModal(payload, focusPlayer) {
@@ -3234,6 +3282,14 @@
         matchModal.addEventListener("click", (event) => {
             const target = event.target;
             if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            const playerCard = target.closest(".team-player[data-role-nav='1']");
+            if (playerCard) {
+                openSyncedMatchesForPlayer(
+                    playerCard.getAttribute("data-player-server") || "",
+                    playerCard.getAttribute("data-player-name") || "",
+                );
                 return;
             }
             if (target === matchModal || target.closest("[data-close-modal='match']")) {
