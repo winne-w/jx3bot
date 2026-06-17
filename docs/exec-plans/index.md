@@ -1,15 +1,15 @@
 # 执行计划索引
 
-这里存放阶段性计划和技术债推进记录，按"进行中 / 已完成"组织。实现和验证完成但相关代码尚未提交时，计划仍放在 `active/`；代码提交后才移动到 `completed/`。
+这里存放阶段性计划和技术债推进记录，按"进行中 / 已完成"组织。计划内实现、验证和 review 完成后，必须在提交代码前把计划从 `active/` 移动到 `completed/` 并同步更新本索引。
 
 ## Active
 
-- `active/jjc-sync-log-noise-reduction-plan.md`: JJC 同步高频 INFO 进度日志降噪计划
 - `active/jjc-queue-sync-window-plan.md`: JJC 队列一次性同步窗口、默认 full 与排名 7 天入队计划
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Completed
 
+- `completed/jjc-sync-log-noise-reduction-plan.md`: JJC 同步高频 INFO 进度日志降噪计划
 - `completed/jjc-match-detail-replay-save-unification-plan.md`: JJC match_detail 写入入口统一保存 replay 计划
 - `completed/jjc-role-identity-profile-history-cleanup-plan.md`: JJC role_identities profile_history 清理与热路径瘦身计划
 - `completed/jjc-role-participant-projection-backfill-script-plan.md`: JJC 单角色参与者投影补齐脚本计划

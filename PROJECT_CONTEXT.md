@@ -108,7 +108,7 @@ python -m py_compile <相关 service/storage 文件>
 
 ### 阶段 2：按计划实现
 
-目标：严格按阶段 1 的计划落地，并完整经过实现、冒烟、review、修复、再验证和必要文档更新。
+目标：严格按阶段 1 的计划落地，并完整经过实现、冒烟、review、修复、再验证、计划归档和必要文档更新。
 
 执行规则：
 
@@ -118,8 +118,8 @@ python -m py_compile <相关 service/storage 文件>
 4. 冒烟通过后进入 code review。review 必须优先关注 bug、行为回归、分层边界、数据兼容、缺失测试和文档遗漏。
 5. review 发现必须处理的问题时，先修复，再重新运行受影响验证和冒烟，然后再次 review；重复该循环，直到没有必须处理的问题。
 6. review 可由主 agent 自查，也可调用 Codex 子 agent 辅助 review；测试、冒烟和验证也可调用 Codex 子 agent 辅助执行。使用子 agent 时，主 agent 必须汇总结论、确认问题已处理，并保留最终判断责任。
-7. 完成后给出实现结果、验证结果、review 结果、未覆盖风险和后续建议。
-8. 代码实现、验证、冒烟和 review 完成但尚未提交时，计划仍保留在 `docs/exec-plans/active/`；只能在计划内记录“已实现/已验证/已 review/待提交”状态，不得提前移动到 `docs/exec-plans/completed/`。
+7. 计划内实现、验证、冒烟和 review 全部完成后，提交代码前必须把对应计划从 `docs/exec-plans/active/` 移动到 `docs/exec-plans/completed/`，并同步更新 `docs/exec-plans/index.md`；只有尚未完成验证或 review 的计划才保留在 `active/`。
+8. 完成后给出实现结果、验证结果、review 结果、计划归档结果、未覆盖风险和后续建议。
 
 如需把阶段 2 拆给子 agent 并行实现，使用全局 `subagent-implementation` skill；如需独立 review 或测试，可调用 Codex 子 agent 按明确范围执行，主 agent 负责整合结果。
 
