@@ -18,6 +18,14 @@ def coerce_int(value: Any) -> Optional[int]:
     return None
 
 
+def coerce_first_int(*values: Any) -> Optional[int]:
+    for value in values:
+        result = coerce_int(value)
+        if result is not None:
+            return result
+    return None
+
+
 def find_3v3_indicator(indicators: Any) -> Optional[dict[str, Any]]:
     if not isinstance(indicators, list):
         return None
@@ -73,6 +81,10 @@ def parse_3v3_indicator(raw: dict[str, Any]) -> dict[str, Any]:
                 or item.get("win_count") is not None
                 or item.get("level") is not None
                 or item.get("total") is not None
+                or item.get("best_count") is not None
+                or item.get("bestCount") is not None
+                or item.get("mvp_count") is not None
+                or item.get("mvpCount") is not None
             )
         ),
         {},
@@ -132,21 +144,19 @@ def parse_3v3_indicator(raw: dict[str, Any]) -> dict[str, Any]:
         or metric_3v3.get("rating")
         or metric_3v3.get("mmr")
     )
-    best_score = coerce_int(
-        target.get("best_score")
-        or target.get("bestScore")
-        or target.get("best_rating")
-        or target.get("max_score")
-        or target.get("max_rating")
-        or performance.get("best_score")
-        or performance.get("bestScore")
-        or performance.get("best_rating")
-        or performance.get("max_score")
-        or performance.get("max_rating")
-        or metric_3v3.get("best_score")
-        or metric_3v3.get("bestScore")
-        or metric_3v3.get("best_rating")
-        or metric_3v3.get("max_score")
+    mvp_count = coerce_first_int(
+        target.get("mvp_count"),
+        target.get("mvpCount"),
+        target.get("mvp_times"),
+        target.get("mvpTimes"),
+        performance.get("mvp_count"),
+        performance.get("mvpCount"),
+        performance.get("mvp_times"),
+        performance.get("mvpTimes"),
+        metric_3v3.get("mvp_count"),
+        metric_3v3.get("mvpCount"),
+        metric_3v3.get("mvp_times"),
+        metric_3v3.get("mvpTimes"),
     )
     grade = coerce_int(
         target.get("grade")
@@ -172,7 +182,7 @@ def parse_3v3_indicator(raw: dict[str, Any]) -> dict[str, Any]:
         "total_matches": total_matches,
         "win_rate": win_rate,
         "score": score,
-        "best_score": best_score,
+        "mvp_count": mvp_count,
         "grade": grade,
     }
 

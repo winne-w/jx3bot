@@ -429,7 +429,7 @@
 | `global_id` | string/null | JJC 稳定角色身份 ID，来自 replay 数字 ID |
 | `global_role_id` | string/null | SK01 全局角色 ID，用于请求战局历史 |
 | `zone` | string/null | 区服分区 |
-| `indicator` | object | 规整后的 3v3 指标：`source`、`type`、`total_matches`、`win_rate`、`score`、`best_score`、`grade` |
+| `indicator` | object | 规整后的 3v3 指标：`source`、`type`、`total_matches`、`win_rate`、`score`、`mvp_count`、`grade`；其中 `mvp_count` 表示赛季最佳/MVP 次数 |
 | `raw` | object | `role/indicator` 原始响应 |
 | `cached_at` | float | 缓存时间 Unix 秒（⚠ float 类型，TTL 索引不生效；过期由 repo 业务 TTL=86400 秒判断；页面主动刷新可绕过缓存） |
 

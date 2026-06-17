@@ -2409,7 +2409,7 @@
                     { label: "场次", value: ind.total_matches ?? "-" },
                     { label: "胜率", value: ind.win_rate != null ? `${ind.win_rate}%` : "-" },
                     { label: "评分", value: ind.score ?? "-" },
-                    { label: "最佳", value: ind.best_score ?? "-" },
+                    { label: "最佳", value: ind.mvp_count ?? "-" },
                     { label: "当前段位", value: formatGrade(ind.grade) },
                 ];
                 overviewHtml = indicatorCards.map((item) => `
@@ -2482,7 +2482,7 @@
                     { label: "场次", value: ind.total_matches ?? "-" },
                     { label: "胜率", value: ind.win_rate != null ? `${ind.win_rate}%` : "-" },
                     { label: "评分", value: ind.score ?? "-" },
-                    { label: "最佳", value: ind.best_score ?? "-" },
+                    { label: "最佳", value: ind.mvp_count ?? "-" },
                     { label: "当前段位", value: formatGrade(ind.grade) },
                 ];
                 overview.innerHTML = indicatorCards.map((item) => `

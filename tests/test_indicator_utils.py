@@ -1,6 +1,6 @@
 import unittest
 
-from src.services.jx3.indicator_utils import find_3v3_indicator, select_best_3v3_metric
+from src.services.jx3.indicator_utils import find_3v3_indicator, parse_3v3_indicator, select_best_3v3_metric
 
 
 class TestIndicatorUtils(unittest.TestCase):
@@ -30,6 +30,58 @@ class TestIndicatorUtils(unittest.TestCase):
         }
 
         self.assertEqual(select_best_3v3_metric(indicator, require_items=True)["kungfu"], "xiangzhi")
+
+    def test_parse_3v3_indicator_extracts_mvp_count_from_performance(self):
+        raw = {
+            "data": {
+                "indicator": [
+                    {
+                        "type": "3c",
+                        "metrics": [{"pvp_type": 3, "win_count": 8, "total_count": 20}],
+                        "performance": {"mmr": 2400, "grade": 12, "mvp_count": 6},
+                    }
+                ]
+            }
+        }
+
+        result = parse_3v3_indicator(raw)
+
+        self.assertEqual(result["mvp_count"], 6)
+
+    def test_parse_3v3_indicator_extracts_mvp_count_from_metric(self):
+        raw = {
+            "data": {
+                "indicator": [
+                    {
+                        "type": "custom",
+                        "metrics": [{"pvp_type": 3, "win_count": 8, "total_count": 20, "mvp_count": 4}],
+                        "performance": {"mmr": 2400, "grade": 12},
+                    }
+                ]
+            }
+        }
+
+        result = parse_3v3_indicator(raw)
+
+        self.assertEqual(result["mvp_count"], 4)
+
+    def test_parse_3v3_indicator_selects_metric_with_only_mvp_count(self):
+        raw = {
+            "data": {
+                "indicator": [
+                    {
+                        "type": "custom",
+                        "total_count": 20,
+                        "performance": {"mmr": 2400, "grade": 12},
+                        "metrics": [{"pvp_type": 3, "mvp_count": 3}],
+                    }
+                ]
+            }
+        }
+
+        result = parse_3v3_indicator(raw)
+
+        self.assertEqual(result["mvp_count"], 3)
 
 
 if __name__ == "__main__":
