@@ -120,7 +120,6 @@ class MatchDetailIdentityProjectionService:
             player.get("gameRoleId"),
         )
         game_role_id = _pick_str(player.get("game_role_id"), player.get("gameRoleId"), role_id)
-        identity_started_at = time.perf_counter()
         identity = await _maybe_await(
             self.identity_repo.upsert_from_match_detail_with_id(
                 server=server,
@@ -135,12 +134,8 @@ class MatchDetailIdentityProjectionService:
                 observed_match_time=observed_match_time,
             )
         )
-        identity_ms = int((time.perf_counter() - identity_started_at) * 1000)
 
-        queue_ms = 0
-        queued_this_player = False
         if hasattr(self.sync_repo, "upsert_identity_queue_candidate") and isinstance(identity, dict):
-            queue_started_at = time.perf_counter()
             await _maybe_await(
                 self.sync_repo.upsert_identity_queue_candidate(
                     identity_id=identity.get("_id"),
@@ -159,22 +154,9 @@ class MatchDetailIdentityProjectionService:
                     priority=priority,
                 )
             )
-            queue_ms = int((time.perf_counter() - queue_started_at) * 1000)
-            queued_this_player = True
+            return {"projected": 1, "queued": 1}
 
-        logger.info(
-            "JJC 对局详情身份投影玩家耗时: match_id={} server={} name={} global_id={} "
-            "identity_ms={} queue_ms={} queued={}".format(
-                match_id,
-                server,
-                name,
-                _pick_str(player.get("global_id"), player.get("globalId")),
-                identity_ms,
-                queue_ms,
-                queued_this_player,
-            )
-        )
-        return {"projected": 1, "queued": 1 if queued_this_player else 0}
+        return {"projected": 1, "queued": 0}
 
     async def project_payload(
         self,

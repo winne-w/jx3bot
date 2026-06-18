@@ -256,27 +256,10 @@ class JjcInspectRepo:
         if not target_global_id:
             return self._empty_match_page(safe_page, safe_page_size)
 
-        started_at = time.perf_counter()
-        logger.info(
-            "JJC 本地对局列表开始: global_id={} source=match_participants page={} page_size={}".format(
-                target_global_id,
-                safe_page,
-                safe_page_size,
-            )
-        )
-
         result = await self._list_saved_matches_from_projection(
             global_id=target_global_id,
             page=safe_page,
             page_size=safe_page_size,
-        )
-        logger.info(
-            "JJC 本地对局列表完成: global_id={} source=match_participants elapsed_ms={} total={} items={}".format(
-                target_global_id,
-                int((time.perf_counter() - started_at) * 1000),
-                result.get("total"),
-                len(result.get("items") or []),
-            )
         )
         return result
 
@@ -300,30 +283,16 @@ class JjcInspectRepo:
         if self.participant_repo is None:
             raise RuntimeError("participant_repo_not_configured")
 
-        started_at = time.perf_counter()
         result = await self.participant_repo.list_local_3v3_matches_by_global_id(
             global_id=global_id,
             page=page,
             page_size=page_size,
         )
-        query_ms = int((time.perf_counter() - started_at) * 1000)
-        hydrate_started_at = time.perf_counter()
         mapped_items = self._map_projection_to_match_rows(result.get("items") or [])
         await self._hydrate_projection_match_rows(mapped_items)
-        hydrate_ms = int((time.perf_counter() - hydrate_started_at) * 1000)
         total = self._coerce_int(result.get("total")) or 0
         result_page = self._coerce_int(result.get("page")) or page
         result_page_size = self._coerce_int(result.get("page_size")) or page_size
-        logger.info(
-            "JJC 参与者投影读取完成: global_id={} elapsed_ms={} query_ms={} hydrate_ms={} total={} items={}".format(
-                global_id,
-                int((time.perf_counter() - started_at) * 1000),
-                query_ms,
-                hydrate_ms,
-                total,
-                len(mapped_items),
-            )
-        )
         return {
             "items": mapped_items,
             "total": total,
@@ -423,7 +392,6 @@ class JjcInspectRepo:
         page: int,
         page_size: int,
     ) -> Dict[str, Any]:
-        started_at = time.perf_counter()
         del identity_id, identity_key
         skip = (page - 1) * page_size
         target_global_id = self._pick_str(global_id)
@@ -441,18 +409,14 @@ class JjcInspectRepo:
             game_role_id=game_role_id,
         )
         try:
-            phase_started_at = time.perf_counter()
             participant_cursor = db.jjc_match_detail.find(participant_query)
             participant_docs = await participant_cursor.to_list(length=None)
-            participant_query_ms = int((time.perf_counter() - phase_started_at) * 1000)
         except Exception as exc:
             logger.warning(
                 f"按 global_id 读取本地已同步 JJC 对局详情失败: global_id={target_global_id} error={exc}"
             )
             participant_docs = []
-            participant_query_ms = int((time.perf_counter() - started_at) * 1000)
 
-        phase_started_at = time.perf_counter()
         participant_match_ids: List[int] = []
         for doc in participant_docs:
             mid = self._coerce_int(doc.get("match_id"))
@@ -460,23 +424,12 @@ class JjcInspectRepo:
                 continue
             participant_match_ids.append(mid)
             detail_by_match_id[mid] = doc
-        participant_parse_ms = int((time.perf_counter() - phase_started_at) * 1000)
 
         if not participant_match_ids:
-            logger.info(
-                "JJC 详情集合读取本地对局完成: global_id={} elapsed_ms={} participant_query_ms={} "
-                "participant_parse_ms={} participant_docs=0 total=0 items=0".format(
-                    target_global_id,
-                    int((time.perf_counter() - started_at) * 1000),
-                    participant_query_ms,
-                    participant_parse_ms,
-                )
-            )
             return self._empty_match_page(page, page_size)
 
         seen_by_match_id: Dict[int, Dict[str, Any]] = {}
         try:
-            phase_started_at = time.perf_counter()
             seen_cursor = db.jjc_sync_match_seen.find({
                 "match_id": {"$in": participant_match_ids},
             })
@@ -485,14 +438,11 @@ class JjcInspectRepo:
                 mid = self._coerce_int(doc.get("match_id"))
                 if mid is not None:
                     seen_by_match_id[mid] = doc
-            seen_query_ms = int((time.perf_counter() - phase_started_at) * 1000)
         except Exception as exc:
             logger.warning(f"读取本地已同步 JJC 对局 seen 状态失败: global_id={target_global_id} error={exc}")
-            seen_query_ms = int((time.perf_counter() - phase_started_at) * 1000)
 
         detail_docs = list(detail_by_match_id.values())
 
-        phase_started_at = time.perf_counter()
         valid_items: List[Dict[str, Any]] = []
         for doc in detail_docs:
             mid = self._coerce_int(doc.get("match_id"))
@@ -563,30 +513,10 @@ class JjcInspectRepo:
                     "source_identity_key": seen.get("source_identity_key"),
                 },
             })
-        build_items_ms = int((time.perf_counter() - phase_started_at) * 1000)
 
-        phase_started_at = time.perf_counter()
         valid_items.sort(key=lambda item: item.get("match_time") or item.get("start_time") or 0, reverse=True)
         total = len(valid_items)
         items = valid_items[skip:skip + page_size]
-        sort_page_ms = int((time.perf_counter() - phase_started_at) * 1000)
-        logger.info(
-            "JJC 详情集合读取本地对局完成: global_id={} elapsed_ms={} participant_query_ms={} "
-            "participant_parse_ms={} seen_query_ms={} build_items_ms={} sort_page_ms={} "
-            "participant_docs={} participant_match_ids={} total={} items={}".format(
-                target_global_id,
-                int((time.perf_counter() - started_at) * 1000),
-                participant_query_ms,
-                participant_parse_ms,
-                seen_query_ms,
-                build_items_ms,
-                sort_page_ms,
-                len(participant_docs),
-                len(participant_match_ids),
-                total,
-                len(items),
-            )
-        )
         return {
             "items": items,
             "total": total,

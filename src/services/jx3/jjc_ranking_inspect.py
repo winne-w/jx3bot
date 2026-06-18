@@ -375,26 +375,10 @@ class JjcRankingInspectService:
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        started_at = time.perf_counter()
-        phase_started_at = started_at
         resolved = await self.resolve_synced_role(server=server, name=name)
-        resolve_ms = int((time.perf_counter() - phase_started_at) * 1000)
         if resolved.get("error"):
-            logger.info(
-                "JJC 已同步对局查询完成: server={} name={} page={} page_size={} elapsed_ms={} "
-                "resolve_ms={} error={}".format(
-                    server,
-                    name,
-                    page,
-                    page_size,
-                    int((time.perf_counter() - started_at) * 1000),
-                    resolve_ms,
-                    resolved.get("message") or resolved.get("error"),
-                )
-            )
             return resolved
         identity = resolved.get("identity") or {}
-        phase_started_at = time.perf_counter()
         try:
             matches = await self.cache_repo.list_saved_local_3v3_matches_for_identity(
                 identity_id=identity.get("identity_id"),
@@ -409,17 +393,15 @@ class JjcRankingInspectService:
                 page_size=page_size,
             )
         except Exception as exc:
-            list_ms = int((time.perf_counter() - phase_started_at) * 1000)
             logger.warning(
                 "JJC 已同步对局参与者投影查询失败: server={} name={} page={} page_size={} "
-                "identity_id={} global_id={} list_ms={} error={}".format(
+                "identity_id={} global_id={} error={}".format(
                     server,
                     name,
                     page,
                     page_size,
                     identity.get("identity_id"),
                     identity.get("global_id"),
-                    list_ms,
                     exc,
                 )
             )
@@ -430,23 +412,6 @@ class JjcRankingInspectService:
                 "identity": identity,
                 "sync_status": resolved.get("sync_status"),
             }
-        list_ms = int((time.perf_counter() - phase_started_at) * 1000)
-        logger.info(
-            "JJC 已同步对局查询完成: server={} name={} page={} page_size={} elapsed_ms={} "
-            "resolve_ms={} list_ms={} identity_id={} global_id={} total={} items={}".format(
-                server,
-                name,
-                page,
-                page_size,
-                int((time.perf_counter() - started_at) * 1000),
-                resolve_ms,
-                list_ms,
-                identity.get("identity_id"),
-                identity.get("global_id"),
-                matches.get("total", 0),
-                len(matches.get("items") or []),
-            )
-        )
         return {
             "player": resolved.get("player"),
             "identity": identity,
@@ -552,7 +517,6 @@ class JjcRankingInspectService:
         )
 
     async def _enrich_detail_payload_with_replay(self, payload: dict[str, Any]) -> bool:
-        started_at = time.perf_counter()
         match_id = _coerce_int(payload.get("match_id"))
         detail = payload.get("detail")
         if match_id is None or not isinstance(detail, dict):
@@ -565,24 +529,8 @@ class JjcRankingInspectService:
             if replay:
                 payload["replay"] = replay
         if not replay:
-            logger.info(
-                "JJC 对局详情 replay 补全完成: match_id={} elapsed_ms={} fetched={} merged={}".format(
-                    match_id,
-                    int((time.perf_counter() - started_at) * 1000),
-                    fetched_replay,
-                    False,
-                )
-            )
             return False
         merge_replay_global_ids_into_match_detail({"data": detail}, replay)
-        logger.info(
-            "JJC 对局详情 replay 补全完成: match_id={} elapsed_ms={} fetched={} merged={}".format(
-                match_id,
-                int((time.perf_counter() - started_at) * 1000),
-                fetched_replay,
-                True,
-            )
-        )
         return True
 
     async def _enrich_cached_match_detail_replay_and_project(
@@ -593,46 +541,26 @@ class JjcRankingInspectService:
         data: dict[str, Any],
     ) -> dict[str, Any]:
         before = repr(data)
-        phase_started_at = time.perf_counter()
         await self._enrich_detail_payload_with_replay(data)
-        enrich_ms = int((time.perf_counter() - phase_started_at) * 1000)
         if repr(data) == before:
-            return {
-                "data": data,
-                "enrich_ms": enrich_ms,
-                "save_ms": 0,
-                "project_identity_ms": 0,
-                "project_participants_ms": 0,
-            }
+            return {"data": data}
 
         effective_cached_at = cached_at or time.time()
-        phase_started_at = time.perf_counter()
         await self.cache_repo.save_match_detail(
             match_id,
             {"cached_at": effective_cached_at, "data": data},
         )
-        save_ms = int((time.perf_counter() - phase_started_at) * 1000)
-        phase_started_at = time.perf_counter()
         await self._project_match_detail_payload(
             match_id=match_id,
             payload=data,
             source="inspect_cache_hit_replay_enrich",
         )
-        project_identity_ms = int((time.perf_counter() - phase_started_at) * 1000)
-        phase_started_at = time.perf_counter()
         await self._project_match_detail_participants(
             match_id=match_id,
             payload={"cached_at": effective_cached_at, "data": data},
             detail_source="ranking_detail",
         )
-        project_participants_ms = int((time.perf_counter() - phase_started_at) * 1000)
-        return {
-            "data": data,
-            "enrich_ms": enrich_ms,
-            "save_ms": save_ms,
-            "project_identity_ms": project_identity_ms,
-            "project_participants_ms": project_participants_ms,
-        }
+        return {"data": data}
 
     @staticmethod
     def _log_background_task_exception(task: "asyncio.Task[Any]") -> None:
@@ -651,23 +579,8 @@ class JjcRankingInspectService:
         *args: Any,
         **kwargs: Any,
     ) -> Any:
-        wait_started_at = time.perf_counter()
-        logger.info("等待推栏查询锁: endpoint={} label={}", endpoint_key, label)
         async with self._get_tuilan_query_lock(endpoint_key):
-            wait_ms = int((time.perf_counter() - wait_started_at) * 1000)
-            query_started_at = time.perf_counter()
-            logger.info("获取推栏查询锁: endpoint={} label={} wait_ms={}", endpoint_key, label, wait_ms)
-            try:
-                return await asyncio.to_thread(func, *args, **kwargs)
-            finally:
-                query_ms = int((time.perf_counter() - query_started_at) * 1000)
-                logger.info(
-                    "释放推栏查询锁: endpoint={} label={} wait_ms={} query_ms={}",
-                    endpoint_key,
-                    label,
-                    wait_ms,
-                    query_ms,
-                )
+            return await asyncio.to_thread(func, *args, **kwargs)
 
     async def get_role_recent(
         self,
@@ -688,16 +601,6 @@ class JjcRankingInspectService:
             if cached:
                 data = dict(cached.get("data") or {})
                 recent_matches = data.get("recent_matches") or []
-                missing_match_id_count = sum(
-                    1 for item in recent_matches if isinstance(item, dict) and not item.get("match_id")
-                )
-                logger.info(
-                    "JJC 角色近期缓存命中: server={} name={} total_matches={} missing_match_id_count={}",
-                    server,
-                    name,
-                    len(recent_matches),
-                    missing_match_id_count,
-                )
                 await self._hydrate_recent_matches_with_cached_details(recent_matches)
                 data["recent_matches"] = recent_matches
                 data["cache"] = {
@@ -708,14 +611,6 @@ class JjcRankingInspectService:
                 }
                 return data
 
-        logger.info(
-            "加载 JJC 角色近期数据: server={} name={} hints={} cursor={} force_refresh={}",
-            server,
-            name,
-            identity_hints or {},
-            cursor,
-            force_refresh,
-        )
         identity = await self._resolve_role_identity(server=server, name=name, identity_hints=identity_hints or {})
         if identity.get("error"):
             return identity
@@ -800,12 +695,6 @@ class JjcRankingInspectService:
                 ttl_seconds=self.role_indicator_ttl_seconds,
             )
         if cached:
-            logger.info(
-                "JJC 角色 indicator 缓存命中: server={} name={} identity_key={}",
-                server,
-                name,
-                identity_key,
-            )
             return {
                 "player": {"server": server, "name": _normalize_name(name)},
                 "identity": identity,
@@ -823,13 +712,6 @@ class JjcRankingInspectService:
         if not resolved_game_role_id or not resolved_zone:
             return {"error": True, "message": "indicator_params_missing", "identity": identity}
 
-        logger.info(
-            "JJC 角色 indicator 实时请求: server={} name={} game_role_id={} zone={}",
-            server,
-            name,
-            resolved_game_role_id,
-            resolved_zone,
-        )
         raw = await self._run_serialized_tuilan_query(
             "role_indicator",
             f"role_indicator:{server}:{name}",
@@ -1061,13 +943,8 @@ class JjcRankingInspectService:
                     return identity
 
         # ---- 5. 实时排行榜查询 ----
-        logger.info("等待推栏查询锁: endpoint=live_ranking label=live_ranking:{}:{}", server, name)
         async with self._get_tuilan_query_lock("live_ranking"):
-            logger.info("获取推栏查询锁: endpoint=live_ranking label=live_ranking:{}:{}", server, name)
-            try:
-                ranking_result = await self.ranking_service.query_jjc_ranking()
-            finally:
-                logger.info("释放推栏查询锁: endpoint=live_ranking label=live_ranking:{}:{}", server, name)
+            ranking_result = await self.ranking_service.query_jjc_ranking()
         if not ranking_result.get("error") and ranking_result.get("code") == 0:
             for player in ranking_result.get("data", []):
                 if not isinstance(player, dict):
@@ -1348,17 +1225,13 @@ class JjcRankingInspectService:
                 item.pop("cached_detail_summary", None)
 
     async def get_match_detail(self, *, match_id: Union[int, str]) -> dict[str, Any]:
-        started_at = time.perf_counter()
         normalized_match_id = _coerce_int(match_id)
         if normalized_match_id is None:
             return {"error": True, "message": "invalid_match_id"}
 
-        phase_started_at = time.perf_counter()
         cached = await self.cache_repo.load_match_detail(normalized_match_id)
-        cache_ms = int((time.perf_counter() - phase_started_at) * 1000)
         if cached:
             data = dict(cached.get("data") or {})
-            phase_started_at = time.perf_counter()
             enrich_task = asyncio.create_task(
                 self._enrich_cached_match_detail_replay_and_project(
                     match_id=normalized_match_id,
@@ -1366,70 +1239,30 @@ class JjcRankingInspectService:
                     data=copy.deepcopy(data),
                 )
             )
-            replay_enrich_pending = False
             try:
                 enrich_result = await asyncio.wait_for(
                     asyncio.shield(enrich_task),
                     timeout=self.cache_hit_replay_enrich_timeout_seconds,
                 )
                 data = enrich_result["data"]
-                enrich_ms = enrich_result["enrich_ms"]
-                save_ms = enrich_result["save_ms"]
-                project_identity_ms = enrich_result["project_identity_ms"]
-                project_participants_ms = enrich_result["project_participants_ms"]
+                replay_enrich_pending = False
             except asyncio.TimeoutError:
                 enrich_task.add_done_callback(self._log_background_task_exception)
                 replay_enrich_pending = True
-                enrich_ms = int((time.perf_counter() - phase_started_at) * 1000)
-                save_ms = 0
-                project_identity_ms = 0
-                project_participants_ms = 0
-                logger.info(
-                    "JJC 对局详情 replay 补全转后台: match_id={} wait_ms={} timeout_ms={}".format(
-                        normalized_match_id,
-                        enrich_ms,
-                        int(self.cache_hit_replay_enrich_timeout_seconds * 1000),
-                    )
-                )
             data["cache"] = {
                 "hit": True,
                 "cached_at": cached.get("cached_at"),
                 "replay_enrich_pending": replay_enrich_pending,
             }
-            logger.info(
-                "JJC 对局详情查询完成: match_id={} cache_hit=True elapsed_ms={} cache_ms={} "
-                "enrich_ms={} save_ms={} project_identity_ms={} project_participants_ms={} "
-                "replay_enrich_pending={}".format(
-                    normalized_match_id,
-                    int((time.perf_counter() - started_at) * 1000),
-                    cache_ms,
-                    enrich_ms,
-                    save_ms,
-                    project_identity_ms,
-                    project_participants_ms,
-                    replay_enrich_pending,
-                )
-            )
             return data
 
-        logger.info("加载 JJC 对局详情: match_id={} cache_ms={}", normalized_match_id, cache_ms)
-        phase_started_at = time.perf_counter()
         detail = await self._run_serialized_tuilan_query(
             "match_detail",
             f"match_detail:{normalized_match_id}",
             self.match_detail_client.get_match_detail_obj,
             match_id=normalized_match_id,
         )
-        detail_ms = int((time.perf_counter() - phase_started_at) * 1000)
         if not isinstance(detail, MatchDetailResponse):
-            logger.info(
-                "JJC 对局详情查询完成: match_id={} cache_hit=False elapsed_ms={} cache_ms={} detail_ms={} error=invalid_response".format(
-                    normalized_match_id,
-                    int((time.perf_counter() - started_at) * 1000),
-                    cache_ms,
-                    detail_ms,
-                )
-            )
             return {"error": True, "message": "invalid_response"}
         if detail.code == -1 and detail.msg.strip() == "no data found" and detail.data is None:
             payload: dict[str, Any] = {
@@ -1440,40 +1273,14 @@ class JjcRankingInspectService:
                 "detail": None,
             }
             cached_at = time.time()
-            phase_started_at = time.perf_counter()
             await self.cache_repo.save_match_detail(normalized_match_id, {"cached_at": cached_at, "data": payload})
-            save_ms = int((time.perf_counter() - phase_started_at) * 1000)
-            phase_started_at = time.perf_counter()
             await self._clear_match_detail_participants(
                 match_id=normalized_match_id,
                 source="inspect_cache_miss_unavailable",
             )
-            clear_participants_ms = int((time.perf_counter() - phase_started_at) * 1000)
             payload["cache"] = {"hit": False, "cached_at": cached_at}
-            logger.info(
-                "JJC 对局详情查询完成: match_id={} cache_hit=False unavailable=True elapsed_ms={} "
-                "cache_ms={} detail_ms={} save_ms={} clear_participants_ms={}".format(
-                    normalized_match_id,
-                    int((time.perf_counter() - started_at) * 1000),
-                    cache_ms,
-                    detail_ms,
-                    save_ms,
-                    clear_participants_ms,
-                )
-            )
             return payload
         if detail.code != 0 or not detail.data:
-            logger.info(
-                "JJC 对局详情查询完成: match_id={} cache_hit=False elapsed_ms={} cache_ms={} detail_ms={} "
-                "code={} error={}".format(
-                    normalized_match_id,
-                    int((time.perf_counter() - started_at) * 1000),
-                    cache_ms,
-                    detail_ms,
-                    detail.code,
-                    detail.msg or "unknown_error",
-                )
-            )
             return {"error": True, "message": detail.msg or "unknown_error", "code": detail.code}
 
         payload = {
@@ -1491,41 +1298,20 @@ class JjcRankingInspectService:
                 if not isinstance(player, dict):
                     continue
                 player["kungfu"] = self._translate_kungfu_name(player.get("kungfu"))
-        phase_started_at = time.perf_counter()
         await self._enrich_detail_payload_with_replay(payload)
-        enrich_ms = int((time.perf_counter() - phase_started_at) * 1000)
         cached_at = time.time()
-        phase_started_at = time.perf_counter()
         await self.cache_repo.save_match_detail(normalized_match_id, {"cached_at": cached_at, "data": payload})
-        save_ms = int((time.perf_counter() - phase_started_at) * 1000)
-        phase_started_at = time.perf_counter()
         await self._project_match_detail_payload(
             match_id=normalized_match_id,
             payload=payload,
             source="inspect_cache_miss",
         )
-        project_identity_ms = int((time.perf_counter() - phase_started_at) * 1000)
-        phase_started_at = time.perf_counter()
         await self._project_match_detail_participants(
             match_id=normalized_match_id,
             payload={"cached_at": cached_at, "data": payload},
             detail_source="ranking_detail",
         )
-        project_participants_ms = int((time.perf_counter() - phase_started_at) * 1000)
         payload["cache"] = {"hit": False, "cached_at": cached_at}
-        logger.info(
-            "JJC 对局详情查询完成: match_id={} cache_hit=False elapsed_ms={} cache_ms={} detail_ms={} "
-            "enrich_ms={} save_ms={} project_identity_ms={} project_participants_ms={}".format(
-                normalized_match_id,
-                int((time.perf_counter() - started_at) * 1000),
-                cache_ms,
-                detail_ms,
-                enrich_ms,
-                save_ms,
-                project_identity_ms,
-                project_participants_ms,
-            )
-        )
         return payload
 
     async def _project_match_detail_payload(
