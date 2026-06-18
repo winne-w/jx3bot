@@ -11,6 +11,7 @@ from nonebot import get_driver, logger
 from nonebot.adapters.onebot.v11 import MessageSegment
 from nonebot_plugin_apscheduler import scheduler
 
+from src.services.jx3.jjc_peak_score_ranking import JjcPeakScoreRankingService
 from src.services.jx3.singletons import jjc_ranking_service
 from src.services.jx3.singletons import group_config_repo
 from src.services.jx3.singletons import env
@@ -48,6 +49,7 @@ previous_news_ids = set()
 previous_records_ids = set()
 previous_codes_ids = set()
 last_status_ok = True
+jjc_peak_score_ranking_service = JjcPeakScoreRankingService()
 
 
 def set_bot_initialized(value: bool) -> None:
@@ -629,7 +631,25 @@ async def push_daily_gte():
             logger.warning("status_monitor 推送日常出错: {}", e)
 
 
-@scheduler.scheduled_job("cron", hour="4,21", minute=0, max_instances=2)
+@scheduler.scheduled_job("cron", hour=9, minute=0, max_instances=1)
+async def push_daily_jjc_peak_score_ranking():
+    if not BOT_INITIALIZED:
+        return
+    try:
+        result = await jjc_peak_score_ranking_service.run_latest_two_snapshots()
+        logger.info(
+            "status_monitor JJC 7天最高分统计完成: anchors={} generated={} skipped={} failed={}".format(
+                result.get("anchors"),
+                result.get("generated"),
+                result.get("skipped"),
+                result.get("failed"),
+            )
+        )
+    except Exception as e:
+        logger.warning("status_monitor JJC 7天最高分统计出错: {}", e)
+
+
+@scheduler.scheduled_job("cron", hour="3,21", minute=0, max_instances=2)
 async def push_daily_jjc_ranking():
     if BOT_INITIALIZED:
         try:
@@ -715,7 +735,7 @@ async def push_daily_jjc_ranking():
             )
 
             summary_text = (
-                f"⏰ 每日04:00/21:00竞技排名推送（{week_info}）\n"
+                f"⏰ 每日03:00/21:00竞技排名推送（{week_info}）\n"
                 f"统计范围：{payload['scope_desc']}\n"
                 f"统计完成！共处理 {payload['total_valid_data']} 条有效数据（{payload['processed_label']}）"
             )

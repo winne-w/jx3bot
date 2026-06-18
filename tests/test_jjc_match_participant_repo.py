@@ -30,6 +30,7 @@ def _payload(
     team2: List[Dict[str, Any]],
     *,
     match_type: Any = 3,
+    match_time: Any = None,
 ) -> Dict[str, Any]:
     basic_info: Dict[str, Any] = {
         "start_time": 1710000000,
@@ -38,14 +39,17 @@ def _payload(
     }
     if match_type is not None:
         basic_info["match_type"] = match_type
+    detail: Dict[str, Any] = {
+        "basic_info": basic_info,
+        "team1": _team(team1, won=True),
+        "team2": _team(team2, won=False),
+    }
+    if match_time is not None:
+        detail["match_time"] = match_time
     return {
         "match_id": 1001,
         "cached_at": 1710000010.0,
-        "detail": {
-            "basic_info": basic_info,
-            "team1": _team(team1, won=True),
-            "team2": _team(team2, won=False),
-        },
+        "detail": detail,
     }
 
 
@@ -157,6 +161,47 @@ class TestJjcMatchParticipantRepoBuild(unittest.TestCase):
         rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload, seen_doc=None)
 
         self.assertEqual(rows[0]["cached_at"], 1710000099.0)
+
+    def test_projects_split_score_fields(self) -> None:
+        payload = _payload(
+            [_player("g1", mmr=2660, total_score=2528, score=2501), _player("g2"), _player("g3")],
+            [_player("g4"), _player("g5"), _player("g6")],
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload)
+
+        self.assertEqual(rows[0]["tuilan_score"], 2660)
+        self.assertEqual(rows[0]["game_score"], 2528)
+        self.assertEqual(rows[0]["game_score_source"], "total_score")
+        self.assertEqual(rows[0]["raw_mmr"], 2660)
+        self.assertEqual(rows[0]["raw_score"], 2501)
+        self.assertEqual(rows[0]["raw_total_score"], 2528)
+        self.assertEqual(rows[0]["total_mmr"], 2528)
+
+    def test_game_score_falls_back_to_score_when_total_score_missing(self) -> None:
+        payload = _payload(
+            [_player("g1", mmr=2660, score=2501), _player("g2"), _player("g3")],
+            [_player("g4"), _player("g5"), _player("g6")],
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload)
+
+        self.assertEqual(rows[0]["tuilan_score"], 2660)
+        self.assertEqual(rows[0]["game_score"], 2501)
+        self.assertEqual(rows[0]["game_score_source"], "score")
+        self.assertIsNone(rows[0]["raw_total_score"])
+
+    def test_match_time_uses_match_occurrence_time_not_cache_time(self) -> None:
+        payload = _payload(
+            [_player("g1"), _player("g2"), _player("g3")],
+            [_player("g4"), _player("g5"), _player("g6")],
+            match_time=1710001234,
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(1001, payload)
+
+        self.assertEqual(rows[0]["match_time"], 1710001234)
+        self.assertNotEqual(rows[0]["match_time"], payload["cached_at"])
 
     def test_detail_source_constants(self) -> None:
         payload = _payload(

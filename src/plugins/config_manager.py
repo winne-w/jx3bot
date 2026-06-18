@@ -60,6 +60,30 @@ CONFIG_SCHEMA = {
         "allow_modify": True,
         "validate": lambda value: value >= 0,
     },
+    "JJC_SYNC_DISPATCHER_ENABLED": {
+        "type": int,
+        "sensitive": False,
+        "allow_modify": True,
+        "validate": lambda value: value in (0, 1),
+    },
+    "JJC_SYNC_DISPATCHER_IDLE_SLEEP": {
+        "type": int,
+        "sensitive": False,
+        "allow_modify": True,
+        "validate": lambda value: value >= 1,
+    },
+    "JJC_SYNC_DISPATCHER_BATCH_SIZE": {
+        "type": int,
+        "sensitive": False,
+        "allow_modify": True,
+        "validate": lambda value: value >= 1,
+    },
+    "JJC_SYNC_DISPATCHER_TARGET_PER_WORKER": {
+        "type": int,
+        "sensitive": False,
+        "allow_modify": True,
+        "validate": lambda value: value >= 1,
+    },
 }
 
 

@@ -557,6 +557,12 @@
 | `start_time` | int/null | 开始时间 |
 | `duration` | int/null | 时长 |
 | `avg_grade` | int/null | 平均段位/分段 |
+| `tuilan_score` | int/null | 推栏分数，来自对局详情玩家节点 `mmr` |
+| `game_score` | int/null | 游戏分数，优先来自 `total_score`，缺失时兜底 `score` |
+| `game_score_source` | string/null | `game_score` 来源字段，如 `total_score` 或 `score` |
+| `raw_mmr` | int/null | 对局详情玩家节点原始 `mmr` |
+| `raw_score` | int/null | 对局详情玩家节点原始 `score` |
+| `raw_total_score` | int/null | 对局详情玩家节点原始 `total_score` |
 | `total_mmr` | int/null | 当前场总评分 |
 | `mmr_delta` | int/null | 当前场评分变化 |
 | `mvp` | bool | 是否 MVP |
@@ -570,6 +576,8 @@
 |---|---|---|
 | `idx_match_global_id` | `match_id`, `global_id` | unique |
 | `idx_global_available_time` | `global_id`, `match_type`, `detail_available`, `match_time`, `match_id` | 普通复合索引，`match_time` 与 `match_id` 降序 |
+| `idx_available_time_tuilan_score` | `match_type`, `detail_available`, `match_time`, `tuilan_score` | 普通复合索引，`tuilan_score` 降序 |
+| `idx_available_time_game_score` | `match_type`, `detail_available`, `match_time`, `game_score` | 普通复合索引，`game_score` 降序 |
 | `idx_match_id` | `match_id` | 普通索引 |
 
 说明：
@@ -577,6 +585,7 @@
 - 本集合由 `jjc_match_detail` 中的可用详情派生，不以 `jjc_sync_match_seen.status='detail_saved'` 作为展示门槛。
 - `jjc_sync_match_seen` 只补充同步状态展示字段；无 seen 文档的本地详情也可以生成投影。
 - 投影可删除后通过 `scripts/backfill_jjc_match_participants.py` 重建。
+- 历史最高分统计使用 `match_time` 作为对局发生时间；该字段来自接口返回的 `match_time` 或 `start_time`，不要使用 `cached_at`、`detail_saved_at`、`updated_at` 作为统计窗口。
 
 ### `jjc_equipment_snapshot`
 
@@ -909,6 +918,62 @@
 | `idx_timestamp_range_lane_kungfu` | `timestamp`, `range`, `lane`, `kungfu` | unique |
 | `idx_timestamp` | `timestamp` | 普通索引 |
 | `idx_timestamp_range_lane` | `timestamp`, `range`, `lane` | 普通复合索引 |
+
+### `jjc_peak_score_rankings`
+
+用途：保存 JJC 7 天历史最高分排名结果。每天 09:00 读取最近两个排名统计快照的 `timestamp` 作为统计锚点，分别按推栏分数和游戏分数统计锚点前 7 天内本地已同步 3v3 对局参与者的最高分排名。本集合独立于心法排名快照，不以排名快照成员作为统计对象。
+
+读写归属：
+
+- `src/storage/mongo_repos/jjc_peak_score_ranking_repo.py`
+- `src/services/jx3/jjc_peak_score_ranking.py`
+- 定时任务入口：`src/plugins/status_monitor/jobs.py`
+
+字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | MongoDB 自动主键 |
+| `anchor_timestamp` | int | 统计锚点，来自 `jjc_ranking_stat_summaries.timestamp` |
+| `window_start` | int | 统计窗口起点，`anchor_timestamp - 7天` |
+| `window_end` | int | 统计窗口终点，等于 `anchor_timestamp` |
+| `score_type` | string | `tuilan` 或 `game` |
+| `window_days` | int | 当前固定为 7 |
+| `version` | int | 统计口径版本，当前为 1 |
+| `status` | string | `processing`、`done`、`failed` |
+| `items` | array | 排名项 |
+| `item_count` | int | 排名项数量 |
+| `source_match_count` | int | 参与统计的去重对局数 |
+| `source_participant_count` | int | 参与统计的玩家投影行数 |
+| `generated_at` | float | 统计完成时间 Unix 秒 |
+| `processing_at` | float/null | 开始处理时间 Unix 秒 |
+| `failed_at` | float/null | 失败时间 Unix 秒 |
+| `error` | string/null | 失败原因 |
+| `created_at` | datetime | 首次写入时间 |
+| `updated_at` | datetime | 最近更新时间 |
+
+`items[]` 字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `rank` | int | 排名 |
+| `score` | int/null | 最高分 |
+| `match_id` | int/null | 最高分对应对局 ID |
+| `match_time` | int/null | 最高分对应对局发生时间 |
+| `score_source` | string/null | 来源字段；推栏分数为 `mmr`，游戏分数为 `total_score` 或 `score` |
+| `global_id` | string/null | replay 稳定角色 ID |
+| `role_name` | string/null | 对局详情中的角色名 |
+| `server` | string/null | 服务器 |
+| `zone` | string/null | 大区 |
+| `kungfu` | string/null | 心法 |
+| `match_count` | int | 窗口内该角色参与统计的对局数 |
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_anchor_score_type_version` | `anchor_timestamp`, `score_type`, `version` | unique |
+| `idx_anchor_score_type_status` | `anchor_timestamp`, `score_type`, `status` | 普通复合索引，`anchor_timestamp` 降序 |
 
 ## 文件型持久化与非 Mongo 数据
 

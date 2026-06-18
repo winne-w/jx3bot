@@ -166,6 +166,16 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         [("global_id", 1), ("match_type", 1), ("detail_available", 1), ("match_time", -1), ("match_id", -1)],
         name="idx_global_available_time",
     )
+    await _safe_index(
+        "jjc_match_participants",
+        [("match_type", 1), ("detail_available", 1), ("match_time", 1), ("tuilan_score", -1)],
+        name="idx_available_time_tuilan_score",
+    )
+    await _safe_index(
+        "jjc_match_participants",
+        [("match_type", 1), ("detail_available", 1), ("match_time", 1), ("game_score", -1)],
+        name="idx_available_time_game_score",
+    )
     await _safe_index("jjc_match_participants", "match_id", name="idx_match_id")
 
     # jjc_ranking_cache
@@ -346,6 +356,19 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         "jjc_ranking_stat_details",
         [("timestamp", 1), ("range", 1), ("lane", 1)],
         name="idx_timestamp_range_lane",
+    )
+
+    # jjc_peak_score_rankings
+    await _safe_index(
+        "jjc_peak_score_rankings",
+        [("anchor_timestamp", 1), ("score_type", 1), ("version", 1)],
+        name="idx_anchor_score_type_version",
+        unique=True,
+    )
+    await _safe_index(
+        "jjc_peak_score_rankings",
+        [("anchor_timestamp", -1), ("score_type", 1), ("status", 1)],
+        name="idx_anchor_score_type_status",
     )
 
     logger.info("MongoDB 索引初始化完成")

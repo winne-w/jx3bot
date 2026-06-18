@@ -42,6 +42,7 @@ class FakeRepo:
         self.claim_detail_skips: set = set()
         self.enqueued_roles: List[Dict[str, Any]] = []
         self.claimed_queued_role: Optional[Dict[str, Any]] = None
+        self.enqueue_next_roles_calls: List[Dict[str, Any]] = []
         self.interrupted_release: Optional[Dict[str, Any]] = None
         self.pause_reason: str = ""
         self.worker_heartbeats: List[Dict[str, Any]] = []
@@ -139,6 +140,7 @@ class FakeRepo:
         return []
 
     async def enqueue_next_roles(self, **kwargs: Any) -> List[Dict[str, Any]]:
+        self.enqueue_next_roles_calls.append(kwargs)
         self.enqueued_roles = self.roles[:kwargs.get("limit", len(self.roles))]
         return self.enqueued_roles
 
@@ -1016,6 +1018,72 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["background_running"])
         self.assertFalse(result["workers"][0]["online"])
         self.assertEqual(result["workers"][0]["effective_status"], "offline")
+
+    async def test_dispatch_queue_once_skips_when_queue_is_sufficient(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [
+            {"identity_key": "queued-1", "status": "queued"},
+            {"identity_key": "queued-2", "status": "queued"},
+            {"identity_key": "queued-3", "status": "queued"},
+        ]
+        repo.workers = [
+            {"worker_id": "worker-idle", "status": "idle", "heartbeat_at": time.time()},
+        ]
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+            dispatcher_target_per_worker=3,
+        )
+
+        result = await service.dispatch_queue_once()
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["action"], "skipped")
+        self.assertEqual(result["reason"], "queue_sufficient")
+        self.assertEqual(repo.enqueue_next_roles_calls, [])
+
+    async def test_dispatch_queue_once_enqueues_recent_seven_day_window(self) -> None:
+        repo = FakeRepo()
+        repo.roles = [
+            {"identity_key": "pending-1", "status": "pending"},
+            {"identity_key": "pending-2", "status": "pending"},
+        ]
+        repo.workers = [
+            {"worker_id": "worker-idle", "status": "idle", "heartbeat_at": time.time()},
+        ]
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            match_history_client=FakeHistoryClient([]),
+            inspect_service=FakeInspectService(),
+            sleep_func=_noop_sleep,
+            dispatcher_batch_size=5,
+            dispatcher_target_per_worker=3,
+        )
+
+        before = int(time.time())
+        result = await service.dispatch_queue_once()
+        after = int(time.time())
+
+        self.assertFalse(result["error"])
+        self.assertEqual(result["action"], "enqueued")
+        self.assertEqual(result["reason"], "queue_refilled")
+        self.assertEqual(result["enqueued_roles"], 2)
+        self.assertEqual(len(repo.enqueue_next_roles_calls), 1)
+        call = repo.enqueue_next_roles_calls[0]
+        self.assertEqual(call["source"], "auto_dispatcher")
+        self.assertEqual(call["mode"], "full")
+        self.assertEqual(call["limit"], 3)
+        lower_bound = before - 7 * 86400
+        upper_bound = after - 7 * 86400
+        self.assertGreaterEqual(call["queue_sync_until_time"], lower_bound)
+        self.assertLessEqual(call["queue_sync_until_time"], upper_bound)
+        self.assertEqual(result["queue_sync_until_time"], call["queue_sync_until_time"])
 
     async def test_fake_repo_claim_and_release_enforces_role_lease_owner(self) -> None:
         repo = FakeRepo()

@@ -22,6 +22,18 @@ class TestConfigEnvInt(unittest.TestCase):
                 with mock.patch.dict(os.environ, {"JJC_SYNC_WORKER_COUNT": raw_value}, clear=True):
                     self.assertEqual(config._env_int("JJC_SYNC_WORKER_COUNT", 7), expected)
 
+    def test_dispatcher_env_defaults_are_ints(self) -> None:
+        keys = [
+            ("JJC_SYNC_DISPATCHER_ENABLED", 1),
+            ("JJC_SYNC_DISPATCHER_IDLE_SLEEP", 10),
+            ("JJC_SYNC_DISPATCHER_BATCH_SIZE", 20),
+            ("JJC_SYNC_DISPATCHER_TARGET_PER_WORKER", 3),
+        ]
+        for key, expected in keys:
+            with self.subTest(key=key):
+                with mock.patch.dict(os.environ, {}, clear=True):
+                    self.assertEqual(config._env_int(key, expected), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

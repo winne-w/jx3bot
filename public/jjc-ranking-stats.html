@@ -602,6 +602,102 @@
             color: var(--ink);
         }
 
+        .ranking-list-card {
+            grid-column: 1 / -1;
+            background: rgba(255, 255, 255, 0.86);
+            border: 1px solid rgba(91, 124, 250, 0.14);
+            border-radius: 18px;
+            padding: 18px;
+            box-shadow: 0 14px 34px rgba(24, 33, 47, 0.08);
+        }
+
+        .ranking-list-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 14px;
+        }
+
+        .ranking-list-toolbar h3 {
+            margin: 0 0 4px;
+            font-size: 1.05rem;
+        }
+
+        .ranking-table {
+            display: grid;
+            gap: 8px;
+        }
+
+        .ranking-row {
+            display: grid;
+            grid-template-columns: 72px minmax(180px, 1.5fr) minmax(90px, 0.7fr) minmax(100px, 0.8fr) minmax(90px, 0.6fr) minmax(160px, 1fr);
+            gap: 10px;
+            align-items: center;
+            padding: 10px 12px;
+            border: 1px solid rgba(137, 196, 244, 0.18);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.72);
+            color: inherit;
+            text-align: left;
+        }
+
+        .ranking-row.header {
+            font-size: 0.78rem;
+            color: var(--muted);
+            background: rgba(91, 124, 250, 0.08);
+            font-weight: 700;
+        }
+
+        button.ranking-row {
+            cursor: pointer;
+        }
+
+        button.ranking-row:hover {
+            border-color: rgba(91, 124, 250, 0.34);
+            transform: translateY(-1px);
+        }
+
+        .ranking-score {
+            font-weight: 800;
+            color: var(--ink);
+        }
+
+        .ranking-match-btn {
+            border: none;
+            background: rgba(91, 124, 250, 0.1);
+            color: var(--accent);
+            border-radius: 999px;
+            padding: 5px 9px;
+            cursor: pointer;
+            font-size: 0.82rem;
+        }
+
+        .ranking-name-btn {
+            border: none;
+            background: transparent;
+            color: var(--ink);
+            font-weight: 700;
+            cursor: pointer;
+            padding: 0;
+            text-align: left;
+        }
+
+        .ranking-name-btn:hover {
+            color: var(--accent);
+        }
+
+        @media (max-width: 860px) {
+            .ranking-row {
+                grid-template-columns: 54px 1fr 78px;
+            }
+            .ranking-row > span:nth-child(3),
+            .ranking-row > span:nth-child(4),
+            .ranking-row > span:nth-child(6) {
+                display: none;
+            }
+        }
+
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -1473,6 +1569,8 @@
         const listApiUrl = params.get("list_api") || DEFAULT_LIST_API;
         const readApiBase = params.get("api") || DEFAULT_READ_API;
         const detailsApiBase = params.get("details_api") || `${BASE_API}/details`;
+        const flatMembersApiBase = params.get("flat_members_api") || `${BASE_API}/flat-members`;
+        const peakScoreApiBase = params.get("peak_score_api") || `${BASE_API}/peak-score`;
         const roleRecentApiBase = params.get("role_recent_api") || `${BASE_API}/role-recent`;
         const roleIndicatorApiBase = params.get("role_indicator_api") || `${BASE_API}/role-indicator`;
         const matchDetailApiBase = params.get("match_detail_api") || `${BASE_API}/match-detail`;
@@ -1499,6 +1597,8 @@
 
         let currentStats = null;
         let currentStatsTimestamp = "";
+        let currentView = "kungfu";
+        let currentListRange = "top_1000";
         let currentMode = "all";
         let showLegendaryOverlay = false;
         let currentRoleInspect = null;
@@ -1506,6 +1606,7 @@
         const roleRecentCache = new Map();
         const roleIndicatorCache = new Map();
         const matchDetailCache = new Map();
+        const rankingListCache = new Map();
 
         let currentPagination = {
             hasMore: false,
@@ -1591,6 +1692,39 @@
         `;
         tabContainer.insertAdjacentElement("afterend", toggleContainer);
         const legendaryToggle = toggleContainer.querySelector("#legendary-toggle");
+
+        const viewContainer = document.createElement("div");
+        viewContainer.className = "tabs";
+        viewContainer.innerHTML = `
+            <div class="tab-group">
+                <button class="tab-btn active" data-view="kungfu" type="button">心法分布</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-btn" data-view="current-list" type="button">当前排名列表</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-btn" data-view="peak-tuilan" type="button">7日推栏最高分</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-btn" data-view="peak-game" type="button">7日游戏最高分</button>
+            </div>
+        `;
+        toggleContainer.insertAdjacentElement("afterend", viewContainer);
+
+        const viewRangeContainer = document.createElement("div");
+        viewRangeContainer.className = "toggle-wrap hidden";
+        viewRangeContainer.innerHTML = `
+            <label class="history-field">展示范围
+                <select id="ranking-list-range">
+                    <option value="top_1000">前1000</option>
+                    <option value="top_200">前200</option>
+                    <option value="top_100">前100</option>
+                    <option value="top_50">前50</option>
+                </select>
+            </label>
+        `;
+        viewContainer.insertAdjacentElement("afterend", viewRangeContainer);
+        const rankingListRangeSelect = viewRangeContainer.querySelector("#ranking-list-range");
 
         function escapeHtml(value) {
             return String(value ?? "")
@@ -1945,6 +2079,21 @@
             return url.toString();
         }
 
+        function buildFlatMembersUrl(timestamp, rangeKey) {
+            const url = new URL(flatMembersApiBase, window.location.origin);
+            url.searchParams.set("timestamp", timestamp);
+            url.searchParams.set("range", rangeKey);
+            return url.toString();
+        }
+
+        function buildPeakScoreUrl(timestamp, scoreType, rangeKey) {
+            const url = new URL(peakScoreApiBase, window.location.origin);
+            url.searchParams.set("timestamp", timestamp);
+            url.searchParams.set("score_type", scoreType);
+            url.searchParams.set("range", rangeKey);
+            return url.toString();
+        }
+
         function buildRoleRecentUrl(server, name, identityHints = {}, cursor = 0, options = {}) {
             const url = new URL(roleRecentApiBase, window.location.origin);
             url.searchParams.set("server", server);
@@ -2228,6 +2377,127 @@
             return result;
         }
 
+        function getRankingItemName(item) {
+            return item.name || normalizeDetailPlayerName(item.role_name, item.server) || "未知";
+        }
+
+        function renderRankingList(payload, view, rangeKey) {
+            const items = Array.isArray(payload.items) ? payload.items : [];
+            const isPeak = view === "peak-tuilan" || view === "peak-game";
+            const titleMap = {
+                "current-list": "当前推栏排名列表",
+                "peak-tuilan": "7日推栏最高分",
+                "peak-game": "7日游戏最高分",
+            };
+            const rangeLabel = (rangeConfigs.find((item) => item.key === rangeKey) || {}).label || rangeKey;
+            const metaParts = [];
+            if (isPeak) {
+                metaParts.push(`窗口：${formatTime(payload.window_start)} 至 ${formatTime(payload.window_end)}`);
+                metaParts.push(`总排名项：${payload.total ?? payload.item_count ?? items.length}`);
+            } else {
+                metaParts.push(`榜单时间：${formatTime(Number(currentStatsTimestamp))}`);
+                metaParts.push(`总排名项：${payload.total ?? payload.item_count ?? items.length}`);
+            }
+            const rows = items.map((item) => {
+                const name = getRankingItemName(item);
+                const server = item.server || "未知";
+                const kungfu = item.kungfu || "未知心法";
+                const score = item.score ?? "-";
+                const matchButton = isPeak && item.match_id
+                    ? `<button class="ranking-match-btn" type="button" data-match-id="${escapeHtml(item.match_id)}" data-focus-name="${escapeHtml(name)}" data-focus-server="${escapeHtml(server)}">对局 ${escapeHtml(item.match_id)}</button>`
+                    : `<span class="muted">${isPeak ? "-" : "当前榜单"}</span>`;
+                return `
+                    <div class="ranking-row">
+                        <span>#${escapeHtml(item.rank ?? "-")}</span>
+                        <span>
+                            <button
+                                class="ranking-name-btn ranking-list-role-btn"
+                                type="button"
+                                data-role-server="${escapeHtml(server)}"
+                                data-role-name="${escapeHtml(name)}"
+                                data-game-role-id="${escapeHtml(item.game_role_id ?? "")}"
+                                data-global-role-id="${escapeHtml(item.global_role_id ?? "")}"
+                                data-role-id="${escapeHtml(item.role_id ?? "")}"
+                                data-zone="${escapeHtml(item.zone ?? "")}"
+                            >${escapeHtml(name)}</button>
+                        </span>
+                        <span>${escapeHtml(server)}</span>
+                        <span>${escapeHtml(kungfu)}</span>
+                        <span class="ranking-score">${escapeHtml(score)}</span>
+                        <span>${matchButton}</span>
+                    </div>
+                `;
+            }).join("");
+
+            grid.innerHTML = `
+                <div class="ranking-list-card">
+                    <div class="ranking-list-toolbar">
+                        <div>
+                            <h3>${escapeHtml(titleMap[view] || "排名列表")} · ${escapeHtml(rangeLabel)}</h3>
+                            <div class="muted">${metaParts.map(escapeHtml).join(" ｜ ")}</div>
+                        </div>
+                    </div>
+                    <div class="ranking-table">
+                        <div class="ranking-row header">
+                            <span>名次</span>
+                            <span>名称</span>
+                            <span>服务器</span>
+                            <span>心法</span>
+                            <span>分数</span>
+                            <span>${isPeak ? "最高分对局" : "来源"}</span>
+                        </div>
+                        ${rows || "<div class='muted'>暂无列表数据</div>"}
+                    </div>
+                </div>
+            `;
+        }
+
+        async function loadRankingListView(view, rangeKey) {
+            if (!currentStatsTimestamp) {
+                grid.innerHTML = "<div class='range-card'>缺少统计时间</div>";
+                return;
+            }
+            const scoreType = view === "peak-game" ? "game" : "tuilan";
+            const url = view === "current-list"
+                ? buildFlatMembersUrl(currentStatsTimestamp, rangeKey)
+                : buildPeakScoreUrl(currentStatsTimestamp, scoreType, rangeKey);
+            const cacheKey = [view, currentStatsTimestamp, rangeKey].join("::");
+            if (rankingListCache.has(cacheKey)) {
+                renderRankingList(rankingListCache.get(cacheKey), view, rangeKey);
+                return;
+            }
+            grid.innerHTML = "<div class='range-card'>正在加载列表...</div>";
+            try {
+                const response = await fetch(url, { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                rankingListCache.set(cacheKey, data);
+                renderRankingList(data, view, rangeKey);
+                setStatus("列表加载完成");
+            } catch (error) {
+                grid.innerHTML = `<div class='range-card muted error'>加载列表失败：${escapeHtml(error.message || error)}</div>`;
+            }
+        }
+
+        function renderCurrentView() {
+            if (toggleContainer) {
+                toggleContainer.classList.toggle("hidden", currentView !== "kungfu" || currentMode !== "all");
+            }
+            if (viewRangeContainer) {
+                viewRangeContainer.classList.toggle("hidden", currentView === "kungfu");
+            }
+            if (currentView === "kungfu") {
+                if (currentStats) {
+                    renderStats(currentStats, currentMode);
+                }
+                return;
+            }
+            loadRankingListView(currentView, currentListRange);
+        }
+
         function renderStats(statsPayload, mode) {
             const stats = mode === "purple"
                 ? buildFilteredStats(statsPayload.kungfu_statistics || {}, "purple")
@@ -2250,6 +2520,9 @@
 
             currentStats = data;
             setMode(currentMode);
+            if (currentView !== "kungfu") {
+                renderCurrentView();
+            }
 
             if (!grid.innerHTML) {
                 grid.innerHTML = "<div class='range-card'>暂无统计数据</div>";
@@ -2920,10 +3193,20 @@
             tabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
                 btn.classList.toggle("active", btn.dataset.mode === mode);
             });
-            toggleContainer.classList.toggle("hidden", currentMode !== "all");
-            if (currentStats) {
+            if (toggleContainer) {
+                toggleContainer.classList.toggle("hidden", currentView !== "kungfu" || currentMode !== "all");
+            }
+            if (currentStats && currentView === "kungfu") {
                 renderStats(currentStats, mode);
             }
+        }
+
+        function setView(view) {
+            currentView = view || "kungfu";
+            viewContainer.querySelectorAll(".tab-btn").forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.view === currentView);
+            });
+            renderCurrentView();
         }
 
         async function exportFullPageImage(modeOverride) {
@@ -2978,9 +3261,16 @@
         if (legendaryToggle) {
             legendaryToggle.addEventListener("change", (event) => {
                 showLegendaryOverlay = event.target.checked;
-                if (currentStats) {
+                if (currentStats && currentView === "kungfu") {
                     renderStats(currentStats, currentMode);
                 }
+            });
+        }
+
+        if (rankingListRangeSelect) {
+            rankingListRangeSelect.addEventListener("change", (event) => {
+                currentListRange = event.target.value || "top_1000";
+                renderCurrentView();
             });
         }
 
@@ -3213,7 +3503,19 @@
                     return;
                 }
 
-                const memberButton = target.closest(".detail-item-btn");
+                const rankingMatchButton = target.closest(".ranking-match-btn");
+                if (rankingMatchButton) {
+                    const matchId = rankingMatchButton.getAttribute("data-match-id") || "";
+                    if (matchId) {
+                        loadMatchDetail(matchId, {
+                            name: rankingMatchButton.getAttribute("data-focus-name") || "",
+                            server: rankingMatchButton.getAttribute("data-focus-server") || "",
+                        });
+                    }
+                    return;
+                }
+
+                const memberButton = target.closest(".detail-item-btn, .ranking-list-role-btn");
                 if (memberButton) {
                     const server = memberButton.getAttribute("data-role-server") || "";
                     const name = memberButton.getAttribute("data-role-name") || "";
@@ -3330,6 +3632,14 @@
                 return;
             }
             setMode(button.dataset.mode || "all");
+        });
+
+        viewContainer.addEventListener("click", (event) => {
+            const button = event.target.closest(".tab-btn");
+            if (!button) {
+                return;
+            }
+            setView(button.dataset.view || "kungfu");
         });
 
         tabContainer.addEventListener("click", (event) => {

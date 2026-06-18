@@ -8,10 +8,19 @@ from nonebot import logger
 
 from src.api.response import error_response, success_response
 from src.services.jx3.singletons import jjc_ranking_inspect_service
+from src.storage.mongo_repos.jjc_peak_score_ranking_repo import JjcPeakScoreRankingRepo
 from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo
 
 
 router = APIRouter(prefix="/api/jjc", tags=["jjc"])
+
+
+_RANGE_LIMITS = {
+    "top_1000": 1000,
+    "top_200": 200,
+    "top_100": 100,
+    "top_50": 50,
+}
 
 
 @router.get("/ranking-stats")
@@ -153,6 +162,64 @@ async def get_ranking_stats_details(
         )
     )
     return error_response("not_found")
+
+
+@router.get("/ranking-stats/flat-members")
+async def get_ranking_stats_flat_members(
+    timestamp: str = Query(..., description="统计时间戳"),
+    range_key: str = Query("top_1000", alias="range", description="排名范围"),
+) -> Dict[str, Any]:
+    if not timestamp.isdigit():
+        return error_response("invalid_timestamp")
+    range_key = range_key.strip()
+    limit = _RANGE_LIMITS.get(range_key)
+    if limit is None:
+        return error_response("invalid_range")
+
+    result = await JjcRankingStatsRepo().list_flat_members(
+        int(timestamp),
+        range_key,
+        limit=limit,
+    )
+    if not result.get("items"):
+        return error_response("not_found", data=result)
+    return success_response(result)
+
+
+@router.get("/ranking-stats/peak-score")
+async def get_jjc_peak_score_ranking(
+    timestamp: str = Query(..., description="统计锚点时间戳"),
+    score_type: str = Query(..., description="tuilan 或 game"),
+    range_key: str = Query("top_1000", alias="range", description="排名范围"),
+    version: int = Query(1, ge=1, description="统计口径版本"),
+) -> Dict[str, Any]:
+    if not timestamp.isdigit():
+        return error_response("invalid_timestamp")
+    score_type = score_type.strip().lower()
+    if score_type not in {"tuilan", "game"}:
+        return error_response("invalid_score_type")
+    range_key = range_key.strip()
+    limit = _RANGE_LIMITS.get(range_key)
+    if limit is None:
+        return error_response("invalid_range")
+
+    doc = await JjcPeakScoreRankingRepo().load_result(
+        anchor_timestamp=int(timestamp),
+        score_type=score_type,
+        version=version,
+    )
+    if not doc or doc.get("status") != "done":
+        return error_response("not_found", data=doc or {})
+
+    items = doc.get("items") or []
+    if not isinstance(items, list):
+        items = []
+    payload = dict(doc)
+    payload["range"] = range_key
+    payload["items"] = items[:limit]
+    payload["item_count"] = len(payload["items"])
+    payload["total"] = len(items)
+    return success_response(payload)
 
 
 @router.get("/ranking-stats/role-recent")

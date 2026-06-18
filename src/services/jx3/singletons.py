@@ -137,4 +137,7 @@ jjc_match_data_sync_service = JjcMatchDataSyncService(
     identity_repo=role_identity_repo,
     match_detail_projection_service=match_detail_identity_projection_service,
     match_detail_participant_projection_service=match_detail_participant_projection_service,
+    dispatcher_idle_sleep=getattr(cfg, "JJC_SYNC_DISPATCHER_IDLE_SLEEP", 10),
+    dispatcher_batch_size=getattr(cfg, "JJC_SYNC_DISPATCHER_BATCH_SIZE", 20),
+    dispatcher_target_per_worker=getattr(cfg, "JJC_SYNC_DISPATCHER_TARGET_PER_WORKER", 3),
 )

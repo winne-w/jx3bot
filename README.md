@@ -16,6 +16,8 @@ JX3Bot 是一个基于 NoneBot2 的剑网 3 QQ 机器人，运行在 OneBot V11 
   - `GET /api/jjc/ranking-stats?action=list&page=1&page_size=100&with_meta=1`
   - `GET /api/jjc/ranking-stats?action=read&timestamp=<时间戳>`
   - `GET /api/jjc/ranking-stats/details?timestamp=<时间戳>&range=<范围>&lane=<healer|dps>&kungfu=<心法>`
+  - `GET /api/jjc/ranking-stats/flat-members?timestamp=<时间戳>&range=<top_1000|top_200|top_100|top_50>`：按原始名次返回当前推栏排名列表，不按心法分组
+  - `GET /api/jjc/ranking-stats/peak-score?timestamp=<时间戳>&score_type=<tuilan|game>&range=<top_1000|top_200|top_100|top_50>`：读取 7 天历史最高分排名
   - `GET /api/jjc/ranking-stats/role-recent?server=<服务器>&name=<角色>`
   - `GET /api/jjc/ranking-stats/synced-role?server=<服务器>&name=<角色>`：查询本地已收录角色身份和同步状态；`server` 为空时按角色名返回本地候选
   - `GET /api/jjc/ranking-stats/synced-role-matches?server=<服务器>&name=<角色>&page=1&page_size=20`：按角色 `global_id` 分页读取其参与过的本地已同步 3v3 对局
@@ -27,6 +29,7 @@ JX3Bot 是一个基于 NoneBot2 的剑网 3 QQ 机器人，运行在 OneBot V11 
   - `GET /api/jx3/servers`：读取当前区服列表，用于前端服务器下拉选择
 - 静态页面:
   - 生产静态页面通常由站点映射到 `/jx3/<page>.html`，不要加 `/jx3bot` API 前缀。
+  - `GET /jx3/jjc-ranking-stats.html`: JJC 心法分布、当前推栏排名列表、7 天推栏/游戏最高分列表
   - `GET /jx3/jjc-sync-queue.html`: JJC 同步队列与 worker 状态页
   - `GET /jx3/jjc-synced-matches.html`: 按角色查询其参与过的本地已同步 JJC 3v3 对局
   - 本地直接由 bot 暴露静态目录时，可按实际挂载访问 `/public/<page>.html`。
@@ -106,15 +109,16 @@ python scripts/jjc_sync.py worker
 
 入队默认按 full 处理；需要限制本次入队同步窗口时使用 `days` 或 `until`，例如 `/jjc同步开始 full days=7` 或 `python scripts/jjc_sync.py enqueue --days=7`。worker 只消费队列，不决定同步窗口。
 
-单进程部署也可以启用 bot 内置 worker。首版只提供一个配置:
+单进程部署也可以启用 bot 内置 worker 和自动补队列 dispatcher。最小配置示例:
 
 ```json
 {
-  "JJC_SYNC_WORKER_COUNT": 1
+  "JJC_SYNC_WORKER_COUNT": 1,
+  "JJC_SYNC_DISPATCHER_ENABLED": 1
 }
 ```
 
-`JJC_SYNC_WORKER_COUNT=0` 表示关闭；大于 0 时，bot 在 Mongo 初始化完成后创建对应数量的后台 worker。也可以通过环境变量 `JJC_SYNC_WORKER_COUNT=1` 或管理员命令 `/修改配置 JJC_SYNC_WORKER_COUNT=1` 设置。QQ 修改配置会退出当前进程，自动拉起依赖 Docker、systemd、supervisor 等外部守护。
+`JJC_SYNC_WORKER_COUNT=0` 表示关闭内置 worker；大于 0 时，bot 在 Mongo 初始化完成后创建对应数量的后台 worker。`JJC_SYNC_DISPATCHER_ENABLED=1` 时，bot 还会启动一个自动补队列 dispatcher，在 `queued` 深度不足时把到期角色按最近 7 天窗口补入队列；它不直接同步对局，也不会替代页面 full 或手工 full 入队。也可以通过环境变量或管理员命令 `/修改配置 ...` 设置。QQ 修改配置会退出当前进程，自动拉起依赖 Docker、systemd、supervisor 等外部守护。
 
 内置 worker 使用稳定槽位名 `bot:{host}:{index}`，例如 `bot:my-host:0`。同一部署实例重启后会复用同一条 worker 心跳记录，不会因为 pid 或启动时间变化持续新增离线 worker。
 

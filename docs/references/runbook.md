@@ -58,6 +58,10 @@ docker compose logs -f
 - `PORT`
 - `TZ`
 - `JJC_SYNC_WORKER_COUNT`：可选，bot 内置 JJC 同步 worker 数量，默认 `0` 不启动
+- `JJC_SYNC_DISPATCHER_ENABLED`：可选，是否启用 bot 内置自动补队列 dispatcher，默认 `1`
+- `JJC_SYNC_DISPATCHER_IDLE_SLEEP`：可选，dispatcher 空转 sleep 秒数，默认 `10`
+- `JJC_SYNC_DISPATCHER_BATCH_SIZE`：可选，dispatcher 单轮最多补队列角色数，默认 `20`
+- `JJC_SYNC_DISPATCHER_TARGET_PER_WORKER`：可选，每个活跃 worker 期望保有的 queued 深度，默认 `3`
 
 ## 最小验证集
 
@@ -150,6 +154,7 @@ python test_tuilan_match_history.py
 - 重置角色水位：`/jjc同步重置 <服务器> <角色名>`
 - 启动独立常驻 worker：`python scripts/jjc_sync.py worker` 或 `python scripts/jjc_sync.py start --limit=10`；`start --limit` 只限制最多处理数量，队列暂空时仍会继续等待；worker 不决定同步窗口
 - 启用 bot 内置 worker：设置 `JJC_SYNC_WORKER_COUNT=1` 后启动 `python bot.py`，或执行 `/修改配置 JJC_SYNC_WORKER_COUNT=1` 写入本地运行时配置并重启；`0` 表示关闭
+- bot 内置 dispatcher 默认跟随 bot 一起启动；它只负责自动把到期角色补入 `queued`，不直接同步对局。dispatcher 路径固定使用最近 7 天窗口，不会替代页面 full 或手工 full 入队。
 - 内置 worker 名称使用稳定槽位 `bot:{host}:{index}`，同一部署实例重启后会复用同一条 worker 心跳记录；升级前已经产生的旧 `bot:{host}:{启动时间}:{pid}:{index}` 离线记录可按需人工清理。
 - 批量入队脚本：`python scripts/jjc_sync.py enqueue --limit=10`，本次只同步最近 7 天可用 `python scripts/jjc_sync.py enqueue --limit=10 --days=7`
 - 页面路径与接口路径分开维护：生产静态页面使用 `/jx3/<page>.html`，例如 `https://qike.rickchen.cn/jx3/jjc-sync-queue.html`；API 使用 `/jx3bot/api/...`，例如 `https://qike.rickchen.cn/jx3bot/api/jjc/sync/status`。HTML 页面链接不要加 `/jx3bot` 前缀。
@@ -185,6 +190,20 @@ python test_tuilan_match_history.py
 - 已同步对局页面输入不存在于 `role_identities` 的角色时，应显示未收录身份空态；已收录但缺少 `global_id`，或详情玩家尚未回填 `global_id` 时，对局列表为空。
 - 已同步对局页面点击“加入同步队列”后，应调用 `POST /jx3bot/api/jjc/ranking-stats/synced-role-sync`（本地无代理时为 `/api/jjc/ranking-stats/synced-role-sync`），POST body 为 `{"server":"...","name":"..."}`；返回后先展示入队接口返回的 `sync_status`，再刷新同步状态和本地对局列表；列表文案使用“同步状态/已同步对局”，不使用对局缓存刷新语义。
 - 已同步对局页面点击单场对局时，应调用 `GET /api/jjc/ranking-stats/match-detail?match_id=<对局ID>` 打开详情弹窗，焦点角色在队伍列表中高亮。
+- JJC 7 天历史最高分排名每天 09:00 独立生成，读取最近两个 `jjc_ranking_stat_summaries.timestamp` 作为锚点，从 `jjc_match_participants` 中统计各锚点往前 7 天内所有本地已同步 3v3 对局参与者；统计对象不是排行榜成员，因此可以覆盖洗车后掉出榜单但历史对局已同步的玩家。
+- 最高分统计使用 `jjc_match_participants.match_time` 作为对局发生时间；该字段来自推栏接口返回的 `match_time/start_time`，不要用 `cached_at/detail_saved_at/updated_at` 排查统计窗口。
+- 最高分结果写入 `jjc_peak_score_rankings`，同一 `anchor_timestamp + score_type + version` 幂等唯一。`score_type=tuilan` 使用推栏分数 `mmr`，`score_type=game` 使用游戏分数 `total_score`，缺失时兜底 `score`；每条排名项记录最高分对应的 `match_id` 和 `match_time`。
+- 新增投影字段上线后，历史对局可通过参与者投影回填脚本补齐分数字段：
+  ```bash
+  # dry-run，小批量观察
+  python scripts/backfill_jjc_match_participants.py --limit 100
+
+  # 小批量写入验证
+  python scripts/backfill_jjc_match_participants.py --apply --yes --limit 100
+
+  # 全量写入，必要时配合 --resume-after-match-id 断点续跑
+  python scripts/backfill_jjc_match_participants.py --apply --yes --batch-size 200
+  ```
 
 离线自动验证：
 

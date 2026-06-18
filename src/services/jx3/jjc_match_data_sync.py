@@ -38,6 +38,8 @@ _IDENTITY_INDICATOR_REFRESH_SECONDS = 86400
 _QUEUE_MODE_FULL = "full"
 _SUPPORTED_QUEUE_MODES = (_QUEUE_MODE_FULL,)
 _WORKER_COMPAT_MODES = ("incremental_or_full", "full", "incremental")
+_AUTO_DISPATCHER_SOURCE = "auto_dispatcher"
+_AUTO_DISPATCHER_SYNC_WINDOW_DAYS = 7
 
 
 class JjcSyncGlobalPauseError(RuntimeError):
@@ -473,6 +475,9 @@ class JjcMatchDataSyncService:
         page_size: int = 20,
         max_pages_per_role: int = 300,
         lease_seconds: int = 1800,
+        dispatcher_idle_sleep: int = 10,
+        dispatcher_batch_size: int = 20,
+        dispatcher_target_per_worker: int = 3,
     ) -> None:
         self._repo = repo
         self._current_season = current_season
@@ -489,8 +494,12 @@ class JjcMatchDataSyncService:
         self._page_size = page_size
         self._max_pages_per_role = max_pages_per_role
         self._lease_seconds = lease_seconds
+        self._dispatcher_idle_sleep = max(1, dispatcher_idle_sleep)
+        self._dispatcher_batch_size = max(1, dispatcher_batch_size)
+        self._dispatcher_target_per_worker = max(1, dispatcher_target_per_worker)
         self._background_task: Optional[asyncio.Task] = None
         self._last_background_summary: Optional[Dict[str, Any]] = None
+        self._last_dispatcher_summary: Optional[Dict[str, Any]] = None
 
     async def run_once(
         self,
@@ -861,6 +870,7 @@ class JjcMatchDataSyncService:
                 or (self._background_task is not None and not self._background_task.done())
             ),
             "last_background_summary": self._last_background_summary,
+            "last_dispatcher_summary": self._last_dispatcher_summary,
         }
 
     @staticmethod
@@ -923,6 +933,116 @@ class JjcMatchDataSyncService:
 
     def _worker_heartbeat_interval(self) -> int:
         return max(30, min(120, int(_WORKER_HEARTBEAT_TTL_SECONDS / 2)))
+
+    @staticmethod
+    def _count_active_workers(workers: List[Dict[str, Any]]) -> int:
+        return sum(1 for worker in workers if bool(worker.get("online")))
+
+    def _resolve_auto_dispatcher_queue_sync_until_time(self, now: Optional[int] = None) -> int:
+        ref = int(time.time()) if now is None else int(now)
+        return ref - (_AUTO_DISPATCHER_SYNC_WINDOW_DAYS * 86400)
+
+    async def dispatch_queue_once(self) -> Dict[str, Any]:
+        pause_state = await self._get_pause_state()
+        counts = await self._repo.count_by_status()
+        workers = await self._list_workers_from_repo(limit=100)
+        active_workers = self._count_active_workers(workers)
+        queued_count = int(counts.get("queued", 0) or 0)
+        target_queued = active_workers * self._dispatcher_target_per_worker
+        summary: Dict[str, Any] = {
+            "error": False,
+            "source": _AUTO_DISPATCHER_SOURCE,
+            "paused": bool(pause_state.get("paused")),
+            "pause_reason": pause_state.get("reason") or "",
+            "counts": counts,
+            "active_workers": active_workers,
+            "queued_count": queued_count,
+            "target_queued": target_queued,
+            "dispatch_batch_size": self._dispatcher_batch_size,
+            "dispatcher_target_per_worker": self._dispatcher_target_per_worker,
+            "enqueued_roles": 0,
+            "queue_sync_until_time": None,
+            "action": "skipped",
+            "reason": "",
+        }
+
+        if summary["paused"]:
+            summary["reason"] = "paused"
+            self._last_dispatcher_summary = summary
+            return summary
+
+        if active_workers <= 0:
+            summary["reason"] = "no_active_workers"
+            self._last_dispatcher_summary = summary
+            return summary
+
+        if queued_count >= target_queued:
+            summary["reason"] = "queue_sufficient"
+            self._last_dispatcher_summary = summary
+            return summary
+
+        dispatch_limit = min(self._dispatcher_batch_size, max(1, target_queued - queued_count))
+        queue_sync_until_time = self._resolve_auto_dispatcher_queue_sync_until_time()
+        result = await self.enqueue_roles(
+            mode="full",
+            limit=dispatch_limit,
+            source=_AUTO_DISPATCHER_SOURCE,
+            queue_sync_until_time=queue_sync_until_time,
+        )
+        summary.update({
+            "action": "enqueued",
+            "reason": "queue_refilled",
+            "dispatch_limit": dispatch_limit,
+            "queue_sync_until_time": queue_sync_until_time,
+            "enqueue_result": result,
+            "enqueued_roles": int(result.get("enqueued_roles", 0) or 0),
+            "counts": result.get("counts", counts),
+        })
+        self._last_dispatcher_summary = summary
+        return summary
+
+    async def run_dispatcher(
+        self,
+        idle_sleep: Optional[int] = None,
+        max_seconds: int = 0,
+    ) -> Dict[str, Any]:
+        sleep_seconds = self._dispatcher_idle_sleep if idle_sleep is None else max(1, idle_sleep)
+        started_at = time.time()
+        summary: Dict[str, Any] = {
+            "error": False,
+            "source": _AUTO_DISPATCHER_SOURCE,
+            "idle_sleep": sleep_seconds,
+            "max_seconds": max_seconds,
+            "rounds": 0,
+            "enqueued_roles": 0,
+            "stopped_reason": "",
+            "last_result": None,
+            "elapsed_seconds": 0.0,
+        }
+        try:
+            while True:
+                if max_seconds > 0 and (time.time() - started_at) >= max_seconds:
+                    summary["stopped_reason"] = "max_seconds_reached"
+                    break
+                result = await self.dispatch_queue_once()
+                summary["rounds"] += 1
+                summary["last_result"] = result
+                summary["enqueued_roles"] += int(result.get("enqueued_roles", 0) or 0)
+                if result.get("error"):
+                    summary["error"] = True
+                    summary["message"] = result.get("message", "dispatcher_error")
+                    summary["stopped_reason"] = "error"
+                    break
+                await asyncio.sleep(sleep_seconds)
+        except asyncio.CancelledError:
+            summary["stopped_reason"] = "cancelled"
+            raise
+        finally:
+            if not summary.get("stopped_reason"):
+                summary["stopped_reason"] = "stopped"
+            summary = self._finish_summary(summary, started_at)
+            self._last_dispatcher_summary = summary
+        return summary
 
     async def _heartbeat_worker_if_due(
         self,

@@ -18,8 +18,10 @@
 5. `docs/design-docs/index.md`
    - 数据库相关改动必须补读 `docs/design-docs/database-design.md`
 6. `docs/references/index.md`
-7. `docs/exec-plans/index.md`
-8. `docs/tasks/all-tasks.md`
+7. `docs/PLANS.md`
+8. `docs/requirements/index.md`
+9. `docs/exec-plans/index.md`
+10. `docs/tasks/all-tasks.md`
 
 如果任务只涉及部署，再补读 `README-Docker.md`。
 
@@ -83,45 +85,31 @@ python -m py_compile <相关 service/storage 文件>
 
 如果现有代码尚未完全符合 DDD 分层，优先在本次改动范围内收敛边界，不为无关模块做大规模重构。
 
-## 二阶段开发流程
+## 需求交付流程
 
-以后修改本项目时，默认只要求区分“需求澄清与计划设计”和“按计划实现”两个阶段。该流程适用于实现、重构、排查修复、文档联动等仓库任务。所有代码改动必须先有对应计划文档作为依据；即使用户明确要求直接改代码，也必须先创建或更新 `docs/exec-plans/active/` 下的计划文档并同步 `docs/exec-plans/index.md`，再开始修改代码。只有纯问答、只读排查、运行验证命令、数据查询、git 操作、以及不改变仓库文件的临时诊断命令可不新增计划文档。
+以后修改本项目时，默认遵循 `docs/PLANS.md` 定义的需求级交付流程：`需求澄清 -> 方案文档 -> 执行计划 -> 开发实现 -> 测试验证 -> review -> 验收归档`。该流程适用于实现、重构、排查修复、文档联动等仓库任务。
 
-### 阶段 1：需求澄清与修改计划
+中大型需求默认在 `docs/requirements/<yyyy-mm-dd>-<short-name>/` 下建立需求目录，并同步 `docs/requirements/index.md`。目录内至少按需维护：
 
-目标：先把需求、边界、开发方案和验证方式想清楚，再进入实现。
+- `00-requirement.md`
+- `01-solution.md`
+- `02-execution-plan.md`
+- `03-test-plan.md`
+- `04-review.md`
+- `05-acceptance.md`
 
 执行规则：
 
 1. 先与用户澄清需求，明确目标、入口、影响范围、非目标、兼容要求和回滚要求。
-2. 生成详细修改计划，计划必须细化到具体开发方案设计，不能只写方向。
-3. 计划需要覆盖：
-   - 涉及的模块、文件和分层边界
-   - 数据结构、存储集合、索引、迁移脚本和兼容策略
-   - API、前端、定时任务、缓存、外部接口的改动点
-   - 每个实施步骤的验证方式
-   - 自动化测试、手工测试、数据回归和线上观察点
-   - 风险、回滚方案和灰度/双写/fallback 策略
-4. 阶段性计划写入 `docs/exec-plans/active/`，并同步更新 `docs/exec-plans/index.md`。
-5. 阶段 1 默认只允许需求澄清、计划撰写、代码阅读和方案设计，不做业务代码实现；只有用户确认进入执行阶段后，才开始阶段 2。
-6. 如果用户要求“直接改”“马上实现”或类似指令，仍需先补最小可执行计划文档；计划可简短，但必须明确变更文件、行为规则、验证命令和回滚方式。
+2. 需求澄清后先输出方案文档，方案确认后再输出执行计划。
+3. 执行计划必须细化到具体开发方案设计，覆盖涉及模块、文件和分层边界、数据结构与存储、API/前端/定时任务/缓存/外部接口改动点、验证命令、手工回归路径、风险与回滚方案。
+4. 执行计划经用户或项目 owner 确认前，不开始业务代码实现。
+5. 实现过程中按计划逐项修改代码或文档，不随意扩大改动范围，并持续更新进度、决策、发现、测试和 review 记录。
+6. 中大型改动优先按 `subagent-implementation` skill 拆分可并行任务；测试、冒烟和 review 也可由子 agent 辅助执行，但主 agent 负责最终整合、跑测和结论。
+7. 完成后运行计划中定义的自动化验证和最小冒烟；无法离线验证的外部依赖，补充手工回归路径和风险说明。
+8. 对照方案、执行计划和 diff 做 code review，确认实现、测试和文档没有偏离方案。
 
-### 阶段 2：按计划实现
-
-目标：严格按阶段 1 的计划落地，并完整经过实现、冒烟、review、修复、再验证、计划归档和必要文档更新。
-
-执行规则：
-
-1. 按阶段 1 的计划逐项修改代码或文档，不随意扩大改动范围。
-2. 每完成一个计划步骤，更新执行状态；涉及数据库、API、运行手册或架构边界的改动，按文档更新规则同步相关文档。
-3. 开发代码时必须完整走流程：实现计划内改动后，先运行计划定义的自动化验证和最小冒烟；无法离线验证的外部依赖，补充手工回归路径和风险说明。
-4. 冒烟通过后进入 code review。review 必须优先关注 bug、行为回归、分层边界、数据兼容、缺失测试和文档遗漏。
-5. review 发现必须处理的问题时，先修复，再重新运行受影响验证和冒烟，然后再次 review；重复该循环，直到没有必须处理的问题。
-6. review 可由主 agent 自查，也可调用 Codex 子 agent 辅助 review；测试、冒烟和验证也可调用 Codex 子 agent 辅助执行。使用子 agent 时，主 agent 必须汇总结论、确认问题已处理，并保留最终判断责任。
-7. 计划内实现、验证、冒烟和 review 全部完成后，提交代码前必须把对应计划从 `docs/exec-plans/active/` 移动到 `docs/exec-plans/completed/`，并同步更新 `docs/exec-plans/index.md`；只有尚未完成验证或 review 的计划才保留在 `active/`。
-8. 完成后给出实现结果、验证结果、review 结果、计划归档结果、未覆盖风险和后续建议。
-
-如需把阶段 2 拆给子 agent 并行实现，使用全局 `subagent-implementation` skill；如需独立 review 或测试，可调用 Codex 子 agent 按明确范围执行，主 agent 负责整合结果。
+小范围修复、历史计划续做或项目 owner 明确要求时，可以继续使用 `docs/exec-plans/active/` 单文件计划，并同步 `docs/exec-plans/index.md`。纯问答、只读排查、运行验证命令、数据查询、git 操作、以及不改变仓库文件的临时诊断命令可不新增计划文档。
 
 ## 强约束
 
@@ -152,6 +140,7 @@ python -m py_compile <相关 service/storage 文件>
 - 改动数据库集合、字段、索引、TTL、迁移脚本或存储 repo 时，同时更新 `docs/design-docs/database-design.md`。
 - 改动手工验证路径时，同时更新 `docs/references/runbook.md` 的回归清单。
 - 生成阶段性执行计划时，写入 `docs/exec-plans/active/` 并同步更新 `docs/exec-plans/index.md`；相关代码提交后，才可将计划移入 `docs/exec-plans/completed/` 并更新索引。
+- 新需求采用 `docs/requirements/` 目录结构时，同时更新 `docs/requirements/index.md`；方案、执行计划、测试、review、验收文档之间口径必须一致。
 
 ## 已知遗留问题
 

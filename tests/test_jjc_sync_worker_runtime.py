@@ -10,7 +10,9 @@ from typing import Any, Dict, List
 class _FakeService:
     def __init__(self) -> None:
         self.calls: List[Dict[str, Any]] = []
+        self.dispatcher_calls: List[Dict[str, Any]] = []
         self.started = asyncio.Event()
+        self.dispatcher_started = asyncio.Event()
 
     async def run_worker(self, **kwargs: Any) -> Dict[str, Any]:
         self.calls.append(kwargs)
@@ -18,14 +20,21 @@ class _FakeService:
         await asyncio.Event().wait()
         return {"error": False}
 
+    async def run_dispatcher(self, **kwargs: Any) -> Dict[str, Any]:
+        self.dispatcher_calls.append(kwargs)
+        self.dispatcher_started.set()
+        await asyncio.Event().wait()
+        return {"error": False}
 
-def _load_runtime(worker_count: int, service: Any) -> Any:
+
+def _load_runtime(worker_count: int, service: Any, dispatcher_enabled: int = 1) -> Any:
     originals: Dict[str, Any] = {}
     for name in ("config", "src.services.jx3.singletons", "jjc_sync_worker_runtime_under_test"):
         originals[name] = sys.modules.get(name)
 
     config_mod = types.ModuleType("config")
     config_mod.JJC_SYNC_WORKER_COUNT = worker_count
+    config_mod.JJC_SYNC_DISPATCHER_ENABLED = dispatcher_enabled
     sys.modules["config"] = config_mod
 
     singletons_mod = types.ModuleType("src.services.jx3.singletons")
@@ -54,10 +63,11 @@ class TestJjcSyncWorkerRuntime(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self) -> None:
         for module in reversed(self._runtime_modules):
+            await module.stop_jjc_sync_dispatcher()
             await module.stop_jjc_sync_workers()
 
-    def _load_runtime(self, worker_count: int, service: Any) -> Any:
-        module = _load_runtime(worker_count, service)
+    def _load_runtime(self, worker_count: int, service: Any, dispatcher_enabled: int = 1) -> Any:
+        module = _load_runtime(worker_count, service, dispatcher_enabled=dispatcher_enabled)
         self._runtime_modules.append(module)
         return module
 
@@ -78,6 +88,15 @@ class TestJjcSyncWorkerRuntime(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(module._TASKS, [])
         self.assertEqual(service.calls, [])
+
+    async def test_dispatcher_disabled_does_not_create_tasks(self) -> None:
+        service = _FakeService()
+        module = self._load_runtime(1, service, dispatcher_enabled=0)
+
+        await module.start_jjc_sync_dispatcher()
+
+        self.assertEqual(module._DISPATCHER_TASKS, [])
+        self.assertEqual(service.dispatcher_calls, [])
 
     async def test_starts_configured_workers_with_bot_worker_ids(self) -> None:
         service = _FakeService()
@@ -106,6 +125,24 @@ class TestJjcSyncWorkerRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(tasks), 2)
         self.assertTrue(all(task.done() for task in tasks))
         self.assertTrue(all(task.cancelled() for task in tasks))
+
+    async def test_starts_dispatcher_task(self) -> None:
+        service = _FakeService()
+        module = self._load_runtime(1, service, dispatcher_enabled=1)
+
+        await module.start_jjc_sync_dispatcher()
+        await asyncio.wait_for(service.dispatcher_started.wait(), timeout=1)
+        await asyncio.sleep(0)
+
+        self.assertEqual(len(module._DISPATCHER_TASKS), 1)
+        self.assertEqual(service.dispatcher_calls, [{}])
+
+        task = module._DISPATCHER_TASKS[0]
+        await module.stop_jjc_sync_dispatcher()
+
+        self.assertEqual(module._DISPATCHER_TASKS, [])
+        self.assertTrue(task.done())
+        self.assertTrue(task.cancelled())
 
     async def test_worker_exception_is_caught(self) -> None:
         class FailingService:

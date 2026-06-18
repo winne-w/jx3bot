@@ -25,7 +25,7 @@ class StatusMonitorJobsConfigTests(unittest.TestCase):
             for keyword in decorator.keywords
             if keyword.arg is not None
         }
-        self.assertEqual(ast.literal_eval(keywords["hour"]), "4,21")
+        self.assertEqual(ast.literal_eval(keywords["hour"]), "3,21")
         self.assertEqual(ast.literal_eval(keywords["minute"]), 0)
         self.assertEqual(ast.literal_eval(keywords["max_instances"]), 2)
 

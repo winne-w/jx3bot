@@ -508,6 +508,37 @@ class TestSaveAndLoadDetail(unittest.IsolatedAsyncioTestCase):
 
         assert result is None
 
+    async def test_list_flat_members_merges_details_and_sorts_by_rank(self):
+        docs = [
+            {
+                "lane": "dps",
+                "kungfu": "花间游",
+                "members": [
+                    {"rank": 2, "name": "Bob", "server": "梦江南", "score": 2500},
+                    {"rank": 1, "name": "Alice", "server": "梦江南", "score": 2600},
+                ],
+            },
+            {
+                "lane": "healer",
+                "kungfu": "云裳心经",
+                "members": [
+                    {"rank": 3, "name": "Carol", "server": "唯我独尊", "score": 2400},
+                ],
+            },
+        ]
+        col = _make_mock_collection(find_results=docs)
+        db = MagicMock()
+        db.jjc_ranking_stat_details = col
+
+        repo = JjcRankingStatsRepo(db=db)
+        result = await repo.list_flat_members(100, "top_1000", limit=2)
+
+        assert result["total"] == 3
+        assert result["item_count"] == 2
+        assert [item["name"] for item in result["items"]] == ["Alice", "Bob"]
+        assert result["items"][0]["kungfu"] == "花间游"
+        assert result["items"][0]["lane"] == "dps"
+
 
 class TestStripId(unittest.IsolatedAsyncioTestCase):
     async def test_id_removed_from_load_summary(self):

@@ -72,6 +72,10 @@ def _load_config_manager() -> Any:
     config_mod = types.ModuleType("config")
     config_mod.ADMIN_QQ = [1]
     config_mod.JJC_SYNC_WORKER_COUNT = 0
+    config_mod.JJC_SYNC_DISPATCHER_ENABLED = 1
+    config_mod.JJC_SYNC_DISPATCHER_IDLE_SLEEP = 10
+    config_mod.JJC_SYNC_DISPATCHER_BATCH_SIZE = 20
+    config_mod.JJC_SYNC_DISPATCHER_TARGET_PER_WORKER = 3
     config_mod.MONGO_URI = "mongodb://user:password@localhost:27017/jx3bot"
     sys.modules["config"] = config_mod
 
@@ -108,6 +112,31 @@ class TestConfigManagerSchema(unittest.TestCase):
         self.assertIsNone(value)
         self.assertEqual(error, "配置项值不合法")
 
+    def test_dispatcher_config_keys_are_modifiable_and_validated(self) -> None:
+        module = _load_config_manager()
+
+        self.assertIn("JJC_SYNC_DISPATCHER_ENABLED", module._modifiable_config_keys())
+        value, error = module._parse_config_value("JJC_SYNC_DISPATCHER_ENABLED", "1")
+        self.assertEqual(value, 1)
+        self.assertIsNone(error)
+        value, error = module._parse_config_value("JJC_SYNC_DISPATCHER_ENABLED", "2")
+        self.assertIsNone(value)
+        self.assertEqual(error, "配置项值不合法")
+
+        for key in (
+            "JJC_SYNC_DISPATCHER_IDLE_SLEEP",
+            "JJC_SYNC_DISPATCHER_BATCH_SIZE",
+            "JJC_SYNC_DISPATCHER_TARGET_PER_WORKER",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, module._modifiable_config_keys())
+                value, error = module._parse_config_value(key, "1")
+                self.assertEqual(value, 1)
+                self.assertIsNone(error)
+                value, error = module._parse_config_value(key, "0")
+                self.assertIsNone(value)
+                self.assertEqual(error, "配置项值不合法")
+
     def test_mongo_uri_is_viewable_sensitive_and_not_modifiable(self) -> None:
         module = _load_config_manager()
 
@@ -129,6 +158,7 @@ class TestConfigManagerSchema(unittest.TestCase):
         text = module._build_view_config_text({})
 
         self.assertIn("JJC_SYNC_WORKER_COUNT = 0", text)
+        self.assertIn("JJC_SYNC_DISPATCHER_ENABLED = 1", text)
 
     def test_view_config_masks_mongo_uri_from_config_module(self) -> None:
         module = _load_config_manager()

@@ -179,6 +179,74 @@ class JjcRankingStatsRepo:
             )
             return None
 
+    async def list_flat_members(
+        self,
+        timestamp: int,
+        range_key: str,
+        *,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        safe_limit = max(0, int(limit or 0))
+        try:
+            db = self.db if self.db is not None else _get_db()
+            cursor = db.jjc_ranking_stat_details.find(
+                {"timestamp": timestamp, "range": range_key},
+                {"_id": 0, "lane": 1, "kungfu": 1, "members": 1},
+            )
+            items: List[Dict[str, Any]] = []
+            detail_count = 0
+            async for doc in cursor:
+                detail_count += 1
+                lane = doc.get("lane")
+                detail_kungfu = doc.get("kungfu")
+                members = doc.get("members") or []
+                if not isinstance(members, list):
+                    continue
+                for member in members:
+                    if not isinstance(member, dict):
+                        continue
+                    item = dict(member)
+                    item["lane"] = item.get("lane") or lane
+                    item["kungfu"] = item.get("kungfu") or detail_kungfu
+                    items.append(item)
+
+            def rank_key(item: Dict[str, Any]) -> Any:
+                rank = item.get("rank")
+                try:
+                    return int(rank)
+                except (TypeError, ValueError):
+                    return 999999
+
+            items.sort(key=lambda item: (rank_key(item), str(item.get("server") or ""), str(item.get("name") or "")))
+            total = len(items)
+            if safe_limit:
+                items = items[:safe_limit]
+            return {
+                "timestamp": timestamp,
+                "range": range_key,
+                "items": items,
+                "item_count": len(items),
+                "total": total,
+                "detail_count": detail_count,
+            }
+        except Exception as exc:
+            self._handle_error(
+                "list jjc_ranking_stat_details flat members 失败: timestamp={} range={} error={}".format(
+                    timestamp,
+                    range_key,
+                    exc,
+                ),
+                exc,
+            )
+            return {
+                "timestamp": timestamp,
+                "range": range_key,
+                "items": [],
+                "item_count": 0,
+                "total": 0,
+                "detail_count": 0,
+            }
+
     # ------------------------------------------------------------------
     # list timestamps
     # ------------------------------------------------------------------

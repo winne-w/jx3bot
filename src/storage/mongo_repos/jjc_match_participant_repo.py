@@ -202,6 +202,16 @@ class JjcMatchParticipantRepo:
             seen_global_ids.add(global_id)
 
             role_name = cls._pick_str(player.get("role_name"), player.get("roleName"), player.get("name"))
+            raw_mmr = cls._coerce_int(player.get("mmr"))
+            raw_score = cls._coerce_int(player.get("score"))
+            raw_total_score = cls._coerce_int(player.get("total_score"))
+            if raw_total_score is None:
+                raw_total_score = cls._coerce_int(player.get("totalScore"))
+            game_score = raw_total_score
+            game_score_source = "total_score" if raw_total_score is not None else None
+            if game_score is None and raw_score is not None:
+                game_score = raw_score
+                game_score_source = "score"
             participant = {
                 "match_id": normalized_match_id,
                 "global_id": global_id,
@@ -224,6 +234,12 @@ class JjcMatchParticipantRepo:
                 "start_time": start_time,
                 "duration": cls._coerce_int(basic_info.get("duration") or detail.get("duration")),
                 "avg_grade": cls._coerce_int(basic_info.get("grade") or detail.get("avg_grade")),
+                "tuilan_score": raw_mmr,
+                "game_score": game_score,
+                "game_score_source": game_score_source,
+                "raw_mmr": raw_mmr,
+                "raw_score": raw_score,
+                "raw_total_score": raw_total_score,
                 "total_mmr": cls._coerce_int(
                     player.get("total_mmr")
                     or player.get("totalMmr")
@@ -380,3 +396,101 @@ class JjcMatchParticipantRepo:
             "page_size": safe_page_size,
             "has_more": safe_page * safe_page_size < total,
         }
+
+    async def aggregate_peak_scores(
+        self,
+        *,
+        window_start: int,
+        window_end: int,
+        score_type: str,
+        max_items: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        if score_type == "tuilan":
+            score_field = "tuilan_score"
+            score_source_expr: Any = "mmr"
+        elif score_type == "game":
+            score_field = "game_score"
+            score_source_expr = "$game_score_source"
+        else:
+            raise ValueError("unsupported_score_type")
+
+        match_query = {
+            "match_type": 3,
+            "detail_available": True,
+            "match_time": {"$gte": int(window_start), "$lte": int(window_end)},
+            "global_id": {"$type": "string", "$ne": ""},
+            score_field: {"$exists": True, "$ne": None},
+        }
+        pipeline: List[Dict[str, Any]] = [
+            {"$match": match_query},
+            {
+                "$sort": {
+                    score_field: -1,
+                    "match_time": -1,
+                    "match_id": -1,
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$global_id",
+                    "score": {"$first": "${}".format(score_field)},
+                    "match_id": {"$first": "$match_id"},
+                    "match_time": {"$first": "$match_time"},
+                    "score_source": {"$first": score_source_expr},
+                    "global_id": {"$first": "$global_id"},
+                    "role_name": {"$first": "$role_name"},
+                    "server": {"$first": "$server"},
+                    "zone": {"$first": "$zone"},
+                    "kungfu": {"$first": "$kungfu"},
+                    "match_count": {"$sum": 1},
+                }
+            },
+            {
+                "$sort": {
+                    "score": -1,
+                    "match_time": -1,
+                    "match_id": -1,
+                }
+            },
+        ]
+        if max_items is not None and max_items > 0:
+            pipeline.append({"$limit": int(max_items)})
+
+        db = self._db()
+        try:
+            source_match_ids = await db.jjc_match_participants.distinct("match_id", match_query)
+            source_participant_count = await db.jjc_match_participants.count_documents(match_query)
+            cursor = db.jjc_match_participants.aggregate(pipeline, allowDiskUse=True)
+            docs = await cursor.to_list(length=max_items if max_items and max_items > 0 else None)
+            items: List[Dict[str, Any]] = []
+            for index, doc in enumerate(docs, start=1):
+                item = {
+                    "rank": index,
+                    "score": self._coerce_int(doc.get("score")),
+                    "match_id": self._coerce_int(doc.get("match_id")),
+                    "match_time": self._coerce_int(doc.get("match_time")),
+                    "score_source": self._pick_str(doc.get("score_source")),
+                    "global_id": self._pick_str(doc.get("global_id")),
+                    "role_name": self._pick_str(doc.get("role_name")),
+                    "server": self._pick_str(doc.get("server")),
+                    "zone": self._pick_str(doc.get("zone")),
+                    "kungfu": self._pick_str(doc.get("kungfu")),
+                    "match_count": self._coerce_int(doc.get("match_count")) or 0,
+                }
+                items.append(item)
+            return {
+                "items": items,
+                "item_count": len(items),
+                "source_match_count": len(source_match_ids),
+                "source_participant_count": int(source_participant_count),
+            }
+        except Exception as exc:
+            logger.warning(
+                "聚合 JJC 历史最高分失败: score_type={} window_start={} window_end={} error={}".format(
+                    score_type,
+                    window_start,
+                    window_end,
+                    exc,
+                )
+            )
+            raise
