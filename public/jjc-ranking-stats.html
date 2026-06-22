@@ -1786,13 +1786,16 @@
         tabContainer.className = "tabs";
         tabContainer.innerHTML = `
             <div class="tab-group">
-                <button class="tab-btn active" data-tab="all" type="button">全部排名</button>
+                <button class="tab-btn active" data-tab="all" type="button">推栏排名</button>
+                <button class="tab-export-btn" data-export-mode="all" type="button">整体导出</button>
             </div>
             <div class="tab-group">
-                <button class="tab-btn" data-tab="purple" type="button">紫武排名</button>
+                <button class="tab-btn" data-tab="purple" type="button">推栏排名-紫武</button>
+                <button class="tab-export-btn" data-export-mode="purple" type="button">整体导出</button>
             </div>
             <div class="tab-group">
-                <button class="tab-btn" data-tab="peak-game" type="button">7日游戏最高分排名</button>
+                <button class="tab-btn" data-tab="peak-game" type="button">7日游戏内分数排名</button>
+                <button class="tab-export-btn" data-export-mode="peak-game" type="button">整体导出</button>
             </div>
         `;
         listContainer.insertAdjacentElement("afterend", tabContainer);
@@ -3934,6 +3937,11 @@
         });
 
         tabContainer.addEventListener("click", (event) => {
+            const exportButton = event.target.closest(".tab-export-btn");
+            if (exportButton) {
+                exportFullPageImage(exportButton.dataset.exportMode || currentOuterTab);
+                return;
+            }
             const button = event.target.closest(".tab-btn");
             if (!button) {
                 return;
