@@ -65,6 +65,16 @@ class _FakeRepo:
         return self.detail
 
 
+class _FakePeakRepo:
+    def __init__(self, doc: Dict[str, Any]) -> None:
+        self.doc = doc
+        self.calls: List[Dict[str, Any]] = []
+
+    async def load_result(self, **kwargs: Any) -> Dict[str, Any]:
+        self.calls.append(kwargs)
+        return self.doc
+
+
 class _FakeInspectService:
     def __init__(self) -> None:
         self.synced_role_result: Dict[str, Any] = {}
@@ -304,6 +314,43 @@ class TestRankingStatsMongoHitRoutes(unittest.IsolatedAsyncioTestCase):
             "lane": "dps",
             "kungfu": "花间游",
         }])
+
+
+class TestPeakScoreRoutes(unittest.IsolatedAsyncioTestCase):
+    async def test_peak_score_distribution_can_skip_match_summary(self) -> None:
+        module = _load_router_module()
+        peak_repo = _FakePeakRepo({
+            "anchor_timestamp": 123,
+            "window_start": 123 - 7 * 86400,
+            "window_end": 123,
+            "score_type": "game",
+            "version": 1,
+            "status": "done",
+            "item_count": 1,
+            "items": [{
+                "rank": 1,
+                "score": 2600,
+                "match_id": 5001,
+                "kungfu": "花间游",
+                "role_name": "角色A",
+                "server": "梦江南",
+            }],
+        })
+        module.JjcPeakScoreRankingRepo = lambda: peak_repo
+
+        response = await module.get_jjc_peak_score_ranking(
+            timestamp="123",
+            score_type="game",
+            range_key="top_1000",
+            include_match_summary=False,
+        )
+
+        self.assertEqual(response["status_code"], 0)
+        data = response["data"]
+        self.assertEqual(data["item_count"], 1)
+        self.assertNotIn("cached_detail_summary", data["items"][0])
+        self.assertEqual(data["kungfu_statistics"]["dps"]["distribution"]["花间游"], 1)
+        self.assertEqual(peak_repo.calls[0]["items_limit"], 1000)
 
 
 class TestSyncedRoleRoutes(unittest.IsolatedAsyncioTestCase):

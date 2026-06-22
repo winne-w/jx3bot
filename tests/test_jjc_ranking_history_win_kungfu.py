@@ -1247,6 +1247,78 @@ class GetRankingKungfuDataPreferCacheForwardingTests(unittest.TestCase):
         self.assertNotIn("error", result)
 
 
+class GetRankingKungfuDataImmediateSyncQueueTests(unittest.TestCase):
+    def test_enqueue_member_after_each_known_kungfu_result(self):
+        defget_get = AsyncMock()
+        service = JjcRankingService(
+            token="token",
+            ticket="ticket",
+            jjc_query_url="https://example.invalid/jjc",
+            arena_time_tag_url="",
+            arena_ranking_url="",
+            match_detail_url="",
+            jjc_ranking_cache_duration=3600,
+            kungfu_cache_duration=3600,
+            current_season="S12",
+            current_season_start="2026-04-24",
+            kungfu_healer_list=[],
+            kungfu_dps_list=["孤锋诀"],
+            kungfu_pinyin_to_chinese={},
+            tuilan_request=lambda url, params: {},
+            defget_get=defget_get,
+        )
+        get_user_kungfu = AsyncMock(return_value={
+            "server": "蝶恋花",
+            "name": "测试角色",
+            "kungfu": "孤锋诀",
+            "found": True,
+            "role_id": "rid-a",
+            "global_role_id": "SK01-A",
+        })
+        sync_instances: List[Any] = []
+
+        class FakeSyncRepo:
+            def __init__(self) -> None:
+                self.calls: List[Dict[str, Any]] = []
+                sync_instances.append(self)
+
+            async def enqueue_ranking_member(self, member: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+                self.calls.append({"member": member, "kwargs": kwargs})
+                return {"status": "queued"}
+
+        ranking_data = {
+            "code": 0,
+            "cache_time": 1777426656,
+            "data": [
+                {
+                    "personInfo": {
+                        "server": "蝶恋花",
+                        "roleName": "测试角色",
+                        "score": 2500,
+                        "gameRoleId": "rid-a",
+                        "globalRoleId": "SK01-A",
+                        "zone": "zone-a",
+                    }
+                }
+            ],
+        }
+
+        with patch.object(JjcRankingService, "get_user_kungfu", new=get_user_kungfu), patch(
+            "src.services.jx3.jjc_ranking.JjcSyncRepo",
+            FakeSyncRepo,
+        ):
+            result = asyncio_run(service.get_ranking_kungfu_data(ranking_data=ranking_data))
+
+        self.assertNotIn("error", result)
+        self.assertEqual(len(sync_instances), 1)
+        self.assertEqual(sync_instances[0].calls[0]["member"]["name"], "测试角色")
+        self.assertEqual(sync_instances[0].calls[0]["kwargs"]["priority"], 1)
+        self.assertEqual(sync_instances[0].calls[0]["kwargs"]["source"], "ranking_stats")
+        self.assertEqual(sync_instances[0].calls[0]["kwargs"]["mode"], "full")
+        self.assertEqual(sync_instances[0].calls[0]["kwargs"]["batch_id"], "ranking_stats:1777426656")
+        self.assertIsInstance(sync_instances[0].calls[0]["kwargs"]["queue_sync_until_time"], int)
+
+
 def asyncio_run(coro):
     import asyncio
     try:

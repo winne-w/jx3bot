@@ -50,15 +50,87 @@ class JjcPeakScoreRankingRepo:
         anchor_timestamp: int,
         score_type: str,
         version: int = 1,
+        items_limit: Optional[int] = None,
+        max_time_ms: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
+        started_at = time.perf_counter()
+        safe_items_limit = int(items_limit or 0)
+        projection = None
+        if safe_items_limit > 0:
+            projection = {
+                "_id": 0,
+                "anchor_timestamp": 1,
+                "window_start": 1,
+                "window_end": 1,
+                "score_type": 1,
+                "window_days": 1,
+                "version": 1,
+                "status": 1,
+                "items": {"$slice": safe_items_limit},
+                "item_count": 1,
+                "source_match_count": 1,
+                "source_participant_count": 1,
+                "generated_at": 1,
+                "processing_at": 1,
+                "failed_at": 1,
+                "error": 1,
+                "created_at": 1,
+                "updated_at": 1,
+            }
         try:
+            kwargs: Dict[str, Any] = {}
+            if max_time_ms is not None and int(max_time_ms) > 0:
+                kwargs["max_time_ms"] = int(max_time_ms)
             doc = await self._db().jjc_peak_score_rankings.find_one(
-                self._key(anchor_timestamp, score_type, version)
+                self._key(anchor_timestamp, score_type, version),
+                projection,
+                **kwargs,
+            )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            items = doc.get("items") if isinstance(doc, dict) else None
+            logger.info(
+                "JJC peak-score load_result done: anchor={} score_type={} version={} items_limit={} max_time_ms={} elapsed_ms={} found={} status={} item_count={} returned_items={}".format(
+                    anchor_timestamp,
+                    score_type,
+                    version,
+                    safe_items_limit,
+                    max_time_ms,
+                    elapsed_ms,
+                    bool(doc),
+                    doc.get("status") if isinstance(doc, dict) else None,
+                    doc.get("item_count") if isinstance(doc, dict) else None,
+                    len(items) if isinstance(items, list) else 0,
+                )
             )
             return _strip_id(doc)
         except Exception as exc:
             self._handle_error(
                 "读取 JJC 最高分排名失败: anchor={} score_type={} version={} error={}".format(
+                    anchor_timestamp,
+                    score_type,
+                    version,
+                    exc,
+                ),
+                exc,
+            )
+            return None
+
+    async def load_status(
+        self,
+        *,
+        anchor_timestamp: int,
+        score_type: str,
+        version: int = 1,
+    ) -> Optional[str]:
+        try:
+            doc = await self._db().jjc_peak_score_rankings.find_one(
+                self._key(anchor_timestamp, score_type, version),
+                {"_id": 0, "status": 1},
+            )
+            return doc.get("status") if isinstance(doc, dict) else None
+        except Exception as exc:
+            self._handle_error(
+                "读取 JJC 最高分排名状态失败: anchor={} score_type={} version={} error={}".format(
                     anchor_timestamp,
                     score_type,
                     version,
@@ -75,12 +147,12 @@ class JjcPeakScoreRankingRepo:
         score_type: str,
         version: int = 1,
     ) -> bool:
-        doc = await self.load_result(
+        status = await self.load_status(
             anchor_timestamp=anchor_timestamp,
             score_type=score_type,
             version=version,
         )
-        return bool(doc and doc.get("status") == "done")
+        return status == "done"
 
     async def mark_processing(
         self,

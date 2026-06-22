@@ -765,17 +765,13 @@ class JjcRankingService:
                 if dedupe_key in seen:
                     continue
                 seen.add(dedupe_key)
-                queued = await repo.enqueue_ranking_member(
-                    member,
-                    season_id=str(self.current_season) if self.current_season is not None else None,
-                    season_start_time=self._coerce_season_start_time(),
-                    priority=1,
-                    mode="full",
-                    source="ranking_stats",
+                queued = await self._enqueue_ranking_member_for_sync(
+                    member=member,
+                    repo=repo,
                     batch_id=batch_id,
                     queue_sync_until_time=queue_sync_until_time,
                 )
-                if queued is not None:
+                if queued:
                     enqueued_count += 1
         logger.info(
             "竞技排名统计成员加入同步队列完成: timestamp={} members={} enqueued={}",
@@ -783,6 +779,52 @@ class JjcRankingService:
             len(seen),
             enqueued_count,
         )
+
+    async def _enqueue_ranking_member_for_sync(
+        self,
+        *,
+        member: Dict[str, Any],
+        repo: JjcSyncRepo,
+        batch_id: str,
+        queue_sync_until_time: int,
+    ) -> bool:
+        try:
+            queued = await repo.enqueue_ranking_member(
+                member,
+                season_id=str(self.current_season) if self.current_season is not None else None,
+                season_start_time=self._coerce_season_start_time(),
+                priority=1,
+                mode="full",
+                source="ranking_stats",
+                batch_id=batch_id,
+                queue_sync_until_time=queue_sync_until_time,
+            )
+            return queued is not None
+        except Exception as exc:
+            logger.warning(
+                "竞技排名统计成员加入同步队列失败: server={} name={} error={}",
+                member.get("server"),
+                member.get("name") or member.get("role_name"),
+                exc,
+            )
+            return False
+
+    def _should_enqueue_ranking_member_immediately(
+        self,
+        *,
+        member: Dict[str, Any],
+        rank: int,
+        total_players: int,
+    ) -> bool:
+        if rank <= 0:
+            return False
+        tracked_rank_limit = 1000 if total_players >= 1000 else 200
+        if rank > tracked_rank_limit:
+            return False
+        if not member.get("found") or not member.get("kungfu"):
+            return False
+        kungfu = member.get("kungfu")
+        return kungfu in self.kungfu_healer_list or kungfu in self.kungfu_dps_list
 
     def _coerce_season_start_time(self) -> int:
         try:
@@ -1028,6 +1070,10 @@ class JjcRankingService:
 
             total_players = len(data_list)
             logger.info(f"竞技场排行榜总人数: {total_players}")
+            ranking_timestamp = int(ranking_data.get("cache_time") or time.time())
+            sync_repo = JjcSyncRepo()
+            sync_batch_id = "ranking_stats:{}".format(ranking_timestamp)
+            sync_until_time = int(time.time()) - 7 * 86400
 
             for i, player in enumerate(data_list):
                 person_info = player.get("personInfo", {})
@@ -1070,39 +1116,49 @@ class JjcRankingService:
                         kungfu_info.get("match_history_checked"),
                         kungfu_info.get("match_history_win_samples"),
                     )
-                kungfu_results.append(
-                    {
-                        "server": server,
-                        "name": name,
-                        "score": score,
-                        "kungfu": kungfu_info.get("kungfu"),
-                        "found": kungfu_info.get("found", False),
-                        "kungfu_id": kungfu_info.get("kungfu_id"),
-                        "game_role_id": person_info.get("gameRoleId"),
-                        "global_role_id": (
-                            kungfu_info.get("global_role_id")
-                            or person_info.get("globalRoleId")
-                        ),
-                        "global_id": kungfu_info.get("global_id"),
-                        "role_id": kungfu_info.get("role_id") or person_info.get("gameRoleId"),
-                        "zone": person_info.get("zone"),
-                        "teammates": kungfu_info.get("teammates"),
-                        "weapon_icon": kungfu_info.get("weapon_icon"),
-                        "weapon_quality": kungfu_info.get("weapon_quality"),
-                        "weapon_name": extract_weapon_name(kungfu_info.get("weapon")),
-                        "weapon_checked": kungfu_info.get("weapon_checked"),
-                        "teammates_checked": kungfu_info.get("teammates_checked"),
-                        "match_history_checked": kungfu_info.get("match_history_checked"),
-                        "kungfu_selected_source": kungfu_info.get("kungfu_selected_source"),
-                        "kungfu_indicator": kungfu_info.get("kungfu_indicator"),
-                        "kungfu_match_history": kungfu_info.get("kungfu_match_history"),
-                        "cached_match_detail_win_count": kungfu_info.get("cached_match_detail_win_count"),
-                        "cached_match_detail_total_count": kungfu_info.get("cached_match_detail_total_count"),
-                        "cached_match_detail_latest_win_match_id": kungfu_info.get("cached_match_detail_latest_win_match_id"),
-                        "cached_match_detail_latest_win_time": kungfu_info.get("cached_match_detail_latest_win_time"),
-                        "cached_match_detail_win_samples": kungfu_info.get("cached_match_detail_win_samples"),
-                    }
-                )
+                ranking_member = {
+                    "server": server,
+                    "name": name,
+                    "score": score,
+                    "kungfu": kungfu_info.get("kungfu"),
+                    "found": kungfu_info.get("found", False),
+                    "kungfu_id": kungfu_info.get("kungfu_id"),
+                    "game_role_id": person_info.get("gameRoleId"),
+                    "global_role_id": (
+                        kungfu_info.get("global_role_id")
+                        or person_info.get("globalRoleId")
+                    ),
+                    "global_id": kungfu_info.get("global_id"),
+                    "role_id": kungfu_info.get("role_id") or person_info.get("gameRoleId"),
+                    "zone": person_info.get("zone"),
+                    "teammates": kungfu_info.get("teammates"),
+                    "weapon_icon": kungfu_info.get("weapon_icon"),
+                    "weapon_quality": kungfu_info.get("weapon_quality"),
+                    "weapon_name": extract_weapon_name(kungfu_info.get("weapon")),
+                    "weapon_checked": kungfu_info.get("weapon_checked"),
+                    "teammates_checked": kungfu_info.get("teammates_checked"),
+                    "match_history_checked": kungfu_info.get("match_history_checked"),
+                    "kungfu_selected_source": kungfu_info.get("kungfu_selected_source"),
+                    "kungfu_indicator": kungfu_info.get("kungfu_indicator"),
+                    "kungfu_match_history": kungfu_info.get("kungfu_match_history"),
+                    "cached_match_detail_win_count": kungfu_info.get("cached_match_detail_win_count"),
+                    "cached_match_detail_total_count": kungfu_info.get("cached_match_detail_total_count"),
+                    "cached_match_detail_latest_win_match_id": kungfu_info.get("cached_match_detail_latest_win_match_id"),
+                    "cached_match_detail_latest_win_time": kungfu_info.get("cached_match_detail_latest_win_time"),
+                    "cached_match_detail_win_samples": kungfu_info.get("cached_match_detail_win_samples"),
+                }
+                kungfu_results.append(ranking_member)
+                if self._should_enqueue_ranking_member_immediately(
+                    member=ranking_member,
+                    rank=i + 1,
+                    total_players=total_players,
+                ):
+                    await self._enqueue_ranking_member_for_sync(
+                        member=ranking_member,
+                        repo=sync_repo,
+                        batch_id=sync_batch_id,
+                        queue_sync_until_time=sync_until_time,
+                    )
 
                 if kungfu_info.get("found") and kungfu_info.get("kungfu"):
                     ranking_kungfu_lines.append(f"{i + 1}. {server} {name} - {kungfu_info['kungfu']}")

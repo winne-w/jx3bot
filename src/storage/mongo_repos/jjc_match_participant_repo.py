@@ -404,7 +404,9 @@ class JjcMatchParticipantRepo:
         window_end: int,
         score_type: str,
         max_items: Optional[int] = None,
+        include_source_counts: bool = True,
     ) -> Dict[str, Any]:
+        started_at = time.perf_counter()
         if score_type == "tuilan":
             score_field = "tuilan_score"
             score_source_expr: Any = "mmr"
@@ -442,6 +444,7 @@ class JjcMatchParticipantRepo:
                     "server": {"$first": "$server"},
                     "zone": {"$first": "$zone"},
                     "kungfu": {"$first": "$kungfu"},
+                    "kungfu_id": {"$first": "$kungfu_id"},
                     "match_count": {"$sum": 1},
                 }
             },
@@ -458,8 +461,12 @@ class JjcMatchParticipantRepo:
 
         db = self._db()
         try:
-            source_match_ids = await db.jjc_match_participants.distinct("match_id", match_query)
-            source_participant_count = await db.jjc_match_participants.count_documents(match_query)
+            source_match_count = 0
+            source_participant_count = 0
+            if include_source_counts:
+                source_match_ids = await db.jjc_match_participants.distinct("match_id", match_query)
+                source_match_count = len(source_match_ids)
+                source_participant_count = await db.jjc_match_participants.count_documents(match_query)
             cursor = db.jjc_match_participants.aggregate(pipeline, allowDiskUse=True)
             docs = await cursor.to_list(length=max_items if max_items and max_items > 0 else None)
             items: List[Dict[str, Any]] = []
@@ -475,13 +482,28 @@ class JjcMatchParticipantRepo:
                     "server": self._pick_str(doc.get("server")),
                     "zone": self._pick_str(doc.get("zone")),
                     "kungfu": self._pick_str(doc.get("kungfu")),
+                    "kungfu_id": self._pick_str(doc.get("kungfu_id")),
                     "match_count": self._coerce_int(doc.get("match_count")) or 0,
                 }
                 items.append(item)
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.info(
+                "JJC peak-score aggregate participants done: score_type={} window_start={} window_end={} max_items={} include_source_counts={} elapsed_ms={} item_count={} source_matches={} source_participants={}".format(
+                    score_type,
+                    window_start,
+                    window_end,
+                    max_items,
+                    include_source_counts,
+                    elapsed_ms,
+                    len(items),
+                    source_match_count,
+                    int(source_participant_count),
+                )
+            )
             return {
                 "items": items,
                 "item_count": len(items),
-                "source_match_count": len(source_match_ids),
+                "source_match_count": source_match_count,
                 "source_participant_count": int(source_participant_count),
             }
         except Exception as exc:

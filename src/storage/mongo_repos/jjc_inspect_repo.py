@@ -171,24 +171,59 @@ class JjcInspectRepo:
 
         Only includes documents whose data.unavailable is not true.
         """
+        started_at = time.perf_counter()
         normalized: list[int] = []
         for mid in match_ids:
             try:
-                normalized.append(int(mid))
+                normalized_mid = int(mid)
             except (ValueError, TypeError):
                 continue
+            if normalized_mid not in normalized:
+                normalized.append(normalized_mid)
         if not normalized:
             return {}
 
         db = self.db if self.db is not None else _get_db()
+        result = await self._batch_build_detail_summaries_from_participants(db, normalized)
+        missing = [mid for mid in normalized if mid not in result]
+        if not missing:
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.info(
+                "JJC cached detail summaries loaded from participants: requested={} result={} elapsed_ms={}".format(
+                    len(normalized),
+                    len(result),
+                    elapsed_ms,
+                )
+            )
+            return result
+
         try:
-            cursor = db.jjc_match_detail.find({"match_id": {"$in": normalized}})
+            query = {"match_id": {"$in": missing}}
+            projection = {
+                "_id": 0,
+                "match_id": 1,
+                "cached_at": 1,
+                "data.unavailable": 1,
+                "data.detail.team1.won": 1,
+                "data.detail.team1.players_info.kungfu_id": 1,
+                "data.detail.team1.players_info.kungfu": 1,
+                "data.detail.team1.players_info.role_name": 1,
+                "data.detail.team1.players_info.server": 1,
+                "data.detail.team2.won": 1,
+                "data.detail.team2.players_info.kungfu_id": 1,
+                "data.detail.team2.players_info.kungfu": 1,
+                "data.detail.team2.players_info.role_name": 1,
+                "data.detail.team2.players_info.server": 1,
+            }
+            try:
+                cursor = db.jjc_match_detail.find(query, projection)
+            except TypeError:
+                cursor = db.jjc_match_detail.find(query)
             docs = await cursor.to_list(length=None)
         except Exception as exc:
             logger.warning(f"批量读取 JJC 对局详情缓存失败: error={exc}")
-            return {}
+            return result
 
-        result: dict[int, dict[str, Any]] = {}
         for doc in docs:
             mid = doc.get("match_id")
             if not isinstance(mid, int):
@@ -204,7 +239,75 @@ class JjcInspectRepo:
             summary = self._build_cached_detail_summary(mid, doc.get("cached_at"), detail)
             if summary is not None:
                 result[mid] = summary
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "JJC cached detail summaries loaded: requested={} participant_hits={} detail_missing={} result={} elapsed_ms={}".format(
+                len(normalized),
+                len(normalized) - len(missing),
+                len(missing),
+                len(result),
+                elapsed_ms,
+            )
+        )
         return result
+
+    async def _batch_build_detail_summaries_from_participants(
+        self,
+        db: AsyncIOMotorDatabase,
+        match_ids: list[int],
+    ) -> dict[int, dict[str, Any]]:
+        try:
+            cursor = db.jjc_match_participants.find(
+                {
+                    "match_id": {"$in": match_ids},
+                    "detail_available": True,
+                },
+                {
+                    "_id": 0,
+                    "match_id": 1,
+                    "cached_at": 1,
+                    "team_key": 1,
+                    "won": 1,
+                    "kungfu_id": 1,
+                    "kungfu": 1,
+                    "role_name": 1,
+                    "server": 1,
+                },
+            )
+            docs = await cursor.to_list(length=None)
+        except Exception as exc:
+            logger.warning(f"批量读取 JJC 对局参与者投影摘要失败: error={exc}")
+            return {}
+
+        summaries: dict[int, dict[str, Any]] = {}
+        for doc in docs:
+            mid = self._coerce_int(doc.get("match_id"))
+            if mid is None:
+                continue
+            team_key = self._pick_str(doc.get("team_key"))
+            if team_key not in {"team1", "team2"}:
+                continue
+            summary = summaries.setdefault(
+                mid,
+                {
+                    "match_id": mid,
+                    "cached_at": doc.get("cached_at"),
+                    "team1": {"won": False, "players": []},
+                    "team2": {"won": False, "players": []},
+                },
+            )
+            if summary.get("cached_at") is None and doc.get("cached_at") is not None:
+                summary["cached_at"] = doc.get("cached_at")
+            team = summary[team_key]
+            team["won"] = bool(doc.get("won"))
+            player_summary: dict[str, Any] = {}
+            for field in ("kungfu_id", "kungfu", "role_name", "server"):
+                val = doc.get(field)
+                if val is not None:
+                    player_summary[field] = val
+            if player_summary:
+                team["players"].append(player_summary)
+        return summaries
 
     @staticmethod
     def _coerce_object_id(value: Any) -> Optional[ObjectId]:

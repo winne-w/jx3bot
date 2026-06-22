@@ -551,6 +551,7 @@
 | `team_key` | string | `team1` 或 `team2` |
 | `won` | bool | 所在队伍是否获胜 |
 | `kungfu` | string/null | 当前场心法 |
+| `kungfu_id` | string/null | 当前场心法 ID，来自对局详情玩家节点 `kungfu_id` |
 | `match_type` | int/null | 对局类型，3 表示 3v3 |
 | `match_type_inferred` | bool | `match_type` 是否由双方玩家数量推断 |
 | `match_time` | int/null | 对局时间 |
@@ -941,7 +942,7 @@
 | `window_days` | int | 当前固定为 7 |
 | `version` | int | 统计口径版本，当前为 1 |
 | `status` | string | `processing`、`done`、`failed` |
-| `items` | array | 排名项 |
+| `items` | array | 排名项；当前只保存前 1000 名，页面的前 200/100/50 从该数组切片展示 |
 | `item_count` | int | 排名项数量 |
 | `source_match_count` | int | 参与统计的去重对局数 |
 | `source_participant_count` | int | 参与统计的玩家投影行数 |
@@ -966,6 +967,7 @@
 | `server` | string/null | 服务器 |
 | `zone` | string/null | 大区 |
 | `kungfu` | string/null | 心法 |
+| `kungfu_id` | string/null | 心法 ID |
 | `match_count` | int | 窗口内该角色参与统计的对局数 |
 
 索引：

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Query
 from nonebot import logger
 
+from config import KUNGFU_META
 from src.api.response import error_response, success_response
 from src.services.jx3.singletons import jjc_ranking_inspect_service
 from src.storage.mongo_repos.jjc_peak_score_ranking_repo import JjcPeakScoreRankingRepo
 from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo
+from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
+from src.storage.mongo_repos.jjc_match_participant_repo import JjcMatchParticipantRepo
 
 
 router = APIRouter(prefix="/api/jjc", tags=["jjc"])
@@ -21,6 +25,39 @@ _RANGE_LIMITS = {
     "top_100": 100,
     "top_50": 50,
 }
+
+_HEALER_KUNGFU_NAMES = {
+    str(meta.get("name"))
+    for meta in KUNGFU_META.values()
+    if isinstance(meta, dict) and meta.get("category") == "healer" and meta.get("name")
+}
+
+
+def _build_peak_kungfu_statistics(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    lanes: Dict[str, Dict[str, Any]] = {
+        "healer": {"distribution": {}, "valid_count": 0, "min_score": None},
+        "dps": {"distribution": {}, "valid_count": 0, "min_score": None},
+    }
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        kungfu = str(item.get("kungfu") or "").strip()
+        if not kungfu:
+            kungfu = "未知心法"
+        lane_key = "healer" if kungfu in _HEALER_KUNGFU_NAMES else "dps"
+        lane = lanes[lane_key]
+        lane["distribution"][kungfu] = int(lane["distribution"].get(kungfu, 0)) + 1
+        lane["valid_count"] += 1
+        score = item.get("score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            lane["min_score"] = score if lane["min_score"] is None else min(lane["min_score"], score)
+
+    for lane in lanes.values():
+        lane["list"] = sorted(lane["distribution"].items(), key=lambda pair: pair[1], reverse=True)
+        lane["legendary_count_map"] = {}
+        if lane["min_score"] is None:
+            lane["min_score"] = "-"
+    return lanes
 
 
 @router.get("/ranking-stats")
@@ -169,6 +206,7 @@ async def get_ranking_stats_flat_members(
     timestamp: str = Query(..., description="统计时间戳"),
     range_key: str = Query("top_1000", alias="range", description="排名范围"),
 ) -> Dict[str, Any]:
+    started_at = time.perf_counter()
     if not timestamp.isdigit():
         return error_response("invalid_timestamp")
     range_key = range_key.strip()
@@ -176,10 +214,29 @@ async def get_ranking_stats_flat_members(
     if limit is None:
         return error_response("invalid_range")
 
+    logger.info(
+        "JJC flat-members request start: timestamp={} range={} limit={}".format(
+            timestamp,
+            range_key,
+            limit,
+        )
+    )
     result = await JjcRankingStatsRepo().list_flat_members(
         int(timestamp),
         range_key,
         limit=limit,
+    )
+    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+    logger.info(
+        "JJC flat-members request done: timestamp={} range={} limit={} elapsed_ms={} item_count={} total={} detail_count={}".format(
+            timestamp,
+            range_key,
+            limit,
+            elapsed_ms,
+            result.get("item_count"),
+            result.get("total"),
+            result.get("detail_count"),
+        )
     )
     if not result.get("items"):
         return error_response("not_found", data=result)
@@ -192,7 +249,9 @@ async def get_jjc_peak_score_ranking(
     score_type: str = Query(..., description="tuilan 或 game"),
     range_key: str = Query("top_1000", alias="range", description="排名范围"),
     version: int = Query(1, ge=1, description="统计口径版本"),
+    include_match_summary: bool = Query(True, description="是否补充最高分对局心法摘要"),
 ) -> Dict[str, Any]:
+    started_at = time.perf_counter()
     if not timestamp.isdigit():
         return error_response("invalid_timestamp")
     score_type = score_type.strip().lower()
@@ -203,12 +262,81 @@ async def get_jjc_peak_score_ranking(
     if limit is None:
         return error_response("invalid_range")
 
-    doc = await JjcPeakScoreRankingRepo().load_result(
-        anchor_timestamp=int(timestamp),
-        score_type=score_type,
-        version=version,
+    logger.info(
+            "JJC peak-score request start: timestamp={} score_type={} range={} version={} limit={} include_match_summary={}".format(
+                timestamp,
+                score_type,
+                range_key,
+                version,
+                limit,
+                include_match_summary,
+            )
     )
-    if not doc or doc.get("status") != "done":
+    load_started_at = time.perf_counter()
+    doc = None
+    load_timed_out = False
+    try:
+        doc = await asyncio.wait_for(
+            JjcPeakScoreRankingRepo().load_result(
+                anchor_timestamp=int(timestamp),
+                score_type=score_type,
+                version=version,
+                items_limit=limit,
+                max_time_ms=1500,
+            ),
+            timeout=2.0,
+        )
+    except asyncio.TimeoutError:
+        load_timed_out = True
+    load_elapsed_ms = int((time.perf_counter() - load_started_at) * 1000)
+    if not doc:
+        logger.info(
+            "JJC peak-score cache miss, fallback aggregate: timestamp={} score_type={} range={} version={} load_elapsed_ms={} load_timed_out={}".format(
+                timestamp,
+                score_type,
+                range_key,
+                version,
+                load_elapsed_ms,
+                load_timed_out,
+            )
+        )
+        fallback_started_at = time.perf_counter()
+        window_end = int(timestamp)
+        window_start = window_end - 7 * 86400
+        aggregate = await JjcMatchParticipantRepo().aggregate_peak_scores(
+            window_start=window_start,
+            window_end=window_end,
+            score_type=score_type,
+            max_items=limit,
+            include_source_counts=False,
+        )
+        fallback_elapsed_ms = int((time.perf_counter() - fallback_started_at) * 1000)
+        doc = {
+            "anchor_timestamp": window_end,
+            "window_start": window_start,
+            "window_end": window_end,
+            "score_type": score_type,
+            "window_days": 7,
+            "version": version,
+            "status": "done",
+            "items": aggregate.get("items") or [],
+            "item_count": int(aggregate.get("item_count") or 0),
+            "source_match_count": int(aggregate.get("source_match_count") or 0),
+            "source_participant_count": int(aggregate.get("source_participant_count") or 0),
+            "fallback_aggregate": True,
+            "fallback_elapsed_ms": fallback_elapsed_ms,
+        }
+    if doc.get("status") != "done":
+        logger.info(
+            "JJC peak-score request miss: timestamp={} score_type={} range={} version={} load_elapsed_ms={} found={}".format(
+                timestamp,
+                score_type,
+                range_key,
+                version,
+                load_elapsed_ms,
+                bool(doc),
+            )
+        )
         return error_response("not_found", data=doc or {})
 
     items = doc.get("items") or []
@@ -218,7 +346,63 @@ async def get_jjc_peak_score_ranking(
     payload["range"] = range_key
     payload["items"] = items[:limit]
     payload["item_count"] = len(payload["items"])
-    payload["total"] = len(items)
+    payload["total"] = int(doc.get("item_count") or len(items))
+    payload["kungfu_statistics"] = _build_peak_kungfu_statistics(payload["items"])
+
+    match_ids = []
+    for item in payload["items"]:
+        if isinstance(item, dict):
+            match_id = item.get("match_id")
+            if isinstance(match_id, int):
+                match_ids.append(match_id)
+    summaries: Dict[int, Dict[str, Any]] = {}
+    if include_match_summary and match_ids:
+        summary_started_at = time.perf_counter()
+        summary_timed_out = False
+        try:
+            summaries = await asyncio.wait_for(
+                JjcInspectRepo().batch_load_cached_detail_summaries(match_ids),
+                timeout=2.0,
+            )
+        except asyncio.TimeoutError:
+            summary_timed_out = True
+            summaries = {}
+        summary_elapsed_ms = int((time.perf_counter() - summary_started_at) * 1000)
+        if summary_timed_out:
+            logger.info(
+                "JJC peak-score summary load timeout: timestamp={} score_type={} range={} match_ids={} elapsed_ms={}".format(
+                    timestamp,
+                    score_type,
+                    range_key,
+                    len(match_ids),
+                    summary_elapsed_ms,
+                )
+            )
+        for item in payload["items"]:
+            if not isinstance(item, dict):
+                continue
+            match_id = item.get("match_id")
+            if isinstance(match_id, int) and match_id in summaries:
+                item["cached_detail_summary"] = summaries[match_id]
+    else:
+        summary_elapsed_ms = 0
+    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+    logger.info(
+        "JJC peak-score request done: timestamp={} score_type={} range={} version={} include_match_summary={} elapsed_ms={} load_elapsed_ms={} summary_elapsed_ms={} item_count={} total={} match_ids={} summaries={}".format(
+            timestamp,
+            score_type,
+            range_key,
+            version,
+            include_match_summary,
+            elapsed_ms,
+            load_elapsed_ms,
+            summary_elapsed_ms,
+            payload["item_count"],
+            payload["total"],
+            len(match_ids),
+            len(summaries) if match_ids else 0,
+        )
+    )
     return success_response(payload)
 
 

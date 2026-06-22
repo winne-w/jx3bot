@@ -4,6 +4,7 @@ import unittest
 from typing import Any, Dict, List, Optional
 
 from src.services.jx3.jjc_peak_score_ranking import JjcPeakScoreRankingService
+from src.storage.mongo_repos.jjc_peak_score_ranking_repo import JjcPeakScoreRankingRepo
 
 
 class FakeRankingStatsRepo:
@@ -90,6 +91,23 @@ class FakePeakRepo:
         self.failed.append(kwargs)
 
 
+class FakePeakCollection:
+    def __init__(self, status: Optional[str]) -> None:
+        self.status = status
+        self.calls: List[Any] = []
+
+    async def find_one(self, query: Dict[str, Any], projection: Optional[Dict[str, Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        self.calls.append({"query": query, "projection": projection, "kwargs": kwargs})
+        if self.status is None:
+            return None
+        return {"status": self.status}
+
+
+class FakePeakDb:
+    def __init__(self, status: Optional[str]) -> None:
+        self.jjc_peak_score_rankings = FakePeakCollection(status)
+
+
 class TestJjcPeakScoreRankingService(unittest.IsolatedAsyncioTestCase):
     async def test_uses_latest_two_snapshot_timestamps_as_anchors(self) -> None:
         ranking_repo = FakeRankingStatsRepo([2000, 1000, 500])
@@ -156,6 +174,36 @@ class TestJjcPeakScoreRankingService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("aggregate_failed", result["error"])
         self.assertEqual(peak_repo.failed[0]["anchor_timestamp"], 2000)
         self.assertEqual(peak_repo.failed[0]["score_type"], "game")
+
+    async def test_is_done_uses_lightweight_status_lookup(self) -> None:
+        repo = JjcPeakScoreRankingRepo(db=FakePeakDb("done"))
+
+        done = await repo.is_done(anchor_timestamp=2000, score_type="game", version=1)
+
+        self.assertTrue(done)
+        self.assertEqual(repo.db.jjc_peak_score_rankings.calls, [{
+            "query": {
+                "anchor_timestamp": 2000,
+                "score_type": "game",
+                "version": 1,
+            },
+            "projection": {"_id": 0, "status": 1},
+            "kwargs": {},
+        }])
+
+    async def test_is_done_returns_false_when_not_done(self) -> None:
+        repo = JjcPeakScoreRankingRepo(db=FakePeakDb("processing"))
+
+        done = await repo.is_done(anchor_timestamp=3000, score_type="tuilan", version=1)
+
+        self.assertFalse(done)
+
+    async def test_is_done_returns_false_when_missing(self) -> None:
+        repo = JjcPeakScoreRankingRepo(db=FakePeakDb(None))
+
+        done = await repo.is_done(anchor_timestamp=4000, score_type="game", version=1)
+
+        self.assertFalse(done)
 
 
 if __name__ == "__main__":

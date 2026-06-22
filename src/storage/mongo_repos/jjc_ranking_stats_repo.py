@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -187,40 +188,144 @@ class JjcRankingStatsRepo:
         limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         safe_limit = max(0, int(limit or 0))
+        started_at = time.perf_counter()
         try:
             db = self.db if self.db is not None else _get_db()
-            cursor = db.jjc_ranking_stat_details.find(
-                {"timestamp": timestamp, "range": range_key},
-                {"_id": 0, "lane": 1, "kungfu": 1, "members": 1},
-            )
-            items: List[Dict[str, Any]] = []
+            detail_query = {"timestamp": timestamp, "range": range_key}
             detail_count = 0
-            async for doc in cursor:
-                detail_count += 1
-                lane = doc.get("lane")
-                detail_kungfu = doc.get("kungfu")
-                members = doc.get("members") or []
-                if not isinstance(members, list):
-                    continue
-                for member in members:
-                    if not isinstance(member, dict):
-                        continue
-                    item = dict(member)
-                    item["lane"] = item.get("lane") or lane
-                    item["kungfu"] = item.get("kungfu") or detail_kungfu
-                    items.append(item)
-
-            def rank_key(item: Dict[str, Any]) -> Any:
-                rank = item.get("rank")
+            count_documents = getattr(db.jjc_ranking_stat_details, "count_documents", None)
+            if callable(count_documents):
                 try:
-                    return int(rank)
-                except (TypeError, ValueError):
-                    return 999999
+                    detail_count = int(await count_documents(detail_query))
+                except Exception:
+                    detail_count = 0
+            items: List[Dict[str, Any]] = []
+            total = 0
 
-            items.sort(key=lambda item: (rank_key(item), str(item.get("server") or ""), str(item.get("name") or "")))
-            total = len(items)
-            if safe_limit:
-                items = items[:safe_limit]
+            try:
+                aggregate_started_at = time.perf_counter()
+                items_pipeline = [
+                    {"$project": {"_id": 0, "lane": 1, "kungfu": 1, "members": 1}},
+                    {"$unwind": "$members"},
+                    {
+                        "$replaceRoot": {
+                            "newRoot": {
+                                "$mergeObjects": [
+                                    "$members",
+                                    {
+                                        "lane": "$lane",
+                                        "kungfu": "$kungfu",
+                                    },
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "$sort": {
+                            "rank": 1,
+                            "server": 1,
+                            "name": 1,
+                        }
+                    },
+                ]
+                if safe_limit:
+                    items_pipeline.append({"$limit": safe_limit})
+
+                cursor = db.jjc_ranking_stat_details.aggregate(
+                    [
+                        {"$match": detail_query},
+                        {
+                            "$facet": {
+                                "items": items_pipeline,
+                                "total": [
+                                    {"$project": {"_id": 0, "members": 1}},
+                                    {"$unwind": "$members"},
+                                    {"$count": "value"},
+                                ],
+                            }
+                        },
+                    ],
+                    allowDiskUse=True,
+                )
+                docs = await cursor.to_list(length=1)
+                facet_doc = docs[0] if docs else {}
+                raw_items = facet_doc.get("items") or []
+                if isinstance(raw_items, list):
+                    for doc in raw_items:
+                        if isinstance(doc, dict):
+                            items.append(doc)
+                total_docs = facet_doc.get("total") or []
+                if isinstance(total_docs, list) and total_docs:
+                    total = int(total_docs[0].get("value") or 0)
+                else:
+                    total = len(items)
+                aggregate_elapsed_ms = int((time.perf_counter() - aggregate_started_at) * 1000)
+                logger.info(
+                    "JJC flat-members aggregate done: timestamp={} range={} limit={} detail_count={} total={} item_count={} elapsed_ms={}".format(
+                        timestamp,
+                        range_key,
+                        safe_limit,
+                        detail_count,
+                        total,
+                        len(items),
+                        aggregate_elapsed_ms,
+                    )
+                )
+            except Exception:
+                fallback_started_at = time.perf_counter()
+                cursor = db.jjc_ranking_stat_details.find(
+                    detail_query,
+                    {"_id": 0, "lane": 1, "kungfu": 1, "members": 1},
+                )
+                async for doc in cursor:
+                    lane = doc.get("lane")
+                    detail_kungfu = doc.get("kungfu")
+                    members = doc.get("members") or []
+                    if not isinstance(members, list):
+                        continue
+                    for member in members:
+                        if not isinstance(member, dict):
+                            continue
+                        item = dict(member)
+                        item["lane"] = item.get("lane") or lane
+                        item["kungfu"] = item.get("kungfu") or detail_kungfu
+                        items.append(item)
+
+                def rank_key(item: Dict[str, Any]) -> Any:
+                    rank = item.get("rank")
+                    try:
+                        return int(rank)
+                    except (TypeError, ValueError):
+                        return 999999
+
+                items.sort(key=lambda item: (rank_key(item), str(item.get("server") or ""), str(item.get("name") or "")))
+                total = len(items)
+                if safe_limit:
+                    items = items[:safe_limit]
+                fallback_elapsed_ms = int((time.perf_counter() - fallback_started_at) * 1000)
+                logger.info(
+                    "JJC flat-members fallback done: timestamp={} range={} limit={} detail_count={} total={} item_count={} elapsed_ms={}".format(
+                        timestamp,
+                        range_key,
+                        safe_limit,
+                        detail_count,
+                        total,
+                        len(items),
+                        fallback_elapsed_ms,
+                    )
+                )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.info(
+                "JJC flat-members request done: timestamp={} range={} limit={} elapsed_ms={} total={} item_count={} detail_count={}".format(
+                    timestamp,
+                    range_key,
+                    safe_limit,
+                    elapsed_ms,
+                    total,
+                    len(items),
+                    detail_count,
+                )
+            )
             return {
                 "timestamp": timestamp,
                 "range": range_key,

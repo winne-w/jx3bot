@@ -12,6 +12,7 @@ from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo
 
 
 SCORE_TYPES = ("tuilan", "game")
+DEFAULT_MAX_ITEMS = 1000
 
 
 @dataclass
@@ -21,7 +22,7 @@ class JjcPeakScoreRankingService:
     peak_repo: Any = field(default_factory=JjcPeakScoreRankingRepo)
     window_days: int = 7
     version: int = 1
-    max_items: Optional[int] = None
+    max_items: Optional[int] = DEFAULT_MAX_ITEMS
 
     async def load_latest_anchor_timestamps(self, limit: int = 2) -> List[int]:
         result = await self.ranking_stats_repo.list_timestamps(

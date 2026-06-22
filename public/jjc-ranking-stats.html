@@ -624,6 +624,19 @@
             font-size: 1.05rem;
         }
 
+        .scope-inline {
+            margin: 8px 0 0;
+            padding: 0 4px;
+            color: var(--muted);
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+
+        .scope-inline strong {
+            color: var(--ink);
+            font-weight: 700;
+        }
+
         .ranking-table {
             display: grid;
             gap: 8px;
@@ -649,6 +662,49 @@
             font-weight: 700;
         }
 
+        .ranking-row-list {
+            grid-template-columns: 72px minmax(220px, 1.6fr) minmax(180px, 1fr) minmax(90px, 0.7fr) minmax(220px, 1.4fr);
+        }
+
+        .ranking-row-list .ranking-kungfu-cell {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .ranking-kungfu-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex: 0 0 auto;
+        }
+
+        .match-icon-cluster {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .peak-match-icons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+
+        .peak-match-self,
+        .peak-match-team {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
         button.ranking-row {
             cursor: pointer;
         }
@@ -667,10 +723,33 @@
             border: none;
             background: rgba(91, 124, 250, 0.1);
             color: var(--accent);
-            border-radius: 999px;
-            padding: 5px 9px;
+            border-radius: 12px;
+            padding: 7px 9px;
             cursor: pointer;
             font-size: 0.82rem;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 5px;
+            max-width: 100%;
+            text-align: left;
+        }
+
+        .ranking-match-btn:hover {
+            background: rgba(91, 124, 250, 0.16);
+        }
+
+        .ranking-match-time {
+            color: var(--ink);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .ranking-match-team-icons {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
         }
 
         .ranking-name-btn {
@@ -1582,6 +1661,41 @@
             { key: "top_50", label: "前50" },
         ];
 
+        const kungfuIconIdByName = {
+            "易筋经": "10003",
+            "紫霞功": "10014",
+            "太虚剑意": "10015",
+            "花间游": "10021",
+            "离经易道": "10028",
+            "傲血战意": "10062",
+            "铁牢律": "10061",
+            "冰心诀": "10081",
+            "云裳心经": "10080",
+            "毒经": "10175",
+            "补天诀": "10176",
+            "山居剑意": "10144",
+            "问水诀": "10145",
+            "天罗诡道": "10224",
+            "惊羽诀": "10225",
+            "分山劲": "10268",
+            "铁骨衣": "10267",
+            "笑尘诀": "10390",
+            "焚影圣诀": "10242",
+            "明尊琉璃体": "10243",
+            "莫问": "10447",
+            "相知": "10448",
+            "北傲诀": "10464",
+            "凌海诀": "10533",
+            "隐龙诀": "10585",
+            "无方": "10615",
+            "灵素": "10616",
+            "孤锋诀": "10698",
+            "山海心诀": "10756",
+            "周天功": "10786",
+            "太玄经": "10821",
+            "幽罗引": "10886",
+        };
+
         const subtitle = document.getElementById("subtitle");
         const grid = document.getElementById("grid");
         const statusNode = document.getElementById("status");
@@ -1597,9 +1711,9 @@
 
         let currentStats = null;
         let currentStatsTimestamp = "";
-        let currentView = "kungfu";
+        let currentOuterTab = "all";
+        let currentInnerView = "distribution";
         let currentListRange = "top_1000";
-        let currentMode = "all";
         let showLegendaryOverlay = false;
         let currentRoleInspect = null;
         const detailCache = new Map();
@@ -1672,59 +1786,43 @@
         tabContainer.className = "tabs";
         tabContainer.innerHTML = `
             <div class="tab-group">
-                <button class="tab-btn active" data-mode="all" type="button">全部排名</button>
-                <button class="tab-export-btn" data-export-mode="all" type="button">导出</button>
+                <button class="tab-btn active" data-tab="all" type="button">全部排名</button>
             </div>
             <div class="tab-group">
-                <button class="tab-btn" data-mode="purple" type="button">紫武排名</button>
-                <button class="tab-export-btn" data-export-mode="purple" type="button">导出</button>
+                <button class="tab-btn" data-tab="purple" type="button">紫武排名</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-btn" data-tab="peak-game" type="button">7日游戏最高分排名</button>
             </div>
         `;
         listContainer.insertAdjacentElement("afterend", tabContainer);
 
+        const scopeInlineNode = document.createElement("div");
+        scopeInlineNode.className = "scope-inline";
+        tabContainer.insertAdjacentElement("afterend", scopeInlineNode);
+
+        const innerTabContainer = document.createElement("div");
+        innerTabContainer.className = "tabs";
+        innerTabContainer.innerHTML = `
+            <div class="tab-group">
+                <button class="tab-btn active" data-view="distribution" type="button">心法分布</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-btn" data-view="list" type="button">排名列表</button>
+            </div>
+        `;
+        scopeInlineNode.insertAdjacentElement("afterend", innerTabContainer);
+
         const toggleContainer = document.createElement("div");
-        toggleContainer.className = "toggle-wrap";
+        toggleContainer.className = "toggle-wrap hidden";
         toggleContainer.innerHTML = `
             <label>
                 <input type="checkbox" id="legendary-toggle">
                 <span>橙武占比覆盖</span>
             </label>
         `;
-        tabContainer.insertAdjacentElement("afterend", toggleContainer);
+        innerTabContainer.insertAdjacentElement("afterend", toggleContainer);
         const legendaryToggle = toggleContainer.querySelector("#legendary-toggle");
-
-        const viewContainer = document.createElement("div");
-        viewContainer.className = "tabs";
-        viewContainer.innerHTML = `
-            <div class="tab-group">
-                <button class="tab-btn active" data-view="kungfu" type="button">心法分布</button>
-            </div>
-            <div class="tab-group">
-                <button class="tab-btn" data-view="current-list" type="button">当前排名列表</button>
-            </div>
-            <div class="tab-group">
-                <button class="tab-btn" data-view="peak-tuilan" type="button">7日推栏最高分</button>
-            </div>
-            <div class="tab-group">
-                <button class="tab-btn" data-view="peak-game" type="button">7日游戏最高分</button>
-            </div>
-        `;
-        toggleContainer.insertAdjacentElement("afterend", viewContainer);
-
-        const viewRangeContainer = document.createElement("div");
-        viewRangeContainer.className = "toggle-wrap hidden";
-        viewRangeContainer.innerHTML = `
-            <label class="history-field">展示范围
-                <select id="ranking-list-range">
-                    <option value="top_1000">前1000</option>
-                    <option value="top_200">前200</option>
-                    <option value="top_100">前100</option>
-                    <option value="top_50">前50</option>
-                </select>
-            </label>
-        `;
-        viewContainer.insertAdjacentElement("afterend", viewRangeContainer);
-        const rankingListRangeSelect = viewRangeContainer.querySelector("#ranking-list-range");
 
         function escapeHtml(value) {
             return String(value ?? "")
@@ -2086,11 +2184,14 @@
             return url.toString();
         }
 
-        function buildPeakScoreUrl(timestamp, scoreType, rangeKey) {
+        function buildPeakScoreUrl(timestamp, scoreType, rangeKey, options = {}) {
             const url = new URL(peakScoreApiBase, window.location.origin);
             url.searchParams.set("timestamp", timestamp);
             url.searchParams.set("score_type", scoreType);
             url.searchParams.set("range", rangeKey);
+            if (options.includeMatchSummary === false) {
+                url.searchParams.set("include_match_summary", "0");
+            }
             return url.toString();
         }
 
@@ -2168,7 +2269,7 @@
         }
 
         function renderDetailContent(members) {
-            const filteredMembers = currentMode === "purple"
+            const filteredMembers = currentOuterTab === "purple"
                 ? (members || []).filter((member) => !isLegendaryWeapon(member))
                 : (members || []);
             if (!filteredMembers.length) {
@@ -2290,7 +2391,7 @@
             }).join("");
         }
 
-        function renderRangeCard(rangeKey, rangeLabel, stats, mode) {
+        function renderRangeCard(rangeKey, rangeLabel, stats, outerTab) {
             const healer = stats.healer || {};
             const dps = stats.dps || {};
             const minScore = healer.min_score ?? dps.min_score ?? "-";
@@ -2298,7 +2399,8 @@
             const dpsList = dps.list || [];
             const healerLegendaryCountMap = healer.legendary_count_map || {};
             const dpsLegendaryCountMap = dps.legendary_count_map || {};
-            const titleSuffix = mode === "purple" ? "（紫武）" : "";
+            const titleSuffix = outerTab === "purple" ? "（紫武）" : "";
+            const rankingLabel = getOuterTabLabel(outerTab);
             const showMeta = ["前1000", "前200", "前100", "前50"].includes(rangeLabel);
             const seasonText = window.currentSeasonLabel || "-";
 
@@ -2306,7 +2408,7 @@
                 <div class="range-card">
                     <div class="range-title">
                         <div class="range-heading">
-                            <h3>${rangeLabel} 心法分布${titleSuffix}</h3>
+                            <h3>${escapeHtml(rankingLabel)} · ${rangeLabel} 心法分布${titleSuffix}</h3>
                             <span>最低分数：${minScore}</span>
                         </div>
                         <button class="export-btn" type="button" data-range="${rangeLabel}" aria-label="分享统计图片">
@@ -2381,33 +2483,239 @@
             return item.name || normalizeDetailPlayerName(item.role_name, item.server) || "未知";
         }
 
-        function renderRankingList(payload, view, rangeKey) {
-            const items = Array.isArray(payload.items) ? payload.items : [];
-            const isPeak = view === "peak-tuilan" || view === "peak-game";
-            const titleMap = {
-                "current-list": "当前推栏排名列表",
-                "peak-tuilan": "7日推栏最高分",
-                "peak-game": "7日游戏最高分",
+        function isPeakTab(tab) {
+            return tab === "peak-game";
+        }
+
+        function getOuterTabLabel(tab) {
+            const labelMap = {
+                all: "推栏排名",
+                purple: "推栏排名-紫武",
+                "peak-game": "7日游戏最高分排名",
             };
+            return labelMap[tab] || tab;
+        }
+
+        function getRankingScopeText(tab) {
+            if (tab === "purple") {
+                return "统计口径：基于当前排名快照中的推栏竞技场排名数据，剔除被判定为橙武/紫武影响口径的角色后，按心法统计分布并展示排名列表。";
+            }
+            if (tab === "peak-game") {
+                return "统计口径：以当前排名快照时间为锚点，回溯前 7 天本地已收录的 3v3 对局，按角色在对局中的游戏内分数取个人最高分排名；可能因对局同步缺失导致数据不完整。";
+            }
+            return "统计口径：基于当前排名快照中的推栏竞技场排名数据，按推栏当前分数统计全部角色的心法分布和排名列表。";
+        }
+
+        function syncScopeInlineText() {
+            if (!scopeInlineNode) {
+                return;
+            }
+            const text = getRankingScopeText(currentOuterTab);
+            scopeInlineNode.innerHTML = `<strong>统计口径：</strong>${escapeHtml(text.replace(/^统计口径：/, ""))}`;
+        }
+
+        function resolveKungfuIconId(playerOrName) {
+            if (playerOrName && typeof playerOrName === "object") {
+                const directId = playerOrName.kungfu_id || playerOrName.kungfuId;
+                if (directId !== undefined && directId !== null && String(directId).trim()) {
+                    return String(directId).trim();
+                }
+                const name = String(playerOrName.kungfu || playerOrName.kungfu_name || "").trim();
+                return kungfuIconIdByName[name] || "";
+            }
+            const name = String(playerOrName || "").trim();
+            return kungfuIconIdByName[name] || "";
+        }
+
+        function renderTeamKungfuIconsInline(players) {
+            if (!Array.isArray(players) || !players.length) {
+                return "";
+            }
+            const icons = players
+                .map((player) => {
+                    const iconId = resolveKungfuIconId(player);
+                    if (!iconId) {
+                        return "";
+                    }
+                    return `
+                    <span class="team-kungfu-icon" title="${escapeHtml(player.role_name || player.person_name || player.kungfu || "")}">
+                        <img src="https://img.jx3box.com/image/xf/${escapeHtml(iconId)}.png" alt="${escapeHtml(player.kungfu || "kungfu")}">
+                    </span>
+                `;
+                })
+                .filter(Boolean);
+            if (!icons.length) {
+                return "";
+            }
+            return `<span class="match-icon-cluster">${icons.join("")}</span>`;
+        }
+
+        function normalizePlayerNameForCompare(name, server) {
+            return normalizeDetailPlayerName(name, server || "").trim();
+        }
+
+        function findPeakSelfPlayer(summary, name, server) {
+            if (!summary || typeof summary !== "object") {
+                return null;
+            }
+            const teams = ["team1", "team2"];
+            const targetName = String(name || "").trim();
+            const targetServer = String(server || "").trim();
+            for (const teamKey of teams) {
+                const players = summary[teamKey] && Array.isArray(summary[teamKey].players)
+                    ? summary[teamKey].players
+                    : [];
+                for (const player of players) {
+                    const roleName = normalizePlayerNameForCompare(player && player.role_name, player && player.server);
+                    const rawRoleName = String((player && player.role_name) || "").trim();
+                    const serverName = String((player && player.server) || "").trim();
+                    if ((roleName === targetName || rawRoleName === targetName) && serverName === targetServer) {
+                        return { player, teamKey };
+                    }
+                }
+            }
+            return null;
+        }
+
+        function resolveRankingItemKungfuIconId(item, name, server) {
+            const self = findPeakSelfPlayer(item && item.cached_detail_summary, name, server);
+            if (self && self.player) {
+                const selfIconId = resolveKungfuIconId(self.player);
+                if (selfIconId) {
+                    return selfIconId;
+                }
+            }
+            const directId = resolveKungfuIconId(item);
+            if (directId) {
+                return directId;
+            }
+            return resolveKungfuIconId(item && item.kungfu);
+        }
+
+        function renderPeakMatchSummary(summary, name, server) {
+            if (!summary || typeof summary !== "object") {
+                return `<span class="muted">等待对局摘要</span>`;
+            }
+            const team1 = summary.team1 && Array.isArray(summary.team1.players) ? summary.team1.players : [];
+            const team2 = summary.team2 && Array.isArray(summary.team2.players) ? summary.team2.players : [];
+            const self = findPeakSelfPlayer(summary, name, server);
+            const selfTeam = self && self.teamKey === "team2" ? team2 : self && self.teamKey === "team1" ? team1 : [];
+            const teamIcons = renderTeamKungfuIconsInline(selfTeam);
+            if (!teamIcons) {
+                return `<span class="muted">暂无对局图标</span>`;
+            }
+            return `
+                <div class="peak-match-icons">
+                    <span class="peak-match-team">${teamIcons}</span>
+                </div>
+            `;
+        }
+
+        function renderPeakMatchButton(item, name, server) {
+            const matchId = item && item.match_id;
+            if (!matchId) {
+                return renderPeakMatchSummary(item && item.cached_detail_summary, name, server);
+            }
+            const summary = item.cached_detail_summary;
+            const self = findPeakSelfPlayer(summary, name, server);
+            const team1 = summary && summary.team1 && Array.isArray(summary.team1.players) ? summary.team1.players : [];
+            const team2 = summary && summary.team2 && Array.isArray(summary.team2.players) ? summary.team2.players : [];
+            const selfTeam = self && self.teamKey === "team2" ? team2 : self && self.teamKey === "team1" ? team1 : [];
+            const teamIcons = renderTeamKungfuIconsInline(selfTeam);
+            const matchTime = formatTime(item.match_time || item.start_time || item.matchTime);
+            return `
+                <button
+                    class="ranking-match-btn"
+                    type="button"
+                    data-match-id="${escapeHtml(matchId)}"
+                    data-focus-name="${escapeHtml(name)}"
+                    data-focus-server="${escapeHtml(server)}"
+                    title="查看对局详情"
+                >
+                    <span class="ranking-match-time">${escapeHtml(matchTime)}</span>
+                    ${teamIcons ? `<span class="ranking-match-team-icons">${teamIcons}</span>` : "<span class='muted'>暂无对局图标</span>"}
+                </button>
+            `;
+        }
+
+        function getListSourceConfig(tab) {
+            if (tab === "peak-game") {
+                return { api: "peak-score", scoreType: "game", title: "7日游戏最高分排名" };
+            }
+            return { api: "flat-members", scoreType: null, title: tab === "purple" ? "推栏排名-紫武列表" : "推栏排名列表" };
+        }
+
+        function renderDistributionView(statsPayload, outerTab) {
+            const stats = outerTab === "purple"
+                ? buildFilteredStats(statsPayload.kungfu_statistics || {}, "purple")
+                : (statsPayload.kungfu_statistics || {});
+            const cards = rangeConfigs
+                .filter((config) => stats[config.key])
+                .map((config) => renderRangeCard(config.key, config.label, stats[config.key], outerTab));
+            grid.innerHTML = cards.length ? cards.join("") : "<div class='range-card'>暂无统计数据</div>";
+        }
+
+        async function loadPeakDistributionView() {
+            if (!currentStatsTimestamp) {
+                grid.innerHTML = "<div class='range-card'>缺少统计时间</div>";
+                return;
+            }
+            const cacheKey = ["peak-game", currentStatsTimestamp, "distribution"].join("::");
+            if (rankingListCache.has(cacheKey)) {
+                renderDistributionView(rankingListCache.get(cacheKey), "peak-game");
+                return;
+            }
+            grid.innerHTML = "<div class='range-card'>正在加载7日最高分心法分布...</div>";
+            try {
+                const results = await Promise.all(rangeConfigs.map(async (config) => {
+                    const response = await fetch(
+                        buildPeakScoreUrl(currentStatsTimestamp, "game", config.key, { includeMatchSummary: false }),
+                        { cache: "no-store" }
+                    );
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    const data = unwrapResponse(await response.json());
+                    return [config.key, data.kungfu_statistics || {}];
+                }));
+                const payload = {
+                    kungfu_statistics: Object.fromEntries(results),
+                };
+                rankingListCache.set(cacheKey, payload);
+                renderDistributionView(payload, "peak-game");
+                setStatus("7日最高分心法分布加载完成");
+            } catch (error) {
+                grid.innerHTML = `<div class='range-card muted error'>加载7日最高分心法分布失败：${escapeHtml(error.message || error)}</div>`;
+            }
+        }
+
+        function renderListView(payload, outerTab, rangeKey) {
+            const items = Array.isArray(payload.items) ? payload.items : [];
+            const isPeak = isPeakTab(outerTab);
             const rangeLabel = (rangeConfigs.find((item) => item.key === rangeKey) || {}).label || rangeKey;
+            const titleLabel = getOuterTabLabel(outerTab);
             const metaParts = [];
             if (isPeak) {
                 metaParts.push(`窗口：${formatTime(payload.window_start)} 至 ${formatTime(payload.window_end)}`);
-                metaParts.push(`总排名项：${payload.total ?? payload.item_count ?? items.length}`);
             } else {
                 metaParts.push(`榜单时间：${formatTime(Number(currentStatsTimestamp))}`);
-                metaParts.push(`总排名项：${payload.total ?? payload.item_count ?? items.length}`);
             }
+            metaParts.push(`展示条数：${payload.total ?? payload.item_count ?? items.length}`);
             const rows = items.map((item) => {
                 const name = getRankingItemName(item);
                 const server = item.server || "未知";
                 const kungfu = item.kungfu || "未知心法";
                 const score = item.score ?? "-";
-                const matchButton = isPeak && item.match_id
-                    ? `<button class="ranking-match-btn" type="button" data-match-id="${escapeHtml(item.match_id)}" data-focus-name="${escapeHtml(name)}" data-focus-server="${escapeHtml(server)}">对局 ${escapeHtml(item.match_id)}</button>`
-                    : `<span class="muted">${isPeak ? "-" : "当前榜单"}</span>`;
+                const nameDisplay = `${name}·${server}`;
+                const kungfuIconId = resolveRankingItemKungfuIconId(item, name, server);
+                const kungfuIcon = kungfuIconId
+                    ? `<img class="ranking-kungfu-icon" src="https://img.jx3box.com/image/xf/${escapeHtml(kungfuIconId)}.png" alt="${escapeHtml(kungfu)}">`
+                    : "";
+                const matchSummary = isPeak
+                    ? renderPeakMatchButton(item, name, server)
+                    : `<span class="muted">当前榜单</span>`;
                 return `
-                    <div class="ranking-row">
+                    <div class="ranking-row ranking-row-list">
                         <span>#${escapeHtml(item.rank ?? "-")}</span>
                         <span>
                             <button
@@ -2419,12 +2727,11 @@
                                 data-global-role-id="${escapeHtml(item.global_role_id ?? "")}"
                                 data-role-id="${escapeHtml(item.role_id ?? "")}"
                                 data-zone="${escapeHtml(item.zone ?? "")}"
-                            >${escapeHtml(name)}</button>
+                            >${escapeHtml(nameDisplay)}</button>
                         </span>
-                        <span>${escapeHtml(server)}</span>
-                        <span>${escapeHtml(kungfu)}</span>
+                        <span class="ranking-kungfu-cell">${kungfuIcon}${escapeHtml(kungfu)}</span>
                         <span class="ranking-score">${escapeHtml(score)}</span>
-                        <span>${matchButton}</span>
+                        <span>${matchSummary}</span>
                     </div>
                 `;
             }).join("");
@@ -2433,15 +2740,14 @@
                 <div class="ranking-list-card">
                     <div class="ranking-list-toolbar">
                         <div>
-                            <h3>${escapeHtml(titleMap[view] || "排名列表")} · ${escapeHtml(rangeLabel)}</h3>
+                            <h3>${escapeHtml(titleLabel)} · ${escapeHtml(rangeLabel)}</h3>
                             <div class="muted">${metaParts.map(escapeHtml).join(" ｜ ")}</div>
                         </div>
                     </div>
                     <div class="ranking-table">
                         <div class="ranking-row header">
                             <span>名次</span>
-                            <span>名称</span>
-                            <span>服务器</span>
+                            <span>角色</span>
                             <span>心法</span>
                             <span>分数</span>
                             <span>${isPeak ? "最高分对局" : "来源"}</span>
@@ -2452,18 +2758,18 @@
             `;
         }
 
-        async function loadRankingListView(view, rangeKey) {
+        async function loadRankingListView(outerTab, rangeKey) {
             if (!currentStatsTimestamp) {
                 grid.innerHTML = "<div class='range-card'>缺少统计时间</div>";
                 return;
             }
-            const scoreType = view === "peak-game" ? "game" : "tuilan";
-            const url = view === "current-list"
+            const sourceConfig = getListSourceConfig(outerTab);
+            const url = sourceConfig.api === "flat-members"
                 ? buildFlatMembersUrl(currentStatsTimestamp, rangeKey)
-                : buildPeakScoreUrl(currentStatsTimestamp, scoreType, rangeKey);
-            const cacheKey = [view, currentStatsTimestamp, rangeKey].join("::");
+                : buildPeakScoreUrl(currentStatsTimestamp, sourceConfig.scoreType, rangeKey);
+            const cacheKey = [outerTab, currentStatsTimestamp, rangeKey].join("::");
             if (rankingListCache.has(cacheKey)) {
-                renderRankingList(rankingListCache.get(cacheKey), view, rangeKey);
+                renderListView(rankingListCache.get(cacheKey), outerTab, rangeKey);
                 return;
             }
             grid.innerHTML = "<div class='range-card'>正在加载列表...</div>";
@@ -2475,38 +2781,58 @@
                 const payload = await response.json();
                 const data = unwrapResponse(payload);
                 rankingListCache.set(cacheKey, data);
-                renderRankingList(data, view, rangeKey);
+                renderListView(data, outerTab, rangeKey);
                 setStatus("列表加载完成");
             } catch (error) {
                 grid.innerHTML = `<div class='range-card muted error'>加载列表失败：${escapeHtml(error.message || error)}</div>`;
             }
         }
 
+        function syncOuterTabUI() {
+            tabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.tab === currentOuterTab);
+            });
+        }
+
+        function syncInnerViewUI() {
+            innerTabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.view === currentInnerView);
+            });
+        }
+
         function renderCurrentView() {
+            syncOuterTabUI();
+            syncInnerViewUI();
+            syncScopeInlineText();
             if (toggleContainer) {
-                toggleContainer.classList.toggle("hidden", currentView !== "kungfu" || currentMode !== "all");
+                toggleContainer.classList.toggle("hidden", currentInnerView !== "distribution");
             }
-            if (viewRangeContainer) {
-                viewRangeContainer.classList.toggle("hidden", currentView === "kungfu");
-            }
-            if (currentView === "kungfu") {
+
+            if (currentInnerView === "distribution") {
+                if (isPeakTab(currentOuterTab)) {
+                    loadPeakDistributionView();
+                    return;
+                }
                 if (currentStats) {
-                    renderStats(currentStats, currentMode);
+                    renderDistributionView(currentStats, currentOuterTab);
                 }
                 return;
             }
-            loadRankingListView(currentView, currentListRange);
+
+            loadRankingListView(currentOuterTab, currentListRange);
         }
 
-        function renderStats(statsPayload, mode) {
-            const stats = mode === "purple"
-                ? buildFilteredStats(statsPayload.kungfu_statistics || {}, "purple")
-                : (statsPayload.kungfu_statistics || {});
+        function setOuterTab(tab) {
+            currentOuterTab = tab || "all";
+            if (isPeakTab(currentOuterTab)) {
+                currentInnerView = "distribution";
+            }
+            renderCurrentView();
+        }
 
-            grid.innerHTML = rangeConfigs
-                .filter((config) => stats[config.key])
-                .map((config) => renderRangeCard(config.key, config.label, stats[config.key], mode))
-                .join("");
+        function setInnerView(view) {
+            currentInnerView = view || "distribution";
+            renderCurrentView();
         }
 
         function render(data) {
@@ -2519,10 +2845,7 @@
             `;
 
             currentStats = data;
-            setMode(currentMode);
-            if (currentView !== "kungfu") {
-                renderCurrentView();
-            }
+            renderCurrentView();
 
             if (!grid.innerHTML) {
                 grid.innerHTML = "<div class='range-card'>暂无统计数据</div>";
@@ -2592,10 +2915,14 @@
 
             function renderIcons(players) {
                 return players
-                    .filter(function (p) { return p && p.kungfu_id; })
                     .map(function (p) {
-                        return "<span class=\"match-kungfu-icon\" title=\"" + escapeHtml(p.role_name || p.kungfu || "") + "\"><img src=\"https://img.jx3box.com/image/xf/" + escapeHtml(p.kungfu_id) + ".png\" alt=\"" + escapeHtml(p.kungfu || "kungfu") + "\"></span>";
+                        var iconId = resolveKungfuIconId(p);
+                        if (!iconId) {
+                            return "";
+                        }
+                        return "<span class=\"match-kungfu-icon\" title=\"" + escapeHtml(p.role_name || p.kungfu || "") + "\"><img src=\"https://img.jx3box.com/image/xf/" + escapeHtml(iconId) + ".png\" alt=\"" + escapeHtml(p.kungfu || "kungfu") + "\"></span>";
                     })
+                    .filter(Boolean)
                     .join("");
             }
 
@@ -2822,12 +3149,18 @@
                 return "";
             }
             const icons = players
-                .filter((player) => player && player.kungfu_id)
-                .map((player) => `
+                .map((player) => {
+                    const iconId = resolveKungfuIconId(player);
+                    if (!iconId) {
+                        return "";
+                    }
+                    return `
                     <span class="team-kungfu-icon" title="${escapeHtml(player.role_name || player.person_name || player.kungfu || "")}">
-                        <img src="https://img.jx3box.com/image/xf/${escapeHtml(player.kungfu_id)}.png" alt="${escapeHtml(player.kungfu || "kungfu")}">
+                        <img src="https://img.jx3box.com/image/xf/${escapeHtml(iconId)}.png" alt="${escapeHtml(player.kungfu || "kungfu")}">
                     </span>
-                `);
+                `;
+                })
+                .filter(Boolean);
             if (!icons.length) {
                 return "";
             }
@@ -3165,7 +3498,7 @@
             }
             const safeLabel = (label || "心法统计").replace(/\s+/g, "");
             const seasonLabel = (window.currentSeasonLabel || "").replace(/\s+/g, "") || "赛季";
-            const modeSuffix = currentMode === "purple" ? "_紫武" : "";
+            const modeSuffix = currentOuterTab === "purple" ? "_紫武" : "";
             const fileName = `${safeLabel}_${seasonLabel}_心法分布${modeSuffix}.png`;
             const openDetails = Array.from(card.querySelectorAll("details[open]"));
             try {
@@ -3188,27 +3521,6 @@
             }
         }
 
-        function setMode(mode) {
-            currentMode = mode;
-            tabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
-                btn.classList.toggle("active", btn.dataset.mode === mode);
-            });
-            if (toggleContainer) {
-                toggleContainer.classList.toggle("hidden", currentView !== "kungfu" || currentMode !== "all");
-            }
-            if (currentStats && currentView === "kungfu") {
-                renderStats(currentStats, mode);
-            }
-        }
-
-        function setView(view) {
-            currentView = view || "kungfu";
-            viewContainer.querySelectorAll(".tab-btn").forEach((btn) => {
-                btn.classList.toggle("active", btn.dataset.view === currentView);
-            });
-            renderCurrentView();
-        }
-
         async function exportFullPageImage(modeOverride) {
             if (typeof window.html2canvas !== "function") {
                 setStatus("图片生成库未加载，请稍后重试", "error");
@@ -3218,15 +3530,16 @@
                 setStatus("页面节点不存在，无法导出", "error");
                 return;
             }
-            const previousMode = currentMode;
-            const exportMode = modeOverride || currentMode;
-            if (exportMode !== currentMode) {
-                setMode(exportMode);
+            const previousTab = currentOuterTab;
+            const exportTab = modeOverride || currentOuterTab;
+            if (exportTab !== currentOuterTab) {
+                currentOuterTab = exportTab;
+                renderCurrentView();
                 await new Promise((resolve) => window.requestAnimationFrame(resolve));
             }
             const seasonLabel = (window.currentSeasonLabel || "").replace(/\s+/g, "") || "赛季";
             const rankingTimeLabel = (window.currentRankingTimeLabel || "").replace(/[^\dA-Za-z\u4e00-\u9fa5]+/g, "_") || "榜单";
-            const modeSuffix = exportMode === "purple" ? "_紫武排名" : "_全部排名";
+            const modeSuffix = exportTab === "purple" ? "_推栏排名-紫武" : exportTab === "peak-game" ? "_7日游戏最高分排名" : "_推栏排名";
             const fileName = `竞技场心法排名统计_${seasonLabel}_${rankingTimeLabel}${modeSuffix}.png`;
             const openDetails = Array.from(pageNode.querySelectorAll("details[open]"));
             try {
@@ -3252,8 +3565,9 @@
             } finally {
                 openDetails.forEach((detail) => detail.setAttribute("open", ""));
                 pageNode.classList.remove("is-exporting-full");
-                if (previousMode !== exportMode) {
-                    setMode(previousMode);
+                if (previousTab !== exportTab) {
+                    currentOuterTab = previousTab;
+                    renderCurrentView();
                 }
             }
         }
@@ -3261,16 +3575,9 @@
         if (legendaryToggle) {
             legendaryToggle.addEventListener("change", (event) => {
                 showLegendaryOverlay = event.target.checked;
-                if (currentStats && currentView === "kungfu") {
-                    renderStats(currentStats, currentMode);
+                if (currentStats && currentInnerView === "distribution") {
+                    renderCurrentView();
                 }
-            });
-        }
-
-        if (rankingListRangeSelect) {
-            rankingListRangeSelect.addEventListener("change", (event) => {
-                currentListRange = event.target.value || "top_1000";
-                renderCurrentView();
             });
         }
 
@@ -3631,23 +3938,15 @@
             if (!button) {
                 return;
             }
-            setMode(button.dataset.mode || "all");
+            setOuterTab(button.dataset.tab || "all");
         });
 
-        viewContainer.addEventListener("click", (event) => {
+        innerTabContainer.addEventListener("click", (event) => {
             const button = event.target.closest(".tab-btn");
             if (!button) {
                 return;
             }
-            setView(button.dataset.view || "kungfu");
-        });
-
-        tabContainer.addEventListener("click", (event) => {
-            const button = event.target.closest(".tab-export-btn");
-            if (!button) {
-                return;
-            }
-            exportFullPageImage(button.dataset.exportMode || currentMode);
+            setInnerView(button.dataset.view || "distribution");
         });
     </script>
 </body>
