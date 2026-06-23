@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock
 
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
+from src.services.jx3.match_detail_snapshots import TALENT_SNAPSHOT_SCHEMA_VERSION
 
 
 def _make_player(**kw: Any) -> Dict[str, Any]:
@@ -63,7 +64,11 @@ class TestLoadMatchDetailHydration(unittest.IsolatedAsyncioTestCase):
         db.jjc_match_detail.find_one.return_value = doc
 
         equip_doc = {"snapshot_hash": "h1", "armors": [{"pos": 1, "name": "破军"}]}
-        talent_doc = {"snapshot_hash": "t1", "talents": [{"level": 1, "name": "奇穴一"}]}
+        talent_doc = {
+            "snapshot_hash": "t1",
+            "talents": [{"level": 1, "name": "奇穴一"}],
+            "schema_version": TALENT_SNAPSHOT_SCHEMA_VERSION,
+        }
 
         snapshot_repo = MagicMock()
         snapshot_repo.load_equipment_snapshots = AsyncMock(return_value={"h1": equip_doc})
@@ -108,7 +113,11 @@ class TestLoadMatchDetailMissingSnapshots(unittest.IsolatedAsyncioTestCase):
         db = _mock_db()
         db.jjc_match_detail.find_one.return_value = doc
 
-        talent_doc = {"snapshot_hash": "t1", "talents": [{"level": 2, "name": "奇穴二"}]}
+        talent_doc = {
+            "snapshot_hash": "t1",
+            "talents": [{"level": 2, "name": "奇穴二"}],
+            "schema_version": TALENT_SNAPSHOT_SCHEMA_VERSION,
+        }
 
         snapshot_repo = MagicMock()
         snapshot_repo.load_equipment_snapshots = AsyncMock(return_value={})
@@ -175,6 +184,25 @@ class TestLoadMatchDetailSharedHashes(unittest.IsolatedAsyncioTestCase):
         snapshot_repo.load_equipment_snapshots.assert_called_once()
         args = snapshot_repo.load_equipment_snapshots.call_args[0][0]
         self.assertEqual(args, ["h_shared"])
+
+
+class TestLoadMatchDetailStaleTalentSnapshot(unittest.IsolatedAsyncioTestCase):
+    async def test_old_talent_snapshot_invalidates_cached_match_detail(self):
+        player = _make_player(kungfu="冰心诀", talent_snapshot_hash="t_old")
+        doc = _make_match_detail_doc(401, {"team1": _make_team([player])})
+        db = _mock_db()
+        db.jjc_match_detail.find_one.return_value = doc
+
+        snapshot_repo = MagicMock()
+        snapshot_repo.load_equipment_snapshots = AsyncMock(return_value={})
+        snapshot_repo.load_talent_snapshots = AsyncMock(return_value={
+            "t_old": {"snapshot_hash": "t_old", "talents": [{"level": 2}, {"level": 1}], "schema_version": 1}
+        })
+
+        repo = _build_repo(db=db, snapshot_repo=snapshot_repo)
+        result = await repo.load_match_detail(401)
+
+        self.assertIsNone(result)
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +331,11 @@ class TestSaveMatchDetailRoundTrip(unittest.IsolatedAsyncioTestCase):
             return {h: _equip_store[h] for h in hashes if h in _equip_store}
 
         async def _save_talent(hash_val, talents_list, seen_at=None):
-            _talent_store[hash_val] = {"snapshot_hash": hash_val, "talents": talents_list}
+            _talent_store[hash_val] = {
+                "snapshot_hash": hash_val,
+                "talents": talents_list,
+                "schema_version": TALENT_SNAPSHOT_SCHEMA_VERSION,
+            }
 
         async def _load_talent(hashes):
             return {h: _talent_store[h] for h in hashes if h in _talent_store}

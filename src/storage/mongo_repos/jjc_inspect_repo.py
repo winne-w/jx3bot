@@ -12,6 +12,7 @@ from nonebot import logger
 
 from src.infra.mongo import get_db as _get_db
 from src.services.jx3.match_detail_snapshots import (
+    TALENT_SNAPSHOT_SCHEMA_VERSION,
     build_equipment_snapshot,
     build_talent_snapshot,
 )
@@ -70,7 +71,14 @@ class JjcInspectRepo:
             return None
         if doc is None:
             return None
-        await self._hydrate_match_detail(doc, normalized_id)
+        hydrated = await self._hydrate_match_detail(doc, normalized_id)
+        if not hydrated:
+            logger.info(
+                "JJC 对局详情缓存命中过期奇穴快照，回源重刷: match_id={} talent_snapshot_schema_version={}",
+                normalized_id,
+                TALENT_SNAPSHOT_SCHEMA_VERSION,
+            )
+            return None
         return doc
 
     async def save_match_detail(self, match_id: Union[int, str], payload: dict[str, Any]) -> None:
@@ -95,22 +103,22 @@ class JjcInspectRepo:
         except Exception as exc:
             logger.warning(f"保存 JJC 对局详情缓存失败: match_id={match_id} error={exc}")
 
-    async def _hydrate_match_detail(self, doc: dict[str, Any], match_id: int) -> None:
+    async def _hydrate_match_detail(self, doc: dict[str, Any], match_id: int) -> bool:
         """Fill players_info[].armors/talents from snapshot hashes in-place.
 
         Always uses equipment_snapshot_hash/talent_snapshot_hash to hydrate.
         Missing snapshots yield empty arrays with a warning instead of failing the match.
         """
         if self.snapshot_repo is None:
-            return
+            return True
         data = doc.get("data")
         if not isinstance(data, dict):
-            return
+            return True
         if data.get("unavailable"):
-            return
+            return True
         detail = data.get("detail")
         if not isinstance(detail, dict):
-            return
+            return True
 
         equip_hashes: set = set()
         talent_hashes: set = set()
@@ -134,6 +142,18 @@ class JjcInspectRepo:
 
         equip_snapshots = await self.snapshot_repo.load_equipment_snapshots(list(equip_hashes)) if equip_hashes else {}
         talent_snapshots = await self.snapshot_repo.load_talent_snapshots(list(talent_hashes)) if talent_hashes else {}
+
+        for snapshot_hash, snap in talent_snapshots.items():
+            schema_version = snap.get("schema_version")
+            if not isinstance(schema_version, int) or schema_version < TALENT_SNAPSHOT_SCHEMA_VERSION:
+                logger.info(
+                    "JJC 奇穴快照版本过期: match_id={} talent_snapshot_hash={} schema_version={} expected={}",
+                    match_id,
+                    snapshot_hash,
+                    schema_version,
+                    TALENT_SNAPSHOT_SCHEMA_VERSION,
+                )
+                return False
 
         for team_key in ("team1", "team2"):
             team = detail.get(team_key)
@@ -165,6 +185,7 @@ class JjcInspectRepo:
                     else:
                         logger.warning(f"奇穴快照缺失: match_id={match_id} talent_snapshot_hash={h}")
                         player["talents"] = []
+        return True
 
     async def batch_load_cached_detail_summaries(self, match_ids: list) -> dict[int, dict[str, Any]]:
         """Return a dict keyed by normalized int match_id with compact summaries.

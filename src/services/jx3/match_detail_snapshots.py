@@ -2,6 +2,8 @@ import hashlib
 import json
 from typing import Any, Dict, List
 
+TALENT_SNAPSHOT_SCHEMA_VERSION = 2
+
 
 def normalize_equipment_snapshot(armors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Sort armors by pos, ui_id, name. Returns a new list, does not modify input."""
@@ -43,10 +45,14 @@ def build_equipment_snapshot(armors: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def build_talent_snapshot(talents: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Build a talent snapshot dict with normalized talents and content hash."""
+    """Build a talent snapshot dict.
+
+    Keep the original array order for display, but use a normalized copy to
+    calculate a stable content hash for deduplication.
+    """
     normalized = normalize_talent_snapshot(talents)
     return {
         "snapshot_hash": calculate_snapshot_hash(normalized),
-        "talents": normalized,
-        "schema_version": 1,
+        "talents": list(talents),
+        "schema_version": TALENT_SNAPSHOT_SCHEMA_VERSION,
     }

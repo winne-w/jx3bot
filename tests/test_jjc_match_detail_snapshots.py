@@ -2,6 +2,7 @@ import copy
 import unittest
 
 from src.services.jx3.match_detail_snapshots import (
+    TALENT_SNAPSHOT_SCHEMA_VERSION,
     build_equipment_snapshot,
     build_talent_snapshot,
     calculate_snapshot_hash,
@@ -129,9 +130,21 @@ class TestBuildSnapshot(unittest.TestCase):
         snapshot = build_talent_snapshot(talents)
         self.assertIn("snapshot_hash", snapshot)
         self.assertIn("talents", snapshot)
-        self.assertEqual(snapshot["schema_version"], 1)
+        self.assertEqual(snapshot["schema_version"], TALENT_SNAPSHOT_SCHEMA_VERSION)
         self.assertEqual(len(snapshot["snapshot_hash"]), 64)
-        self.assertEqual(snapshot["talents"], normalize_talent_snapshot(talents))
+        self.assertEqual(snapshot["talents"], talents)
+
+    def test_build_talent_snapshot_preserves_original_order(self):
+        talents = [
+            {"level": 2, "id": "b", "name": "奇穴二"},
+            {"level": 1, "id": "a", "name": "奇穴一"},
+        ]
+        snapshot = build_talent_snapshot(talents)
+        self.assertEqual(snapshot["talents"], talents)
+        self.assertEqual(
+            snapshot["snapshot_hash"],
+            calculate_snapshot_hash(normalize_talent_snapshot(talents)),
+        )
 
 
 class TestHashStability(unittest.TestCase):

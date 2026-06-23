@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
 from src.storage.mongo_repos.jjc_match_snapshot_repo import JjcMatchSnapshotRepo
+from src.services.jx3.match_detail_snapshots import TALENT_SNAPSHOT_SCHEMA_VERSION
 
 
 class _AsyncIterMock:
@@ -100,19 +101,22 @@ class TestSaveTalentSnapshot(unittest.IsolatedAsyncioTestCase):
         assert call_args[0] == {"snapshot_hash": "hash_xyz"}
         assert call_kwargs.get("upsert") is True
 
-    async def test_duplicate_hash_uses_set_on_insert(self):
+    async def test_duplicate_hash_upgrades_existing_snapshot_content(self):
         col = _make_mock_collection()
         db = MagicMock()
         db.jjc_talent_snapshot = col
 
         repo = JjcMatchSnapshotRepo(db=db)
-        await repo.save_talent_snapshot("hash_xyz", [{"level": 1}], seen_at=1234567890.0)
+        await repo.save_talent_snapshot("hash_xyz", [{"level": 2}, {"level": 1}], seen_at=1234567890.0)
 
         call_args, _ = col.update_one.call_args
         update_doc = call_args[1]
         assert "$setOnInsert" in update_doc
         assert "talents" in update_doc["$setOnInsert"]
-        assert "talents" not in update_doc.get("$set", {})
+        assert update_doc["$setOnInsert"]["schema_version"] == TALENT_SNAPSHOT_SCHEMA_VERSION
+        assert "talents" in update_doc.get("$set", {})
+        assert update_doc["$set"]["talents"] == [{"level": 2}, {"level": 1}]
+        assert update_doc["$set"]["schema_version"] == TALENT_SNAPSHOT_SCHEMA_VERSION
 
 
 class TestLoadEquipmentSnapshots(unittest.IsolatedAsyncioTestCase):

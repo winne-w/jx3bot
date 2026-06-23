@@ -8,6 +8,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from nonebot import logger
 
 from src.infra.mongo import get_db as _get_db
+from src.services.jx3.match_detail_snapshots import TALENT_SNAPSHOT_SCHEMA_VERSION
 
 
 @dataclass(frozen=True)
@@ -50,9 +51,11 @@ class JjcMatchSnapshotRepo:
                     "$setOnInsert": {
                         "talents": talents,
                         "created_at": now,
-                        "schema_version": 1,
+                        "schema_version": TALENT_SNAPSHOT_SCHEMA_VERSION,
                     },
                     "$set": {
+                        "talents": talents,
+                        "schema_version": TALENT_SNAPSHOT_SCHEMA_VERSION,
                         "last_seen_at": seen_at if seen_at is not None else now,
                     },
                 },
