@@ -54,8 +54,6 @@ class JjcMatchSnapshotRepo:
                         "schema_version": TALENT_SNAPSHOT_SCHEMA_VERSION,
                     },
                     "$set": {
-                        "talents": talents,
-                        "schema_version": TALENT_SNAPSHOT_SCHEMA_VERSION,
                         "last_seen_at": seen_at if seen_at is not None else now,
                     },
                 },

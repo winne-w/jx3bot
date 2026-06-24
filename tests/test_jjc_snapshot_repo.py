@@ -114,9 +114,10 @@ class TestSaveTalentSnapshot(unittest.IsolatedAsyncioTestCase):
         assert "$setOnInsert" in update_doc
         assert "talents" in update_doc["$setOnInsert"]
         assert update_doc["$setOnInsert"]["schema_version"] == TALENT_SNAPSHOT_SCHEMA_VERSION
-        assert "talents" in update_doc.get("$set", {})
-        assert update_doc["$set"]["talents"] == [{"level": 2}, {"level": 1}]
-        assert update_doc["$set"]["schema_version"] == TALENT_SNAPSHOT_SCHEMA_VERSION
+        assert "talents" not in update_doc.get("$set", {})
+        assert "schema_version" not in update_doc.get("$set", {})
+        assert "last_seen_at" in update_doc["$set"]
+        assert update_doc["$set"]["last_seen_at"] == 1234567890.0
 
 
 class TestLoadEquipmentSnapshots(unittest.IsolatedAsyncioTestCase):
