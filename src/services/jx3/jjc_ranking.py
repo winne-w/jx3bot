@@ -750,7 +750,7 @@ class JjcRankingService:
         seen: set[str] = set()
         enqueued_count = 0
         batch_id = "ranking_stats:{}".format(timestamp)
-        queue_sync_until_time = int(time.time()) - 7 * 86400
+        queue_sync_until_time = int(time.time()) - 14 * 86400
         for detail in detail_payloads:
             for member in detail.get("members") or []:
                 if not isinstance(member, dict):
@@ -1073,7 +1073,7 @@ class JjcRankingService:
             ranking_timestamp = int(ranking_data.get("cache_time") or time.time())
             sync_repo = JjcSyncRepo()
             sync_batch_id = "ranking_stats:{}".format(ranking_timestamp)
-            sync_until_time = int(time.time()) - 7 * 86400
+            sync_until_time = int(time.time()) - 14 * 86400
 
             for i, player in enumerate(data_list):
                 person_info = player.get("personInfo", {})

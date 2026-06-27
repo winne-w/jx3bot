@@ -922,7 +922,7 @@
 
 ### `jjc_peak_score_rankings`
 
-用途：保存 JJC 7 天历史最高分排名结果。每天 09:00 读取最近两个排名统计快照的 `timestamp` 作为统计锚点，分别按推栏分数和游戏分数统计锚点前 7 天内本地已同步 3v3 对局参与者的最高分排名。本集合独立于心法排名快照，不以排名快照成员作为统计对象。
+用途：保存 JJC 14 天历史最高分排名结果。每天 09:00 读取最近两个排名统计快照的 `timestamp` 作为统计锚点，分别按推栏分数和游戏分数统计锚点前 14 天内本地已同步 3v3 对局参与者的最高分排名。本集合独立于心法排名快照，不以排名快照成员作为统计对象。
 
 读写归属：
 
@@ -936,10 +936,10 @@
 |---|---|---|
 | `_id` | ObjectId | MongoDB 自动主键 |
 | `anchor_timestamp` | int | 统计锚点，来自 `jjc_ranking_stat_summaries.timestamp` |
-| `window_start` | int | 统计窗口起点，`anchor_timestamp - 7天` |
+| `window_start` | int | 统计窗口起点，`anchor_timestamp - 14天` |
 | `window_end` | int | 统计窗口终点，等于 `anchor_timestamp` |
 | `score_type` | string | `tuilan` 或 `game` |
-| `window_days` | int | 当前固定为 7 |
+| `window_days` | int | 当前固定为 14 |
 | `version` | int | 统计口径版本，当前为 1 |
 | `status` | string | `processing`、`done`、`failed` |
 | `items` | array | 排名项；当前只保存前 1000 名，页面的前 200/100/50 从该数组切片展示 |

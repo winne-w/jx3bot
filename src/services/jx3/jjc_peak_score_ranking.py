@@ -20,7 +20,7 @@ class JjcPeakScoreRankingService:
     ranking_stats_repo: Any = field(default_factory=JjcRankingStatsRepo)
     participant_repo: Any = field(default_factory=JjcMatchParticipantRepo)
     peak_repo: Any = field(default_factory=JjcPeakScoreRankingRepo)
-    window_days: int = 7
+    window_days: int = 14
     version: int = 1
     max_items: Optional[int] = DEFAULT_MAX_ITEMS
 

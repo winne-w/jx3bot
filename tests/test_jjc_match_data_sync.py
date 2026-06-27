@@ -1046,7 +1046,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["reason"], "queue_sufficient")
         self.assertEqual(repo.enqueue_next_roles_calls, [])
 
-    async def test_dispatch_queue_once_enqueues_recent_seven_day_window(self) -> None:
+    async def test_dispatch_queue_once_enqueues_recent_fourteen_day_window(self) -> None:
         repo = FakeRepo()
         repo.roles = [
             {"identity_key": "pending-1", "status": "pending"},
@@ -1079,8 +1079,8 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call["source"], "auto_dispatcher")
         self.assertEqual(call["mode"], "full")
         self.assertEqual(call["limit"], 3)
-        lower_bound = before - 7 * 86400
-        upper_bound = after - 7 * 86400
+        lower_bound = before - 14 * 86400
+        upper_bound = after - 14 * 86400
         self.assertGreaterEqual(call["queue_sync_until_time"], lower_bound)
         self.assertLessEqual(call["queue_sync_until_time"], upper_bound)
         self.assertEqual(result["queue_sync_until_time"], call["queue_sync_until_time"])

@@ -181,7 +181,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="将历史 JJC 同步队列中未执行/排队任务限制为最近 N 天窗口，默认 dry-run。",
     )
     parser.add_argument("--apply", action="store_true", help="实际写入；默认只预览")
-    parser.add_argument("--days", type=int, default=7, help="同步最近多少天，默认 7")
+    parser.add_argument("--days", type=int, default=14, help="同步最近多少天，默认 14")
     parser.add_argument(
         "--statuses",
         default="pending,cooldown,exhausted,failed,queued",

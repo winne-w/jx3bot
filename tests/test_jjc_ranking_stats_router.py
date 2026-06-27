@@ -321,7 +321,7 @@ class TestPeakScoreRoutes(unittest.IsolatedAsyncioTestCase):
         module = _load_router_module()
         peak_repo = _FakePeakRepo({
             "anchor_timestamp": 123,
-            "window_start": 123 - 7 * 86400,
+            "window_start": 123 - 14 * 86400,
             "window_end": 123,
             "score_type": "game",
             "version": 1,

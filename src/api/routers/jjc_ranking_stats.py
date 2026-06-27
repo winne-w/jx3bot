@@ -302,7 +302,7 @@ async def get_jjc_peak_score_ranking(
         )
         fallback_started_at = time.perf_counter()
         window_end = int(timestamp)
-        window_start = window_end - 7 * 86400
+        window_start = window_end - 14 * 86400
         aggregate = await JjcMatchParticipantRepo().aggregate_peak_scores(
             window_start=window_start,
             window_end=window_end,
@@ -316,7 +316,7 @@ async def get_jjc_peak_score_ranking(
             "window_start": window_start,
             "window_end": window_end,
             "score_type": score_type,
-            "window_days": 7,
+            "window_days": 14,
             "version": version,
             "status": "done",
             "items": aggregate.get("items") or [],

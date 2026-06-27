@@ -709,7 +709,7 @@ class TestRankingStatsSyncQueue(unittest.IsolatedAsyncioTestCase):
         assert sync_instances[0].calls[0]["kwargs"]["mode"] == "full"
         cutoff = sync_instances[0].calls[0]["kwargs"]["queue_sync_until_time"]
         assert isinstance(cutoff, int)
-        assert abs(cutoff - int(time.time() - 7 * 86400)) < 10
+        assert abs(cutoff - int(time.time() - 14 * 86400)) < 10
         assert sync_instances[0].calls[0]["kwargs"]["season_id"] == "S12"
         assert sync_instances[0].calls[0]["kwargs"]["season_start_time"] > 0
 

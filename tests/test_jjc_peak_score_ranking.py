@@ -127,7 +127,7 @@ class TestJjcPeakScoreRankingService(unittest.IsolatedAsyncioTestCase):
             {(call["window_end"], call["score_type"]) for call in participant_repo.calls},
             {(2000, "tuilan"), (2000, "game"), (1000, "tuilan"), (1000, "game")},
         )
-        self.assertEqual(participant_repo.calls[0]["window_start"], 2000 - 7 * 86400)
+        self.assertEqual(participant_repo.calls[0]["window_start"], 2000 - 14 * 86400)
 
     async def test_skips_existing_done_result(self) -> None:
         participant_repo = FakeParticipantRepo()

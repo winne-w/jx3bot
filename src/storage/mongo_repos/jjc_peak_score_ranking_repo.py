@@ -161,7 +161,7 @@ class JjcPeakScoreRankingRepo:
         score_type: str,
         window_start: int,
         window_end: int,
-        window_days: int = 7,
+        window_days: int = 14,
         version: int = 1,
     ) -> None:
         now_dt = datetime.datetime.now(datetime.timezone.utc)
@@ -229,7 +229,7 @@ class JjcPeakScoreRankingRepo:
         window_start: int,
         window_end: int,
         error: str,
-        window_days: int = 7,
+        window_days: int = 14,
         version: int = 1,
     ) -> None:
         now_dt = datetime.datetime.now(datetime.timezone.utc)

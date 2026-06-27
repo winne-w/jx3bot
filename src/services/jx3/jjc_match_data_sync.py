@@ -39,7 +39,7 @@ _QUEUE_MODE_FULL = "full"
 _SUPPORTED_QUEUE_MODES = (_QUEUE_MODE_FULL,)
 _WORKER_COMPAT_MODES = ("incremental_or_full", "full", "incremental")
 _AUTO_DISPATCHER_SOURCE = "auto_dispatcher"
-_AUTO_DISPATCHER_SYNC_WINDOW_DAYS = 7
+_AUTO_DISPATCHER_SYNC_WINDOW_DAYS = 14
 
 
 class JjcSyncGlobalPauseError(RuntimeError):

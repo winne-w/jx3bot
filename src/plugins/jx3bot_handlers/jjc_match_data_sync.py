@@ -233,7 +233,7 @@ def _start_usage(reason: str) -> Dict[str, Any]:
         "message": (
             f"{reason}\n"
             "用法: /jjc同步开始 [default|full] "
-            "[limit=10] [days=7|until=YYYY-MM-DD]\n"
+            "[limit=10] [days=14|until=YYYY-MM-DD]\n"
             "说明: 当前命令只负责入队，实际处理由常驻 worker 进程领取"
         ),
     }

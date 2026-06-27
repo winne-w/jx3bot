@@ -147,16 +147,16 @@ python test_tuilan_match_history.py
 - `竞技排名 拆分`
 - 添加并默认排队指定角色：`/jjc同步添加 <服务器> <角色名> [priority=100] [queued=1] [global_role_id=...] [role_id=...] [zone=...]`
 - 查看状态：`/jjc同步状态`
-- 批量入队：`/jjc同步开始 [default|full] [limit=10] [days=7|until=YYYY-MM-DD]`
+- 批量入队：`/jjc同步开始 [default|full] [limit=10] [days=14|until=YYYY-MM-DD]`
 - 调整优先级：`/jjc同步优先级 <服务器> <角色名> <priority>`
 - 暂停后续同步：`/jjc同步暂停 [原因]`
 - 恢复同步：`/jjc同步恢复`
 - 重置角色水位：`/jjc同步重置 <服务器> <角色名>`
 - 启动独立常驻 worker：`python scripts/jjc_sync.py worker` 或 `python scripts/jjc_sync.py start --limit=10`；`start --limit` 只限制最多处理数量，队列暂空时仍会继续等待；worker 不决定同步窗口
 - 启用 bot 内置 worker：设置 `JJC_SYNC_WORKER_COUNT=1` 后启动 `python bot.py`，或执行 `/修改配置 JJC_SYNC_WORKER_COUNT=1` 写入本地运行时配置并重启；`0` 表示关闭
-- bot 内置 dispatcher 默认跟随 bot 一起启动；它只负责自动把到期角色补入 `queued`，不直接同步对局。dispatcher 路径固定使用最近 7 天窗口，不会替代页面 full 或手工 full 入队。
+- bot 内置 dispatcher 默认跟随 bot 一起启动；它只负责自动把到期角色补入 `queued`，不直接同步对局。dispatcher 路径固定使用最近 14 天窗口，不会替代页面 full 或手工 full 入队。
 - 内置 worker 名称使用稳定槽位 `bot:{host}:{index}`，同一部署实例重启后会复用同一条 worker 心跳记录；升级前已经产生的旧 `bot:{host}:{启动时间}:{pid}:{index}` 离线记录可按需人工清理。
-- 批量入队脚本：`python scripts/jjc_sync.py enqueue --limit=10`，本次只同步最近 7 天可用 `python scripts/jjc_sync.py enqueue --limit=10 --days=7`
+- 批量入队脚本：`python scripts/jjc_sync.py enqueue --limit=10`，本次只同步最近 14 天可用 `python scripts/jjc_sync.py enqueue --limit=10 --days=14`
 - 页面路径与接口路径分开维护：生产静态页面使用 `/jx3/<page>.html`，例如 `https://qike.rickchen.cn/jx3/jjc-sync-queue.html`；API 使用 `/jx3bot/api/...`，例如 `https://qike.rickchen.cn/jx3bot/api/jjc/sync/status`。HTML 页面链接不要加 `/jx3bot` 前缀。
 - 队列页面：生产环境访问 `https://qike.rickchen.cn/jx3/jjc-sync-queue.html`；本地若直接由 bot 暴露静态目录，可按实际挂载访问 `http://<bot-host>:<port>/public/jjc-sync-queue.html`。页面支持按服务器、角色名搜索，状态以中文展示；页面依赖同源 `/jx3bot/api/jjc/sync/...` 或本地 `/api/jjc/sync/...` 接口，不能直接用本地文件方式打开。
 - 已同步对局页面：生产环境访问 `https://qike.rickchen.cn/jx3/jjc-synced-matches.html`；输入服务器和角色名后，页面先查询 `role_identities`，再只按该身份的 `global_id` 匹配 `jjc_match_detail` 中 6 名参赛玩家的 `global_id`，展示该角色参与过的本地已同步 3v3 对局。页面不使用服务器名、昵称、`global_role_id` 或 `role_id` 兜底匹配对局，避免转服、改名造成串号。页面依赖同源 `/jx3bot/api/jjc/ranking-stats/synced-role*`、`role-indicator`、`match-detail` 接口，不能直接用本地文件方式打开。
@@ -190,7 +190,7 @@ python test_tuilan_match_history.py
 - 已同步对局页面输入不存在于 `role_identities` 的角色时，应显示未收录身份空态；已收录但缺少 `global_id`，或详情玩家尚未回填 `global_id` 时，对局列表为空。
 - 已同步对局页面点击“加入同步队列”后，应调用 `POST /jx3bot/api/jjc/ranking-stats/synced-role-sync`（本地无代理时为 `/api/jjc/ranking-stats/synced-role-sync`），POST body 为 `{"server":"...","name":"..."}`；返回后先展示入队接口返回的 `sync_status`，再刷新同步状态和本地对局列表；列表文案使用“同步状态/已同步对局”，不使用对局缓存刷新语义。
 - 已同步对局页面点击单场对局时，应调用 `GET /api/jjc/ranking-stats/match-detail?match_id=<对局ID>` 打开详情弹窗，焦点角色在队伍列表中高亮。
-- JJC 7 天历史最高分排名每天 09:00 独立生成，读取最近两个 `jjc_ranking_stat_summaries.timestamp` 作为锚点，从 `jjc_match_participants` 中统计各锚点往前 7 天内所有本地已同步 3v3 对局参与者；统计对象不是排行榜成员，因此可以覆盖洗车后掉出榜单但历史对局已同步的玩家。
+- JJC 14 天历史最高分排名每天 09:00 独立生成，读取最近两个 `jjc_ranking_stat_summaries.timestamp` 作为锚点，从 `jjc_match_participants` 中统计各锚点往前 14 天内所有本地已同步 3v3 对局参与者；统计对象不是排行榜成员，因此可以覆盖洗车后掉出榜单但历史对局已同步的玩家。
 - 最高分统计使用 `jjc_match_participants.match_time` 作为对局发生时间；该字段来自推栏接口返回的 `match_time/start_time`，不要用 `cached_at/detail_saved_at/updated_at` 排查统计窗口。
 - 最高分结果写入 `jjc_peak_score_rankings`，同一 `anchor_timestamp + score_type + version` 幂等唯一。`score_type=tuilan` 使用推栏分数 `mmr`，`score_type=game` 使用游戏分数 `total_score`，缺失时兜底 `score`；每条排名项记录最高分对应的 `match_id` 和 `match_time`。
 - 新增投影字段上线后，历史对局可通过参与者投影回填脚本补齐分数字段：

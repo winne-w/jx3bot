@@ -638,7 +638,7 @@ async def push_daily_jjc_peak_score_ranking():
     try:
         result = await jjc_peak_score_ranking_service.run_latest_two_snapshots()
         logger.info(
-            "status_monitor JJC 7天最高分统计完成: anchors={} generated={} skipped={} failed={}".format(
+            "status_monitor JJC 14天最高分统计完成: anchors={} generated={} skipped={} failed={}".format(
                 result.get("anchors"),
                 result.get("generated"),
                 result.get("skipped"),
@@ -646,7 +646,7 @@ async def push_daily_jjc_peak_score_ranking():
             )
         )
     except Exception as e:
-        logger.warning("status_monitor JJC 7天最高分统计出错: {}", e)
+        logger.warning("status_monitor JJC 14天最高分统计出错: {}", e)
 
 
 @scheduler.scheduled_job("cron", hour="3,21", minute=0, max_instances=2)

@@ -17,7 +17,7 @@ JX3Bot 是一个基于 NoneBot2 的剑网 3 QQ 机器人，运行在 OneBot V11 
   - `GET /api/jjc/ranking-stats?action=read&timestamp=<时间戳>`
   - `GET /api/jjc/ranking-stats/details?timestamp=<时间戳>&range=<范围>&lane=<healer|dps>&kungfu=<心法>`
   - `GET /api/jjc/ranking-stats/flat-members?timestamp=<时间戳>&range=<top_1000|top_200|top_100|top_50>`：按原始名次返回当前推栏排名列表，不按心法分组
-  - `GET /api/jjc/ranking-stats/peak-score?timestamp=<时间戳>&score_type=<tuilan|game>&range=<top_1000|top_200|top_100|top_50>`：读取 7 天历史最高分排名
+  - `GET /api/jjc/ranking-stats/peak-score?timestamp=<时间戳>&score_type=<tuilan|game>&range=<top_1000|top_200|top_100|top_50>`：读取 14 天历史最高分排名
   - `GET /api/jjc/ranking-stats/role-recent?server=<服务器>&name=<角色>`
   - `GET /api/jjc/ranking-stats/synced-role?server=<服务器>&name=<角色>`：查询本地已收录角色身份和同步状态；`server` 为空时按角色名返回本地候选
   - `GET /api/jjc/ranking-stats/synced-role-matches?server=<服务器>&name=<角色>&page=1&page_size=20`：按角色 `global_id` 分页读取其参与过的本地已同步 3v3 对局
@@ -107,7 +107,7 @@ JJC 对局同步默认只入队，不会在 bot 进程内自动处理队列。�
 python scripts/jjc_sync.py worker
 ```
 
-入队默认按 full 处理；需要限制本次入队同步窗口时使用 `days` 或 `until`，例如 `/jjc同步开始 full days=7` 或 `python scripts/jjc_sync.py enqueue --days=7`。worker 只消费队列，不决定同步窗口。
+入队默认按 full 处理；需要限制本次入队同步窗口时使用 `days` 或 `until`，例如 `/jjc同步开始 full days=14` 或 `python scripts/jjc_sync.py enqueue --days=14`。worker 只消费队列，不决定同步窗口。
 
 单进程部署也可以启用 bot 内置 worker 和自动补队列 dispatcher。最小配置示例:
 
@@ -118,7 +118,7 @@ python scripts/jjc_sync.py worker
 }
 ```
 
-`JJC_SYNC_WORKER_COUNT=0` 表示关闭内置 worker；大于 0 时，bot 在 Mongo 初始化完成后创建对应数量的后台 worker。`JJC_SYNC_DISPATCHER_ENABLED=1` 时，bot 还会启动一个自动补队列 dispatcher，在 `queued` 深度不足时把到期角色按最近 7 天窗口补入队列；它不直接同步对局，也不会替代页面 full 或手工 full 入队。也可以通过环境变量或管理员命令 `/修改配置 ...` 设置。QQ 修改配置会退出当前进程，自动拉起依赖 Docker、systemd、supervisor 等外部守护。
+`JJC_SYNC_WORKER_COUNT=0` 表示关闭内置 worker；大于 0 时，bot 在 Mongo 初始化完成后创建对应数量的后台 worker。`JJC_SYNC_DISPATCHER_ENABLED=1` 时，bot 还会启动一个自动补队列 dispatcher，在 `queued` 深度不足时把到期角色按最近 14 天窗口补入队列；它不直接同步对局，也不会替代页面 full 或手工 full 入队。也可以通过环境变量或管理员命令 `/修改配置 ...` 设置。QQ 修改配置会退出当前进程，自动拉起依赖 Docker、systemd、supervisor 等外部守护。
 
 内置 worker 使用稳定槽位名 `bot:{host}:{index}`，例如 `bot:my-host:0`。同一部署实例重启后会复用同一条 worker 心跳记录，不会因为 pid 或启动时间变化持续新增离线 worker。
 
