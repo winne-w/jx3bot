@@ -1794,7 +1794,7 @@
                 <button class="tab-export-btn" data-export-mode="purple" type="button">整体导出</button>
             </div>
             <div class="tab-group">
-                <button class="tab-btn" data-tab="peak-game" type="button">7日游戏内分数排名</button>
+                <button class="tab-btn" data-tab="peak-game" type="button">14日游戏内分数排名</button>
                 <button class="tab-export-btn" data-export-mode="peak-game" type="button">整体导出</button>
             </div>
         `;
@@ -2494,7 +2494,7 @@
             const labelMap = {
                 all: "推栏排名",
                 purple: "推栏排名-紫武",
-                "peak-game": "7日游戏最高分排名",
+                "peak-game": "14日游戏最高分排名",
             };
             return labelMap[tab] || tab;
         }
@@ -2504,7 +2504,7 @@
                 return "统计口径：基于当前排名快照中的推栏竞技场排名数据，剔除被判定为橙武/紫武影响口径的角色后，按心法统计分布并展示排名列表。";
             }
             if (tab === "peak-game") {
-                return "统计口径：以当前排名快照时间为锚点，回溯前 7 天本地已收录的 3v3 对局，按角色在对局中的游戏内分数取个人最高分排名；可能因对局同步缺失导致数据不完整。";
+                return "统计口径：以当前排名快照时间为锚点，回溯前 14 天本地已收录的 3v3 对局，按角色在对局中的游戏内分数取个人最高分排名；可能因对局同步缺失导致数据不完整。";
             }
             return "统计口径：基于当前排名快照中的推栏竞技场排名数据，按推栏当前分数统计全部角色的心法分布和排名列表。";
         }
@@ -2643,7 +2643,7 @@
 
         function getListSourceConfig(tab) {
             if (tab === "peak-game") {
-                return { api: "peak-score", scoreType: "game", title: "7日游戏最高分排名" };
+                return { api: "peak-score", scoreType: "game", title: "14日游戏最高分排名" };
             }
             return { api: "flat-members", scoreType: null, title: tab === "purple" ? "推栏排名-紫武列表" : "推栏排名列表" };
         }
@@ -2668,7 +2668,7 @@
                 renderDistributionView(rankingListCache.get(cacheKey), "peak-game");
                 return;
             }
-            grid.innerHTML = "<div class='range-card'>正在加载7日最高分心法分布...</div>";
+            grid.innerHTML = "<div class='range-card'>正在加载14日最高分心法分布...</div>";
             try {
                 const results = await Promise.all(rangeConfigs.map(async (config) => {
                     const response = await fetch(
@@ -2686,9 +2686,9 @@
                 };
                 rankingListCache.set(cacheKey, payload);
                 renderDistributionView(payload, "peak-game");
-                setStatus("7日最高分心法分布加载完成");
+                setStatus("14日最高分心法分布加载完成");
             } catch (error) {
-                grid.innerHTML = `<div class='range-card muted error'>加载7日最高分心法分布失败：${escapeHtml(error.message || error)}</div>`;
+                grid.innerHTML = `<div class='range-card muted error'>加载14日最高分心法分布失败：${escapeHtml(error.message || error)}</div>`;
             }
         }
 
@@ -3542,7 +3542,7 @@
             }
             const seasonLabel = (window.currentSeasonLabel || "").replace(/\s+/g, "") || "赛季";
             const rankingTimeLabel = (window.currentRankingTimeLabel || "").replace(/[^\dA-Za-z\u4e00-\u9fa5]+/g, "_") || "榜单";
-            const modeSuffix = exportTab === "purple" ? "_推栏排名-紫武" : exportTab === "peak-game" ? "_7日游戏最高分排名" : "_推栏排名";
+            const modeSuffix = exportTab === "purple" ? "_推栏排名-紫武" : exportTab === "peak-game" ? "_14日游戏最高分排名" : "_推栏排名";
             const fileName = `竞技场心法排名统计_${seasonLabel}_${rankingTimeLabel}${modeSuffix}.png`;
             const openDetails = Array.from(pageNode.querySelectorAll("details[open]"));
             try {
