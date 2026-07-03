@@ -352,6 +352,88 @@ class TestPeakScoreRoutes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["kungfu_statistics"]["dps"]["distribution"]["花间游"], 1)
         self.assertEqual(peak_repo.calls[0]["items_limit"], 1000)
 
+    async def test_peak_score_details_returns_filtered_members(self) -> None:
+        module = _load_router_module()
+        peak_repo = _FakePeakRepo({
+            "anchor_timestamp": 123,
+            "window_start": 123 - 14 * 86400,
+            "window_end": 123,
+            "score_type": "game",
+            "version": 1,
+            "status": "done",
+            "item_count": 3,
+            "items": [
+                {
+                    "rank": 1,
+                    "score": 2800,
+                    "match_id": 9001,
+                    "kungfu": "丐帮",
+                    "name": "角色甲",
+                    "server": "梦江南",
+                    "game_role_id": "g1",
+                    "global_role_id": "gr1",
+                    "role_id": "r1",
+                    "zone": "电五",
+                },
+                {
+                    "rank": 2,
+                    "score": 2750,
+                    "match_id": 9002,
+                    "kungfu": "花间游",
+                    "name": "角色乙",
+                    "server": "梦江南",
+                },
+                {
+                    "rank": 3,
+                    "score": 2700,
+                    "match_id": 9003,
+                    "kungfu": "丐帮",
+                    "name": "角色丙",
+                    "server": "斗转星移",
+                },
+            ],
+        })
+        module.JjcPeakScoreRankingRepo = lambda: peak_repo
+
+        response = await module.get_jjc_peak_score_details(
+            timestamp="123",
+            score_type="game",
+            range_key="top_1000",
+            kungfu=" 丐帮 ",
+            version=1,
+        )
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(response["data"]["kungfu"], "丐帮")
+        self.assertEqual(response["data"]["score_type"], "game")
+        self.assertEqual(response["data"]["version"], 1)
+        self.assertEqual(
+            [item["name"] for item in response["data"]["members"]],
+            ["角色甲", "角色丙"],
+        )
+        self.assertEqual(peak_repo.calls, [{
+            "anchor_timestamp": 123,
+            "score_type": "game",
+            "version": 1,
+            "items_limit": 1000,
+        }])
+
+    async def test_peak_score_details_returns_not_found_when_repo_misses(self) -> None:
+        module = _load_router_module()
+        peak_repo = _FakePeakRepo(None)
+        module.JjcPeakScoreRankingRepo = lambda: peak_repo
+
+        response = await module.get_jjc_peak_score_details(
+            timestamp="123",
+            score_type="game",
+            range_key="top_1000",
+            kungfu="丐帮",
+            version=1,
+        )
+
+        self.assertEqual(response["status_code"], 1)
+        self.assertEqual(response["status_msg"], "not_found")
+
 
 class TestSyncedRoleRoutes(unittest.IsolatedAsyncioTestCase):
     async def test_role_indicator_forwards_identity_only_flag(self) -> None:

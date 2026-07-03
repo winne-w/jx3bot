@@ -2167,8 +2167,8 @@
             });
         }
 
-        function buildDetailsCacheKey(timestamp, rangeKey, lane, kungfu) {
-            return [timestamp, rangeKey, lane, kungfu].join("::");
+        function buildDetailsCacheKey(source, timestamp, rangeKey, lane, kungfu) {
+            return [source, timestamp, rangeKey, lane, kungfu].join("::");
         }
 
         function buildDetailsUrl(timestamp, rangeKey, lane, kungfu) {
@@ -2176,6 +2176,15 @@
             url.searchParams.set("timestamp", timestamp);
             url.searchParams.set("range", rangeKey);
             url.searchParams.set("lane", lane);
+            url.searchParams.set("kungfu", kungfu);
+            return url.toString();
+        }
+
+        function buildPeakDetailsUrl(timestamp, scoreType, rangeKey, kungfu) {
+            const url = new URL(`${peakScoreApiBase}/details`, window.location.origin);
+            url.searchParams.set("timestamp", timestamp);
+            url.searchParams.set("score_type", scoreType);
+            url.searchParams.set("range", rangeKey);
             url.searchParams.set("kungfu", kungfu);
             return url.toString();
         }
@@ -2340,7 +2349,8 @@
                 return;
             }
 
-            const cacheKey = buildDetailsCacheKey(currentStatsTimestamp, rangeKey, lane, kungfu);
+            const detailSource = currentOuterTab === "peak-game" ? "peak-game" : "ranking";
+            const cacheKey = buildDetailsCacheKey(detailSource, currentStatsTimestamp, rangeKey, lane, kungfu);
             if (detailCache.has(cacheKey)) {
                 detailListNode.innerHTML = renderDetailContent(detailCache.get(cacheKey) || []);
                 detailListNode.dataset.loaded = "true";
@@ -2349,7 +2359,10 @@
 
             detailListNode.innerHTML = "<div class='muted'>正在加载明细...</div>";
             try {
-                const response = await fetch(buildDetailsUrl(currentStatsTimestamp, rangeKey, lane, kungfu), { cache: "no-store" });
+                const detailsUrl = currentOuterTab === "peak-game"
+                    ? buildPeakDetailsUrl(currentStatsTimestamp, "game", rangeKey, kungfu)
+                    : buildDetailsUrl(currentStatsTimestamp, rangeKey, lane, kungfu);
+                const response = await fetch(detailsUrl, { cache: "no-store" });
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }

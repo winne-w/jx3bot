@@ -8,7 +8,7 @@
 
 ## Active
 
-- 暂无。
+- `2026-07-03-jjc-peak-detail-consistency/`: 修复 JJC 统计页“14日游戏最高分排名”分布卡与展开详情口径不一致的问题。
 
 ## Completed
 

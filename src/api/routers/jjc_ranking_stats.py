@@ -60,6 +60,24 @@ def _build_peak_kungfu_statistics(items: List[Dict[str, Any]]) -> Dict[str, Any]
     return lanes
 
 
+async def _load_peak_score_doc(
+    *,
+    timestamp: str,
+    score_type: str,
+    range_key: str,
+    version: int,
+) -> Optional[Dict[str, Any]]:
+    limit = _RANGE_LIMITS.get(range_key)
+    if limit is None:
+        return None
+    return await JjcPeakScoreRankingRepo().load_result(
+        anchor_timestamp=int(timestamp),
+        score_type=score_type,
+        version=version,
+        items_limit=limit,
+    )
+
+
 @router.get("/ranking-stats")
 async def get_ranking_stats(
     action: str = Query("list", description="list 或 read"),
@@ -403,6 +421,62 @@ async def get_jjc_peak_score_ranking(
             len(summaries) if match_ids else 0,
         )
     )
+    return success_response(payload)
+
+
+@router.get("/ranking-stats/peak-score/details")
+async def get_jjc_peak_score_details(
+    timestamp: str = Query(..., description="统计锚点时间戳"),
+    score_type: str = Query(..., description="tuilan 或 game"),
+    range_key: str = Query("top_1000", alias="range", description="排名范围"),
+    kungfu: str = Query(..., description="心法名称"),
+    version: int = Query(1, ge=1, description="统计口径版本"),
+) -> Dict[str, Any]:
+    if not timestamp.isdigit():
+        return error_response("invalid_timestamp")
+    score_type = score_type.strip().lower()
+    if score_type not in {"tuilan", "game"}:
+        return error_response("invalid_score_type")
+    range_key = range_key.strip()
+    limit = _RANGE_LIMITS.get(range_key)
+    if limit is None:
+        return error_response("invalid_range")
+    kungfu = kungfu.strip()
+    if not kungfu:
+        return error_response("invalid_params")
+
+    doc = await _load_peak_score_doc(
+        timestamp=timestamp,
+        score_type=score_type,
+        range_key=range_key,
+        version=version,
+    )
+    if not doc or doc.get("status") != "done":
+        return error_response("not_found")
+
+    raw_items = doc.get("items") or []
+    items = raw_items if isinstance(raw_items, list) else []
+    members: List[Dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_kungfu = str(item.get("kungfu") or "").strip()
+        if item_kungfu != kungfu:
+            continue
+        member = dict(item)
+        if not member.get("name"):
+            member["name"] = member.get("role_name")
+        members.append(member)
+
+    payload = {
+        "timestamp": int(timestamp),
+        "range": range_key,
+        "lane": "dps",
+        "kungfu": kungfu,
+        "score_type": score_type,
+        "version": version,
+        "members": members,
+    }
     return success_response(payload)
 
 
