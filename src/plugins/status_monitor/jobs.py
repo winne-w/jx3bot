@@ -57,6 +57,19 @@ def set_bot_initialized(value: bool) -> None:
     BOT_INITIALIZED = value
 
 
+async def notify_jjc_ranking_failure(bot, detail: str) -> None:
+    message = f"竞技排名定时任务统计失败：{detail}"
+    for admin_qq in getattr(cfg, "ADMIN_QQ", []):
+        try:
+            await bot.send_private_msg(user_id=int(admin_qq), message=message)
+        except Exception as exc:
+            logger.warning(
+                "status_monitor 通知竞技排名统计失败给管理员{}时出错: {}",
+                admin_qq,
+                exc,
+            )
+
+
 def log_startup() -> None:
     logger.info("status_monitor 开服监控已启动，API: {} 延时{}分钟", STATUS_check_API, STATUS_check_time)
     logger.info("status_monitor 新闻监控已启动，API: {} 延时{}分钟", NEWS_API_URL, NEWS_records_time)
@@ -674,20 +687,25 @@ async def push_daily_jjc_ranking():
             ranking_result = await jjc_ranking_service.query_jjc_ranking()
             if not ranking_result:
                 logger.warning("status_monitor 获取竞技场排行榜数据失败：返回为空")
+                await notify_jjc_ranking_failure(bot, "获取竞技场排行榜数据失败：返回为空")
                 return
 
             if ranking_result.get("error"):
+                detail = ranking_result.get("message", "未知错误")
                 logger.warning(
                     "status_monitor 获取竞技场排行榜数据失败：{}",
-                    ranking_result.get("message", "未知错误"),
+                    detail,
                 )
+                await notify_jjc_ranking_failure(bot, f"获取竞技场排行榜数据失败：{detail}")
                 return
 
             if ranking_result.get("code") != 0:
+                detail = ranking_result.get("code")
                 logger.warning(
                     "status_monitor 获取竞技场排行榜数据失败：API返回错误码 {}",
-                    ranking_result.get("code"),
+                    detail,
                 )
+                await notify_jjc_ranking_failure(bot, f"获取竞技场排行榜数据失败：API返回错误码 {detail}")
                 return
 
             default_week = ranking_result.get("defaultWeek")
@@ -701,18 +719,22 @@ async def push_daily_jjc_ranking():
             ranking_data = await jjc_ranking_service.get_ranking_kungfu_data(ranking_data=ranking_result)
             if not ranking_data:
                 logger.warning("status_monitor 获取心法统计数据失败：返回为空")
+                await notify_jjc_ranking_failure(bot, "获取心法统计数据失败：返回为空")
                 return
 
             if ranking_data.get("error"):
+                detail = ranking_data.get("message", "未知错误")
                 logger.warning(
                     "status_monitor 获取心法统计数据失败：{}",
-                    ranking_data.get("message", "未知错误"),
+                    detail,
                 )
+                await notify_jjc_ranking_failure(bot, f"获取心法统计数据失败：{detail}")
                 return
 
             stats = ranking_data.get("kungfu_statistics", {})
             if not stats:
                 logger.warning("status_monitor 心法统计数据为空")
+                await notify_jjc_ranking_failure(bot, "心法统计数据为空")
                 return
 
             payload = await render_combined_ranking_image(
@@ -725,6 +747,7 @@ async def push_daily_jjc_ranking():
             )
             if not payload:
                 logger.warning("status_monitor 渲染竞技场统计图失败")
+                await notify_jjc_ranking_failure(bot, "渲染竞技场统计图失败")
                 return
 
             jjc_ranking_service.save_ranking_stats(
@@ -766,3 +789,4 @@ async def push_daily_jjc_ranking():
 
         except Exception as e:
             logger.warning("status_monitor 每日竞技排名推送任务出错: {}", e)
+            await notify_jjc_ranking_failure(bot, f"每日竞技排名推送任务出错：{e}")

@@ -8,6 +8,7 @@
 
 ## Completed
 
+- `completed/jjc-ranking-admin-error-notification-plan.md`: JJC 排名定时任务统计失败时私聊管理员报错信息计划
 - `completed/jjc-queue-sync-window-plan.md`: JJC 队列一次性同步窗口、默认 full 与排名 7 天入队计划
 - `completed/jjc-match-detail-player-navigation-plan.md`: JJC 对局详情玩家跳转对局查询计划
 - `completed/development-flow-requirements-gate-plan.md`: 开发流程迁移到需求目录体系计划
