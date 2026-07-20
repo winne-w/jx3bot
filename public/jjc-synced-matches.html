@@ -1349,7 +1349,7 @@
             const url = new URL(roleIndicatorApiBase, window.location.origin);
             url.searchParams.set("server", server);
             url.searchParams.set("name", name);
-            ["game_role_id", "global_role_id", "role_id", "zone"].forEach((key) => {
+            ["game_role_id", "global_role_id", "global_id", "role_id", "zone"].forEach((key) => {
                 if (identityHints && identityHints[key]) {
                     url.searchParams.set(key, identityHints[key]);
                 }
@@ -1404,7 +1404,8 @@
                 `).join("");
             }
             if (indicatorData && indicatorData.error) {
-                return `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">赛季战绩暂时不可用</strong><span>稍后再试</span></div>`;
+                const errorMessage = indicatorData.message || "稍后再试";
+                return `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">赛季战绩暂时不可用</strong><span>${escapeHtml(errorMessage)}</span></div>`;
             }
             return `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">正在加载赛季战绩...</strong><span>请稍候</span></div>`;
         }
@@ -1783,7 +1784,8 @@
                 }
                 return data;
             } catch (error) {
-                const data = { error: true, message: error.message || "indicator_unavailable" };
+                const message = error.data && error.data.message ? error.data.message : error.message;
+                const data = { error: true, message: message || "indicator_unavailable" };
                 if (getIndicatorCacheKey(currentRole) === cacheKey) {
                     updateRoleOverviewIndicator(data);
                 }

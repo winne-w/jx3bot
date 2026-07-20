@@ -21,6 +21,13 @@ class TestJjcRankingStatsFrontendCopy(unittest.TestCase):
         self.assertIn("currentOuterTab === \"peak-game\"", content)
         self.assertIn("buildPeakDetailsUrl(currentStatsTimestamp, \"game\", rangeKey, kungfu)", content)
 
+    def test_synced_matches_role_indicator_preserves_global_id_and_error_message(self) -> None:
+        content = Path("public/jjc-synced-matches.html").read_text(encoding="utf-8")
+
+        self.assertIn('["game_role_id", "global_role_id", "global_id", "role_id", "zone"]', content)
+        self.assertIn("const errorMessage = indicatorData.message || \"稍后再试\";", content)
+        self.assertIn("escapeHtml(errorMessage)", content)
+
 
 if __name__ == "__main__":
     unittest.main()
