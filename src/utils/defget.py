@@ -7,6 +7,7 @@ import asyncio
 from config import IMAGE_CACHE_DIR
 
 from src.infra.http_client import HttpClient
+from src.infra.jx3api_compat import normalize_jx3api_response
 from src.infra.browser_storage import download_json_from_local_storage
 from src.infra.image_fetch import mp_image
 from src.infra.screenshot import jietu, jx3web
@@ -76,7 +77,8 @@ async def get_image(server, role_name,free=None):
 #交易行get
 async def fetch_json(url: str) -> dict:
     http_client = HttpClient(timeout=30.0, retries=2, backoff_seconds=0.5, verify=False)
-    return await http_client.arequest_json("GET", url, verify=False)
+    response = await http_client.arequest_json("GET", url, verify=False)
+    return normalize_jx3api_response(url, response)
 
 
 async def jiaoyiget(url: str) -> dict:

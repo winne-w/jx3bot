@@ -33,7 +33,7 @@ def register(
         try:
             await download_json()
 
-            fresh_data = await jiaoyiget("https://www.jx3api.com/data/status/check")
+            fresh_data = await jiaoyiget("https://www.jx3api.com/server/status/check")
             token_data = None
 
             data_obj = json.loads(fresh_data) if isinstance(fresh_data, str) else fresh_data

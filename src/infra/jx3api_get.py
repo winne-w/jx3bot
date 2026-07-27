@@ -8,6 +8,7 @@ from typing import Any, Optional
 from cacheout import Cache
 
 from src.infra.http_client import HttpClient
+from src.infra.jx3api_compat import normalize_jx3api_response
 
 try:
     from nonebot import logger  # type: ignore
@@ -124,6 +125,7 @@ async def get(
 
     http_client = HttpClient(timeout=30.0, retries=2, backoff_seconds=0.5, verify=False)
     data = await http_client.arequest_json("GET", url, params=params, verify=False)
+    data = normalize_jx3api_response(url, data)
     if isinstance(data, dict) and not data.get("error"):
         _cache.set(cache_key, data)
     return data

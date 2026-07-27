@@ -23,14 +23,14 @@ TICKET = ""
 
 # API接口地址
 API_URLS = {
-    "烟花查询": "https://www.jx3api.com/data/show/records",
-    "奇遇查询": "https://www.jx3api.com/data/event/records",
+    "烟花查询": "https://www.jx3api.com/firework/records",
+    "奇遇查询": "https://www.jx3api.com/event/records",
     "装备查询": "",
-    "竞技查询": "https://www.jx3api.com/data/arena/recent",
+    "竞技查询": "https://www.jx3api.com/arena/recent",
     "副本查询": "",
-    "名片查询": "https://www.jx3api.com/data/card/record",
-    "百战查询": "https://www.jx3api.com/data/role/monster",
-    "资历查询": "https://www.jx3api.com/data/tuilan/achievement",
+    "名片查询": "https://www.jx3api.com/card/record",
+    "百战查询": "https://www.jx3api.com/monster/records",
+    "资历查询": "https://www.jx3api.com/tuilan/achievement",
     "竞技场时间查询": "https://m.pvp.xoyo.com/3c/mine/arena/time-tag",
     "竞技场排行榜查询": "https://m.pvp.xoyo.com/3c/mine/arena/top200",
     "竞技场战局历史": "https://m.pvp.xoyo.com/3c/mine/match/history",
@@ -38,7 +38,6 @@ API_URLS = {
     "竞技场战局详情": "https://m.pvp.xoyo.com/3c/mine/match/detail",
     "竞技场战局回放": "https://m.pvp.xoyo.com/3c/mine/match/replay",
     "推栏角色指标": "https://m.pvp.xoyo.com/role/indicator",
-    "区服主服查询": "https://www.jx3api.com/data/master/search",
 }
 
 # 默认服务器
@@ -98,11 +97,11 @@ STATUS_check_time = 3   # 分钟检查一次服务器状态
 NEWS_records_time = 30  # 分钟检查一次 新闻技改
 calendar_time = 9  # 每天9点推送日常
 mail = "用于qq掉线提醒 邮箱的tk"
-STATUS_check_API = "https://www.jx3api.com/data/status/check"  
+STATUS_check_API = "https://www.jx3api.com/server/status/check"
 # 新闻技改监控配置
-NEWS_API_URL = "https://www.jx3api.com/data/news/allnews?limit=3"  # 新闻API地址
-SKILL_records_URL = "https://www.jx3api.com/data/skill/rework"  # 技改API地址
-calendar_URL = "https://www.jx3api.com/data/active/calendar"   #活动日常
+NEWS_API_URL = "https://www.jx3api.com/news/records?limit=3"  # 新闻API地址
+SKILL_records_URL = "https://www.jx3api.com/skill/rework"  # 技改API地址
+calendar_URL = "https://www.jx3api.com/active/calendar"   #活动日常
 jx3box_URL = "https://cms.jx3box.com/api/cms/config/banner?client=std&type=code"   #福利
 
 # status_monitor 邮件通知配置（避免在代码中硬编码）

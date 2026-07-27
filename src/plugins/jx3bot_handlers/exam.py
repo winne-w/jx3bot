@@ -20,7 +20,7 @@ def register(
     ) -> None:
         subject = foo[0]
         query = urlencode({"subject": subject, "limit": 20})
-        data = await jiaoyiget(f"https://www.jx3api.com/data/exam/search?{query}")
+        data = await jiaoyiget(f"https://www.jx3api.com/exam/search?{query}")
         check_question = format_questions_reply(data)
         await bot.send(
             event, MessageSegment.at(event.user_id) + Message(f"\n{check_question}")

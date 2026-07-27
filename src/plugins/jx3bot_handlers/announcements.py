@@ -5,6 +5,7 @@ from typing import Any, Annotated, Callable
 from nonebot.adapters.onebot.v11 import Bot, Event
 from nonebot.params import RegexGroup
 
+from config import NEWS_API_URL
 from src.services.jx3.announcements import format_time, parse_updates, parse_updateshuodong, parse_updatesnew
 
 
@@ -21,7 +22,7 @@ def register(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
         try:
-            data = await jiaoyiget("https://www.jx3api.com/data/news/allnews?limit=50")
+            data = await jiaoyiget(NEWS_API_URL.replace("limit=3", "limit=50"))
             records = parse_updateshuodong(data, keyword="活动")
             if not records:
                 await bot.send(event, "未找活动相关公告")
@@ -45,7 +46,7 @@ def register(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
         try:
-            data = await jiaoyiget("https://www.jx3api.com/data/news/announce?limit=5")
+            data = await jiaoyiget("https://www.jx3api.com/news/announce?limit=5")
             records = parse_updatesnew(data, keyword="版本")
             if not records:
                 await bot.send(event, "未找到版本更新公告")

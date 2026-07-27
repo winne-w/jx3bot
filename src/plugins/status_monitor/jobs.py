@@ -20,6 +20,7 @@ from src.renderers.jx3.jjc_ranking import render_combined_ranking_image
 
 from .notify import get_NapCat_data, send_email_via_163
 from .storage import CacheManager, load_id_set, save_id_set
+from src.infra.jx3api_compat import normalize_jx3api_response
 
 try:
     from config import (
@@ -183,7 +184,7 @@ async def get_gte_data(url, server):
             if response.status_code != 200:
                 logger.warning("status_monitor 日常API返回错误: {}", response.status_code)
                 return None
-            return response.json()
+            return normalize_jx3api_response(url, response.json())
     except Exception as e:
         logger.warning("status_monitor 请求日常API失败: {}", e)
         return None
@@ -196,7 +197,7 @@ async def get_server_status():
             if response.status_code != 200:
                 logger.warning("status_monitor 开服监测API返回错误: {}", response.status_code)
                 return None
-            return response.json()
+            return normalize_jx3api_response(STATUS_check_API, response.json())
     except Exception as e:
         logger.warning("status_monitor 开服监测请求失败: {}", e)
         return None
@@ -205,11 +206,11 @@ async def get_server_status():
 async def get_server_banben():
     try:
         async with httpx.AsyncClient(verify=False) as client:
-            response = await client.get("https://www.jx3api.com/data/news/announce")
+            response = await client.get("https://www.jx3api.com/news/announce")
             if response.status_code != 200:
                 logger.warning("status_monitor 公告API返回错误: {}", response.status_code)
                 return None
-            return response.json()
+            return normalize_jx3api_response("https://www.jx3api.com/news/announce", response.json())
     except Exception as e:
         logger.warning("status_monitor 公告请求失败: {}", e)
         return None
@@ -222,7 +223,7 @@ async def get_news_data():
             if response.status_code != 200:
                 logger.warning("status_monitor 新闻API返回错误: {}", response.status_code)
                 return None
-            return response.json()
+            return normalize_jx3api_response(NEWS_API_URL, response.json())
     except Exception as e:
         logger.warning("status_monitor 请求新闻API失败: {}", e)
         return None
@@ -235,7 +236,7 @@ async def get_records_data():
             if response.status_code != 200:
                 logger.warning("status_monitor 技改API返回错误: {}", response.status_code)
                 return None
-            return response.json()
+            return normalize_jx3api_response(SKILL_records_URL, response.json())
     except Exception as e:
         logger.warning("status_monitor 请求技改API失败: {}", e)
         return None
@@ -507,7 +508,7 @@ async def check_status():
             return
 
         current_details = {s["server"]: s for s in data.get("data", [])}
-        current = {server: info["status"] for server, info in current_details.items()}
+        current = {server: info.get("legacyStatus", info["status"]) for server, info in current_details.items()}
         current_time = int(time.time())
 
         status_history = await CacheManager.load_cache("status_history", {})
@@ -572,7 +573,7 @@ async def check_status():
                         zone = server_info["zone"]
                         if zone.endswith("区"):
                             zone = zone[:-1] + "大区"
-                        status = server_info["status"]
+                        status = server_info.get("legacyStatus", server_info["status"])
 
                         server_history = status_history.get(
                             bound_server, {"last_maintenance": None, "last_open": None}

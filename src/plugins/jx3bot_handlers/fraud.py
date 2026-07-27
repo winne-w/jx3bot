@@ -25,6 +25,6 @@ def register(
             return
 
         query = urlencode({"uid": uid})
-        data = await get(f"https://www.jx3api.com/data/fraud/detail?{query}", token=token)
+        data = await get(f"https://www.jx3api.com/fraud/detail?{query}", token=token)
         formatted_reply = format_scammer_reply(data)
         await bot.send(event, MessageSegment.at(event.user_id) + Message(f"\n{formatted_reply}"))

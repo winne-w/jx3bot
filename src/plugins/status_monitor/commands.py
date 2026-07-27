@@ -139,7 +139,7 @@ async def handle_kf_query(event: GroupMessageEvent):
             await gtekf_cmd.send("未找到绑定的服务器")
             return
 
-        gte_data = await get_gte_data(url="https://www.jx3api.com/data/status/check", server=server)
+        gte_data = await get_gte_data(url="https://www.jx3api.com/server/status/check", server=server)
         if not gte_data or "data" not in gte_data:
             await gtekf_cmd.send(f"获取服务器 {server} 的开服数据失败")
             return
