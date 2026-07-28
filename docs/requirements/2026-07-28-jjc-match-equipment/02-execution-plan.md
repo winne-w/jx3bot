@@ -9,16 +9,18 @@
 ## Progress
 
 - [x] 已确认需求、方案和设计。
-- [ ] 补齐 JX3API 角色详情身份回写。
-- [ ] 实现最近 3v3 装备查询 service。
-- [ ] 接入 QQ 命令与模板。
-- [ ] 完成验证、review 与验收记录。
+- [x] 补齐 JX3API 角色详情身份回写。
+- [x] 实现最近 3v3 装备查询 service。
+- [x] 接入 QQ 命令与模板。
+- [x] 完成验证、review 与验收记录。
 
 ## Surprises & Discoveries
 
 - `role_identities` 可按规范化同服同名选最佳身份，但普通角色可能缺失 `role_id`、`game_role_id`、`zone`。
 - history 必须按 `pvp_type=3` 过滤并按 `match_time/start_time` 倒序，不能依赖上游顺序。
 - 现有 `装备查询.html` 消费下线接口的 `panelList/equipList`，不能消费 `armors/metrics/body_qualities`。
+- 2026-07-28 验证中，141 个指定单元测试通过；测试输出中的身份归档、快照缺失与参与者投影 warning 是 mock 异常分支的预期日志，未形成失败。
+- 本次没有可安全复用的真实 QQ/OneBot 与在线角色环境，因此未执行 QQ 运行时成功图或失败提示冒烟；此项保留为部署后手工回归，不以离线单测替代。
 
 ## Decision Log
 
@@ -29,7 +31,7 @@
 
 ## Outcomes & Retrospective
 
-尚未实施。完成后记录线上成功率、身份补齐命中率、回归结果与剩余上游风险。
+实现、离线验证、review 与验收记录已完成。2026-07-28 执行了指定的 141 项单元测试、相关文件的 Python 编译检查和 `git diff --check`，均以退出码 0 结束。离线覆盖了本地身份命中、JX3API 身份补齐回写、最新 3v3 选择、同服同名精确匹配、无对局/详情/装备及上游失败、渲染快照声明和 handler 失败提示。真实 QQ、Mongo 和上游 JX3API/推栏联通性仍依赖部署环境；查询链路设计上不会以 Mongo 历史对局或装备快照作 fallback。
 
 ## Context and Orientation
 
