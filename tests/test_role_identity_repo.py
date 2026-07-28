@@ -170,6 +170,27 @@ class CandidateDb:
 
 
 class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
+    async def test_upsert_from_jx3api_role_detail_maps_role_identity_fields(self) -> None:
+        db = FakeDb()
+        repo = RoleIdentityRepo(db=db)
+
+        await repo.upsert_from_jx3api_role_detail(
+            server="唯我独尊",
+            name="桃桃白糖",
+            zone="电信区",
+            role_id="29528125",
+            global_id="270215977651548656",
+        )
+
+        saved = db.role_identities.insert_one.call_args.args[0]
+        self.assertEqual(saved["server"], "唯我独尊")
+        self.assertEqual(saved["name"], "桃桃白糖")
+        self.assertEqual(saved["zone"], "电信区")
+        self.assertEqual(saved["role_id"], "29528125")
+        self.assertEqual(saved["game_role_id"], "29528125")
+        self.assertEqual(saved["global_id"], "270215977651548656")
+        self.assertEqual(saved["sources"], ["jx3api_role_detail"])
+
     async def test_match_detail_does_not_overwrite_existing_current_server_name(self) -> None:
         db = FakeDb()
         existing = {
