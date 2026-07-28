@@ -92,6 +92,9 @@ def build_latest_match_equipment_spec(
         formatted_time = time_filter(match_time)
 
     render_snapshot = dict(snapshot)
+    for collection_name in ("armors", "metrics", "body_qualities"):
+        if not isinstance(render_snapshot.get(collection_name), list):
+            render_snapshot[collection_name] = []
     total_score = _score(snapshot.get("equip_score"))
     strength_score = _score(snapshot.get("equip_strength_score"))
     stone_score = _score(snapshot.get("stone_score"))

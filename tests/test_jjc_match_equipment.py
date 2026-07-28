@@ -206,6 +206,23 @@ class TestEquipmentRenderSpec(unittest.TestCase):
         self.assertIn("&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", html)
         self.assertIn("&#34; onerror=&#34;alert(1)", html)
 
+    def test_builder_normalizes_missing_snapshot_collections_for_template_rendering(self) -> None:
+        spec = build_latest_match_equipment_spec(
+            snapshot={**SNAPSHOT, "armors": None, "metrics": "invalid", "body_qualities": None},
+            random_text="x",
+            time_filter=lambda timestamp: "2026年05月28日 12:00:00",
+        )
+
+        self.assertEqual(spec.context["snapshot"]["armors"], [])
+        self.assertEqual(spec.context["snapshot"]["metrics"], [])
+        self.assertEqual(spec.context["snapshot"]["body_qualities"], [])
+        html = Environment(loader=FileSystemLoader("templates")).get_template(
+            spec.template_name
+        ).render(**spec.context)
+        self.assertIn("该对局没有可展示的装备。", html)
+        self.assertIn("暂无属性指标", html)
+        self.assertIn("暂无体质属性", html)
+
 
 class CapturingMatcher:
     def __init__(self) -> None:
@@ -260,6 +277,32 @@ class TestEquipmentQueryHandler(unittest.IsolatedAsyncioTestCase):
                     logger_mock.exception.assert_called_once()
                 else:
                     logger_mock.warning.assert_called_once()
+
+    async def test_zhuangfen_handler_renders_when_snapshot_collections_are_invalid(self) -> None:
+        zhuangfen_matcher = CapturingMatcher()
+        query_handlers.register(
+            env=Environment(loader=FileSystemLoader("templates")),
+            yanhua_matcher=CapturingMatcher(),
+            qiyu_matcher=CapturingMatcher(),
+            zhuangfen_matcher=zhuangfen_matcher,
+            jjc_matcher=CapturingMatcher(),
+            fuben_matcher=CapturingMatcher(),
+        )
+        handler = zhuangfen_matcher.handlers[0]
+        result = {"ok": True, "snapshot": {**SNAPSHOT, "armors": None, "metrics": {}, "body_qualities": None}}
+        render_mock = AsyncMock()
+
+        with patch.object(
+            query_handlers,
+            "resolve_server_and_name",
+            new=AsyncMock(return_value=("唯我独尊", "桃桃白糖")),
+        ), patch.object(query_handlers.jjc_match_equipment_service, "query", AsyncMock(return_value=result)), patch.object(
+            query_handlers, "render_and_send_template_image", render_mock
+        ), patch.object(query_handlers, "send_text", new=AsyncMock()) as send_text_mock:
+            await handler(MagicMock(), MagicMock(user_id=123, group_id=456), ())
+
+        render_mock.assert_awaited_once()
+        send_text_mock.assert_not_awaited()
 
 
 class TestJjcMatchEquipmentService(unittest.IsolatedAsyncioTestCase):
