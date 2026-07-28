@@ -2,6 +2,8 @@ import unittest
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock
 
+from jinja2 import Environment, FileSystemLoader
+
 from src.services.jx3.match_detail import (
     MatchDetailArmor,
     MatchDetailBasicInfo,
@@ -108,6 +110,45 @@ class TestEquipmentRenderSpec(unittest.TestCase):
             set(spec.context),
             {"title", "snapshot", "match_time_label", "text"},
         )
+
+    def test_equipment_template_renders_complete_snapshot_details(self) -> None:
+        snapshot = {
+            **SNAPSHOT,
+            "armors": [{
+                "icon": "https://example.com/armor.png",
+                "name": "测试破军甲",
+                "quality": "精良",
+                "strength_evel": "8",
+                "permanent_enchant": "永久附魔测试",
+                "temporary_enchant": "临时附魔测试",
+                "mount1": "五彩石一",
+                "mount2": "五彩石二",
+                "mount3": "五彩石三",
+                "mount4": "五彩石四",
+            }],
+            "metrics": [{"name": "会心", "value": 1234, "grade": "优秀"}],
+            "body_qualities": [{"name": "体质", "value": "5678"}],
+        }
+        spec = build_latest_match_equipment_spec(
+            snapshot=snapshot,
+            random_text="x",
+            time_filter=lambda timestamp: "2026年05月28日 12:00:00",
+        )
+
+        html = Environment(loader=FileSystemLoader("templates")).get_template(
+            spec.template_name
+        ).render(**spec.context)
+
+        for expected in (
+            "对局时间：2026年05月28日 12:00:00",
+            "数据为最近 3v3 对局发生时的装备快照，不代表当前实时面板",
+            "总装分", "12345", "装备分", "9655", "精炼分", "2345", "五彩石分", "345",
+            "测试破军甲", "精炼：8", "永久附魔：永久附魔测试", "临时附魔：临时附魔测试",
+            "五彩石 1：五彩石一", "五彩石 2：五彩石二",
+            "五彩石 3：五彩石三", "五彩石 4：五彩石四",
+            "会心", "1234", "优秀", "体质", "5678",
+        ):
+            self.assertIn(expected, html)
 
 
 class TestJjcMatchEquipmentService(unittest.IsolatedAsyncioTestCase):
