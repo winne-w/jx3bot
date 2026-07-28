@@ -234,7 +234,12 @@ class TestEquipmentQueryHandler(unittest.IsolatedAsyncioTestCase):
         bot = MagicMock()
         event = MagicMock(user_id=123, group_id=456)
 
-        for result in (RuntimeError("upstream down"), None, {"ok": True, "snapshot": None}):
+        for result in (
+            RuntimeError("upstream down"),
+            None,
+            {"ok": True, "snapshot": None},
+            {"ok": True, "snapshot": {"match_time": "not-a-timestamp"}},
+        ):
             with self.subTest(result=result), patch.object(
                 query_handlers,
                 "resolve_server_and_name",
@@ -249,7 +254,9 @@ class TestEquipmentQueryHandler(unittest.IsolatedAsyncioTestCase):
                 send_text_mock.assert_awaited_once_with(
                     bot, event, "装备快照查询失败，请稍后重试", at_user=True
                 )
-                if isinstance(result, Exception):
+                if isinstance(result, Exception) or result == {
+                    "ok": True, "snapshot": {"match_time": "not-a-timestamp"}
+                }:
                     logger_mock.exception.assert_called_once()
                 else:
                     logger_mock.warning.assert_called_once()

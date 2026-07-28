@@ -162,11 +162,20 @@ def register(
             await send_text(bot, event, "装备快照查询失败，请稍后重试", at_user=True)
             return
 
-        spec = build_latest_match_equipment_spec(
-            snapshot=snapshot,
-            random_text=suijitext(),
-            time_filter=timestamp_jjc,
-        )
+        try:
+            spec = build_latest_match_equipment_spec(
+                snapshot=snapshot,
+                random_text=suijitext(),
+                time_filter=timestamp_jjc,
+            )
+        except Exception:
+            logger.exception(
+                "最近 3v3 装备快照渲染数据构建失败: server={} role_name={}",
+                server,
+                role_name,
+            )
+            await send_text(bot, event, "装备快照查询失败，请稍后重试", at_user=True)
+            return
         apply_filters(env, spec.filters)
         await render_and_send_template_image(
             bot,

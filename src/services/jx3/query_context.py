@@ -85,7 +85,7 @@ def build_latest_match_equipment_spec(
     time_filter: Callable[..., Any],
 ) -> RenderSpec:
     """Build the template context for a latest-3v3 equipment snapshot."""
-    match_time = int(snapshot.get("match_time") or 0)
+    match_time = _match_time(snapshot.get("match_time"))
     try:
         formatted_time = time_filter(match_time, "%Y年%m月%d日 %H:%M:%S")
     except TypeError:
@@ -116,6 +116,15 @@ def _score(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _match_time(value: Any) -> int:
+    if value is None or isinstance(value, bool):
+        raise ValueError("最近 3v3 装备快照缺少有效对局时间")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("最近 3v3 装备快照缺少有效对局时间") from exc
 
 
 def build_fuben_spec(
