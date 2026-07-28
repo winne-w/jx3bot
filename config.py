@@ -26,6 +26,7 @@ API_URLS = {
     "烟花查询": "https://www.jx3api.com/firework/records",
     "奇遇查询": "https://www.jx3api.com/event/records",
     "装备查询": "",
+    "角色详情": "https://www.jx3api.com/role/detail",
     "竞技查询": "https://www.jx3api.com/arena/recent",
     "副本查询": "",
     "名片查询": "https://www.jx3api.com/card/record",

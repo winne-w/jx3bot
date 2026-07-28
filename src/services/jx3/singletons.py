@@ -10,6 +10,7 @@ from src.storage.mongo_repos.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
 from src.services.jx3.jjc_match_data_sync import JjcMatchDataSyncService
+from src.services.jx3.jjc_match_equipment import JjcMatchEquipmentService
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.kungfu import get_role_indicator
@@ -140,4 +141,19 @@ jjc_match_data_sync_service = JjcMatchDataSyncService(
     dispatcher_idle_sleep=getattr(cfg, "JJC_SYNC_DISPATCHER_IDLE_SLEEP", 10),
     dispatcher_batch_size=getattr(cfg, "JJC_SYNC_DISPATCHER_BATCH_SIZE", 20),
     dispatcher_target_per_worker=getattr(cfg, "JJC_SYNC_DISPATCHER_TARGET_PER_WORKER", 3),
+)
+
+jjc_match_equipment_service = JjcMatchEquipmentService(
+    identity_repo=role_identity_repo,
+    role_detail_fetcher=lambda **kwargs: get(
+        cfg.API_URLS["角色详情"], token=cfg.TOKEN, **kwargs
+    ),
+    role_indicator_fetcher=get_role_indicator,
+    match_history_client=match_history_client,
+    match_detail_client=match_detail_client,
+    tuilan_request=tuilan_request,
+    cache_repo=JjcCacheRepo(
+        jjc_ranking_cache_duration=JJC_RANKING_CACHE_DURATION,
+        kungfu_cache_duration=KUNGFU_CACHE_DURATION,
+    ),
 )
