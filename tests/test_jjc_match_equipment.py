@@ -190,3 +190,36 @@ class TestJjcMatchEquipmentService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["code"], "no_recent_3v3")
         self.assertEqual(self.detail.calls, [])
+
+    async def test_query_returns_history_error_when_upstream_returns_error(self) -> None:
+        service = self.make_service(
+            {"role_id": "29528125", "zone": "电信区"}, [], make_detail(make_player())
+        )
+        self.history.get_mine_match_history = lambda **kwargs: {"error": "upstream down"}
+
+        result = await service.query(server="唯我独尊", name="桃桃白糖")
+
+        self.assertEqual(result, {"ok": False, "code": "match_history_unavailable", "message": "最近 3v3 对局历史查询失败"})
+
+    async def test_query_returns_history_error_when_history_call_raises(self) -> None:
+        service = self.make_service(
+            {"role_id": "29528125", "zone": "电信区"}, [], make_detail(make_player())
+        )
+
+        def raise_history_error(**kwargs: Any) -> Dict[str, Any]:
+            raise RuntimeError("upstream down")
+
+        self.history.get_mine_match_history = raise_history_error
+        result = await service.query(server="唯我独尊", name="桃桃白糖")
+
+        self.assertEqual(result, {"ok": False, "code": "match_history_unavailable", "message": "最近 3v3 对局历史查询失败"})
+
+    async def test_query_returns_history_error_for_non_success_response(self) -> None:
+        service = self.make_service(
+            {"role_id": "29528125", "zone": "电信区"}, [], make_detail(make_player())
+        )
+        self.history.get_mine_match_history = lambda **kwargs: {"code": 1, "msg": "failed", "data": []}
+
+        result = await service.query(server="唯我独尊", name="桃桃白糖")
+
+        self.assertEqual(result, {"ok": False, "code": "match_history_unavailable", "message": "最近 3v3 对局历史查询失败"})

@@ -145,6 +145,15 @@ class JjcMatchEquipmentService:
         return {"match_id": match_id, "match_time": match_time, "raw": item}
 
     @staticmethod
+    def _history_is_unavailable(history: Any) -> bool:
+        if not isinstance(history, dict) or history.get("error"):
+            return True
+        if "code" in history and _int(history.get("code")) != 0:
+            return True
+        message = _text(history.get("msg"))
+        return bool(message and message.casefold() not in {"success", "ok", "成功"})
+
+    @staticmethod
     def _find_player(detail: Any, server: str, name: str) -> Optional[Any]:
         data = _value(detail, "data")
         if data is None:
@@ -220,6 +229,8 @@ class JjcMatchEquipmentService:
             )
         except Exception:
             history = None
+        if self._history_is_unavailable(history):
+            return self._failure("match_history_unavailable", "最近 3v3 对局历史查询失败")
         match = self._latest_3v3(history)
         if match is None:
             return self._failure("no_recent_3v3", "未找到最近 3v3 对局")
