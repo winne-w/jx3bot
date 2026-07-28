@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>{{ title }}</title>
+    <title>{{ title | e }}</title>
     <style>
         * { box-sizing: border-box; }
         body { margin: 0; padding: 28px; color: #263238; background: #f3f6f8; font-family: "Microsoft YaHei", sans-serif; }
@@ -34,22 +34,22 @@
 <body>
     <main class="card">
         <header>
-            <h1>{{ title }}</h1>
+            <h1>{{ title | e }}</h1>
             <div class="identity">
-                <span>角色：{{ snapshot.role_name }}</span>
-                <span>区服：{{ snapshot.server }}</span>
-                <span>心法：{{ snapshot.kungfu or "未知" }}</span>
+                <span>角色：{{ snapshot.role_name | e }}</span>
+                <span>区服：{{ snapshot.server | e }}</span>
+                <span>心法：{{ (snapshot.kungfu or "未知") | e }}</span>
             </div>
-            <div class="time">{{ match_time_label }}</div>
+            <div class="time">{{ match_time_label | e }}</div>
         </header>
 
         <section class="section">
             <h2>装分</h2>
             <div class="scores">
-                <div class="score">总装分<strong>{{ snapshot.total_score }}</strong></div>
-                <div class="score">装备分<strong>{{ snapshot.equipment_score }}</strong></div>
-                <div class="score">精炼分<strong>{{ snapshot.equip_strength_score or 0 }}</strong></div>
-                <div class="score">五彩石分<strong>{{ snapshot.stone_score or 0 }}</strong></div>
+                <div class="score">总装分<strong>{{ snapshot.total_score | e }}</strong></div>
+                <div class="score">装备分<strong>{{ snapshot.equipment_score | e }}</strong></div>
+                <div class="score">精炼分<strong>{{ (snapshot.equip_strength_score or 0) | e }}</strong></div>
+                <div class="score">五彩石分<strong>{{ (snapshot.stone_score or 0) | e }}</strong></div>
             </div>
         </section>
 
@@ -58,20 +58,20 @@
             {% for armor in snapshot.armors %}
             <article class="armor">
                 {% if armor.icon %}
-                <img src="{{ armor.icon }}" alt="{{ armor.name }}">
+                <img src="{{ armor.icon | e }}" alt="{{ armor.name | e }}">
                 {% else %}
                 <div class="icon-placeholder"></div>
                 {% endif %}
                 <div>
-                    <div class="armor-name">{{ armor.name or "未知装备" }}（{{ armor.quality or "未知品质" }}）</div>
+                    <div class="armor-name">{{ (armor.name or "未知装备") | e }}（{{ (armor.quality or "未知品质") | e }}）</div>
                     <div class="armor-meta">
-                        <span>精炼：{{ armor.strength_evel or "无" }}</span>
-                        <span>永久附魔：{{ armor.permanent_enchant or "无" }}</span>
-                        <span>临时附魔：{{ armor.temporary_enchant or "无" }}</span>
-                        <span>五彩石 1：{{ armor.mount1 or "无" }}</span>
-                        <span>五彩石 2：{{ armor.mount2 or "无" }}</span>
-                        <span>五彩石 3：{{ armor.mount3 or "无" }}</span>
-                        <span>五彩石 4：{{ armor.mount4 or "无" }}</span>
+                        <span>精炼：{{ (armor.strength_evel or "无") | e }}</span>
+                        <span>永久附魔：{{ (armor.permanent_enchant or "无") | e }}</span>
+                        <span>临时附魔：{{ (armor.temporary_enchant or "无") | e }}</span>
+                        <span>五彩石 1：{{ (armor.mount1 or "无") | e }}</span>
+                        <span>五彩石 2：{{ (armor.mount2 or "无") | e }}</span>
+                        <span>五彩石 3：{{ (armor.mount3 or "无") | e }}</span>
+                        <span>五彩石 4：{{ (armor.mount4 or "无") | e }}</span>
                     </div>
                 </div>
             </article>
@@ -85,7 +85,7 @@
                 <h2>属性指标</h2>
                 <div class="attributes">
                     {% for metric in snapshot.metrics %}
-                    <span class="attribute"><b>{{ metric.name }}</b>：{{ metric.value }}{% if metric.grade %} {{ metric.grade }}{% endif %}</span>
+                    <span class="attribute"><b>{{ metric.name | e }}</b>：{{ metric.value | e }}{% if metric.grade %} {{ metric.grade | e }}{% endif %}</span>
                     {% else %}
                     <span class="empty">暂无属性指标</span>
                     {% endfor %}
@@ -95,7 +95,7 @@
                 <h2>体质属性</h2>
                 <div class="attributes">
                     {% for quality in snapshot.body_qualities %}
-                    <span class="attribute"><b>{{ quality.name }}</b>：{{ quality.value }}</span>
+                    <span class="attribute"><b>{{ quality.name | e }}</b>：{{ quality.value | e }}</span>
                     {% else %}
                     <span class="empty">暂无体质属性</span>
                     {% endfor %}
@@ -105,7 +105,7 @@
 
         <footer>
             <div>数据为最近 3v3 对局发生时的装备快照，不代表当前实时面板</div>
-            <div class="random-text">{{ text }}</div>
+            <div class="random-text">{{ text | e }}</div>
         </footer>
     </main>
 </body>

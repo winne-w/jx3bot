@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Annotated
 
 from jinja2 import Environment
+from nonebot import logger
 from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
 from nonebot.params import RegexGroup
 
@@ -122,13 +123,47 @@ def register(
             await send_text(bot, event, exc.message, at_user=True)
             return
 
-        result = await jjc_match_equipment_service.query(server=server, name=role_name)
+        try:
+            result = await jjc_match_equipment_service.query(server=server, name=role_name)
+        except Exception:
+            logger.exception(
+                "最近 3v3 装备快照查询异常: server={} role_name={}", server, role_name
+            )
+            await send_text(bot, event, "装备快照查询失败，请稍后重试", at_user=True)
+            return
+
+        if not isinstance(result, dict):
+            logger.warning(
+                "最近 3v3 装备快照查询返回异常类型: server={} role_name={} type={}",
+                server,
+                role_name,
+                type(result).__name__,
+            )
+            await send_text(bot, event, "装备快照查询失败，请稍后重试", at_user=True)
+            return
+
         if not result.get("ok"):
-            await send_text(bot, event, result.get("message", "装备快照查询失败"), at_user=True)
+            message = result.get("message")
+            await send_text(
+                bot,
+                event,
+                message if isinstance(message, str) and message else "装备快照查询失败，请稍后重试",
+                at_user=True,
+            )
+            return
+
+        snapshot = result.get("snapshot")
+        if not isinstance(snapshot, dict):
+            logger.warning(
+                "最近 3v3 装备快照查询缺少有效快照: server={} role_name={}",
+                server,
+                role_name,
+            )
+            await send_text(bot, event, "装备快照查询失败，请稍后重试", at_user=True)
             return
 
         spec = build_latest_match_equipment_spec(
-            snapshot=result["snapshot"],
+            snapshot=snapshot,
             random_text=suijitext(),
             time_filter=timestamp_jjc,
         )

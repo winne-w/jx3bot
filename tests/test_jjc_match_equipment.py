@@ -1,6 +1,8 @@
 import unittest
+import sys
+import types
 from typing import Any, Dict, List
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -16,6 +18,22 @@ from src.services.jx3.match_detail import (
 )
 from src.services.jx3.jjc_match_equipment import JjcMatchEquipmentService
 from src.services.jx3.query_context import build_latest_match_equipment_spec
+
+try:
+    from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment  # noqa: F401
+    from nonebot.params import RegexGroup  # noqa: F401
+except ModuleNotFoundError:
+    onebot_module = types.ModuleType("nonebot.adapters.onebot.v11")
+    onebot_module.Bot = type("Bot", (), {})
+    onebot_module.Event = type("Event", (), {})
+    onebot_module.Message = type("Message", (), {})
+    onebot_module.MessageSegment = type("MessageSegment", (), {})
+    params_module = types.ModuleType("nonebot.params")
+    params_module.RegexGroup = lambda: None
+    sys.modules["nonebot.adapters.onebot.v11"] = onebot_module
+    sys.modules["nonebot.params"] = params_module
+
+from src.plugins.jx3bot_handlers import queries as query_handlers
 
 
 SNAPSHOT = {
@@ -151,6 +169,90 @@ class TestEquipmentRenderSpec(unittest.TestCase):
             "会心", "1234", "优秀", "体质", "5678",
         ):
             self.assertIn(expected, html)
+
+    def test_equipment_template_escapes_untrusted_snapshot_text(self) -> None:
+        malicious_text = '<script>alert("x")</script>'
+        malicious_icon = 'https://example.com/armor.png" onerror="alert(1)'
+        snapshot = {
+            **SNAPSHOT,
+            "role_name": malicious_text,
+            "armors": [{
+                "icon": malicious_icon,
+                "name": malicious_text,
+                "quality": malicious_text,
+                "strength_evel": malicious_text,
+                "permanent_enchant": malicious_text,
+                "temporary_enchant": malicious_text,
+                "mount1": malicious_text,
+                "mount2": malicious_text,
+                "mount3": malicious_text,
+                "mount4": malicious_text,
+            }],
+            "metrics": [{"name": malicious_text, "value": malicious_text, "grade": malicious_text}],
+            "body_qualities": [{"name": malicious_text, "value": malicious_text}],
+        }
+        spec = build_latest_match_equipment_spec(
+            snapshot=snapshot,
+            random_text=malicious_text,
+            time_filter=lambda timestamp: malicious_text,
+        )
+
+        html = Environment(loader=FileSystemLoader("templates")).get_template(
+            spec.template_name
+        ).render(**spec.context)
+
+        self.assertNotIn(malicious_text, html)
+        self.assertNotIn('" onerror="alert(1)', html)
+        self.assertIn("&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", html)
+        self.assertIn("&#34; onerror=&#34;alert(1)", html)
+
+
+class CapturingMatcher:
+    def __init__(self) -> None:
+        self.handlers: List[Any] = []
+
+    def handle(self) -> Any:
+        def register_handler(handler: Any) -> Any:
+            self.handlers.append(handler)
+            return handler
+
+        return register_handler
+
+
+class TestEquipmentQueryHandler(unittest.IsolatedAsyncioTestCase):
+    async def test_zhuangfen_handler_handles_service_errors_and_malformed_results(self) -> None:
+        zhuangfen_matcher = CapturingMatcher()
+        query_handlers.register(
+            env=Environment(loader=FileSystemLoader("templates")),
+            yanhua_matcher=CapturingMatcher(),
+            qiyu_matcher=CapturingMatcher(),
+            zhuangfen_matcher=zhuangfen_matcher,
+            jjc_matcher=CapturingMatcher(),
+            fuben_matcher=CapturingMatcher(),
+        )
+        handler = zhuangfen_matcher.handlers[0]
+        bot = MagicMock()
+        event = MagicMock(user_id=123, group_id=456)
+
+        for result in (RuntimeError("upstream down"), None, {"ok": True, "snapshot": None}):
+            with self.subTest(result=result), patch.object(
+                query_handlers,
+                "resolve_server_and_name",
+                new=AsyncMock(return_value=("唯我独尊", "桃桃白糖")),
+            ), patch.object(query_handlers, "send_text", new=AsyncMock()) as send_text_mock, patch.object(
+                query_handlers, "logger"
+            ) as logger_mock:
+                query_mock = AsyncMock(side_effect=result) if isinstance(result, Exception) else AsyncMock(return_value=result)
+                with patch.object(query_handlers.jjc_match_equipment_service, "query", query_mock):
+                    await handler(bot, event, ())
+
+                send_text_mock.assert_awaited_once_with(
+                    bot, event, "装备快照查询失败，请稍后重试", at_user=True
+                )
+                if isinstance(result, Exception):
+                    logger_mock.exception.assert_called_once()
+                else:
+                    logger_mock.warning.assert_called_once()
 
 
 class TestJjcMatchEquipmentService(unittest.IsolatedAsyncioTestCase):
