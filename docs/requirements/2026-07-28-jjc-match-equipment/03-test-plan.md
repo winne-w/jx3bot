@@ -38,6 +38,6 @@ The file will have its original line endings in your working directory
 
 ## 手工回归与外部依赖
 
-尚未执行 QQ/OneBot 运行时冒烟，也未发起需要真实 token、推栏 ticket、Mongo 数据和真实角色的直接在线 service 调用，避免输出凭据或把本地环境状态误当成线上结果。因此线上成功图、失败文本和上游联通性仍未验证。
+QQ/OneBot 线上手工冒烟状态：**待执行**。本次未执行 QQ/OneBot 运行时冒烟，也未发起需要真实 token、推栏 ticket、Mongo 数据和真实角色的直接在线 service 调用，避免输出凭据或把本地环境状态误当成线上结果。因此线上成功图、失败文本和上游联通性仍未验证。
 
 部署后按 [运行手册](../../references/runbook.md) 的成功与失败路径回归：有近期 3v3 的角色必须生成明确标注为非实时的图片；未知/无身份/无 3v3 的角色必须直接得到失败文本，并确认不读取 Mongo 历史对局或装备快照作为 fallback。

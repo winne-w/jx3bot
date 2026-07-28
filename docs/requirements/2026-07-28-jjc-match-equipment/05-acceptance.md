@@ -18,7 +18,7 @@ python -m unittest tests.test_role_identity_repo tests.test_jjc_match_equipment 
 
 ## 线上验收与风险
 
-本次未启动 QQ/OneBot 运行时，未声明 QQ runtime smoke；也没有进行需要真实 token/ticket 的在线 service 调用。因此没有真实角色的成功图片或失败文本可记录，相关验收状态为未验证，而不是失败或通过。
+QQ/OneBot 线上手工冒烟验收状态：**待执行**。本次未启动 QQ/OneBot 运行时，未声明 QQ runtime smoke；也没有进行需要真实 token/ticket 的在线 service 调用。因此没有真实角色的成功图片或失败文本可记录，相关验收状态为未验证，而不是失败或通过。
 
 上线后必须分别执行：
 
