@@ -63,7 +63,7 @@
 - Modify: `src/storage/mongo_repos/role_identity_repo.py`
 - Test: `tests/test_role_identity_repo.py`
 
-- [ ] **Step 1: 写入下列失败测试。**
+- [x] **Step 1: 写入下列失败测试。**
 
 ```python
 async def test_upsert_from_jx3api_role_detail_records_source(self) -> None:
@@ -79,13 +79,13 @@ async def test_upsert_from_jx3api_role_detail_records_source(self) -> None:
     self.assertEqual(saved["sources"], ["jx3api_role_detail"])
 ```
 
-- [ ] **Step 2: 验证 RED。**
+- [x] **Step 2: 验证 RED。**
 
 Run: `python -m unittest tests.test_role_identity_repo.TestRoleIdentityRepo.test_upsert_from_jx3api_role_detail_records_source`
 
 Expected: `AttributeError`，因为方法尚不存在。
 
-- [ ] **Step 3: 加入最小仓储方法并复用 `_upsert_identity()`。**
+- [x] **Step 3: 加入最小仓储方法并复用 `_upsert_identity()`。**
 
 ```python
 async def upsert_from_jx3api_role_detail(
@@ -99,7 +99,7 @@ async def upsert_from_jx3api_role_detail(
     )
 ```
 
-- [ ] **Step 4: 验证 GREEN。**
+- [x] **Step 4: 验证 GREEN。**
 
 Run: `python -m unittest tests.test_role_identity_repo`
 
@@ -114,7 +114,7 @@ Expected: 全部通过。
 - Modify: `src/services/jx3/singletons.py`
 - Test: `tests/test_jjc_match_equipment.py`
 
-- [ ] **Step 1: 写入失败测试。**
+- [x] **Step 1: 写入失败测试。**
 
 ```python
 async def test_query_uses_local_identity_and_latest_3v3_detail(self) -> None:
@@ -133,13 +133,13 @@ async def test_query_returns_no_recent_3v3_without_local_fallback(self) -> None:
     self.assertEqual(result["code"], "no_recent_3v3")
 ```
 
-- [ ] **Step 2: 验证 RED。**
+- [x] **Step 2: 验证 RED。**
 
 Run: `python -m unittest tests.test_jjc_match_equipment`
 
 Expected: `ModuleNotFoundError: No module named 'src.services.jx3.jjc_match_equipment'`。
 
-- [ ] **Step 3: 实现 service 与装配。**
+- [x] **Step 3: 实现 service 与装配。**
 
 在 `config.py` 增加 `API_URLS["角色详情"] = "https://www.jx3api.com/role/detail"`。service 注入 `RoleIdentityRepo`、角色详情 async fetcher、indicator fetcher、`MatchHistoryClient`、`MatchDetailClient`、`tuilan_request` 与缓存 repo。`singletons.py` 使用既有 `get()`、`cfg.TOKEN` 和现有推栏客户端装配单例。
 
@@ -165,7 +165,7 @@ return build_success_snapshot(player, match)
 
 `latest_3v3()` 兼容 `pvp_type/pvpType/type`，仅允许值 3，按 `match_time/start_time/startTime` 整数值倒序。`find_exact_player()` 遍历 team1/team2 的 `players_info`，只接受规范化同服同名的唯一玩家，且 `armors` 必须为非空 list。service 内按 endpoint 加 asyncio 锁。错误 code 固定为 `role_identity_unavailable`、`indicator_unavailable`、`no_recent_3v3`、`match_detail_unavailable`、`target_player_not_found`、`equipment_unavailable`。
 
-- [ ] **Step 4: 验证 GREEN。**
+- [x] **Step 4: 验证 GREEN。**
 
 Run: `python -m unittest tests.test_jjc_match_equipment`
 
@@ -180,7 +180,7 @@ Expected: 本地命中、JX3API 回写、最新时间选择、跨服同名、缺
 - Modify: `src/plugins/jx3bot_handlers/queries.py`
 - Test: `tests/test_jjc_match_equipment.py`
 
-- [ ] **Step 1: 写入失败测试。**
+- [x] **Step 1: 写入失败测试。**
 
 ```python
 def test_build_latest_match_equipment_spec_marks_snapshot_time_and_scores(self) -> None:
@@ -191,13 +191,13 @@ def test_build_latest_match_equipment_spec_marks_snapshot_time_and_scores(self) 
     self.assertIn("对局时间", spec.context["match_time_label"])
 ```
 
-- [ ] **Step 2: 验证 RED。**
+- [x] **Step 2: 验证 RED。**
 
 Run: `python -m unittest tests.test_jjc_match_equipment.TestEquipmentRenderSpec.test_build_latest_match_equipment_spec_marks_snapshot_time_and_scores`
 
 Expected: 缺少 `build_latest_match_equipment_spec`。
 
-- [ ] **Step 3: 实现渲染和入口。**
+- [x] **Step 3: 实现渲染和入口。**
 
 `query_context.py` 增加 `build_latest_match_equipment_spec(snapshot, random_text, time_filter)`，返回 `RenderSpec(template_name="装备查询.html", width=1180, height="ck")`，context 只有 `title`、`snapshot`、`match_time_label`、`text`。移除旧 `build_zhuangfen_spec()` 对下线 `panelList/equipList` 的依赖。
 
@@ -205,7 +205,7 @@ Expected: 缺少 `build_latest_match_equipment_spec`。
 
 handler 解析参数后调用 service；失败用 `send_text(bot, event, result["message"], at_user=True)`，成功构建 spec 并经 `render_and_send_template_image()` 发送。handler 不直接访问 Mongo、JX3API 或推栏。
 
-- [ ] **Step 4: 验证 GREEN。**
+- [x] **Step 4: 验证 GREEN。**
 
 Run: `python -m unittest tests.test_jjc_match_equipment tests.test_jjc_match_detail_hydration tests.test_jjc_ranking_inspect`
 
@@ -220,11 +220,11 @@ Expected: 全部通过。
 - Create: `docs/requirements/2026-07-28-jjc-match-equipment/04-review.md`
 - Create: `docs/requirements/2026-07-28-jjc-match-equipment/05-acceptance.md`
 
-- [ ] **Step 1: 更新手工回归文档。**
+- [x] **Step 1: 更新手工回归文档。**
 
 将“属性/装分接口暂不可用”替换为：对有近期 3v3 的角色执行 `属性 <服务器> <角色>`，确认快照提示、对局时间、装备、属性和三项装分；对无 3v3 或未知角色确认直接提示、不会读取本地历史对局。
 
-- [ ] **Step 2: 写入测试、review 和验收文档。**
+- [x] **Step 2: 写入测试、review 和验收文档。**
 
 `03-test-plan.md` 记录：
 
@@ -236,7 +236,7 @@ git diff --check
 
 `04-review.md` 核对分层、身份保护、同名跨服、token 脱敏、错误语义、模板快照提示与文档一致性。`05-acceptance.md` 记录真实成功/失败命令、自动化输出、上游风险和回滚步骤。
 
-- [ ] **Step 3: 运行验证并填入真实结果。**
+- [x] **Step 3: 运行验证并填入真实结果。**
 
 Expected: 所有单测和 `py_compile` 通过，`git diff --check` 无输出，QQ 手工验证覆盖成功图与失败提示。
 
