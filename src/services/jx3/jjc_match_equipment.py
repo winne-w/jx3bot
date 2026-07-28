@@ -18,7 +18,9 @@ def _int(value: Any) -> Optional[int]:
     if isinstance(value, bool) or value is None:
         return None
     try:
-        return int(float(value))
+        if isinstance(value, float):
+            return int(value) if value.is_integer() else None
+        return int(str(value).strip())
     except (TypeError, ValueError):
         return None
 
@@ -181,7 +183,11 @@ class JjcMatchEquipmentService:
     async def query(self, *, server: str, name: str) -> Dict[str, Any]:
         identity = await self.identity_repo.find_best_by_name_with_id(server, name)
         if not self._has_tuilan_seed(identity):
-            detail = self._parse_role_detail(await self._fetch_role_detail(server, name))
+            try:
+                response = await self._fetch_role_detail(server, name)
+            except Exception:
+                response = None
+            detail = self._parse_role_detail(response)
             if detail is None:
                 return self._failure("role_identity_unavailable", "未找到可用的角色身份信息")
             identity = await self.identity_repo.upsert_from_jx3api_role_detail(

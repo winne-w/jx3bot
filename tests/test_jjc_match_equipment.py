@@ -170,3 +170,23 @@ class TestJjcMatchEquipmentService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["code"], "no_recent_3v3")
         self.assertEqual(self.detail.calls, [])
+
+    async def test_query_returns_identity_error_when_role_detail_fetcher_raises(self) -> None:
+        service = self.make_service(None, [], make_detail(make_player()))
+        self.role_detail_fetcher.side_effect = RuntimeError("upstream unavailable")
+
+        result = await service.query(server="唯我独尊", name="桃桃白糖")
+
+        self.assertEqual(result, {"ok": False, "code": "role_identity_unavailable", "message": "未找到可用的角色身份信息"})
+
+    async def test_query_rejects_fractional_match_time(self) -> None:
+        service = self.make_service(
+            {"role_id": "29528125", "zone": "电信区"},
+            [{"pvp_type": 3, "match_id": 102, "match_time": "20.5"}],
+            make_detail(make_player()),
+        )
+
+        result = await service.query(server="唯我独尊", name="桃桃白糖")
+
+        self.assertEqual(result["code"], "no_recent_3v3")
+        self.assertEqual(self.detail.calls, [])
