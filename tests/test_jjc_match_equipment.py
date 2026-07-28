@@ -13,6 +13,22 @@ from src.services.jx3.match_detail import (
     MatchDetailTeamInfo,
 )
 from src.services.jx3.jjc_match_equipment import JjcMatchEquipmentService
+from src.services.jx3.query_context import build_latest_match_equipment_spec
+
+
+SNAPSHOT = {
+    "server": "唯我独尊",
+    "role_name": "桃桃白糖",
+    "match_id": 102,
+    "match_time": 1780000000,
+    "kungfu": "冰心诀",
+    "equip_score": 12345,
+    "equip_strength_score": 2345,
+    "stone_score": 345,
+    "armors": [],
+    "metrics": [],
+    "body_qualities": [],
+}
 
 
 def make_player(server: str = "唯我独尊", name: str = "桃桃白糖", armors: bool = True) -> MatchDetailPlayerInfo:
@@ -72,6 +88,26 @@ class FakeDetailClient:
     def get_match_detail_obj(self, *, match_id: int) -> MatchDetailResponse:
         self.calls.append(match_id)
         return self.response
+
+
+class TestEquipmentRenderSpec(unittest.TestCase):
+    def test_build_latest_match_equipment_spec_marks_snapshot_time_and_scores(self) -> None:
+        spec = build_latest_match_equipment_spec(
+            snapshot=SNAPSHOT,
+            random_text="x",
+            time_filter=lambda timestamp: "2026-05-28 12:00:00",
+        )
+
+        self.assertEqual(spec.template_name, "装备查询.html")
+        self.assertEqual(spec.width, 1180)
+        self.assertEqual(spec.height, "ck")
+        self.assertEqual(spec.context["title"], "最近 3v3 对局装备快照")
+        self.assertEqual(spec.context["snapshot"]["match_id"], 102)
+        self.assertIn("对局时间", spec.context["match_time_label"])
+        self.assertEqual(
+            set(spec.context),
+            {"title", "snapshot", "match_time_label", "text"},
+        )
 
 
 class TestJjcMatchEquipmentService(unittest.IsolatedAsyncioTestCase):

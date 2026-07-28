@@ -15,9 +15,11 @@ from src.services.jx3.command_context import (
 )
 from src.services.jx3.query_context import (
     build_jjc_spec_or_text,
+    build_latest_match_equipment_spec,
     build_qiyu_spec,
     build_yanhua_spec,
 )
+from src.services.jx3.singletons import jjc_match_equipment_service
 from src.utils.jjc_text import jjcdaxiaoxie
 from src.utils.random_text import suijitext
 from src.utils.time_format import format_minutes_seconds
@@ -112,10 +114,35 @@ def register(
     async def zhuangfen_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        await bot.send(
+        try:
+            server, role_name = await resolve_server_and_name(
+                foo, group_id=getattr(event, "group_id", None)
+            )
+        except CommandContextError as exc:
+            await send_text(bot, event, exc.message, at_user=True)
+            return
+
+        result = await jjc_match_equipment_service.query(server=server, name=role_name)
+        if not result.get("ok"):
+            await send_text(bot, event, result.get("message", "装备快照查询失败"), at_user=True)
+            return
+
+        spec = build_latest_match_equipment_spec(
+            snapshot=result["snapshot"],
+            random_text=suijitext(),
+            time_filter=timestamp_jjc,
+        )
+        apply_filters(env, spec.filters)
+        await render_and_send_template_image(
+            bot,
             event,
-            MessageSegment.at(event.user_id)
-            + Message("\n装备查询接口暂不可用：JX3API 当前没有可用的装备属性接口，暂时无法查询属性/装分。"),
+            env=env,
+            template_name=spec.template_name,
+            context=spec.context,
+            width=spec.width,
+            height=spec.height,
+            at_user=spec.at_user,
+            prefix=spec.prefix,
         )
 
     @jjc_matcher.handle()

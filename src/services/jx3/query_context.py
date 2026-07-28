@@ -78,30 +78,44 @@ def build_qiyu_spec(
     )
 
 
-def build_zhuangfen_spec(
+def build_latest_match_equipment_spec(
     *,
-    data: dict[str, Any],
-    role_name: str,
-    server: str,
+    snapshot: dict[str, Any],
     random_text: str,
-    mpimg: Any,
+    time_filter: Callable[..., Any],
 ) -> RenderSpec:
-    menpai = data.get("data", {}).get("panelList", {}).get("panel", [{}])[0].get("name")
+    """Build the template context for a latest-3v3 equipment snapshot."""
+    match_time = int(snapshot.get("match_time") or 0)
+    try:
+        formatted_time = time_filter(match_time, "%Y年%m月%d日 %H:%M:%S")
+    except TypeError:
+        formatted_time = time_filter(match_time)
+
+    render_snapshot = dict(snapshot)
+    total_score = _score(snapshot.get("equip_score"))
+    strength_score = _score(snapshot.get("equip_strength_score"))
+    stone_score = _score(snapshot.get("stone_score"))
+    render_snapshot["total_score"] = total_score
+    render_snapshot["equipment_score"] = total_score - strength_score - stone_score
 
     return RenderSpec(
         template_name="装备查询.html",
         context={
-            "items": data["data"],
-            "id": role_name,
-            "qufu": server,
-            "newpng": "名片",
+            "title": "最近 3v3 对局装备快照",
+            "snapshot": render_snapshot,
+            "match_time_label": "对局时间：{}".format(formatted_time),
             "text": random_text,
-            "mpimg": mpimg,
-            "menpai": menpai,
         },
-        width=1119,
-        height=1300,
+        width=1180,
+        height="ck",
     )
+
+
+def _score(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def build_fuben_spec(
