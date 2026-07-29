@@ -42,4 +42,6 @@ QQ/OneBot 线上手工冒烟状态：**待执行**。本次未执行 QQ/OneBot �
 
 2026-07-29 收到一条真实 QQ 命令日志：推栏 indicator、history 和 detail 均成功，但详情角色展示名为 `桃桃白糖·唯我独尊`，旧匹配逻辑将其误判为目标缺失。已新增共享名称规范化和回归测试；同一场 `263952326` 的直接详情匹配已返回目标玩家和 12 件装备。仍需在加载修复后的 bot 进程中重跑完整 QQ 成功图与失败提示。
 
+同日展示口径调整验证：`python -m unittest tests.test_jjc_match_equipment tests.test_jjc_match_detail_hydration tests.test_jjc_ranking_inspect` 运行 118 项通过；`py_compile` 检查 `jjc_match_equipment.py`、`query_context.py`、`queries.py` 通过。新增断言证明总装分为 `675224 + 57297 + 78019 = 810540`，且 HTML 不包含装分拆分、五彩石槽位、战斗效率、治疗量、破防或基础攻击力；HTML 包含可用的基础/详细属性和气血。
+
 部署后按 [运行手册](../../references/runbook.md) 的成功与失败路径回归：有近期 3v3 的角色必须生成明确标注为非实时的图片；未知/无身份/无 3v3 的角色必须直接得到失败文本，并确认不读取 Mongo 历史对局或装备快照作为 fallback。

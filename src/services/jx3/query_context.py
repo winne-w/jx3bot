@@ -95,11 +95,22 @@ def build_latest_match_equipment_spec(
     for collection_name in ("armors", "metrics", "body_qualities"):
         if not isinstance(render_snapshot.get(collection_name), list):
             render_snapshot[collection_name] = []
-    total_score = _score(snapshot.get("equip_score"))
+    equipment_score = _score(snapshot.get("equip_score"))
     strength_score = _score(snapshot.get("equip_strength_score"))
     stone_score = _score(snapshot.get("stone_score"))
-    render_snapshot["total_score"] = total_score
-    render_snapshot["equipment_score"] = total_score - strength_score - stone_score
+    render_snapshot["total_score"] = equipment_score + strength_score + stone_score
+    render_snapshot["basic_attributes"] = _selected_attributes(
+        render_snapshot.get("body_qualities"),
+        ("会心", "破防", "无双", "破招"),
+    )
+    detailed_attributes = _selected_attributes(
+        render_snapshot.get("body_qualities"),
+        ("会心效果", "加速", "内功防御", "外功防御", "化劲", "根骨", "基础攻击力"),
+    )
+    max_hp = _display_value(render_snapshot.get("max_hp"))
+    if max_hp is not None:
+        detailed_attributes.insert(0, {"name": "气血", "value": max_hp})
+    render_snapshot["detailed_attributes"] = detailed_attributes
 
     return RenderSpec(
         template_name="装备查询.html",
@@ -119,6 +130,28 @@ def _score(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _display_value(value: Any) -> Any:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
+def _selected_attributes(values: Any, names: tuple[str, ...]) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    by_name: dict[str, Any] = {}
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        value = _display_value(item.get("value"))
+        if name and value is not None and name not in by_name:
+            by_name[name] = value
+    return [{"name": name, "value": by_name[name]} for name in names if name in by_name]
 
 
 def _match_time(value: Any) -> int:

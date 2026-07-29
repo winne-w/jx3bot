@@ -45,6 +45,7 @@ SNAPSHOT = {
     "equip_score": 12345,
     "equip_strength_score": 2345,
     "stone_score": 345,
+    "max_hp": 3350711,
     "armors": [],
     "metrics": [],
     "body_qualities": [],
@@ -57,7 +58,7 @@ def make_player(server: str = "唯我独尊", name: str = "桃桃白糖", armors
         person_avatar="", zone="电信区", server=server, total_count=None, win_count=None,
         win_rate=None, mvp_count=None, mmr=None, score=None, total_score=None, ranking="", kungfu="冰心诀",
         kungfu_id=None, mvp=False, equip_score=12345, equip_strength_score=2345, stone_score=345,
-        max_hp=None, metrics=[MatchDetailMetric(1, "会心", 123, "", None)],
+        max_hp=3350711, metrics=[MatchDetailMetric(1, "会心", 123, "", None)],
         armors=[MatchDetailArmor("1", "精良", "破军", "6", "", "", "", "", "", "", 1, "icon", "")]
         if armors else [],
         talents=[], body_qualities=[MatchDetailBodyQuality("体质", "100")], odd=False, fight_seconds=None,
@@ -123,15 +124,19 @@ class TestEquipmentRenderSpec(unittest.TestCase):
         self.assertEqual(spec.height, "ck")
         self.assertEqual(spec.context["title"], "最近 3v3 对局装备快照")
         self.assertEqual(spec.context["snapshot"]["match_id"], 102)
+        self.assertEqual(spec.context["snapshot"]["total_score"], 15035)
         self.assertIn("对局时间", spec.context["match_time_label"])
         self.assertEqual(
             set(spec.context),
             {"title", "snapshot", "match_time_label", "text"},
         )
 
-    def test_equipment_template_renders_complete_snapshot_details(self) -> None:
+    def test_equipment_template_renders_total_score_and_requested_attributes_only(self) -> None:
         snapshot = {
             **SNAPSHOT,
+            "equip_score": 675224,
+            "equip_strength_score": 57297,
+            "stone_score": 78019,
             "armors": [{
                 "icon": "https://example.com/armor.png",
                 "name": "测试破军甲",
@@ -144,8 +149,19 @@ class TestEquipmentRenderSpec(unittest.TestCase):
                 "mount3": "五彩石三",
                 "mount4": "五彩石四",
             }],
-            "metrics": [{"name": "会心", "value": 1234, "grade": "优秀"}],
-            "body_qualities": [{"name": "体质", "value": "5678"}],
+            "metrics": [{"name": "战斗效率", "value": 1, "grade": "S"}],
+            "body_qualities": [
+                {"name": "会心", "value": "53.55%"},
+                {"name": "无双", "value": "0%"},
+                {"name": "破招", "value": "0"},
+                {"name": "会心效果", "value": "176.81%"},
+                {"name": "加速", "value": "25%"},
+                {"name": "内功防御", "value": "15.54%"},
+                {"name": "外功防御", "value": "13.16%"},
+                {"name": "化劲", "value": "76.2%"},
+                {"name": "根骨", "value": "21881"},
+                {"name": "治疗量", "value": "285525"},
+            ],
         }
         spec = build_latest_match_equipment_spec(
             snapshot=snapshot,
@@ -161,14 +177,19 @@ class TestEquipmentRenderSpec(unittest.TestCase):
             "最近 3v3 对局装备快照", "桃桃白糖", "唯我独尊", "冰心诀",
             "对局时间：2026年05月28日 12:00:00",
             "数据为最近 3v3 对局发生时的装备快照，不代表当前实时面板",
-            "总装分", "12345", "装备分", "9655", "精炼分", "2345", "五彩石分", "345",
+            "总装分", "810540",
             "https://example.com/armor.png", "测试破军甲", "精良", "精炼：8",
             "永久附魔：永久附魔测试", "临时附魔：临时附魔测试",
-            "五彩石 1：五彩石一", "五彩石 2：五彩石二",
-            "五彩石 3：五彩石三", "五彩石 4：五彩石四",
-            "会心", "1234", "优秀", "体质", "5678",
+            "基础属性", "会心", "53.55%", "无双", "破招",
+            "详细属性", "气血", "3350711", "会心效果", "加速", "内功防御",
+            "外功防御", "化劲", "根骨",
         ):
             self.assertIn(expected, html)
+        for hidden in (
+            "装备分", "精炼分", "五彩石分", "五彩石 1", "五彩石二",
+            "战斗效率", "治疗量", "破防", "基础攻击力",
+        ):
+            self.assertNotIn(hidden, html)
 
     def test_equipment_template_escapes_untrusted_snapshot_text(self) -> None:
         malicious_text = '<script>alert("x")</script>'
@@ -220,8 +241,9 @@ class TestEquipmentRenderSpec(unittest.TestCase):
             spec.template_name
         ).render(**spec.context)
         self.assertIn("该对局没有可展示的装备。", html)
-        self.assertIn("暂无属性指标", html)
-        self.assertIn("暂无体质属性", html)
+        self.assertIn("暂无基础属性", html)
+        self.assertIn("气血", html)
+        self.assertIn("3350711", html)
 
 
 class CapturingMatcher:
@@ -338,6 +360,7 @@ class TestJjcMatchEquipmentService(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["snapshot"]["match_id"], 102)
         self.assertEqual(result["snapshot"]["equip_score"], 12345)
+        self.assertEqual(result["snapshot"]["max_hp"], 3350711)
         self.assertEqual(result["snapshot"]["armors"][0]["name"], "破军")
         self.role_detail_fetcher.assert_not_awaited()
         self.assertEqual(self.history.calls, [{"global_role_id": "SK01-target", "size": 20, "cursor": 0}])

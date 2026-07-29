@@ -14,6 +14,7 @@
 - [x] 接入 QQ 命令与模板。
 - [x] 完成离线验证、review 与验收记录。
 - [ ] 执行 QQ/OneBot 线上手工冒烟（成功快照与失败提示）。
+- [x] 调整总装分与属性/五彩石展示口径。
 
 ## Surprises & Discoveries
 
@@ -31,6 +32,7 @@
 - 2026-07-28：新增独立 `JjcMatchEquipmentService`；handler 不直接访问数据库或外部接口。
 - 2026-07-28：命令不变，替换 `装备查询.html` 的输入契约并固定显示快照提示。
 - 2026-07-29：对局详情展示名的 `·服务器` 后缀规则统一由 `role_identity_matching` 提供；不直接依赖 `jjc_cache_repo` 私有实现。
+- 2026-07-29：总装分只显示装备、精炼、五彩石三项之和；不显示拆分、五彩石槽位或武器五彩石属性。属性改为需求白名单，缺失字段隐藏。
 
 ## Outcomes & Retrospective
 
@@ -246,3 +248,37 @@ git diff --check
 ## Validation and Acceptance
 
 验收时，本地身份完整的角色不请求 JX3API 仍返回最新 3v3 快照；身份不足时 JX3API 补齐并回写后成功；无身份、无 3v3、详情缺角色或缺装备时不读历史 Mongo 而给出明确提示；结果图包含完整装备、精炼、附魔、五彩石、总装分与三项拆分、属性面板、对局时间和快照声明。Task 4 中列出的自动化命令必须全部通过。
+
+## 2026-07-29 展示口径调整
+
+### Purpose / Big Picture
+
+修正把 `equip_score` 误当总装分的问题，并将装备图收敛为用户需要的总装分和属性面板。此调整不改身份、推栏请求、缓存或失败语义。
+
+### Plan of Work
+
+修改 `JjcMatchEquipmentService._snapshot()`，将上游 `max_hp` 一并放入渲染快照；`build_latest_match_equipment_spec()`：`total_score` 改为三个数值字段相加；移除供模板展示的 score 拆分字段和五彩石槽位。新增属性白名单转换：`max_hp` 映射为气血，`body_qualities` 只保留会心、无双、破招、会心效果、加速、内功防御、外功防御、化劲、根骨。模板删除拆分分数、五彩石与未过滤指标，只显示转换后的基础属性和详细属性。测试以真实分数 `675224 + 57297 + 78019 = 810540` 断言，覆盖缺失字段隐藏。
+
+### Concrete Steps
+
+#### Step 1：失败测试
+
+在 `tests/test_jjc_match_equipment.py` 增加断言：总装分为 810540，HTML 不包含装备分、精炼分、五彩石分及 `mount1` 至 `mount4` 内容；基础/详细属性仅含白名单；破防和基础攻击力不存在时不渲染。
+
+#### Step 2：实现
+
+修改 `src/services/jx3/jjc_match_equipment.py` 的快照字段、`src/services/jx3/query_context.py` 的渲染模型转换和 `templates/装备查询.html` 的装分、装备和属性区块；不得修改 service 的外部调用链或存储行为。
+
+#### Step 3：验证
+
+运行：
+
+```bash
+python -m unittest tests.test_jjc_match_equipment tests.test_jjc_match_detail_hydration tests.test_jjc_ranking_inspect
+python -m py_compile src/services/jx3/query_context.py src/plugins/jx3bot_handlers/queries.py
+git diff --check
+```
+
+验收图片显示总装分 810540（对桃桃白糖该场数据），不显示拆分/五彩石；仅显示上游可用的白名单属性。
+
+2026-07-29 已按测试先行完成：`JjcMatchEquipmentService` 输出 `max_hp`；渲染模型将 `675224 + 57297 + 78019` 计算为 810540；模板只展示总装分，删除四个五彩石槽位和装分拆分；基础/详细属性按已确认白名单输出。`tests.test_jjc_match_equipment tests.test_jjc_match_detail_hydration tests.test_jjc_ranking_inspect` 共 118 项通过，相关文件 `py_compile` 和 `git diff --check` 通过。

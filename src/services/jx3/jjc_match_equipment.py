@@ -190,6 +190,7 @@ class JjcMatchEquipmentService:
             "equip_score": _value(player, "equip_score"),
             "equip_strength_score": _value(player, "equip_strength_score"),
             "stone_score": _value(player, "stone_score"),
+            "max_hp": _value(player, "max_hp"),
             "armors": [_as_dict(item) for item in (_value(player, "armors", []) or [])],
             "metrics": [_as_dict(item) for item in (_value(player, "metrics", []) or [])],
             "body_qualities": [_as_dict(item) for item in (_value(player, "body_qualities", []) or [])],
