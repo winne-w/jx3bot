@@ -22,6 +22,7 @@
 - 现有 `装备查询.html` 消费下线接口的 `panelList/equipList`，不能消费 `armors/metrics/body_qualities`。
 - 2026-07-28 验证中，141 个指定单元测试通过；测试输出中的身份归档、快照缺失与参与者投影 warning 是 mock 异常分支的预期日志，未形成失败。
 - 本次没有可安全复用的真实 QQ/OneBot 与在线角色环境，因此未执行 QQ 运行时成功图或失败提示冒烟；此项保留为部署后手工回归，不以离线单测替代。
+- 2026-07-29 真实 QQ 命令已成功完成 indicator、history、detail 请求，但 detail 的 `role_name` 为 `桃桃白糖·唯我独尊`，新 service 以纯角色名做完全匹配而误报目标角色不存在。已将“仅在后缀与玩家/目标服务器一致时去掉 `·服务器`”抽到 `role_identity_matching.normalize_match_detail_role_name()`，供既有详情匹配和装备查询共用；同一场详情的修复后直接匹配验证得到 12 件装备。
 
 ## Decision Log
 
@@ -29,10 +30,11 @@
 - 2026-07-28：无身份、无 3v3、无装备均直接提示；不读取历史 Mongo 对局兜底。
 - 2026-07-28：新增独立 `JjcMatchEquipmentService`；handler 不直接访问数据库或外部接口。
 - 2026-07-28：命令不变，替换 `装备查询.html` 的输入契约并固定显示快照提示。
+- 2026-07-29：对局详情展示名的 `·服务器` 后缀规则统一由 `role_identity_matching` 提供；不直接依赖 `jjc_cache_repo` 私有实现。
 
 ## Outcomes & Retrospective
 
-实现、离线验证、review 与验收记录已完成。2026-07-28 执行了指定的 141 项单元测试、相关文件的 Python 编译检查和 `git diff --check`，均以退出码 0 结束。离线覆盖了本地身份命中、JX3API 身份补齐回写、最新 3v3 选择、同服同名精确匹配、无对局/详情/装备及上游失败、渲染快照声明和 handler 失败提示。QQ/OneBot 线上手工冒烟（成功快照与失败提示）尚未执行，仍为待办；真实 Mongo 和上游 JX3API/推栏联通性也仍依赖部署环境。查询链路设计上不会以 Mongo 历史对局或装备快照作 fallback。
+实现、离线验证、review 与验收记录已完成。2026-07-28 执行了指定的 141 项单元测试、相关文件的 Python 编译检查和 `git diff --check`，均以退出码 0 结束。2026-07-29 的真实 QQ 命令验证了外部 identity/history/detail 链路，并暴露了详情展示名后缀匹配缺陷；修复后同场详情的直接匹配已验证成功。QQ/OneBot 线上手工冒烟（成功图片与失败提示）仍需在加载本修复后的 bot 进程中重跑；真实 Mongo 和上游 JX3API/推栏联通性仍依赖部署环境。查询链路设计上不会以 Mongo 历史对局或装备快照作 fallback。
 
 ## Context and Orientation
 

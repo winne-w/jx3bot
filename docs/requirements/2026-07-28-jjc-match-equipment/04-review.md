@@ -9,7 +9,7 @@
 ## 核对结果
 
 - 分层：`queries.py` 只解析参数、调用 `JjcMatchEquipmentService` 并渲染/发送；身份、JX3API 与推栏编排位于 service/既有适配层，handler 未直接读 Mongo 或散写外部请求。
-- 身份与同名保护：先取 `RoleIdentityRepo.find_best_by_name_with_id()`；缺少 `role_id`（兼容 `game_role_id`）或 `zone` 才调用 `/role/detail` 并通过 repo 回写。详情仅接受规范化后同服同名的唯一玩家，不以跨服同名兜底。
+- 身份与同名保护：先取 `RoleIdentityRepo.find_best_by_name_with_id()`；缺少 `role_id`（兼容 `game_role_id`）或 `zone` 才调用 `/role/detail` 并通过 repo 回写。详情仅接受规范化后同服同名的唯一玩家；展示名末尾只有在等于玩家或目标服务器时才移除 `·服务器`，该规则复用 `role_identity_matching`，不以跨服同名兜底。
 - 对局与失败语义：history 只采纳有效 `pvp_type/pvpType/type=3` 的记录并按时间倒序；身份、indicator、history、详情、目标玩家和装备缺失均返回明确错误。没有调用 `jjc_match_detail`、`jjc_equipment_snapshot` 或历史 Mongo 对局作为本查询 fallback。
 - 并发与配置：外部 endpoint 通过 service 内的 asyncio lock 串行化；JX3API token 和推栏请求沿用既有 `config.py`/单例装配，需求新增文档未写入 token、ticket、Mongo URI 或其他凭据。
 - 呈现与安全：模板标题、对局时间和固定文案说明数据是最近 3v3 对局快照、非实时面板；装备、属性和文案经 Jinja 自动转义，测试包含恶意 HTML/属性值。

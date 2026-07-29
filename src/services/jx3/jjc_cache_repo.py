@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from src.infra.mongo import get_db as _get_db
+from src.services.jx3.role_identity_matching import normalize_match_detail_role_name
 
 try:
     from nonebot import logger  # type: ignore
@@ -18,17 +19,8 @@ except Exception:  # pragma: no cover
 
 
 def _normalize_role_name(raw_name: Any, player_server: Any, target_server: str) -> str:
-    """对 role_name 做归一化：仅当末尾 ·xxx 等于 own server 或 target server 时去除。"""
-    name_str = str(raw_name) if raw_name is not None else ""
-    if "·" not in name_str:
-        return name_str
-    parts = name_str.rsplit("·", 1)
-    if len(parts) != 2:
-        return name_str
-    base, suffix = parts
-    if suffix == str(player_server) or suffix == target_server:
-        return base
-    return name_str
+    """Compatibility wrapper for the shared match-detail name normalizer."""
+    return normalize_match_detail_role_name(raw_name, player_server, target_server)
 
 
 def _match_player_in_detail(

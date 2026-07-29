@@ -4,7 +4,7 @@
 
 离线测试覆盖角色身份仓储、最近 3v3 装备查询 service、渲染模型与模板、QQ handler，以及既有 JJC 详情快照水合和排名 inspect 回归。
 
-`tests.test_jjc_match_equipment` 覆盖本地身份直用而不请求 JX3API、身份不足时 `/role/detail` 补齐并回写、只选最新有效 3v3、同服同名精确匹配、缺身份/历史/详情/装备和上游异常的稳定错误；也覆盖快照时间与装分拆分、完整装备/属性渲染、HTML 转义、异常集合归一化以及 handler 成功和失败分支。
+`tests.test_jjc_match_equipment` 覆盖本地身份直用而不请求 JX3API、身份不足时 `/role/detail` 补齐并回写、只选最新有效 3v3、同服同名精确匹配、详情 `角色名·服务器` 展示名的安全后缀匹配、缺身份/历史/详情/装备和上游异常的稳定错误；也覆盖快照时间与装分拆分、完整装备/属性渲染、HTML 转义、异常集合归一化以及 handler 成功和失败分支。
 
 `tests.test_role_identity_repo` 回归 JX3API 角色详情字段映射、身份强度与更新保护、global ID 优先级和候选身份选择。`tests.test_jjc_match_detail_hydration` 回归装备/奇穴快照拆分、水合、缺快照和不可用详情语义。`tests.test_jjc_ranking_inspect` 回归并发锁、详情投影、角色近期对局、indicator、已同步对局检索和本地投影无 fallback 行为。
 
@@ -39,5 +39,7 @@ The file will have its original line endings in your working directory
 ## 手工回归与外部依赖
 
 QQ/OneBot 线上手工冒烟状态：**待执行**。本次未执行 QQ/OneBot 运行时冒烟，也未发起需要真实 token、推栏 ticket、Mongo 数据和真实角色的直接在线 service 调用，避免输出凭据或把本地环境状态误当成线上结果。因此线上成功图、失败文本和上游联通性仍未验证。
+
+2026-07-29 收到一条真实 QQ 命令日志：推栏 indicator、history 和 detail 均成功，但详情角色展示名为 `桃桃白糖·唯我独尊`，旧匹配逻辑将其误判为目标缺失。已新增共享名称规范化和回归测试；同一场 `263952326` 的直接详情匹配已返回目标玩家和 12 件装备。仍需在加载修复后的 bot 进程中重跑完整 QQ 成功图与失败提示。
 
 部署后按 [运行手册](../../references/runbook.md) 的成功与失败路径回归：有近期 3v3 的角色必须生成明确标注为非实时的图片；未知/无身份/无 3v3 的角色必须直接得到失败文本，并确认不读取 Mongo 历史对局或装备快照作为 fallback。

@@ -343,6 +343,18 @@ class TestJjcMatchEquipmentService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.history.calls, [{"global_role_id": "SK01-target", "size": 20, "cursor": 0}])
         self.assertEqual(self.detail.calls, [102])
 
+    async def test_query_matches_detail_role_name_with_verified_server_suffix(self) -> None:
+        service = self.make_service(
+            {"role_id": "29528125", "zone": "电信区"},
+            [{"pvp_type": 3, "match_id": 102, "match_time": 20}],
+            make_detail(make_player(name="桃桃白糖·唯我独尊")),
+        )
+
+        result = await service.query(server="唯我独尊", name="桃桃白糖")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["snapshot"]["role_name"], "桃桃白糖·唯我独尊")
+
     async def test_query_backfills_missing_identity_from_jx3api_role_detail(self) -> None:
         service = self.make_service(None, [{"pvp_type": 3, "match_id": 102, "match_time": 20}], make_detail(make_player()))
         self.role_detail_fetcher.return_value = {

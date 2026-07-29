@@ -5,6 +5,8 @@ import asyncio
 from dataclasses import asdict, is_dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from src.services.jx3.role_identity_matching import normalize_match_detail_role_name
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -165,7 +167,11 @@ class JjcMatchEquipmentService:
             if not isinstance(players, list):
                 continue
             for player in players:
-                if _normalize(_value(player, "server")) == _normalize(server) and _normalize(_value(player, "role_name")) == _normalize(name):
+                player_server = _value(player, "server")
+                display_name = normalize_match_detail_role_name(
+                    _value(player, "role_name"), player_server, server
+                )
+                if _normalize(player_server) == _normalize(server) and _normalize(display_name) == _normalize(name):
                     matches.append(player)
         return matches[0] if len(matches) == 1 else None
 

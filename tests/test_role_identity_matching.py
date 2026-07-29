@@ -8,6 +8,7 @@ from src.services.jx3.role_identity_matching import (
     classify_profile_change,
     extract_replay_players,
     merge_profile_history,
+    normalize_match_detail_role_name,
     parse_indicator_identity,
     split_replay_role_name,
 )
@@ -17,6 +18,20 @@ class TestRoleIdentityMatching(unittest.TestCase):
     def test_split_replay_role_name(self) -> None:
         self.assertEqual(split_replay_role_name("角色A·梦江南"), ("梦江南", "角色A"))
         self.assertEqual(split_replay_role_name("角色A", "梦江南"), ("梦江南", "角色A"))
+
+    def test_normalize_match_detail_role_name_only_strips_verified_server_suffix(self) -> None:
+        self.assertEqual(
+            normalize_match_detail_role_name("角色A·梦江南", "梦江南", "梦江南"),
+            "角色A",
+        )
+        self.assertEqual(
+            normalize_match_detail_role_name("角色A·梦江南", "梦江南", "唯我独尊"),
+            "角色A",
+        )
+        self.assertEqual(
+            normalize_match_detail_role_name("张三·李四", "梦江南", "唯我独尊"),
+            "张三·李四",
+        )
 
     def test_build_identity_key_prefers_global_id(self) -> None:
         self.assertEqual(
