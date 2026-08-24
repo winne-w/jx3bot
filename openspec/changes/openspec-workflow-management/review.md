@@ -8,6 +8,6 @@
 - 无关的 week-17 文档删除和图片文件未纳入本 change 提交。
 - 不存在账号、密码、token、私钥或连接串硬编码。
 
-## 未闭环验证
+## 验证结论
 
-本环境的 OpenSpec list/strict validate 超时；见 `test-plan.md`。这是环境级限制，不得解释为 strict validation 通过。
+代理路径导致 npm registry 的 DNS 重试；绕过代理后 OpenSpec list 和两项 strict validate 均通过。详见 `test-plan.md`。

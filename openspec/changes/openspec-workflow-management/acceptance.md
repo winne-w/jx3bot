@@ -11,6 +11,6 @@
 
 如需回滚，可依次 revert `9acde0a`、`c941d75`、`1d5c840`、`51e0795`。本次没有业务代码、数据库或运行配置改动。
 
-## 遗留验证
+## 验证结论
 
-严格 OpenSpec CLI 验证需在 CLI 可响应的环境复跑；当前超时记录见 `test-plan.md`。
+绕过代理后，OpenSpec list 与 `openspec-workflow-management`、`jjc-match-season` 两项 strict validate 均已通过；网络根因和命令记录见 `test-plan.md`。
