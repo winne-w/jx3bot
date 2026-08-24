@@ -1,5 +1,9 @@
 # JJC 同步自动补队列
 
+## Purpose
+
+定义 JJC 同步 worker 的自动补队列边界，使到期角色能持续入队而不改变既有同步状态机。
+
 ## Requirements
 
 ### Requirement: 队列不足时自动补充到期角色

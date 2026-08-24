@@ -1,5 +1,9 @@
 # JX3API OpenAPI 兼容
 
+## Purpose
+
+定义仓库对当前 JX3API OpenAPI 的兼容行为，以及上游已移除能力的明确降级口径。
+
 ## Requirements
 
 ### Requirement: 使用当前 OpenAPI 路径

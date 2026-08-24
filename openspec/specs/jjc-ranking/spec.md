@@ -1,5 +1,9 @@
 # JJC 排名与对局查询
 
+## Purpose
+
+定义 JJC 排名展示和角色已同步对局查询的稳定口径，确保统计与赛季隔离行为可验证。
+
 ## Requirements
 
 ### Requirement: 已同步对局按当前赛季隔离
