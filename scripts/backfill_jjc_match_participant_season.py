@@ -10,11 +10,9 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
-from pymongo import UpdateOne
-from pymongo.errors import BulkWriteError
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -56,6 +54,36 @@ def build_season_update(
     return {"$set": {"season_id": season_id}}
 
 
+def build_season_queries(current_season: str, season_start_time: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    current_query = {
+        "match_type": 3,
+        "match_time": {"$gte": season_start_time},
+    }
+    unassigned_query = {
+        "match_type": 3,
+        "$or": [
+            {"match_time": {"$lt": season_start_time}},
+            {"match_time": None},
+            {"match_time": {"$exists": False}},
+        ],
+    }
+    return current_query, unassigned_query
+
+
+def with_season_mismatch(query: Dict[str, Any], expected_season_id: Optional[str]) -> Dict[str, Any]:
+    return {
+        "$and": [
+            query,
+            {
+                "$or": [
+                    {"season_id": {"$exists": False}},
+                    {"season_id": {"$ne": expected_season_id}},
+                ],
+            },
+        ],
+    }
+
+
 def get_mongo_uri() -> str:
     runtime_config = ROOT / "runtime_config.json"
     if runtime_config.is_file():
@@ -91,20 +119,13 @@ def get_current_season_config() -> Dict[str, Any]:
     }
 
 
-async def flush_operations(collection: Any, operations: List[UpdateOne], stats: Dict[str, int]) -> None:
-    if not operations:
-        return
+async def apply_update(collection: Any, query: Dict[str, Any], season_id: Optional[str], stats: Dict[str, int]) -> None:
     try:
-        result = await collection.bulk_write(operations, ordered=False)
+        result = await collection.update_many(query, {"$set": {"season_id": season_id}})
         stats["written"] += int(getattr(result, "modified_count", 0) or 0)
-    except BulkWriteError as exc:
-        details = exc.details or {}
-        stats["written"] += int(details.get("nModified", 0) or 0)
-        stats["failed"] += len(details.get("writeErrors") or []) or len(operations)
-        _log("JJC participant season backfill bulk write failed: {}".format(exc))
     except Exception as exc:
-        stats["failed"] += len(operations)
-        _log("JJC participant season backfill bulk write failed: {}".format(exc))
+        stats["failed"] += 1
+        _log("JJC participant season backfill update failed: {}".format(exc))
 
 
 def exit_code_for_stats(stats: Dict[str, int]) -> int:
@@ -132,35 +153,19 @@ async def run(args: argparse.Namespace) -> Dict[str, int]:
             "mismatched": 0,
             "failed": 0,
         }
-        batch_size = max(1, int(args.batch_size))
-        operations: List[UpdateOne] = []
-        cursor = collection.find(
-            {"match_type": 3},
-            {"_id": 1, "match_time": 1, "season_id": 1},
-        ).batch_size(batch_size)
-
-        async for doc in cursor:
-            stats["scanned"] += 1
-            update = build_season_update(doc.get("match_time"), current_season, season_start_time)
-            expected = update["$set"]["season_id"]
-            if expected is None:
-                stats["unassigned_rows"] += 1
-            else:
-                stats["current_season_rows"] += 1
-            if doc.get("season_id") == expected:
-                continue
-            stats["mismatched"] += 1
-            if args.verify_only:
-                continue
-            stats["would_write"] += 1
-            if args.apply:
-                operations.append(UpdateOne({"_id": doc["_id"]}, update))
-                if len(operations) >= batch_size:
-                    await flush_operations(collection, operations, stats)
-                    operations = []
-
-        if operations:
-            await flush_operations(collection, operations, stats)
+        current_query, unassigned_query = build_season_queries(current_season, season_start_time)
+        current_mismatch_query = with_season_mismatch(current_query, current_season)
+        unassigned_mismatch_query = with_season_mismatch(unassigned_query, None)
+        stats["current_season_rows"] = await collection.count_documents(current_query)
+        stats["unassigned_rows"] = await collection.count_documents(unassigned_query)
+        current_mismatched = await collection.count_documents(current_mismatch_query)
+        unassigned_mismatched = await collection.count_documents(unassigned_mismatch_query)
+        stats["scanned"] = stats["current_season_rows"] + stats["unassigned_rows"]
+        stats["mismatched"] = current_mismatched + unassigned_mismatched
+        stats["would_write"] = stats["mismatched"]
+        if args.apply:
+            await apply_update(collection, current_mismatch_query, current_season, stats)
+            await apply_update(collection, unassigned_mismatch_query, None, stats)
         _log(
             "JJC participant season backfill: current_season={} season_start={} season_start_time={} mode={}".format(
                 current_season,

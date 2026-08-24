@@ -31,6 +31,7 @@ This execution plan is a living document and must be kept up to date according t
 - 当前 `jjc_match_participants` 的 `idx_global_available_time` 已按 `global_id`、展示条件和时间排序；赛季过滤需要新索引以保持该角色分页查询的等值前缀。
 - 同步队列已有 `season_id`，但它是角色同步水位状态，不能作为玩家对局列表的筛选来源。
 - 当前运行环境没有可见的本机 Mongo 监听端口。两次已授权的 dry-run 都没有返回统计或错误输出，因此没有执行 `--apply`。
+- 2026-08-24 后续诊断确认远端 Mongo 可连通，`jjc_match_participants` 有 8,381,308 条 3v3 行。原脚本逐行传输且仅结束时输出，改为 Mongo 服务端的条件统计和 `update_many`。
 
 ## Decision Log
 
@@ -39,6 +40,7 @@ This execution plan is a living document and must be kept up to date according t
 - 2026-08-24：历史或缺少 `match_time` 的投影回填为 `season_id: null`，而不是推测历史赛季名称；这保证新赛季不会泄漏历史记录。
 - 2026-08-24：回填脚本在读取投影前显式执行 Mongo `ping`，让连接失败在扫描前暴露；实际回填只在 dry-run 有可核验输出后执行。
 - 2026-08-24：代码审查要求读取侧同时精确匹配 `season_id` 与 `match_time >= season_start_time`。这使错误标记的历史行和无时间行也无法进入当前赛季列表。
+- 2026-08-24：因存量投影超过 838 万行，赛季回填改为两条服务端更新（当前赛季 / 非当前赛季），结果与逐行计算相同但不再传输每条投影到客户端。
 
 ## Outcomes & Retrospective
 

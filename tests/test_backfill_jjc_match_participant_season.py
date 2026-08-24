@@ -47,6 +47,20 @@ class TestJjcMatchParticipantSeasonBackfill(unittest.TestCase):
             {"$set": {"season_id": None}},
         )
 
+    def test_builds_server_side_current_and_unassigned_queries(self) -> None:
+        module = _load_script_module()
+
+        current_query, unassigned_query = module.build_season_queries("暗影千机", 1777228800)
+
+        self.assertEqual(current_query["match_type"], 3)
+        self.assertEqual(current_query["match_time"], {"$gte": 1777228800})
+        self.assertEqual(unassigned_query["match_type"], 3)
+        self.assertEqual(unassigned_query["$or"], [
+            {"match_time": {"$lt": 1777228800}},
+            {"match_time": None},
+            {"match_time": {"$exists": False}},
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()
