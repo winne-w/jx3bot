@@ -78,89 +78,30 @@ def build_qiyu_spec(
     )
 
 
-def build_latest_match_equipment_spec(
+def build_zhuangfen_spec(
     *,
-    snapshot: dict[str, Any],
+    data: dict[str, Any],
+    role_name: str,
+    server: str,
     random_text: str,
-    time_filter: Callable[..., Any],
+    mpimg: Any,
 ) -> RenderSpec:
-    """Build the template context for a latest-3v3 equipment snapshot."""
-    match_time = _match_time(snapshot.get("match_time"))
-    try:
-        formatted_time = time_filter(match_time, "%Y年%m月%d日 %H:%M:%S")
-    except TypeError:
-        formatted_time = time_filter(match_time)
-
-    render_snapshot = dict(snapshot)
-    for collection_name in ("armors", "metrics", "body_qualities"):
-        if not isinstance(render_snapshot.get(collection_name), list):
-            render_snapshot[collection_name] = []
-    equipment_score = _score(snapshot.get("equip_score"))
-    strength_score = _score(snapshot.get("equip_strength_score"))
-    stone_score = _score(snapshot.get("stone_score"))
-    render_snapshot["total_score"] = equipment_score + strength_score + stone_score
-    render_snapshot["basic_attributes"] = _selected_attributes(
-        render_snapshot.get("body_qualities"),
-        ("会心", "破防", "无双", "破招"),
-    )
-    detailed_attributes = _selected_attributes(
-        render_snapshot.get("body_qualities"),
-        ("会心效果", "加速", "内功防御", "外功防御", "化劲", "根骨", "基础攻击力"),
-    )
-    max_hp = _display_value(render_snapshot.get("max_hp"))
-    if max_hp is not None:
-        detailed_attributes.insert(0, {"name": "气血", "value": max_hp})
-    render_snapshot["detailed_attributes"] = detailed_attributes
+    menpai = data.get("data", {}).get("panelList", {}).get("panel", [{}])[0].get("name")
 
     return RenderSpec(
         template_name="装备查询.html",
         context={
-            "title": "最近 3v3 对局装备快照",
-            "snapshot": render_snapshot,
-            "match_time_label": "对局时间：{}".format(formatted_time),
+            "items": data["data"],
+            "id": role_name,
+            "qufu": server,
+            "newpng": "名片",
             "text": random_text,
+            "mpimg": mpimg,
+            "menpai": menpai,
         },
-        width=1180,
-        height="ck",
+        width=1119,
+        height=1300,
     )
-
-
-def _score(value: Any) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _display_value(value: Any) -> Any:
-    if value is None or isinstance(value, bool):
-        return None
-    if isinstance(value, str) and not value.strip():
-        return None
-    return value
-
-
-def _selected_attributes(values: Any, names: tuple[str, ...]) -> list[dict[str, Any]]:
-    if not isinstance(values, list):
-        return []
-    by_name: dict[str, Any] = {}
-    for item in values:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        value = _display_value(item.get("value"))
-        if name and value is not None and name not in by_name:
-            by_name[name] = value
-    return [{"name": name, "value": by_name[name]} for name in names if name in by_name]
-
-
-def _match_time(value: Any) -> int:
-    if value is None or isinstance(value, bool):
-        raise ValueError("最近 3v3 装备快照缺少有效对局时间")
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("最近 3v3 装备快照缺少有效对局时间") from exc
 
 
 def build_fuben_spec(

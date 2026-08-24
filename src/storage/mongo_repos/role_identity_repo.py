@@ -506,28 +506,6 @@ class RoleIdentityRepo:
             source="indicator", cache_repo=cache_repo,
         )
 
-    async def upsert_from_jx3api_role_detail(
-        self,
-        server: str,
-        name: str,
-        *,
-        zone: Optional[str],
-        role_id: Optional[str],
-        global_id: Optional[str],
-        cache_repo: Any = None,
-    ) -> Dict[str, Any]:
-        """从 JX3API 角色详情写入或升级身份。"""
-        return await self._upsert_identity(
-            server=server,
-            name=name,
-            zone=zone,
-            game_role_id=role_id,
-            role_id=role_id,
-            global_id=global_id,
-            source="jx3api_role_detail",
-            cache_repo=cache_repo,
-        )
-
     async def upsert_from_match_detail(
         self,
         server: str,

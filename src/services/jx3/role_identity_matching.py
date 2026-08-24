@@ -109,31 +109,6 @@ def split_replay_role_name(role_name: Any, server: Any = "") -> Tuple[str, str]:
     return raw_server, raw_name
 
 
-def normalize_match_detail_role_name(
-    raw_name: Any,
-    player_server: Any,
-    target_server: Any,
-) -> str:
-    """Remove a match-detail ``·server`` suffix only when it is verified.
-
-    Match detail may expose a player as ``角色名·服务器`` while keeping the
-    server in a separate field.  A literal ``·`` can also be part of a role
-    name, so the suffix is removed only when it matches the player's server
-    or the server being queried.
-    """
-    name_text = str(raw_name or "").strip()
-    if "·" not in name_text:
-        return name_text
-    base, suffix = name_text.rsplit("·", 1)
-    verified_servers = {
-        str(player_server or "").strip(),
-        str(target_server or "").strip(),
-    }
-    if suffix.strip() in verified_servers:
-        return base.strip()
-    return name_text
-
-
 def build_identity_key(
     global_role_id: Optional[str] = None,
     zone: Optional[str] = None,

@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Annotated
 
 from jinja2 import Environment
-from nonebot import logger
 from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
 from nonebot.params import RegexGroup
 
@@ -16,11 +15,9 @@ from src.services.jx3.command_context import (
 )
 from src.services.jx3.query_context import (
     build_jjc_spec_or_text,
-    build_latest_match_equipment_spec,
     build_qiyu_spec,
     build_yanhua_spec,
 )
-from src.services.jx3.singletons import jjc_match_equipment_service
 from src.utils.jjc_text import jjcdaxiaoxie
 from src.utils.random_text import suijitext
 from src.utils.time_format import format_minutes_seconds
@@ -115,78 +112,10 @@ def register(
     async def zhuangfen_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        try:
-            server, role_name = await resolve_server_and_name(
-                foo, group_id=getattr(event, "group_id", None)
-            )
-        except CommandContextError as exc:
-            await send_text(bot, event, exc.message, at_user=True)
-            return
-
-        try:
-            result = await jjc_match_equipment_service.query(server=server, name=role_name)
-        except Exception:
-            logger.exception(
-                "最近 3v3 装备快照查询异常: server={} role_name={}", server, role_name
-            )
-            await send_text(bot, event, "装备快照查询失败，请稍后重试", at_user=True)
-            return
-
-        if not isinstance(result, dict):
-            logger.warning(
-                "最近 3v3 装备快照查询返回异常类型: server={} role_name={} type={}",
-                server,
-                role_name,
-                type(result).__name__,
-            )
-            await send_text(bot, event, "装备快照查询失败，请稍后重试", at_user=True)
-            return
-
-        if not result.get("ok"):
-            message = result.get("message")
-            await send_text(
-                bot,
-                event,
-                message if isinstance(message, str) and message else "装备快照查询失败，请稍后重试",
-                at_user=True,
-            )
-            return
-
-        snapshot = result.get("snapshot")
-        if not isinstance(snapshot, dict):
-            logger.warning(
-                "最近 3v3 装备快照查询缺少有效快照: server={} role_name={}",
-                server,
-                role_name,
-            )
-            await send_text(bot, event, "装备快照查询失败，请稍后重试", at_user=True)
-            return
-
-        try:
-            spec = build_latest_match_equipment_spec(
-                snapshot=snapshot,
-                random_text=suijitext(),
-                time_filter=timestamp_jjc,
-            )
-        except Exception:
-            logger.exception(
-                "最近 3v3 装备快照渲染数据构建失败: server={} role_name={}",
-                server,
-                role_name,
-            )
-            await send_text(bot, event, "装备快照查询失败，请稍后重试", at_user=True)
-            return
-        apply_filters(env, spec.filters)
-        await render_and_send_template_image(
-            bot,
+        await bot.send(
             event,
-            env=env,
-            template_name=spec.template_name,
-            context=spec.context,
-            width=spec.width,
-            height=spec.height,
-            at_user=spec.at_user,
-            prefix=spec.prefix,
+            MessageSegment.at(event.user_id)
+            + Message("\n装备查询接口暂不可用：JX3API 当前没有可用的装备属性接口，暂时无法查询属性/装分。"),
         )
 
     @jjc_matcher.handle()

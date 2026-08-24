@@ -8,7 +8,6 @@
 
 ## Active
 
-- `2026-07-28-jjc-match-equipment/`: 将已下线的装备查询替换为最近一场 3v3 对局装备与属性快照。
 - `2026-07-27-jx3api-openapi-migration/`: 迁移已下线的 JX3API `/data` 路径，适配当前 OpenAPI 字段并明确降级无等价功能。
 - `2026-07-03-jjc-peak-detail-consistency/`: 修复 JJC 统计页“14日游戏最高分排名”分布卡与展开详情口径不一致的问题。
 
