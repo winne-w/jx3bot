@@ -151,3 +151,4 @@ python test_tuilan_match_history.py
 - `docs/references/runbook.md`: 启动、验证、故障排查、部署注意事项
 - `docs/exec-plans/active/refactor-plan.md`: 现阶段重构边界和未完成项
 - `docs/tasks/all-tasks.md`: 当前任务清单与任务文档索引
+- `openspec/`: 中大型需求的唯一变更流程入口；`specs/` 保存生效规格，`changes/` 保存进行中变更，`changes/archive/` 保存完成档案

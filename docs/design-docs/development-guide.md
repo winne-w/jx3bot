@@ -98,7 +98,7 @@
 
 ## 提交前最小检查
 
-- 已按 `docs/exec-plans/active/` 中的计划完成实现，并更新执行状态
+- 已按当前 OpenSpec change 的 `tasks.md`（或兼容的 `docs/exec-plans/active/` 小范围计划）完成实现，并更新执行状态
 - 插件仍能被 NoneBot 发现
 - 改动路径经过计划定义的自动化验证和最小冒烟
 - 无法离线验证的外部依赖，已补充手工回归路径和风险说明

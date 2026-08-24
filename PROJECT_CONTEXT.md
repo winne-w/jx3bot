@@ -19,7 +19,7 @@
    - 数据库相关改动必须补读 `docs/design-docs/database-design.md`
 6. `docs/references/index.md`
 7. `docs/PLANS.md`
-8. `docs/requirements/index.md`
+8. `openspec/specs/` 与相关 active change
 9. `docs/exec-plans/index.md`
 10. `docs/tasks/all-tasks.md`
 
@@ -89,14 +89,15 @@ python -m py_compile <相关 service/storage 文件>
 
 以后修改本项目时，默认遵循 `docs/PLANS.md` 定义的需求级交付流程：`需求澄清 -> 方案文档 -> 执行计划 -> 开发实现 -> 测试验证 -> review -> 验收归档`。该流程适用于实现、重构、排查修复、文档联动等仓库任务。
 
-中大型需求默认在 `docs/requirements/<yyyy-mm-dd>-<short-name>/` 下建立需求目录，并同步 `docs/requirements/index.md`。目录内至少按需维护：
+中大型需求默认在 `openspec/changes/<change-id>/` 下建立 change。开始前先读取 `openspec/AGENTS.md`、相关 `openspec/specs/` 基线和 active change。change 内至少按需维护：
 
-- `00-requirement.md`
-- `01-solution.md`
-- `02-execution-plan.md`
-- `03-test-plan.md`
-- `04-review.md`
-- `05-acceptance.md`
+- `proposal.md`
+- `design.md`
+- `tasks.md`
+- `specs/<capability>/spec.md` delta
+- `test-plan.md`
+- `review.md`
+- `acceptance.md`
 
 执行规则：
 
@@ -140,7 +141,7 @@ python -m py_compile <相关 service/storage 文件>
 - 改动数据库集合、字段、索引、TTL、迁移脚本或存储 repo 时，同时更新 `docs/design-docs/database-design.md`。
 - 改动手工验证路径时，同时更新 `docs/references/runbook.md` 的回归清单。
 - 生成阶段性执行计划时，写入 `docs/exec-plans/active/` 并同步更新 `docs/exec-plans/index.md`；相关代码提交后，才可将计划移入 `docs/exec-plans/completed/` 并更新索引。
-- 新需求采用 `docs/requirements/` 目录结构时，同时更新 `docs/requirements/index.md`；方案、执行计划、测试、review、验收文档之间口径必须一致。
+- 新需求采用 OpenSpec change 时，方案、执行计划、规格 delta、测试、review、验收文档之间口径必须一致；验收后先同步进 `openspec/specs/`，再归档 change。
 
 ## 已知遗留问题
 

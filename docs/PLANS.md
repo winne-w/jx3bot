@@ -16,7 +16,7 @@
 
 ## 需求文件放置规则
 
-新需求默认放在 `docs/requirements/<yyyy-mm-dd>-<short-name>/`，从 `docs/requirements/_template/` 复制模板。目录名使用日期和短横线命名，短名应能表达业务目标。
+新需求默认放在 `openspec/changes/<change-id>/`。change-id 使用短横线命名并表达业务目标；规格基线位于 `openspec/specs/`，完成 change 归档到 `openspec/changes/archive/`。
 
 推荐文件结构：
 
@@ -33,7 +33,7 @@
 - `05-acceptance.md`
   验收记录。记录最终实现内容、验证命令、冒烟结果、未覆盖风险、上线观察点和回滚方式。
 
-`docs/requirements/index.md` 维护需求目录索引。新增需求目录时同步更新索引。
+OpenSpec CLI 与目录状态维护 active/archived change；新 change 必须包含 proposal、design、tasks 与相应 specs delta，并按需保留测试、review、验收档案。
 
 ## 阶段门禁
 
@@ -42,7 +42,7 @@
 3. 执行计划确认前，不开始业务代码实现。
 4. 实现过程中按计划持续更新 `02-execution-plan.md` 的进度、决策和发现。
 5. 测试、review、验收结果分别写入 `03-test-plan.md`、`04-review.md`、`05-acceptance.md`。
-6. 需求完成后保留需求目录；如后续增加归档状态，需在 `docs/requirements/index.md` 标注状态。
+6. 需求完成后，先把已生效的 delta 合并进 `openspec/specs/`，再归档 change。
 
 ## 旧执行计划兼容规则
 
@@ -52,11 +52,11 @@
 - 完成后的历史计划移到 `docs/exec-plans/completed/`
 - 长期未排期但值得记录的问题继续放在现有 tech debt 或 active 文档体系中
 
-新需求优先使用 `docs/requirements/` 目录结构。只有小范围修复、历史计划续做或项目 owner 明确要求时，才继续使用 `docs/exec-plans/active/` 单文件计划。
+中大型新需求统一使用 `openspec/changes/`。只有小范围修复、历史计划续做或项目 owner 明确要求时，才继续使用 `docs/exec-plans/active/` 单文件计划。
 
 ## 执行计划必须包含的结构
 
-每个 `02-execution-plan.md` 都必须是自包含文档，默认读者只知道当前仓库和这一个需求目录。至少包含以下章节：
+每个 OpenSpec change 的 `tasks.md` 都必须是自包含文档，默认读者只知道当前仓库和这一个 change。至少包含以下章节：
 
 - `Purpose / Big Picture`
 - `Progress`
@@ -77,7 +77,9 @@
 - 说明验证命令、期望现象和验收标准。
 - 执行过程中持续更新 `Progress`、`Decision Log`、`Surprises & Discoveries`。
 - 计划变更后要同步更新需求目录内相关文档，不能让方案、计划、测试记录失真。
-- 用户或项目 owner 明确确认计划后，才开始编码或修改仓库文件。
+- 用户或项目 owner 明确确认 `design.md` 后才形成 `tasks.md`；明确确认计划后，才开始编码或修改仓库文件。
+
+Superpowers 用于 agent 的设计、计划、测试、验证和 review 方法；其项目产物必须写入当前 OpenSpec change，不得创建 `docs/superpowers/specs/` 或 `docs/superpowers/plans/` 的平行交付档案。
 
 ## 当前仓库的计划粒度建议
 
