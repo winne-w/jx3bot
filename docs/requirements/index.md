@@ -8,6 +8,7 @@
 
 ## Active
 
+- `2026-08-24-jjc-match-season/`: 为 JJC 玩家对局投影持久化赛季归属，隔离新赛季查询并回填现有 Mongo 数据。
 - `2026-07-27-jx3api-openapi-migration/`: 迁移已下线的 JX3API `/data` 路径，适配当前 OpenAPI 字段并明确降级无等价功能。
 - `2026-07-03-jjc-peak-detail-consistency/`: 修复 JJC 统计页“14日游戏最高分排名”分布卡与展开详情口径不一致的问题。
 
