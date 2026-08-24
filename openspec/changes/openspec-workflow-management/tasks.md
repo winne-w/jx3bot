@@ -92,7 +92,7 @@ Expected: 本次设计成为 change 的 `design.md`，不再存在独立 Superpo
 - Move: `docs/requirements/2026-08-24-jjc-match-season/` to `openspec/changes/jjc-match-season/`
 - Create: `openspec/specs/jjc-ranking/spec.md`, `openspec/specs/jjc-sync-dispatcher/spec.md`, `openspec/specs/jx3api-openapi/spec.md`
 
-- [ ] **Step 1: 记录清单并执行 Git 重命名**
+- [x] **Step 1: 记录清单并执行 Git 重命名**
 
 ```bash
 find docs/requirements -type f | sort > /tmp/jx3bot-requirements-before.txt
@@ -105,7 +105,7 @@ git mv docs/requirements/2026-08-24-jjc-match-season openspec/changes/jjc-match-
 
 Expected: 四项 completed change 归档，`jjc-match-season` 保持 active。
 
-- [ ] **Step 2: 重命名每个已存在阶段文件**
+- [x] **Step 2: 重命名每个已存在阶段文件**
 
 For each migrated directory, use `git mv` with this exact mapping; do not补造历史缺失的阶段文件：
 
@@ -118,7 +118,7 @@ For each migrated directory, use `git mv` with this exact mapping; do not补造�
 05-acceptance.md -> acceptance.md
 ```
 
-- [ ] **Step 3: 编写规格基线和 active delta**
+- [x] **Step 3: 编写规格基线和 active delta**
 
 Each baseline spec and `openspec/changes/jjc-match-season/specs/jjc-ranking/spec.md` use:
 
@@ -136,7 +136,7 @@ Each baseline spec and `openspec/changes/jjc-match-season/specs/jjc-ranking/spec
 
 Only record implemented, currently effective behavior from the archived records; do not infer missing historic deltas.
 
-- [ ] **Step 4: 删除旧入口并提交**
+- [x] **Step 4: 删除旧入口并提交**
 
 ```bash
 git rm -r docs/requirements/_template docs/requirements/index.md
@@ -152,7 +152,7 @@ Expected: 每个迁移前阶段文件都有一个映射后的 OpenSpec 文件，
 **Files:**
 - Modify: `PROJECT_CONTEXT.md`, `docs/PLANS.md`, `README.md`, `docs/exec-plans/index.md`, `docs/design-docs/development-guide.md`, `project-history.md`
 
-- [ ] **Step 1: 写入唯一入口和阶段门禁**
+- [x] **Step 1: 写入唯一入口和阶段门禁**
 
 Replace future-facing `docs/requirements/` rules with this text in `PROJECT_CONTEXT.md` and `docs/PLANS.md`:
 
@@ -162,7 +162,7 @@ Replace future-facing `docs/requirements/` rules with this text in `PROJECT_CONT
 
 Also add `openspec/AGENTS.md`（若 CLI 生成）、相关 specs 和 active change 到任务开始前的必读顺序；保留 `docs/exec-plans/` 的小修复和历史续做规则。
 
-- [ ] **Step 2: 写明 Superpowers 边界和历史变更**
+- [x] **Step 2: 写明 Superpowers 边界和历史变更**
 
 Replace future-facing old-path references in the four remaining files. Add this to `docs/PLANS.md` and append an OpenSpec 迁移记录到 `project-history.md`:
 
@@ -170,7 +170,7 @@ Replace future-facing old-path references in the four remaining files. Add this 
 Superpowers 用于 agent 的设计、计划、测试、验证和 review 方法；其项目产物必须写入当前 OpenSpec change，不得创建 `docs/superpowers/specs/` 或 `docs/superpowers/plans/` 的平行交付档案。
 ```
 
-- [ ] **Step 3: 提交文档规则切换**
+- [x] **Step 3: 提交文档规则切换**
 
 ```bash
 git add PROJECT_CONTEXT.md docs/PLANS.md README.md docs/exec-plans/index.md docs/design-docs/development-guide.md project-history.md
@@ -185,7 +185,7 @@ Expected: 新需求只从 OpenSpec 开始，既有 `docs/exec-plans/` 兼容入�
 - Create: `openspec/changes/openspec-workflow-management/test-plan.md`, `review.md`, `acceptance.md`
 - Modify: `openspec/changes/openspec-workflow-management/tasks.md`
 
-- [ ] **Step 1: 执行流程和引用扫描**
+- [x] **Step 1: 执行流程和引用扫描**
 
 ```bash
 npx --yes @fission-ai/openspec@latest list
@@ -196,7 +196,7 @@ git diff --check
 
 Expected: list 列出 active changes；strict validation 通过；`rg` 和 `git diff --check` 无输出。
 
-- [ ] **Step 2: 核对迁移数量并记录真实结果**
+- [x] **Step 2: 核对迁移数量并记录真实结果**
 
 ```bash
 wc -l /tmp/jx3bot-requirements-before.txt
@@ -209,7 +209,7 @@ Write command output, known limitations and the tested rollback command below in
 git revert <migration-commit-sha>
 ```
 
-- [ ] **Step 3: 提交验证记录**
+- [x] **Step 3: 提交验证记录**
 
 ```bash
 git add openspec/changes/openspec-workflow-management
