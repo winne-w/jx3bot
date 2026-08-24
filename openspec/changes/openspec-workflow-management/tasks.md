@@ -80,6 +80,8 @@ Expected: 本次设计成为 change 的 `design.md`，不再存在独立 Superpo
 
 **验证记录（2026-08-24）：** `timeout 30s npx --yes @fission-ai/openspec@latest list` 在 30 秒内未返回，退出码为 `124`；CLI 的 `--help` 与 `init` 已分别成功验证。本次 bootstrap 未将 list 成功作为前提，后续迁移任务应在可用环境中复核 list。`openspec/specs/.gitkeep` 与 `openspec/changes/archive/.gitkeep` 确保 CLI 初始化的两个空目录在 clone 后可复现。
 
+**规格补充（2026-08-24）：** 增加 `specs/workflow-management/spec.md`，使本 change 具备严格校验所需的流程管理 delta；该规格与 proposal/design 的唯一入口和非平行产物决策一致。
+
 ### Task 2: 迁移需求档案和创建基线规格
 
 **Files:**
