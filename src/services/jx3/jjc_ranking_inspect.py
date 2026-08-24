@@ -217,6 +217,8 @@ class JjcRankingInspectService:
     sync_repo: Any = None
     role_recent_ttl_seconds: int = 86400
     role_indicator_ttl_seconds: int = 86400
+    current_season: str = ""
+    season_start_time: int = 0
     max_recent_matches: int = 20
     cache_hit_replay_enrich_timeout_seconds: float = 5.0
     _tuilan_query_locks: WeakKeyDictionary = field(default_factory=WeakKeyDictionary, init=False, repr=False)
@@ -383,6 +385,8 @@ class JjcRankingInspectService:
             matches = await self.cache_repo.list_saved_local_3v3_matches_for_identity(
                 identity_id=identity.get("identity_id"),
                 identity_key=identity.get("identity_key"),
+                season_id=self.current_season,
+                season_start_time=self.season_start_time,
                 server=identity.get("server") or server,
                 name=identity.get("name") or name,
                 global_id=identity.get("global_id"),

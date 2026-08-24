@@ -165,6 +165,8 @@ class JjcMatchParticipantRepo:
         payload: Optional[Dict[str, Any]],
         seen_doc: Optional[Dict[str, Any]] = None,
         detail_source: str = DETAIL_SOURCE_MATCH_DETAIL,
+        current_season: Optional[str] = None,
+        season_start_time: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Build participant read-model rows from a cached match-detail payload.
 
@@ -187,6 +189,10 @@ class JjcMatchParticipantRepo:
         basic_info = detail.get("basic_info") if isinstance(detail.get("basic_info"), dict) else {}
         match_time = cls._extract_match_time(data, detail, seen_doc)
         start_time = cls._coerce_int(basic_info.get("start_time") or detail.get("start_time")) or match_time
+        season_id = None
+        if current_season and season_start_time is not None and match_time is not None:
+            if match_time >= season_start_time:
+                season_id = current_season
         cached_at = payload.get("cached_at") if isinstance(payload, dict) else None
         if cached_at is None:
             cached_at = data.get("cached_at")
@@ -231,6 +237,7 @@ class JjcMatchParticipantRepo:
                 "match_type": 3,
                 "match_type_inferred": match_type_inferred,
                 "match_time": match_time,
+                "season_id": season_id,
                 "start_time": start_time,
                 "duration": cls._coerce_int(basic_info.get("duration") or detail.get("duration")),
                 "avg_grade": cls._coerce_int(basic_info.get("grade") or detail.get("avg_grade")),
@@ -340,13 +347,17 @@ class JjcMatchParticipantRepo:
         self,
         global_id: str,
         *,
+        season_id: str,
+        season_start_time: int,
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
         target_global_id = self._pick_str(global_id)
+        target_season_id = self._pick_str(season_id)
+        target_season_start_time = self._coerce_int(season_start_time)
         safe_page = max(1, page)
         safe_page_size = min(max(1, page_size), 100)
-        if not target_global_id:
+        if not target_global_id or not target_season_id or target_season_start_time is None:
             return {
                 "items": [],
                 "total": 0,
@@ -355,7 +366,13 @@ class JjcMatchParticipantRepo:
                 "has_more": False,
             }
 
-        query = {"global_id": target_global_id, "match_type": 3, "detail_available": True}
+        query = {
+            "global_id": target_global_id,
+            "season_id": target_season_id,
+            "match_type": 3,
+            "detail_available": True,
+            "match_time": {"$gte": target_season_start_time},
+        }
         skip = (safe_page - 1) * safe_page_size
         db = self._db()
         started_at = time.perf_counter()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from typing import Any, Dict, List
 
 from src.storage.mongo_repos.jjc_match_participant_repo import (
@@ -203,6 +204,41 @@ class TestJjcMatchParticipantRepoBuild(unittest.TestCase):
         self.assertEqual(rows[0]["match_time"], 1710001234)
         self.assertNotEqual(rows[0]["match_time"], payload["cached_at"])
 
+    def test_assigns_current_season_at_or_after_boundary(self) -> None:
+        season_start_time = 1777228800
+        payload = _payload(
+            [_player("g1"), _player("g2"), _player("g3")],
+            [_player("g4"), _player("g5"), _player("g6")],
+            match_time=season_start_time,
+        )
+
+        rows = JjcMatchParticipantRepo.build_participants_from_match_detail(
+            1001,
+            payload,
+            current_season="新赛季",
+            season_start_time=season_start_time,
+        )
+
+        self.assertTrue(all(row["season_id"] == "新赛季" for row in rows))
+
+    def test_leaves_preseason_and_missing_time_unassigned(self) -> None:
+        season_start_time = 1777228800
+        for match_time in (season_start_time - 1, None):
+            payload = _payload(
+                [_player("g1"), _player("g2"), _player("g3")],
+                [_player("g4"), _player("g5"), _player("g6")],
+                match_time=match_time,
+            )
+
+            rows = JjcMatchParticipantRepo.build_participants_from_match_detail(
+                1001,
+                payload,
+                current_season="新赛季",
+                season_start_time=season_start_time,
+            )
+
+            self.assertTrue(all(row["season_id"] is None for row in rows))
+
     def test_detail_source_constants(self) -> None:
         payload = _payload(
             [_player("g1"), _player("g2"), _player("g3")],
@@ -215,6 +251,50 @@ class TestJjcMatchParticipantRepoBuild(unittest.TestCase):
         self.assertEqual(JjcMatchParticipantRepo.DETAIL_SOURCE_MATCH_DETAIL, "match_detail")
         self.assertEqual(JjcMatchParticipantRepo.SYNC_STATUS_NOT_SYNCED, "not_synced")
         self.assertEqual(rows[0]["detail_source"], JjcMatchParticipantRepo.DETAIL_SOURCE_MATCH_DETAIL)
+
+
+class _EmptyCursor:
+    def sort(self, *args: Any, **kwargs: Any) -> "_EmptyCursor":
+        return self
+
+    def skip(self, *args: Any, **kwargs: Any) -> "_EmptyCursor":
+        return self
+
+    def limit(self, *args: Any, **kwargs: Any) -> "_EmptyCursor":
+        return self
+
+    async def to_list(self, length: int) -> List[Dict[str, Any]]:
+        return []
+
+
+class _QueryCapturingParticipantCollection:
+    def __init__(self) -> None:
+        self.count_queries: List[Dict[str, Any]] = []
+        self.find_queries: List[Dict[str, Any]] = []
+
+    async def count_documents(self, query: Dict[str, Any]) -> int:
+        self.count_queries.append(query)
+        return 0
+
+    def find(self, query: Dict[str, Any]) -> _EmptyCursor:
+        self.find_queries.append(query)
+        return _EmptyCursor()
+
+
+class TestJjcMatchParticipantRepoQuery(unittest.IsolatedAsyncioTestCase):
+    async def test_current_season_query_also_enforces_season_start_time(self) -> None:
+        collection = _QueryCapturingParticipantCollection()
+        repo = JjcMatchParticipantRepo(db=SimpleNamespace(jjc_match_participants=collection))
+
+        await repo.list_local_3v3_matches_by_global_id(
+            "g1",
+            season_id="暗影千机",
+            season_start_time=1776960000,
+        )
+
+        expected = {"$gte": 1776960000}
+        self.assertEqual(collection.count_queries[0]["match_time"], expected)
+        self.assertEqual(collection.find_queries[0]["match_time"], expected)
 
 
 if __name__ == "__main__":

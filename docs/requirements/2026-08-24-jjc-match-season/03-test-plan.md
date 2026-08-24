@@ -30,4 +30,6 @@
 
 ## Result
 
-待实现与回填后填写。
+- 已验证 RED：投影构建函数尚不支持赛季参数、inspect service 尚未接收当前赛季时，新用例按预期失败。
+- 已在本地通过 95 项赛季归属、投影 service、已同步角色查询、回填分类和查询下限相关单测；运行日志中的 projection_down / MagicMock 警告来自既有异常路径测试。
+- Mongo dry-run 在当前环境未产生可核验输出，未执行 `--apply` 或 `--verify-only`，线上数据回填与 API 冒烟待可用 Mongo 连接后完成。

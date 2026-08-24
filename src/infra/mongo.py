@@ -168,6 +168,18 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     )
     await _safe_index(
         "jjc_match_participants",
+        [
+            ("global_id", 1),
+            ("season_id", 1),
+            ("match_type", 1),
+            ("detail_available", 1),
+            ("match_time", -1),
+            ("match_id", -1),
+        ],
+        name="idx_global_season_available_time",
+    )
+    await _safe_index(
+        "jjc_match_participants",
         [("match_type", 1), ("detail_available", 1), ("match_time", 1), ("tuilan_score", -1)],
         name="idx_available_time_tuilan_score",
     )

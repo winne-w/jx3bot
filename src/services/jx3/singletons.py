@@ -9,7 +9,7 @@ from src.infra.jx3api_get import get
 from src.storage.mongo_repos.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
-from src.services.jx3.jjc_match_data_sync import JjcMatchDataSyncService
+from src.services.jx3.jjc_match_data_sync import JjcMatchDataSyncService, parse_season_start_timestamp
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.kungfu import get_role_indicator
@@ -44,6 +44,8 @@ match_participant_repo: Any = JjcMatchParticipantRepo()
 match_detail_participant_projection_service: Any = MatchDetailParticipantProjectionService(
     participant_repo=match_participant_repo,
     sync_repo=jjc_sync_repo,
+    current_season=cfg.CURRENT_SEASON,
+    season_start_time=parse_season_start_timestamp(cfg.CURRENT_SEASON_START),
 )
 
 
@@ -122,6 +124,8 @@ jjc_ranking_inspect_service = JjcRankingInspectService(
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
     match_detail_projection_service=match_detail_identity_projection_service,
     match_detail_participant_projection_service=match_detail_participant_projection_service,
+    current_season=cfg.CURRENT_SEASON,
+    season_start_time=parse_season_start_timestamp(cfg.CURRENT_SEASON_START),
     role_recent_ttl_seconds=86400,
 )
 

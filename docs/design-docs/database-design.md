@@ -555,6 +555,7 @@
 | `match_type` | int/null | 对局类型，3 表示 3v3 |
 | `match_type_inferred` | bool | `match_type` 是否由双方玩家数量推断 |
 | `match_time` | int/null | 对局时间 |
+| `season_id` | string/null | 对局所属赛季。仅当 `match_time >= config.CURRENT_SEASON_START` 时写入当前 `config.CURRENT_SEASON`；赛季前或缺少对局时间时为 `null`，不会出现在当前赛季已同步对局列表中。 |
 | `start_time` | int/null | 开始时间 |
 | `duration` | int/null | 时长 |
 | `avg_grade` | int/null | 平均段位/分段 |
@@ -577,6 +578,7 @@
 |---|---|---|
 | `idx_match_global_id` | `match_id`, `global_id` | unique |
 | `idx_global_available_time` | `global_id`, `match_type`, `detail_available`, `match_time`, `match_id` | 普通复合索引，`match_time` 与 `match_id` 降序 |
+| `idx_global_season_available_time` | `global_id`, `season_id`, `match_type`, `detail_available`, `match_time`, `match_id` | 普通复合索引，供当前赛季角色已同步对局分页查询使用；`match_time` 与 `match_id` 降序 |
 | `idx_available_time_tuilan_score` | `match_type`, `detail_available`, `match_time`, `tuilan_score` | 普通复合索引，`tuilan_score` 降序 |
 | `idx_available_time_game_score` | `match_type`, `detail_available`, `match_time`, `game_score` | 普通复合索引，`game_score` 降序 |
 | `idx_match_id` | `match_id` | 普通索引 |
@@ -586,6 +588,7 @@
 - 本集合由 `jjc_match_detail` 中的可用详情派生，不以 `jjc_sync_match_seen.status='detail_saved'` 作为展示门槛。
 - `jjc_sync_match_seen` 只补充同步状态展示字段；无 seen 文档的本地详情也可以生成投影。
 - 投影可删除后通过 `scripts/backfill_jjc_match_participants.py` 重建。
+- 赛季字段通过 `scripts/backfill_jjc_match_participant_season.py` 补齐；先执行默认 dry-run，确认统计后才可使用 `--apply --yes` 写入，并用 `--verify-only` 核验。
 - 历史最高分统计使用 `match_time` 作为对局发生时间；该字段来自接口返回的 `match_time` 或 `start_time`，不要使用 `cached_at`、`detail_saved_at`、`updated_at` 作为统计窗口。
 
 ### `jjc_equipment_snapshot`

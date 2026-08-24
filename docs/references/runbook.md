@@ -195,6 +195,13 @@ python test_tuilan_match_history.py
 - 若状态中最近错误出现 `role_identity_not_found`，优先检查目标角色是否已能通过最近对局 replay 补到 `global_id`；仅缺 SK01 `global_role_id` 时再用带 `global_role_id=...` 的添加命令补充 history 请求字段。
 - 若服务中断后状态长期存在 `syncing` 或 `detail_syncing`，再次执行 `/jjc同步开始` 或启动 worker 会先恢复过期租约；角色恢复为 `queued`，详情恢复为可重试状态
 - 已同步对局页面输入不存在于 `role_identities` 的角色时，应显示未收录身份空态；已收录但缺少 `global_id`，或详情玩家尚未回填 `global_id` 时，对局列表为空。
+- 已同步对局列表只显示 `config.CURRENT_SEASON` 对应的 `jjc_match_participants.season_id`。新赛季确定后先同步更新 `CURRENT_SEASON` 与 `CURRENT_SEASON_START`，重启 bot 使配置生效；新赛季暂无对局时列表为空，不应显示旧赛季记录。
+- 首次启用或切换赛季后，按顺序回填玩家投影；默认 dry-run 不写库，确认输出后才执行 apply：
+  ```bash
+  python scripts/backfill_jjc_match_participant_season.py --dry-run
+  python scripts/backfill_jjc_match_participant_season.py --apply --yes
+  python scripts/backfill_jjc_match_participant_season.py --verify-only
+  ```
 - 已同步对局页面点击“加入同步队列”后，应调用 `POST /jx3bot/api/jjc/ranking-stats/synced-role-sync`（本地无代理时为 `/api/jjc/ranking-stats/synced-role-sync`），POST body 为 `{"server":"...","name":"..."}`；返回后先展示入队接口返回的 `sync_status`，再刷新同步状态和本地对局列表；列表文案使用“同步状态/已同步对局”，不使用对局缓存刷新语义。
 - 已同步对局页面点击单场对局时，应调用 `GET /api/jjc/ranking-stats/match-detail?match_id=<对局ID>` 打开详情弹窗，焦点角色在队伍列表中高亮。
 - JJC 14 天历史最高分排名每天 09:00 独立生成，读取最近两个 `jjc_ranking_stat_summaries.timestamp` 作为锚点，从 `jjc_match_participants` 中统计各锚点往前 14 天内所有本地已同步 3v3 对局参与者；统计对象不是排行榜成员，因此可以覆盖洗车后掉出榜单但历史对局已同步的玩家。

@@ -26,6 +26,8 @@ class MatchDetailParticipantProjectionService:
 
     participant_repo: JjcMatchParticipantRepo
     sync_repo: Optional[Any] = None
+    current_season: Optional[str] = None
+    season_start_time: Optional[int] = None
 
     async def _load_seen_doc(self, match_id: Any) -> Optional[Dict[str, Any]]:
         if self.sync_repo is None:
@@ -73,6 +75,8 @@ class MatchDetailParticipantProjectionService:
                 payload,
                 seen_doc=actual_seen_doc,
                 detail_source=source,
+                current_season=self.current_season,
+                season_start_time=self.season_start_time,
             )
             inserted = await self.participant_repo.replace_match_participants(match_id, participants)
             return {

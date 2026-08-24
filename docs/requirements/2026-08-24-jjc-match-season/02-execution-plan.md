@@ -19,10 +19,10 @@ This execution plan is a living document and must be kept up to date according t
 ## Progress
 
 - [x] 完成需求和方案确认
-- [ ] 建立赛季归属的单元测试并验证 RED
-- [ ] 实现投影写入与当前赛季列表过滤
-- [ ] 增加 Mongo 索引、回填脚本和数据库文档
-- [ ] 执行 Mongo dry-run、apply 与回填核验
+- [x] 建立赛季归属的单元测试并验证 RED
+- [x] 实现投影写入与当前赛季列表过滤
+- [x] 增加 Mongo 索引、回填脚本和数据库文档
+- [ ] 执行 Mongo dry-run、apply 与回填核验（当前环境未得到可核验输出）
 - [ ] 完成自动化验证、手工冒烟和 review
 - [ ] 填写测试、review、验收记录
 
@@ -30,12 +30,15 @@ This execution plan is a living document and must be kept up to date according t
 
 - 当前 `jjc_match_participants` 的 `idx_global_available_time` 已按 `global_id`、展示条件和时间排序；赛季过滤需要新索引以保持该角色分页查询的等值前缀。
 - 同步队列已有 `season_id`，但它是角色同步水位状态，不能作为玩家对局列表的筛选来源。
+- 当前运行环境没有可见的本机 Mongo 监听端口。两次已授权的 dry-run 都没有返回统计或错误输出，因此没有执行 `--apply`。
 
 ## Decision Log
 
 - 2026-08-24：用户选择在玩家投影持久化 `season_id`，而不是只在查询时用赛季起点过滤。
 - 2026-08-24：不向 `jjc_match_detail` 添加赛季字段；它是完整详情事实，当前列表的查询边界应在 `jjc_match_participants` 读取模型中实现。
 - 2026-08-24：历史或缺少 `match_time` 的投影回填为 `season_id: null`，而不是推测历史赛季名称；这保证新赛季不会泄漏历史记录。
+- 2026-08-24：回填脚本在读取投影前显式执行 Mongo `ping`，让连接失败在扫描前暴露；实际回填只在 dry-run 有可核验输出后执行。
+- 2026-08-24：代码审查要求读取侧同时精确匹配 `season_id` 与 `match_time >= season_start_time`。这使错误标记的历史行和无时间行也无法进入当前赛季列表。
 
 ## Outcomes & Retrospective
 
@@ -292,7 +295,7 @@ git commit -m "docs: record JJC match season rollout"
 
 ## Validation and Acceptance
 
-- 单元测试证明赛季边界、赛季前记录、无时间记录、投影写入和 service 查询参数均正确。
+- 单元测试证明赛季边界、赛季前记录、无时间记录、投影写入、service 查询参数，以及 Mongo 查询的赛季开始时间条件均正确。
 - `py_compile` 覆盖改动过的运行时模块和回填脚本，确认 Python 3.9 兼容。
 - Mongo 操作按“dry-run → 人工核对 → `--apply --yes` → `--verify-only`”顺序执行；不跳过 dry-run。
 - API 回归使用已有 `/api/jjc/ranking-stats/synced-role-matches` 参数，不新增客户端参数或改变响应格式。

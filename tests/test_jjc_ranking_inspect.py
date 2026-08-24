@@ -1732,6 +1732,7 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
             tuilan_request=MagicMock(),
             role_indicator_fetcher=MagicMock(),
             kungfu_pinyin_to_chinese={},
+            current_season="暗影千机",
             role_identity_repo=FakeRoleIdentityRepo(identity),
             sync_repo=FakeSyncRepo(sync_state={
                 "identity_id": identity_id,
@@ -1753,6 +1754,7 @@ class TestJjcSyncedRoleInspect(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cache_repo.synced_matches_calls[0]["server"], "梦江南")
         self.assertEqual(cache_repo.synced_matches_calls[0]["name"], "示例角色")
         self.assertEqual(cache_repo.synced_matches_calls[0]["global_id"], "987")
+        self.assertEqual(cache_repo.synced_matches_calls[0]["season_id"], "暗影千机")
 
     async def test_get_synced_role_matches_projection_error_returns_standard_error(self) -> None:
         identity_id = ObjectId()

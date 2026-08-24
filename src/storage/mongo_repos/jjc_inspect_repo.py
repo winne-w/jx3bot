@@ -358,6 +358,8 @@ class JjcInspectRepo:
         *,
         identity_id: Any,
         identity_key: Optional[str],
+        season_id: str = "",
+        season_start_time: int = 0,
         server: Optional[str] = None,
         name: Optional[str] = None,
         global_id: Optional[str] = None,
@@ -382,6 +384,8 @@ class JjcInspectRepo:
 
         result = await self._list_saved_matches_from_projection(
             global_id=target_global_id,
+            season_id=season_id,
+            season_start_time=season_start_time,
             page=safe_page,
             page_size=safe_page_size,
         )
@@ -401,6 +405,8 @@ class JjcInspectRepo:
         self,
         *,
         global_id: str,
+        season_id: str,
+        season_start_time: int,
         page: int,
         page_size: int,
     ) -> Dict[str, Any]:
@@ -409,6 +415,8 @@ class JjcInspectRepo:
 
         result = await self.participant_repo.list_local_3v3_matches_by_global_id(
             global_id=global_id,
+            season_id=season_id,
+            season_start_time=season_start_time,
             page=page,
             page_size=page_size,
         )
