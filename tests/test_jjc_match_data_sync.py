@@ -473,6 +473,15 @@ class FakeInspectService:
         self.call_counts: Dict[int, int] = {}
         self.identity_calls: List[Dict[str, Any]] = []
         self.identity_result: Optional[Dict[str, Any]] = None
+        # The production sync service composes its compatibility persistence
+        # service from inspect_service.cache_repo when an explicit one is not
+        # supplied.  Keep this fake executable through that same path.
+        self.cache_repo = self
+        self.saved_match_detail: List[Dict[str, Any]] = []
+
+    async def save_match_detail(self, match_id: int, payload: Dict[str, Any]) -> bool:
+        self.saved_match_detail.append({"match_id": match_id, "payload": payload})
+        return True
 
     async def _resolve_role_identity(
         self,
@@ -1387,11 +1396,12 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
 
     async def test_sync_match_detail_passes_lease_owner_to_saved_marker(self) -> None:
         repo = FakeRepo()
+        inspect_service = FakeInspectService()
         service = JjcMatchDataSyncService(
             repo=repo,
             current_season="赛季",
             current_season_start="2026-04-24",
-            inspect_service=FakeInspectService(),
+            inspect_service=inspect_service,
             match_detail_projection_service=FakeProjectionService(repo.events),
             sleep_func=_noop_sleep,
         )
@@ -1404,6 +1414,7 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "saved")
         self.assertEqual(repo.detail_saved_calls[0]["lease_owner"], "worker-1")
+        self.assertEqual(inspect_service.saved_match_detail[0]["match_id"], 11)
 
     async def test_sync_match_detail_persists_enriched_payload_before_marking_saved(self) -> None:
         repo = FakeRepo()
@@ -1480,6 +1491,57 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "failed")
         self.assertEqual(repo.detail_unavailable_calls, [])
         self.assertEqual(repo.detail_failed_calls[0]["match_id"], 14)
+
+    async def test_sync_requires_persistence_service_when_inspect_cache_repo_is_unavailable(self) -> None:
+        service = JjcMatchDataSyncService(
+            repo=FakeRepo(),
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=object(),
+            sleep_func=_noop_sleep,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "match_detail_persistence_service is required"):
+            await service._persist_sync_match_detail(
+                match_id=15,
+                payload={"cached_at": 200.0, "data": {"match_id": 15, "detail": {}}},
+                unavailable=False,
+            )
+
+    async def test_sync_preserves_existing_occurrence_match_time_without_advancing_version(self) -> None:
+        repo = FakeRepo()
+        inspect_service = FakeInspectService()
+
+        async def get_match_detail(*, match_id: int) -> Dict[str, Any]:
+            return {
+                "match_id": match_id,
+                "match_time": 1810000100,
+                "cached_at": 200.0,
+                "detail": {"team1": {"players_info": []}, "team2": {"players_info": []}},
+            }
+
+        inspect_service.get_match_detail = get_match_detail  # type: ignore[assignment]
+        persistence_service = FakeMatchDetailPersistenceService(repo.events)
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=inspect_service,
+            match_detail_persistence_service=persistence_service,
+            sleep_func=_noop_sleep,
+        )
+
+        with patch("src.services.jx3.jjc_match_data_sync.time.time", return_value=100.0):
+            result = await service._sync_match_detail(
+                match_id=16,
+                match_time=1810000000,
+                lease_owner="worker-1",
+            )
+
+        self.assertEqual(result, "saved")
+        payload = persistence_service.calls[0]["payload"]
+        self.assertEqual(payload["data"]["match_time"], 1810000100)
+        self.assertEqual(payload["cached_at"], 200.0)
 
     def test_sync_persistence_version_advances_only_for_match_time_change(self) -> None:
         service = JjcMatchDataSyncService(

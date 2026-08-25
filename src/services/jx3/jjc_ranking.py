@@ -54,6 +54,7 @@ class JjcRankingService:
     match_detail_projection_service: Any = None
     match_detail_participant_projection_service: Any = None
     match_detail_persistence_service: Any = None
+    inspect_repo: Optional[JjcInspectRepo] = None
 
     def _api(self) -> JjcApiClient:
         return JjcApiClient(
@@ -70,7 +71,7 @@ class JjcRankingService:
         )
 
     def _inspect_cache(self) -> JjcInspectRepo:
-        return JjcInspectRepo()
+        return self.inspect_repo or JjcInspectRepo()
 
     def _translate_detail_kungfu_names(self, detail: dict[str, Any]) -> None:
         for team_key in ("team1", "team2"):

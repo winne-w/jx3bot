@@ -92,6 +92,7 @@ jjc_ranking_service = JjcRankingService(
     match_detail_projection_service=match_detail_identity_projection_service,
     match_detail_participant_projection_service=match_detail_participant_projection_service,
     match_detail_persistence_service=match_detail_persistence_service,
+    inspect_repo=jjc_inspect_repo,
 )
 
 match_detail_client = MatchDetailClient(

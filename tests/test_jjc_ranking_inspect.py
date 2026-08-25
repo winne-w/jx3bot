@@ -7,6 +7,7 @@ from bson import ObjectId
 
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
+from src.services.jx3.match_detail_persistence import MatchDetailPersistenceService
 from src.services.jx3.match_detail import (
     MatchDetailBasicInfo,
     MatchDetailData,
@@ -459,6 +460,48 @@ class TestTuilanEndpointLocks(unittest.IsolatedAsyncioTestCase):
 
 
 class TestRankingWarmupInspectCache(unittest.IsolatedAsyncioTestCase):
+    async def test_ranking_uses_the_explicitly_injected_inspect_repo(self) -> None:
+        inspect_repo = FakeWarmupInspectRepo()
+        persistence_service = MatchDetailPersistenceService(
+            inspect_repo=inspect_repo,
+            identity_projector=None,
+            participant_projector=None,
+        )
+        service = JjcRankingService(
+            token="",
+            ticket="",
+            jjc_query_url="",
+            arena_time_tag_url="",
+            arena_ranking_url="",
+            match_detail_url="",
+            jjc_ranking_cache_duration=1,
+            kungfu_cache_duration=1,
+            current_season="",
+            current_season_start="",
+            kungfu_healer_list=[],
+            kungfu_dps_list=[],
+            kungfu_pinyin_to_chinese={},
+            tuilan_request=MagicMock(),
+            defget_get=MagicMock(),
+            match_detail_persistence_service=persistence_service,
+            inspect_repo=inspect_repo,
+        )
+        inspect_service = JjcRankingInspectService(
+            ranking_service=service,
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=inspect_repo,
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            match_detail_persistence_service=persistence_service,
+        )
+
+        self.assertIs(service._inspect_cache(), inspect_repo)
+        self.assertIs(inspect_service.cache_repo, inspect_repo)
+        self.assertIs(persistence_service.inspect_repo, inspect_repo)
+
     async def test_warmup_uses_unified_persistence_entry(self):
         inspect_repo = FakeWarmupInspectRepo()
         persistence_service = FakeMatchDetailPersistenceService()

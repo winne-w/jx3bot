@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from src.services.jx3.match_replay import MatchReplayClient
+from src.services.jx3.match_detail_persistence import MatchDetailPersistenceService
 from src.services.jx3.role_indicator import RoleIndicatorClient
 from src.services.jx3.tuilan_rate_limit import random_sleep
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
@@ -493,6 +494,15 @@ class JjcMatchDataSyncService:
         self._match_detail_projection_service = match_detail_projection_service
         self._match_detail_participant_projection_service = match_detail_participant_projection_service
         self._match_detail_persistence_service = match_detail_persistence_service
+        if self._match_detail_persistence_service is None:
+            inspect_repo = getattr(self._inspect_service, "cache_repo", None)
+            if inspect_repo is not None:
+                self._match_detail_persistence_service = MatchDetailPersistenceService(
+                    inspect_repo=inspect_repo,
+                    identity_projector=self._match_detail_projection_service,
+                    participant_projector=self._match_detail_participant_projection_service,
+                    fact_projector=None,
+                )
         self._sleep_func = sleep_func
         self._page_size = page_size
         self._max_pages_per_role = max_pages_per_role
@@ -2203,10 +2213,9 @@ class JjcMatchDataSyncService:
                         detail_payload = dict(payload)
                         detail_payload["detail"] = detail
                         source_changed = False
-                        if match_time is not None:
-                            if _coerce_int(detail_payload.get("match_time")) != _coerce_int(match_time):
-                                detail_payload["match_time"] = match_time
-                                source_changed = True
+                        if match_time is not None and _coerce_int(detail_payload.get("match_time")) is None:
+                            detail_payload["match_time"] = match_time
+                            source_changed = True
                         await renew_processing_context(force=True)
                         await self._enrich_detail_with_replay(
                             detail,
@@ -2299,13 +2308,9 @@ class JjcMatchDataSyncService:
                 )
             return
 
-        # Compatibility for older callers that have not yet been switched to the
-        # shared persistence service. Production singletons always inject it.
-        if unavailable:
-            await self._clear_match_detail_participants_if_configured(match_id)
-        else:
-            await self._project_match_detail_if_configured(match_id, payload["data"])
-            await self._project_match_detail_participants_if_configured(match_id, payload["data"])
+        raise RuntimeError(
+            "match_detail_persistence_service is required when inspect_service.cache_repo is unavailable"
+        )
 
     async def _project_match_detail_if_configured(
         self,
