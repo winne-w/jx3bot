@@ -22,8 +22,8 @@ This execution plan is a living document and must be kept up to date according t
 
 ### 1. 主事实保存契约与统一持久化编排
 
-- [ ] 1.1 新建 `tests/test_jjc_inspect_repo.py`，增加主事实写入失败抛异常、成功返回 `True`、非法 `match_id` 抛 `ValueError`、主文档先于装备/奇穴快照写入以及快照失败不改变主事实成功结果的失败测试；运行 `python -m unittest tests.test_jjc_inspect_repo -v`，确认新用例先失败。
-- [ ] 1.2 修改 `src/storage/mongo_repos/jjc_inspect_repo.py:JjcInspectRepo.save_match_detail()`：先按规范整数 `match_id` 执行 `jjc_match_detail.update_one` 的 upsert，成功返回 `True`，主写异常原样抛出；把 `_extract_snapshots()` 调整为主写后的独立 best-effort 派生并用结构化日志记录失败；运行 1.1 测试确认通过。
+- [x] 1.1 新建 `tests/test_jjc_inspect_repo.py`，增加主事实写入失败抛异常、成功返回 `True`、非法 `match_id` 抛 `ValueError`、主文档先于装备/奇穴快照写入以及快照失败不改变主事实成功结果的失败测试；运行 `python -m unittest tests.test_jjc_inspect_repo -v`，确认新用例先失败。
+- [x] 1.2 修改 `src/storage/mongo_repos/jjc_inspect_repo.py:JjcInspectRepo.save_match_detail()`：先按规范整数 `match_id` 执行 `jjc_match_detail.update_one` 的 upsert，成功返回 `True`，主写异常原样抛出；把 `_extract_snapshots()` 调整为主写后的独立 best-effort 派生并用结构化日志记录失败；运行 1.1 测试确认通过。
 - [ ] 1.3 新建 `tests/test_jjc_match_detail_persistence.py`，用 fake repo/projector 写出 `MatchDetailPersistenceService.persist()` 的失败测试：只有主保存返回 `True` 才分别尝试身份、玩家、事实三个投影，任一派生失败不得阻断另外两个，unavailable 触发玩家清理和事实 tombstone，主保存失败不得调用任何派生。
 - [ ] 1.4 新建 `src/services/jx3/match_detail_persistence.py`，实现 `MatchDetailPersistenceService` 和结构化 `PersistMatchDetailResult`；事实 projector 依赖在阶段一允许为 `None`，配置后才调用。对主事实、身份投影、玩家投影、事实投影分别记录 `match_id/source/schema/error`，满足 1.3 测试，不在 service 中依赖 NoneBot 事件或发送能力。
 - [ ] 1.5 修改 `src/services/jx3/jjc_ranking_inspect.py`、`src/services/jx3/jjc_ranking.py` 和 `src/services/jx3/jjc_match_data_sync.py` 的保存入口，删除“直接 save 后各自投影”的重复编排：覆盖 inspect cache miss、cache hit replay 补齐、`no data found`、排名预热和 sync 补 occurrence `match_time`/replay 后重新保存；规范源摘要变化时分配较新的 `cached_at`，仅补不进入摘要的 replay/身份字段时允许沿用版本。先补 `tests/test_jjc_ranking_inspect.py`、`tests/test_jjc_match_data_sync.py` 入口顺序、版本与失败隔离测试，再做最小改动使其通过。
@@ -93,6 +93,8 @@ This execution plan is a living document and must be kept up to date according t
 `config.KUNGFU_META` 只有拼音、名称和类别，心法图标 ID 目前硬编码在 `public/jjc-ranking-stats.html`。实现时必须把 ID 目录迁到 Python 元数据模块，让新页面只消费 meta API，同时保持旧页面兼容直至另行评估是否复用该 API。
 
 现有测试主要使用标准库 `unittest`、fake repo/collection 和 import stub；本计划沿用该模式，不为单一功能引入新的测试框架或前端构建工具。
+
+任务 1.1/1.2 实现时确认，若主写前已将完整装备/奇穴替换为 hash，快照失败会留下无法补水的主详情；最终采用“完整详情主写 → 快照派生 → CAS 压缩”的两阶段写法。压缩更新同时匹配 `match_id/cached_at/完整 data` 且禁用 upsert，避免较慢旧保存覆盖同一对局的较新详情。
 
 ## Decision Log
 
