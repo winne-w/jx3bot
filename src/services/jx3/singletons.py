@@ -16,10 +16,12 @@ from src.services.jx3.kungfu import get_role_indicator
 from src.services.jx3.match_history import MatchHistoryClient, PersonMatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient
 from src.services.jx3.match_detail_identity_projection import MatchDetailIdentityProjectionService
+from src.services.jx3.match_detail_fact_projection import MatchDetailFactProjectionService
 from src.services.jx3.match_replay import MatchReplayClient
 from src.services.jx3.role_indicator import RoleIndicatorClient
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 from src.storage.mongo_repos.jjc_match_participant_repo import JjcMatchParticipantRepo
+from src.storage.mongo_repos.jjc_match_fact_repo import JjcMatchFactRepo
 from src.storage.mongo_repos.jjc_match_snapshot_repo import JjcMatchSnapshotRepo
 from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
 from src.services.jx3.match_detail_participant_projection import MatchDetailParticipantProjectionService
@@ -41,6 +43,7 @@ KUNGFU_CACHE_DURATION = 7 * 24 * 60 * 60  # 心法缓存有效期一周（秒）
 jjc_sync_repo = JjcSyncRepo()
 role_identity_repo = RoleIdentityRepo()
 match_participant_repo: Any = JjcMatchParticipantRepo()
+jjc_match_fact_repo: Any = JjcMatchFactRepo()
 
 match_detail_participant_projection_service: Any = MatchDetailParticipantProjectionService(
     participant_repo=match_participant_repo,
@@ -63,13 +66,16 @@ match_detail_identity_projection_service = MatchDetailIdentityProjectionService(
     sync_repo=jjc_sync_repo,
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
 )
+match_detail_fact_projection_service: Any = MatchDetailFactProjectionService(
+    fact_repo=jjc_match_fact_repo,
+)
 
 jjc_inspect_repo = _new_jjc_inspect_repo(snapshot_repo=JjcMatchSnapshotRepo())
 match_detail_persistence_service = MatchDetailPersistenceService(
     inspect_repo=jjc_inspect_repo,
     identity_projector=match_detail_identity_projection_service,
     participant_projector=match_detail_participant_projection_service,
-    fact_projector=None,
+    fact_projector=match_detail_fact_projection_service,
 )
 
 jjc_ranking_service = JjcRankingService(

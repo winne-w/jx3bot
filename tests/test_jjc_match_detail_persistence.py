@@ -3,7 +3,9 @@ from __future__ import annotations
 import copy
 import unittest
 from typing import Any, Dict, List, Optional
+from unittest.mock import patch
 
+from src.services.jx3 import match_detail_persistence
 from src.services.jx3.match_detail_persistence import MatchDetailPersistenceService
 
 
@@ -96,6 +98,19 @@ class FakeFactProjector:
         if self.error is not None:
             raise self.error
         return self.result
+
+
+class RecordingLogger:
+    def __init__(self) -> None:
+        self.contexts: List[Dict[str, Any]] = []
+        self.messages: List[str] = []
+
+    def bind(self, **context: Any) -> "RecordingLogger":
+        self.contexts.append(context)
+        return self
+
+    def warning(self, message: str) -> None:
+        self.messages.append(message)
 
 
 def build_payload(*, unavailable: bool = False) -> Dict[str, Any]:
@@ -257,6 +272,29 @@ class TestMatchDetailPersistenceService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.events, ["main", "identity", "participant_project", "fact"])
         self.assertTrue(result.fact_attempted)
         self.assertEqual(result.fact_error, "fact failed")
+
+    async def test_fact_exception_logs_structured_context_without_rolling_back_main_or_other_projections(self) -> None:
+        service = self.build_service(fact_error=RuntimeError("fact CAS unavailable"))
+        recording_logger = RecordingLogger()
+
+        with patch.object(match_detail_persistence, "logger", recording_logger):
+            result = await service.persist(987, build_payload(), "sync_worker")
+
+        self.assertTrue(result.main_saved)
+        self.assertEqual(result.identity_result, {"projected": 1})
+        self.assertEqual(result.participant_result, {"projected": 6})
+        self.assertEqual(result.fact_error, "fact CAS unavailable")
+        self.assertEqual(
+            recording_logger.contexts,
+            [{
+                "match_id": 987,
+                "source": "sync_worker",
+                "schema": "jjc_match_detail_persistence.v1",
+                "stage": "fact",
+                "error": "fact CAS unavailable",
+            }],
+        )
+        self.assertEqual(recording_logger.messages, ["JJC 对局详情持久化阶段失败"])
 
     async def test_fact_projector_is_optional(self) -> None:
         service = self.build_service(fact_projector=False)
