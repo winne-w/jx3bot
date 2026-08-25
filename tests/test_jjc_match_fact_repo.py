@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from pymongo.errors import DuplicateKeyError
 
+from src.infra.mongo import _ensure_indexes
 from src.storage.mongo_repos.jjc_match_fact_repo import JjcMatchFactRepo
 
 
@@ -95,6 +96,38 @@ class _FakeMotorCollection:
             self.documents[match_id] = copy.deepcopy(replacement)
             return SimpleNamespace(matched_count=0, modified_count=0, upserted_id=match_id)
         return SimpleNamespace(matched_count=0, modified_count=0, upserted_id=None)
+
+
+class _FakeIndexCollection:
+    """In-memory collection that records index lifecycle calls."""
+
+    def __init__(self, indexes: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
+        self.indexes = copy.deepcopy(indexes or {})
+        self.create_calls: List[Dict[str, Any]] = []
+        self.drop_calls: List[str] = []
+
+    async def index_information(self) -> Dict[str, Dict[str, Any]]:
+        return copy.deepcopy(self.indexes)
+
+    async def drop_index(self, name: str) -> None:
+        self.drop_calls.append(name)
+        self.indexes.pop(name, None)
+
+    async def create_index(self, keys: Any, *, name: str, **kwargs: Any) -> str:
+        normalized_keys = keys if isinstance(keys, list) else [(keys, 1)]
+        self.create_calls.append(
+            {"keys": normalized_keys, "name": name, "kwargs": copy.deepcopy(kwargs)}
+        )
+        self.indexes[name] = {"key": normalized_keys, **copy.deepcopy(kwargs)}
+        return name
+
+
+class _FakeIndexDatabase:
+    def __init__(self) -> None:
+        self.collections: Dict[str, _FakeIndexCollection] = {}
+
+    def __getitem__(self, name: str) -> _FakeIndexCollection:
+        return self.collections.setdefault(name, _FakeIndexCollection())
 
 
 def _source_hash(label: str) -> str:
@@ -356,6 +389,105 @@ class TestJjcMatchFactRepo(unittest.IsolatedAsyncioTestCase):
             self.collection.find_calls,
             [{"match_id": {"$in": [1002, 1001]}}],
         )
+
+
+class TestJjcMatchFactIndexes(unittest.IsolatedAsyncioTestCase):
+    _ACTIVE_PARTIAL = {"active": True}
+    _ARRAY_FIELDS = {
+        "any_team_combo_keys",
+        "team1.kungfu_ids",
+        "team2.kungfu_ids",
+        "team1.combo_keys",
+        "team2.combo_keys",
+        "combo_keys",
+    }
+
+    @classmethod
+    def _expected_indexes(cls) -> Dict[str, Dict[str, Any]]:
+        return {
+            "idx_match_id": {
+                "key": [("match_id", 1)],
+                "unique": True,
+            },
+            "idx_active_combo_time": {
+                "key": [
+                    ("any_team_combo_keys", 1),
+                    ("match_time", -1),
+                    ("match_id", -1),
+                ],
+                "partialFilterExpression": cls._ACTIVE_PARTIAL,
+            },
+            "idx_active_time": {
+                "key": [("match_time", -1), ("match_id", -1)],
+                "partialFilterExpression": cls._ACTIVE_PARTIAL,
+            },
+        }
+
+    @staticmethod
+    def _matches_partial(document: Dict[str, Any], partial: Dict[str, Any]) -> bool:
+        return all(document.get(field) == expected for field, expected in partial.items())
+
+    async def test_match_fact_query_indexes_have_exact_active_contract(self) -> None:
+        db = _FakeIndexDatabase()
+
+        await _ensure_indexes(db)
+
+        collection = db["jjc_match_facts"]
+        created = {
+            call["name"]: {"key": call["keys"], **call["kwargs"]}
+            for call in collection.create_calls
+        }
+        self.assertEqual(created, self._expected_indexes())
+        for name in ("idx_active_combo_time", "idx_active_time"):
+            indexed_array_fields = [
+                field for field, _ in created[name]["key"] if field in self._ARRAY_FIELDS
+            ]
+            self.assertLessEqual(len(indexed_array_fields), 1, name)
+        self.assertFalse(
+            self._matches_partial({"active": False}, self._ACTIVE_PARTIAL)
+        )
+
+    async def test_partial_definition_change_rebuilds_match_fact_index(self) -> None:
+        expected = self._expected_indexes()["idx_active_combo_time"]
+        for previous_partial in (None, {"active": False}):
+            with self.subTest(previous_partial=previous_partial):
+                db = _FakeIndexDatabase()
+                existing = copy.deepcopy(expected)
+                if previous_partial is None:
+                    existing.pop("partialFilterExpression")
+                else:
+                    existing["partialFilterExpression"] = previous_partial
+                db["jjc_match_facts"].indexes["idx_active_combo_time"] = existing
+
+                await _ensure_indexes(db)
+
+                collection = db["jjc_match_facts"]
+                self.assertIn("idx_active_combo_time", collection.drop_calls)
+                rebuilt = [
+                    call
+                    for call in collection.create_calls
+                    if call["name"] == "idx_active_combo_time"
+                ]
+                self.assertEqual(
+                    rebuilt,
+                    [
+                        {
+                            "keys": expected["key"],
+                            "name": "idx_active_combo_time",
+                            "kwargs": {
+                                "partialFilterExpression": self._ACTIVE_PARTIAL,
+                            },
+                        }
+                    ],
+                )
+
+    async def test_identical_match_fact_index_definitions_are_not_dropped(self) -> None:
+        db = _FakeIndexDatabase()
+        db["jjc_match_facts"].indexes = self._expected_indexes()
+
+        await _ensure_indexes(db)
+
+        self.assertEqual(db["jjc_match_facts"].drop_calls, [])
 
 
 if __name__ == "__main__":

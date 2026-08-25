@@ -82,15 +82,18 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
                 desired_keys = keys if isinstance(keys, list) else [(keys, 1)]
                 desired_unique = bool(kwargs.get("unique", False))
                 desired_expire = kwargs.get("expireAfterSeconds")
+                desired_partial = kwargs.get("partialFilterExpression")
                 existing_unique = bool(existing.get("unique", False))
                 existing_expire = existing.get("expireAfterSeconds")
+                existing_partial = existing.get("partialFilterExpression")
                 if (
                     existing.get("key") != desired_keys
                     or existing_unique != desired_unique
                     or existing_expire != desired_expire
+                    or existing_partial != desired_partial
                 ):
                     logger.warning(
-                        "索引定义变更，准备重建: collection={} index={} old_keys={} new_keys={} old_unique={} new_unique={} old_expire={} new_expire={}",
+                        "索引定义变更，准备重建: collection={} index={} old_keys={} new_keys={} old_unique={} new_unique={} old_expire={} new_expire={} old_partial={} new_partial={}",
                         collection_name,
                         name,
                         existing.get("key"),
@@ -99,6 +102,8 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
                         desired_unique,
                         existing_expire,
                         desired_expire,
+                        existing_partial,
+                        desired_partial,
                     )
                     await col.drop_index(name)
             await col.create_index(keys, name=name, **kwargs)
@@ -152,6 +157,21 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     )
     await _safe_index(
         "jjc_match_detail", "data.replay.data.players.global_role_id", name="idx_replay_player_global_role_id"
+    )
+
+    # jjc_match_facts
+    await _safe_index("jjc_match_facts", "match_id", name="idx_match_id", unique=True)
+    await _safe_index(
+        "jjc_match_facts",
+        [("any_team_combo_keys", 1), ("match_time", -1), ("match_id", -1)],
+        name="idx_active_combo_time",
+        partialFilterExpression={"active": True},
+    )
+    await _safe_index(
+        "jjc_match_facts",
+        [("match_time", -1), ("match_id", -1)],
+        name="idx_active_time",
+        partialFilterExpression={"active": True},
     )
 
     # jjc_match_participants

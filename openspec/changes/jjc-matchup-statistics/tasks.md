@@ -36,7 +36,7 @@ This execution plan is a living document and must be kept up to date according t
 - [x] 2.2 新建 `src/services/jx3/jjc_match_fact.py`，实现 Python 3.9 兼容的纯函数 `normalize_positive_int()`、`normalize_game_score()`、`extract_match_time()`、`encode_combo_key()`、`build_match_fact()` 和 `build_source_hash()`；组合键固定为 `v1:<count>:<sorted ids>`，hash 使用 UTF-8、键排序和紧凑分隔符的 canonical JSON，运行 2.1 测试至通过。
 - [x] 2.3 新建 `tests/test_jjc_match_fact_repo.py`，用 fake Motor collection 先覆盖失败测试：`match_id` 整数唯一、较新版本 active/tombstone 可互换、较旧版本跳过、等时异 hash 冲突、等时同 hash 高 schema 重建、其余 no-op，以及 tombstone 清除组合/分数/摘要字段。
 - [x] 2.4 新建 `src/storage/mongo_repos/jjc_match_fact_repo.py`，实现 `JjcMatchFactRepo.apply_projection()`、`get_projection_state()` 和批量核验读取；返回稳定状态 `inserted/updated/tombstoned/skipped_old/conflict/noop`，以单条条件更新或事务外原子 CAS 防止旧回填复活，运行 2.3 测试至通过。
-- [ ] 2.5 在 `tests/test_jjc_match_fact_repo.py` 增加查询索引合同测试，再修改 `src/infra/mongo.py:_safe_index()` 使其比较 `partialFilterExpression`，并为 `jjc_match_facts` 创建 `idx_match_id` unique、`idx_active_combo_time` partial active 与 `idx_active_time` partial active；断言每个复合索引最多一个数组字段且 tombstone 不进入 partial index。
+- [x] 2.5 在 `tests/test_jjc_match_fact_repo.py` 增加查询索引合同测试，再修改 `src/infra/mongo.py:_safe_index()` 使其比较 `partialFilterExpression`，并为 `jjc_match_facts` 创建 `idx_match_id` unique、`idx_active_combo_time` partial active 与 `idx_active_time` partial active；断言每个复合索引最多一个数组字段且 tombstone 不进入 partial index。
 - [ ] 2.6 新建 `src/services/jx3/match_detail_fact_projection.py` 和对应 `tests/test_jjc_match_fact_projection.py`，实现由同一 `build_match_fact()` 生成 active 或 tombstone 后调用 repo CAS；将该 projector 接入 `MatchDetailPersistenceService`，并证明 unavailable、结构非法、分数缺失、旧来源晚到和投影异常日志行为。
 - [ ] 2.7 运行 `python -m unittest tests.test_jjc_match_fact tests.test_jjc_match_fact_repo tests.test_jjc_match_fact_projection tests.test_jjc_match_detail_persistence -v` 与相关文件 `python -m py_compile`；只暂存本组改动后提交 `feat: add JJC match fact projection`。
 
@@ -101,6 +101,8 @@ This execution plan is a living document and must be kept up to date according t
 任务 2.1/2.2 复审时确认，`cached_at` 版本水位可以是带小数的有限正数，但不接受数值文本；同步补入的 `data.match_time` 优先于旧 `detail.match_time`。`source_hash` 仅覆盖规范源摘要，保留原始 `total_score/score` 而排除 `game_score/score_source`、组合键与聚合分数等派生字段，使同源高 schema 可重建而不被误判为等时冲突。
 
 任务 2.3/2.4 复审时确认，CAS 首写正确性依赖 `match_id` 唯一索引；因此必须先完成 2.5 的 `idx_match_id unique`，才能在 2.6 接入并启用事实 projector。repo 拒绝缺失或超出 BSON 边界的源水位，并在替换前移除调用方 `_id`，避免不可变 `_id` 或重复键异常被误判为 CAS 竞争。质量复审遗留两项不阻断观察：可再增加首写 `_id` 冗余断言，repo 虽接受大写 SHA-256 文本，但当前唯一构建器固定产生小写 hash。
+
+任务 2.5 复审确认，`partialFilterExpression` 已纳入既有索引定义漂移比较，三个事实索引的键序、唯一性和 active partial 合同准确；组合索引只包含 `any_team_combo_keys` 一个数组字段，tombstone 不进入查询索引。规格与质量复审均无 Critical、Important 或 Minor 问题，37 项事实构建与 repo 测试通过。
 
 ## Decision Log
 
