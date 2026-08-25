@@ -226,7 +226,6 @@ class TestMatchDetailPersistenceService(unittest.IsolatedAsyncioTestCase):
             "inspect_cache_miss": "ranking_detail",
             "inspect_cache_hit_replay_enrich": "ranking_detail",
             "ranking_warmup": "warmup",
-            "sync_worker": "sync_worker",
             "manual_repair": "manual_repair",
         }
 
@@ -239,6 +238,16 @@ class TestMatchDetailPersistenceService(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(self.identity.calls[0]["source"], event_source)
                 self.assertEqual(self.participant.project_calls[0]["source"], participant_source)
                 self.assertEqual(self.fact.calls[0]["source"], event_source)
+
+    async def test_sync_worker_uses_legacy_identity_projection_context_only(self) -> None:
+        service = self.build_service()
+
+        await service.persist(987, build_payload(), "sync_worker")
+
+        self.assertEqual(self.identity.calls[0]["source"], "match_detail_sync")
+        self.assertEqual(self.identity.calls[0]["priority"], -10)
+        self.assertEqual(self.participant.project_calls[0]["source"], "sync_worker")
+        self.assertEqual(self.fact.calls[0]["source"], "sync_worker")
 
     async def test_fact_exception_is_recorded(self) -> None:
         service = self.build_service(fact_error=RuntimeError("fact failed"))

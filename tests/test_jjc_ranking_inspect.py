@@ -2,7 +2,7 @@ import asyncio
 import time
 import unittest
 from typing import Any, Callable, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from bson import ObjectId
 
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
@@ -1061,6 +1061,34 @@ class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(projection_service.calls), 1)
         saved_player = cache_repo.saved_match_detail[0][1]["data"]["detail"]["team1"]["players_info"][0]
         self.assertEqual(saved_player["kungfu"], "花间游")
+
+    async def test_persist_match_detail_logs_main_save_failure_with_loguru_placeholders(self) -> None:
+        persistence_service = MagicMock()
+        persistence_service.persist = AsyncMock(return_value=MagicMock(main_saved=False))
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(),
+            kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(),
+            match_detail_client=MagicMock(),
+            cache_repo=FakeJjcInspectRepo(),
+            tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={},
+            match_detail_persistence_service=persistence_service,
+        )
+
+        with patch("src.services.jx3.jjc_ranking_inspect.logger") as mocked_logger:
+            await service._persist_match_detail(
+                match_id=12345,
+                payload={"cached_at": 1, "data": {"match_id": 12345}},
+                source="inspect_cache_miss",
+            )
+
+        mocked_logger.warning.assert_called_once_with(
+            "JJC 对局详情主保存未成功: match_id={} source={}",
+            12345,
+            "inspect_cache_miss",
+        )
 
     async def test_role_recent_resolves_replay_global_id_into_identity_hints(self) -> None:
         match_history_client = FakeMatchHistoryClient(

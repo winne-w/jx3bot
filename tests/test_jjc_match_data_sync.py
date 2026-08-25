@@ -1415,6 +1415,9 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "saved")
         self.assertEqual(repo.detail_saved_calls[0]["lease_owner"], "worker-1")
         self.assertEqual(inspect_service.saved_match_detail[0]["match_id"], 11)
+        projection_call = service._match_detail_projection_service.calls[0]
+        self.assertEqual(projection_call["source"], "match_detail_sync")
+        self.assertEqual(projection_call["priority"], -10)
 
     async def test_sync_match_detail_persists_enriched_payload_before_marking_saved(self) -> None:
         repo = FakeRepo()

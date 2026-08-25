@@ -19,6 +19,9 @@ PARTICIPANT_DETAIL_SOURCE_BY_EVENT_SOURCE = {
     "ranking_warmup": "warmup",
     "sync_worker": "sync_worker",
 }
+IDENTITY_PROJECTION_CONTEXT_BY_EVENT_SOURCE = {
+    "sync_worker": {"source": "match_detail_sync", "priority": -10},
+}
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,11 @@ def _is_unavailable(payload: Dict[str, Any]) -> bool:
 def participant_detail_source(event_source: str) -> str:
     """Map persistence events to the participant projection's stable source contract."""
     return PARTICIPANT_DETAIL_SOURCE_BY_EVENT_SOURCE.get(event_source, event_source)
+
+
+def identity_projection_context(event_source: str) -> Dict[str, Any]:
+    """Preserve identity projection provenance used by pre-unification callers."""
+    return dict(IDENTITY_PROJECTION_CONTEXT_BY_EVENT_SOURCE.get(event_source, {"source": event_source}))
 
 
 @dataclass(frozen=True)
@@ -144,10 +152,11 @@ class MatchDetailPersistenceService:
             try:
                 wrapped_data = payload.get("data")
                 identity_payload = wrapped_data if isinstance(wrapped_data, dict) else payload
+                identity_context = identity_projection_context(source)
                 identity_result = await self.identity_projector.project_payload(
                     match_id=match_id,
                     payload=copy.deepcopy(identity_payload),
-                    source=source,
+                    **identity_context,
                 )
                 identity_error = _result_error(identity_result)
                 if identity_error is not None:

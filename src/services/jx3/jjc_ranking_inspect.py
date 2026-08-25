@@ -1324,5 +1324,5 @@ class JjcRankingInspectService:
             )
         result = await service.persist(match_id, copy.deepcopy(payload), source)
         if getattr(result, "main_saved", True) is not True:
-            logger.warning("JJC 对局详情主保存未成功: match_id=%s source=%s", match_id, source)
+            logger.warning("JJC 对局详情主保存未成功: match_id={} source={}", match_id, source)
         return result
