@@ -8,15 +8,21 @@ from src.services.jx3.match_detail_persistence import MatchDetailPersistenceServ
 
 
 class FakeInspectRepo:
-    def __init__(self, events: List[str], save_result: Any = True, error: Optional[Exception] = None) -> None:
+    def __init__(self, events: List[str], save_result: Any = True, error: Optional[Exception] = None,
+                 mutate_payload: bool = False) -> None:
         self.events = events
         self.save_result = save_result
         self.error = error
+        self.mutate_payload = mutate_payload
         self.calls: List[Dict[str, Any]] = []
 
     async def save_match_detail(self, match_id: Any, payload: Dict[str, Any]) -> Any:
         self.events.append("main")
-        self.calls.append({"match_id": match_id, "payload": payload})
+        self.calls.append(copy.deepcopy({"match_id": match_id, "payload": payload}))
+        if self.mutate_payload:
+            detail = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+            if isinstance(detail, dict):
+                detail.setdefault("detail", {})["main_mutated"] = True
         if self.error is not None:
             raise self.error
         return self.save_result
@@ -105,6 +111,7 @@ class TestMatchDetailPersistenceService(unittest.IsolatedAsyncioTestCase):
         *,
         save_result: Any = True,
         main_error: Optional[Exception] = None,
+        repo_mutates_payload: bool = False,
         identity_error: Optional[Exception] = None,
         participant_error: Optional[Exception] = None,
         participant_clear_result: Optional[Dict[str, Any]] = None,
@@ -118,7 +125,12 @@ class TestMatchDetailPersistenceService(unittest.IsolatedAsyncioTestCase):
         fact_mutates_payload: bool = False,
     ) -> Any:
         self.events: List[str] = []
-        self.repo = FakeInspectRepo(self.events, save_result=save_result, error=main_error)
+        self.repo = FakeInspectRepo(
+            self.events,
+            save_result=save_result,
+            error=main_error,
+            mutate_payload=repo_mutates_payload,
+        )
         self.identity = FakeIdentityProjector(
             self.events,
             error=identity_error,
@@ -273,6 +285,7 @@ class TestMatchDetailPersistenceService(unittest.IsolatedAsyncioTestCase):
     async def test_persist_passes_contract_arguments_without_mutating_input(self) -> None:
         service = self.build_service(
             fact_result={"error": "pending retry"},
+            repo_mutates_payload=True,
             identity_mutates_payload=True,
             participant_mutates_payload=True,
             participant_mutates_seen_doc=True,
