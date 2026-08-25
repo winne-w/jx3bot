@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 import unittest
+from types import SimpleNamespace
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,6 +21,30 @@ def _make_snapshot_repo() -> MagicMock:
     snapshot_repo.save_equipment_snapshot = AsyncMock()
     snapshot_repo.save_talent_snapshot = AsyncMock()
     return snapshot_repo
+
+
+class _FakeMatchDetailCollection:
+    def __init__(self) -> None:
+        self.doc = None
+        self.calls = []
+
+    async def update_one(self, filter_doc, update_doc, upsert=False):
+        self.calls.append({
+            "filter": copy.deepcopy(filter_doc),
+            "update": copy.deepcopy(update_doc),
+            "upsert": upsert,
+        })
+        if self.doc is None:
+            if not upsert:
+                return SimpleNamespace(matched_count=0)
+            self.doc = {"match_id": filter_doc["match_id"]}
+            self.doc.update(copy.deepcopy(update_doc["$set"]))
+            return SimpleNamespace(matched_count=1)
+
+        if all(self.doc.get(key) == value for key, value in filter_doc.items()):
+            self.doc.update(copy.deepcopy(update_doc["$set"]))
+            return SimpleNamespace(matched_count=1)
+        return SimpleNamespace(matched_count=0)
 
 
 def _payload(match_id: int = 101) -> Dict[str, Any]:
@@ -123,6 +150,44 @@ class TestSaveMatchDetailContract(unittest.IsolatedAsyncioTestCase):
             events,
             ["match_detail", "equipment_snapshot", "talent_snapshot", "match_detail"],
         )
+
+    async def test_slow_compaction_does_not_overwrite_newer_primary_document(self):
+        collection = _FakeMatchDetailCollection()
+        db = MagicMock()
+        db.jjc_match_detail = collection
+        snapshot_started = asyncio.Event()
+        release_snapshot = asyncio.Event()
+
+        async def save_equipment_snapshot(*args, **kwargs):
+            snapshot_started.set()
+            await release_snapshot.wait()
+
+        a_snapshot_repo = _make_snapshot_repo()
+        a_snapshot_repo.save_equipment_snapshot.side_effect = save_equipment_snapshot
+        repo_a = JjcInspectRepo(db=db, snapshot_repo=a_snapshot_repo)
+        repo_b = JjcInspectRepo(db=db, snapshot_repo=_make_snapshot_repo())
+        old_payload = _payload(108)
+        new_payload = {
+            "cached_at": old_payload["cached_at"],
+            "data": {"match_id": 108, "detail": {"source": "new"}},
+        }
+
+        slow_save = asyncio.create_task(repo_a.save_match_detail(108, old_payload))
+        await snapshot_started.wait()
+        await repo_b.save_match_detail(108, new_payload)
+        release_snapshot.set()
+        await slow_save
+
+        self.assertEqual(collection.doc["data"], new_payload["data"])
+        self.assertEqual(
+            collection.calls[-1]["filter"],
+            {
+                "match_id": 108,
+                "cached_at": old_payload["cached_at"],
+                "data": old_payload["data"],
+            },
+        )
+        self.assertFalse(collection.calls[-1]["upsert"])
 
     async def test_snapshot_failure_keeps_successful_main_write_result(self):
         db = _make_db()

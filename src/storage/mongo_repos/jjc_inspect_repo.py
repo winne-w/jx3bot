@@ -134,12 +134,16 @@ class JjcInspectRepo:
 
         try:
             await db.jjc_match_detail.update_one(
-                {"match_id": normalized_id},
+                {
+                    "match_id": normalized_id,
+                    "cached_at": cached_at,
+                    "data": mongo_data,
+                },
                 {"$set": {
                     "cached_at": cached_at,
                     "data": compacted_data,
                 }},
-                upsert=True,
+                upsert=False,
             )
         except Exception as exc:
             logger.bind(
