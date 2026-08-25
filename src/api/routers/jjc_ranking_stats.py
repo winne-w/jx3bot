@@ -80,13 +80,25 @@ async def _load_peak_score_doc(
 
 @router.get("/ranking-stats")
 async def get_ranking_stats(
-    action: str = Query("list", description="list 或 read"),
+    action: str = Query("list", description="list、seasons、season-history 或 read"),
     timestamp: Optional[str] = Query(None, description="read 模式下的时间戳"),
+    season: Optional[str] = Query(None, description="season-history 模式下的赛季名称"),
     page: Optional[int] = Query(None, ge=1, description="list 模式分页页码"),
     page_size: Optional[int] = Query(None, ge=1, le=100, description="list 模式分页大小"),
     with_meta: bool = Query(False, description="list 模式返回元数据列表"),
 ) -> dict[str, Any]:
     action = action.strip().lower()
+    if action == "seasons":
+        return success_response(await JjcRankingStatsRepo().list_seasons())
+
+    if action == "season-history":
+        normalized_season = str(season or "").strip()
+        if not normalized_season:
+            return error_response("invalid_season")
+        return success_response(
+            await JjcRankingStatsRepo().list_season_history(normalized_season)
+        )
+
     if action == "list":
         if with_meta:
             normalized_page = page or 1

@@ -302,6 +302,89 @@ class TestListTimestampsWithMeta(unittest.IsolatedAsyncioTestCase):
         assert result["items"] == [500]
 
 
+class TestSeasonHistory(unittest.IsolatedAsyncioTestCase):
+    async def test_list_seasons_uses_latest_snapshot_for_default(self):
+        docs = [
+            {"current_season": "山海源流", "timestamp": 100},
+            {"current_season": "暗影千机", "timestamp": 300},
+            {"current_season": "山海源流", "timestamp": 200},
+            {"current_season": "", "timestamp": 400},
+        ]
+        col = _make_mock_collection(find_results=docs)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        result = await JjcRankingStatsRepo(db=db).list_seasons()
+
+        self.assertEqual(result, {
+            "seasons": [
+                {"name": "暗影千机", "latest_timestamp": 300},
+                {"name": "山海源流", "latest_timestamp": 200},
+            ],
+            "default_season": "暗影千机",
+        })
+        col.find.assert_called_once_with({}, {"current_season": 1, "timestamp": 1})
+
+    async def test_list_season_history_returns_all_metadata_in_timestamp_order(self):
+        docs = [
+            {
+                "timestamp": 300,
+                "generated_at": 1000.0,
+                "ranking_cache_time": 1000.5,
+                "default_week": 33,
+                "current_season": "暗影千机",
+                "week_info": "第17周 结算",
+            },
+            {
+                "timestamp": 200,
+                "generated_at": 900.0,
+                "ranking_cache_time": 900.5,
+                "default_week": 32,
+                "current_season": "暗影千机",
+                "week_info": "第16周 周7 08:00",
+            },
+        ]
+        col = _make_mock_collection(find_results=docs)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        result = await JjcRankingStatsRepo(db=db).list_season_history("暗影千机")
+
+        self.assertEqual(result["season"], "暗影千机")
+        self.assertEqual(result["total"], 2)
+        self.assertEqual([item["timestamp"] for item in result["items"]], [300, 200])
+        self.assertTrue(result["items"][0]["is_settlement"])
+        self.assertEqual(result["items"][0]["snapshot_kind"], "settlement")
+        self.assertEqual(result["items"][1]["snapshot_kind"], "daily")
+
+    async def test_list_season_history_returns_empty_result_for_unknown_season(self):
+        col = _make_mock_collection(find_results=[])
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+
+        result = await JjcRankingStatsRepo(db=db).list_season_history("不存在赛季")
+
+        self.assertEqual(result, {"season": "不存在赛季", "items": [], "total": 0})
+
+    async def test_numeric_season_is_listed_and_queryable_by_its_display_value(self):
+        docs = [
+            {"current_season": 17, "timestamp": 300},
+            {"current_season": "16", "timestamp": 200},
+        ]
+        col = _make_mock_collection(find_results=docs)
+        db = MagicMock()
+        db.jjc_ranking_stat_summaries = col
+        repo = JjcRankingStatsRepo(db=db)
+
+        seasons = await repo.list_seasons()
+        history = await repo.list_season_history("17")
+
+        self.assertEqual(seasons["default_season"], "17")
+        self.assertEqual(seasons["seasons"][0], {"name": "17", "latest_timestamp": 300})
+        self.assertEqual(history["season"], "17")
+        self.assertEqual(col.find.call_args_list[-1].args[0], {"current_season": {"$in": ["17", 17]}})
+
+
 class TestSaveAndLoadSummary(unittest.IsolatedAsyncioTestCase):
     async def test_save_snapshot_calls_upsert_summary_and_details(self):
         summary_col = _make_mock_collection()

@@ -18,6 +18,27 @@ def _strip_id(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     return doc
 
 
+def _to_snapshot_metadata(doc: Dict[str, Any]) -> Dict[str, Any]:
+    week_info = str(doc.get("week_info") or "")
+    is_settlement = "结算" in week_info
+    return {
+        "timestamp": doc["timestamp"],
+        "generated_at": doc.get("generated_at"),
+        "ranking_cache_time": doc.get("ranking_cache_time"),
+        "default_week": doc.get("default_week"),
+        "current_season": doc.get("current_season"),
+        "week_info": doc.get("week_info"),
+        "is_settlement": is_settlement,
+        "snapshot_kind": "settlement" if is_settlement else "daily",
+    }
+
+
+def _normalize_season(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return ""
+    return str(value).strip()
+
+
 @dataclass(frozen=True)
 class JjcRankingStatsRepo:
     db: Optional[AsyncIOMotorDatabase] = None
@@ -356,6 +377,68 @@ class JjcRankingStatsRepo:
     # list timestamps
     # ------------------------------------------------------------------
 
+    async def list_seasons(self) -> Dict[str, Any]:
+        try:
+            db = self.db if self.db is not None else _get_db()
+            cursor = db.jjc_ranking_stat_summaries.find(
+                {},
+                {"current_season": 1, "timestamp": 1},
+            ).sort([("timestamp", -1)])
+            latest_timestamps: Dict[str, int] = {}
+            async for doc in cursor:
+                season = _normalize_season(doc.get("current_season"))
+                timestamp = int(doc.get("timestamp") or 0)
+                if season and timestamp > latest_timestamps.get(season, 0):
+                    latest_timestamps[season] = timestamp
+            seasons = [
+                {"name": name, "latest_timestamp": timestamp}
+                for name, timestamp in latest_timestamps.items()
+            ]
+            seasons.sort(key=lambda item: item["latest_timestamp"], reverse=True)
+            return {
+                "seasons": seasons,
+                "default_season": seasons[0]["name"] if seasons else None,
+            }
+        except Exception as exc:
+            self._handle_error("list jjc ranking seasons 失败: error={}".format(exc), exc)
+            return {"seasons": [], "default_season": None}
+
+    async def list_season_history(self, season: str) -> Dict[str, Any]:
+        season = str(season or "").strip()
+        if not season:
+            return {"season": season, "items": [], "total": 0}
+        try:
+            db = self.db if self.db is not None else _get_db()
+            season_values: List[Any] = [season]
+            try:
+                numeric_season = int(season)
+            except ValueError:
+                numeric_season = None
+            if numeric_season is not None and str(numeric_season) == season:
+                season_values.append(numeric_season)
+            projection = {
+                "timestamp": 1,
+                "generated_at": 1,
+                "ranking_cache_time": 1,
+                "default_week": 1,
+                "current_season": 1,
+                "week_info": 1,
+            }
+            cursor = db.jjc_ranking_stat_summaries.find(
+                {"current_season": {"$in": season_values}}, projection
+            ).sort([("timestamp", -1)])
+            items: List[Dict[str, Any]] = []
+            async for doc in cursor:
+                if "timestamp" in doc:
+                    items.append(_to_snapshot_metadata(doc))
+            return {"season": season, "items": items, "total": len(items)}
+        except Exception as exc:
+            self._handle_error(
+                "list jjc ranking season history 失败: season={} error={}".format(season, exc),
+                exc,
+            )
+            return {"season": season, "items": [], "total": 0}
+
     async def list_timestamps(
         self,
         page: Optional[int] = None,
@@ -395,18 +478,7 @@ class JjcRankingStatsRepo:
                 )
                 items: List[Dict[str, Any]] = []
                 async for doc in cursor:
-                    week_info = str(doc.get("week_info") or "")
-                    is_settlement = "结算" in week_info
-                    items.append({
-                        "timestamp": doc["timestamp"],
-                        "generated_at": doc.get("generated_at"),
-                        "ranking_cache_time": doc.get("ranking_cache_time"),
-                        "default_week": doc.get("default_week"),
-                        "current_season": doc.get("current_season"),
-                        "week_info": doc.get("week_info"),
-                        "is_settlement": is_settlement,
-                        "snapshot_kind": "settlement" if is_settlement else "daily",
-                    })
+                    items.append(_to_snapshot_metadata(doc))
                 has_more = (skip + normalized_page_size) < total
                 return {
                     "items": items,

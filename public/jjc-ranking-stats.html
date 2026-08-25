@@ -1642,10 +1642,11 @@
 
     <script>
         const BASE_API = "/jx3bot/api/jjc/ranking-stats";
-        const DEFAULT_LIST_API = `${BASE_API}?action=list&page=1&page_size=100&with_meta=1`;
+        const SEASONS_API = `${BASE_API}?action=seasons`;
         const DEFAULT_READ_API = `${BASE_API}?action=read`;
         const params = new URLSearchParams(window.location.search);
-        const listApiUrl = params.get("list_api") || DEFAULT_LIST_API;
+        const seasonsApiUrl = params.get("seasons_api") || SEASONS_API;
+        const seasonHistoryApiBase = params.get("season_history_api") || BASE_API;
         const readApiBase = params.get("api") || DEFAULT_READ_API;
         const detailsApiBase = params.get("details_api") || `${BASE_API}/details`;
         const flatMembersApiBase = params.get("flat_members_api") || `${BASE_API}/flat-members`;
@@ -1781,6 +1782,10 @@
         let typeSelect = null;
         let snapshotSelect = null;
         let metadataStore = { seasons: [], weeksBySeason: {}, typesBySeasonWeek: {}, snapshotsByKey: {}, items: [] };
+        let availableSeasons = [];
+        let loadedSeason = "";
+        let seasonHistoryRequestId = 0;
+        let statsRequestId = 0;
 
         const tabContainer = document.createElement("div");
         tabContainer.className = "tabs";
@@ -2075,13 +2080,14 @@
             }
         }
 
-        function renderMetadataList(rawItems) {
+        function renderMetadataList(rawItems, seasons, selectedSeason) {
             const items = normalizeHistoryItems(rawItems);
             if (!items.length) {
                 listContainer.textContent = "暂无可用快照数据";
                 return;
             }
             metadataStore = buildHistoryGroups(items);
+            loadedSeason = selectedSeason;
             dateSelect = null;
 
             listContainer.innerHTML = `
@@ -2097,10 +2103,10 @@
             typeSelect = listContainer.querySelector("#type-select");
             snapshotSelect = listContainer.querySelector("#snapshot-select");
 
-            const seasonOptions = metadataStore.seasons.map(function (season) {
-                return { value: season.value, label: season.label };
+            const seasonOptions = (seasons || []).map(function (season) {
+                return { value: season.name, label: season.name };
             });
-            populateSelect(seasonSelect, seasonOptions, seasonOptions[0].value);
+            populateSelect(seasonSelect, seasonOptions, selectedSeason);
             populateSelect(typeSelect, [
                 { value: "all", label: "全部" },
                 { value: "settlement", label: "结算" },
@@ -2110,9 +2116,7 @@
             updateSnapshotSelect(true);
 
             seasonSelect.addEventListener("change", function () {
-                updateWeekSelect(seasonSelect.value);
-                typeSelect.value = "all";
-                updateSnapshotSelect(true);
+                loadSeasonHistory(seasonSelect.value);
             });
             weekSelect.addEventListener("change", function () {
                 typeSelect.value = "all";
@@ -2169,6 +2173,30 @@
 
         function buildDetailsCacheKey(source, timestamp, rangeKey, lane, kungfu) {
             return [source, timestamp, rangeKey, lane, kungfu].join("::");
+        }
+
+        function setSeasonHistoryLoading() {
+            [weekSelect, typeSelect, snapshotSelect].forEach(function (select) {
+                if (!select) {
+                    return;
+                }
+                select.innerHTML = "";
+                select.disabled = true;
+            });
+        }
+
+        function restoreLoadedSeasonControls() {
+            if (!loadedSeason || !seasonSelect || !metadataStore.items.length) {
+                return;
+            }
+            seasonSelect.value = loadedSeason;
+            populateSelect(typeSelect, [
+                { value: "all", label: "全部" },
+                { value: "settlement", label: "结算" },
+                { value: "daily", label: "日常快照" },
+            ], "all");
+            updateWeekSelect(loadedSeason);
+            updateSnapshotSelect(false);
         }
 
         function buildDetailsUrl(timestamp, rangeKey, lane, kungfu) {
@@ -2874,11 +2902,19 @@
             return `${readApiBase}${joiner}timestamp=${encodeURIComponent(timestamp)}`;
         }
 
+        function buildSeasonHistoryUrl(season) {
+            const url = new URL(seasonHistoryApiBase, window.location.origin);
+            url.searchParams.set("action", "season-history");
+            url.searchParams.set("season", season);
+            return url.toString();
+        }
+
         async function loadStats(timestamp) {
             if (!timestamp) {
                 setStatus("缺少 timestamp 参数，无法读取统计数据", "error");
                 return;
             }
+            const requestId = ++statsRequestId;
             currentStatsTimestamp = String(timestamp);
             setStatus(`请求接口：${buildReadUrl(timestamp)}`);
             try {
@@ -2887,33 +2923,63 @@
                     throw new Error(`HTTP ${response.status}`);
                 }
                 const payload = await response.json();
+                if (requestId !== statsRequestId) {
+                    return;
+                }
                 render(unwrapResponse(payload));
                 setStatus("数据加载完成");
             } catch (error) {
-                setStatus(`获取统计失败：${error.message || error}`, "error");
+                if (requestId === statsRequestId) {
+                    setStatus(`获取统计失败：${error.message || error}`, "error");
+                }
+            }
+        }
+
+        async function loadSeasonHistory(season) {
+            const requestId = ++seasonHistoryRequestId;
+            ++statsRequestId;
+            setSeasonHistoryLoading();
+            setStatus(`正在加载${season}赛季历史快照...`);
+            try {
+                const response = await fetch(buildSeasonHistoryUrl(season), { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = unwrapResponse(await response.json());
+                if (requestId !== seasonHistoryRequestId) {
+                    return;
+                }
+                if (!data || data.season !== season || !Array.isArray(data.items)) {
+                    throw new Error("赛季历史数据格式异常");
+                }
+                renderMetadataList(data.items, availableSeasons, season);
+                setStatus("数据加载完成");
+            } catch (error) {
+                if (requestId === seasonHistoryRequestId) {
+                    restoreLoadedSeasonControls();
+                    setStatus(`获取赛季历史失败：${error.message || error}`, "error");
+                }
             }
         }
 
         async function loadDateList() {
             try {
-                const response = await fetch(listApiUrl, { cache: "no-store" });
+                const response = await fetch(seasonsApiUrl, { cache: "no-store" });
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
                 const payload = await response.json();
                 const data = unwrapResponse(payload);
-                if (Array.isArray(data)) {
-                    renderDateList(data);
-                    if (dateSelect && dateSelect.value) {
-                        loadStats(dateSelect.value);
-                    }
-                } else if (data && typeof data === "object" && Array.isArray(data.items)) {
-                    renderMetadataList(data.items);
-                } else {
-                    listContainer.textContent = "列表数据格式异常";
+                availableSeasons = data && Array.isArray(data.seasons) ? data.seasons : [];
+                const defaultSeason = data && typeof data.default_season === "string"
+                    ? data.default_season : "";
+                if (!availableSeasons.length || !defaultSeason) {
+                    listContainer.textContent = "暂无可用赛季快照数据";
+                    return;
                 }
+                await loadSeasonHistory(defaultSeason);
             } catch (error) {
-                listContainer.textContent = `获取日期列表失败：${error.message || error}`;
+                listContainer.textContent = `获取赛季列表失败：${error.message || error}`;
                 listContainer.classList.add("error");
             }
         }

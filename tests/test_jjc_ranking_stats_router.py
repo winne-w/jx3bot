@@ -33,13 +33,18 @@ class _FakeRepo:
         list_result: Any = None,
         summary: Optional[Dict[str, Any]] = None,
         detail: Optional[Dict[str, Any]] = None,
+        seasons_result: Optional[Dict[str, Any]] = None,
+        season_history_result: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.list_result = list_result
         self.summary = summary
         self.detail = detail
+        self.seasons_result = seasons_result
+        self.season_history_result = season_history_result
         self.list_calls: List[Dict[str, Any]] = []
         self.summary_calls: List[int] = []
         self.detail_calls: List[Dict[str, Any]] = []
+        self.season_history_calls: List[str] = []
 
     async def list_timestamps(self, **kwargs: Any) -> Any:
         self.list_calls.append(kwargs)
@@ -48,6 +53,13 @@ class _FakeRepo:
     async def load_summary(self, timestamp: int) -> Optional[Dict[str, Any]]:
         self.summary_calls.append(timestamp)
         return self.summary
+
+    async def list_seasons(self) -> Dict[str, Any]:
+        return self.seasons_result or {"seasons": [], "default_season": None}
+
+    async def list_season_history(self, season: str) -> Dict[str, Any]:
+        self.season_history_calls.append(season)
+        return self.season_history_result or {"season": season, "items": [], "total": 0}
 
     async def load_detail(
         self,
@@ -148,6 +160,43 @@ def _load_router_module() -> Any:
 
 
 class TestRankingStatsListRoutes(unittest.IsolatedAsyncioTestCase):
+    async def test_seasons_returns_available_seasons_and_default(self) -> None:
+        module = _load_router_module()
+        repo = _FakeRepo(seasons_result={
+            "seasons": [{"name": "暗影千机", "latest_timestamp": 300}],
+            "default_season": "暗影千机",
+        })
+        module.JjcRankingStatsRepo = lambda: repo
+
+        response = await module.get_ranking_stats(action="seasons")
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(response["data"]["default_season"], "暗影千机")
+
+    async def test_season_history_forwards_selected_season(self) -> None:
+        module = _load_router_module()
+        repo = _FakeRepo(season_history_result={
+            "season": "山海源流", "items": [{"timestamp": 100}], "total": 1,
+        })
+        module.JjcRankingStatsRepo = lambda: repo
+
+        response = await module.get_ranking_stats(action="season-history", season="山海源流")
+
+        self.assertEqual(response["status_code"], 0)
+        self.assertEqual(response["data"]["total"], 1)
+        self.assertEqual(repo.season_history_calls, ["山海源流"])
+
+    async def test_season_history_rejects_missing_season(self) -> None:
+        module = _load_router_module()
+        repo = _FakeRepo()
+        module.JjcRankingStatsRepo = lambda: repo
+
+        response = await module.get_ranking_stats(action="season-history", season="  ")
+
+        self.assertNotEqual(response["status_code"], 0)
+        self.assertEqual(response["status_msg"], "invalid_season")
+        self.assertEqual(repo.season_history_calls, [])
+
     async def test_unpaged_list_returns_mongo_timestamps_only(self) -> None:
         module = _load_router_module()
         repo = _FakeRepo(list_result=[300, 100])

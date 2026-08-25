@@ -14,6 +14,8 @@ JX3Bot 是一个基于 NoneBot2 的剑网 3 QQ 机器人，运行在 OneBot V11 
   - `GET /api/jjc/ranking-stats?action=list`
   - `GET /api/jjc/ranking-stats?action=list&page=1&page_size=20`
   - `GET /api/jjc/ranking-stats?action=list&page=1&page_size=100&with_meta=1`
+  - `GET /api/jjc/ranking-stats?action=seasons`：列出所有有排名快照的赛季，并返回最新快照所属的默认赛季
+  - `GET /api/jjc/ranking-stats?action=season-history&season=<赛季>`：返回指定赛季的全部排名快照元数据
   - `GET /api/jjc/ranking-stats?action=read&timestamp=<时间戳>`
   - `GET /api/jjc/ranking-stats/details?timestamp=<时间戳>&range=<范围>&lane=<healer|dps>&kungfu=<心法>`
   - `GET /api/jjc/ranking-stats/flat-members?timestamp=<时间戳>&range=<top_1000|top_200|top_100|top_50>`：按原始名次返回当前推栏排名列表，不按心法分组

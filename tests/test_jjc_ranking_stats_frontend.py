@@ -3,6 +3,23 @@ from pathlib import Path
 
 
 class TestJjcRankingStatsFrontendCopy(unittest.TestCase):
+    def test_history_requests_seasons_then_selected_season_history(self) -> None:
+        content = Path("public/jjc-ranking-stats.html").read_text(encoding="utf-8")
+
+        self.assertIn('const SEASONS_API = `${BASE_API}?action=seasons`;', content)
+        self.assertIn('function buildSeasonHistoryUrl(season)', content)
+        self.assertIn('url.searchParams.set("action", "season-history")', content)
+        self.assertIn('async function loadSeasonHistory(season)', content)
+        self.assertIn('let seasonHistoryRequestId = 0;', content)
+        self.assertIn('if (requestId !== seasonHistoryRequestId)', content)
+        self.assertIn('function setSeasonHistoryLoading()', content)
+        self.assertIn('[weekSelect, typeSelect, snapshotSelect]', content)
+        self.assertIn('function restoreLoadedSeasonControls()', content)
+        self.assertIn('let statsRequestId = 0;', content)
+        self.assertIn('暂无可用赛季快照数据', content)
+        self.assertIn('获取赛季历史失败：', content)
+        self.assertNotIn('const DEFAULT_LIST_API = `${BASE_API}?action=list&page=1&page_size=100&with_meta=1`;', content)
+
     def test_peak_game_labels_use_14_day_window(self) -> None:
         content = Path("public/jjc-ranking-stats.html").read_text(encoding="utf-8")
 
