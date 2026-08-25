@@ -26,9 +26,9 @@ This execution plan is a living document and must be kept up to date according t
 - [x] 1.2 修改 `src/storage/mongo_repos/jjc_inspect_repo.py:JjcInspectRepo.save_match_detail()`：先按规范整数 `match_id` 执行 `jjc_match_detail.update_one` 的 upsert，成功返回 `True`，主写异常原样抛出；把 `_extract_snapshots()` 调整为主写后的独立 best-effort 派生并用结构化日志记录失败；运行 1.1 测试确认通过。
 - [x] 1.3 新建 `tests/test_jjc_match_detail_persistence.py`，用 fake repo/projector 写出 `MatchDetailPersistenceService.persist()` 的失败测试：只有主保存返回 `True` 才分别尝试身份、玩家、事实三个投影，任一派生失败不得阻断另外两个，unavailable 触发玩家清理和事实 tombstone，主保存失败不得调用任何派生。
 - [x] 1.4 新建 `src/services/jx3/match_detail_persistence.py`，实现 `MatchDetailPersistenceService` 和结构化 `PersistMatchDetailResult`；事实 projector 依赖在阶段一允许为 `None`，配置后才调用。对主事实、身份投影、玩家投影、事实投影分别记录 `match_id/source/schema/error`，满足 1.3 测试，不在 service 中依赖 NoneBot 事件或发送能力。
-- [ ] 1.5 修改 `src/services/jx3/jjc_ranking_inspect.py`、`src/services/jx3/jjc_ranking.py` 和 `src/services/jx3/jjc_match_data_sync.py` 的保存入口，删除“直接 save 后各自投影”的重复编排：覆盖 inspect cache miss、cache hit replay 补齐、`no data found`、排名预热和 sync 补 occurrence `match_time`/replay 后重新保存；规范源摘要变化时分配较新的 `cached_at`，仅补不进入摘要的 replay/身份字段时允许沿用版本。先补 `tests/test_jjc_ranking_inspect.py`、`tests/test_jjc_match_data_sync.py` 入口顺序、版本与失败隔离测试，再做最小改动使其通过。
-- [ ] 1.6 修改 `src/services/jx3/singletons.py`，先以 fact projector 未配置的方式装配一个共享 `MatchDetailPersistenceService` 并注入 ranking、inspect、sync 三条链路，阶段二再注入实际事实 projector；运行 `python -m unittest tests.test_jjc_ranking_inspect tests.test_jjc_match_data_sync tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot_repo tests.test_jjc_match_detail_hydration -v`，确认现有详情、装备、奇穴和 replay 行为无回归。
-- [ ] 1.7 只暂存本组源码与测试，检查 `git diff --cached --check` 后提交 `refactor: unify JJC match detail persistence`；提交不得包含用户工作区中的其他改动。
+- [x] 1.5 修改 `src/services/jx3/jjc_ranking_inspect.py`、`src/services/jx3/jjc_ranking.py` 和 `src/services/jx3/jjc_match_data_sync.py` 的保存入口，删除“直接 save 后各自投影”的重复编排：覆盖 inspect cache miss、cache hit replay 补齐、`no data found`、排名预热和 sync 补 occurrence `match_time`/replay 后重新保存；规范源摘要变化时分配较新的 `cached_at`，仅补不进入摘要的 replay/身份字段时允许沿用版本。先补 `tests/test_jjc_ranking_inspect.py`、`tests/test_jjc_match_data_sync.py` 入口顺序、版本与失败隔离测试，再做最小改动使其通过。
+- [x] 1.6 修改 `src/services/jx3/singletons.py`，先以 fact projector 未配置的方式装配一个共享 `MatchDetailPersistenceService` 并注入 ranking、inspect、sync 三条链路，阶段二再注入实际事实 projector；运行 `python -m unittest tests.test_jjc_ranking_inspect tests.test_jjc_match_data_sync tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot_repo tests.test_jjc_match_detail_hydration -v`，确认现有详情、装备、奇穴和 replay 行为无回归。
+- [x] 1.7 只暂存本组源码与测试，检查 `git diff --cached --check` 后提交 `refactor: unify JJC match detail persistence`；提交不得包含用户工作区中的其他改动。
 
 ### 2. 对局事实纯构建、源摘要与 CAS 存储
 
@@ -96,6 +96,8 @@ This execution plan is a living document and must be kept up to date according t
 
 任务 1.1/1.2 实现时确认，若主写前已将完整装备/奇穴替换为 hash，快照失败会留下无法补水的主详情；最终采用“完整详情主写 → 快照派生 → CAS 压缩”的两阶段写法。压缩更新同时匹配 `match_id/cached_at/完整 data` 且禁用 upsert，避免较慢旧保存覆盖同一对局的较新详情。
 
+任务 1.5/1.6 复审时确认，统一事件来源不能直接替代既有派生来源语义：参与者继续使用 `ranking_detail/warmup/sync_worker`，sync 身份投影继续使用 `match_detail_sync` 与 `priority=-10`。默认 Python 3.13.2 在多个 `IsolatedAsyncioTestCase`/`asyncio.to_thread` 用例整套串行时出现可复现的事件循环停滞；相同用例单跑、分组回归和 reviewer 运行均可通过，阶段验证因此保留分组证据，未为该环境行为修改生产代码。
+
 ## Decision Log
 
 2026-08-25：用户确认不固定主客方向，配置只表示两边分别包含所选心法；每边允许 0～3 项、队内无序且可重复，单边空表示任意，双方空表示浏览全部。
@@ -114,7 +116,7 @@ This execution plan is a living document and must be kept up to date according t
 
 ## Outcomes & Retrospective
 
-当前仅完成需求澄清、proposal、design、spec 和本执行计划，业务实现尚未开始。实施过程中必须在每个阶段完成后更新本节，记录实际交付、数据回填规模、查询性能、未覆盖风险以及与原设计的偏差；不得在缺少验证证据时填写“完成”或“通过”。
+阶段一已完成主详情保存契约和统一持久化编排：inspect、ranking warmup 与 sync 共享主保存边界，主保存失败不触发派生，unavailable、版本推进和既有身份/参与者来源语义均有回归测试。规格复审与质量复审均已批准；本阶段未创建 `jjc_match_facts`，未执行线上数据回填或外部写入。后续阶段仍需记录实际数据规模、查询性能、未覆盖风险以及与原设计的偏差。
 
 ## Context and Orientation
 
