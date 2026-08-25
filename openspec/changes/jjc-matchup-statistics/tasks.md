@@ -32,8 +32,8 @@ This execution plan is a living document and must be kept up to date according t
 
 ### 2. 对局事实纯构建、源摘要与 CAS 存储
 
-- [ ] 2.1 新建 `tests/test_jjc_match_fact.py`，先覆盖并运行失败测试：正整数 ID/时间、显式非 3v3、两队各三人、六个心法 ID、胜负 XOR、无 `global_id` 仍构建、`total_score` 到 `score` 回退、0 分有效、非法分数变缺失、时间来源优先级、重复心法组合键、active/tombstone、canonical SHA-256 和 schema 重建。
-- [ ] 2.2 新建 `src/services/jx3/jjc_match_fact.py`，实现 Python 3.9 兼容的纯函数 `normalize_positive_int()`、`normalize_game_score()`、`extract_match_time()`、`encode_combo_key()`、`build_match_fact()` 和 `build_source_hash()`；组合键固定为 `v1:<count>:<sorted ids>`，hash 使用 UTF-8、键排序和紧凑分隔符的 canonical JSON，运行 2.1 测试至通过。
+- [x] 2.1 新建 `tests/test_jjc_match_fact.py`，先覆盖并运行失败测试：正整数 ID/时间、显式非 3v3、两队各三人、六个心法 ID、胜负 XOR、无 `global_id` 仍构建、`total_score` 到 `score` 回退、0 分有效、非法分数变缺失、时间来源优先级、重复心法组合键、active/tombstone、canonical SHA-256 和 schema 重建。
+- [x] 2.2 新建 `src/services/jx3/jjc_match_fact.py`，实现 Python 3.9 兼容的纯函数 `normalize_positive_int()`、`normalize_game_score()`、`extract_match_time()`、`encode_combo_key()`、`build_match_fact()` 和 `build_source_hash()`；组合键固定为 `v1:<count>:<sorted ids>`，hash 使用 UTF-8、键排序和紧凑分隔符的 canonical JSON，运行 2.1 测试至通过。
 - [ ] 2.3 新建 `tests/test_jjc_match_fact_repo.py`，用 fake Motor collection 先覆盖失败测试：`match_id` 整数唯一、较新版本 active/tombstone 可互换、较旧版本跳过、等时异 hash 冲突、等时同 hash 高 schema 重建、其余 no-op，以及 tombstone 清除组合/分数/摘要字段。
 - [ ] 2.4 新建 `src/storage/mongo_repos/jjc_match_fact_repo.py`，实现 `JjcMatchFactRepo.apply_projection()`、`get_projection_state()` 和批量核验读取；返回稳定状态 `inserted/updated/tombstoned/skipped_old/conflict/noop`，以单条条件更新或事务外原子 CAS 防止旧回填复活，运行 2.3 测试至通过。
 - [ ] 2.5 在 `tests/test_jjc_match_fact_repo.py` 增加查询索引合同测试，再修改 `src/infra/mongo.py:_safe_index()` 使其比较 `partialFilterExpression`，并为 `jjc_match_facts` 创建 `idx_match_id` unique、`idx_active_combo_time` partial active 与 `idx_active_time` partial active；断言每个复合索引最多一个数组字段且 tombstone 不进入 partial index。
@@ -98,6 +98,8 @@ This execution plan is a living document and must be kept up to date according t
 
 任务 1.5/1.6 复审时确认，统一事件来源不能直接替代既有派生来源语义：参与者继续使用 `ranking_detail/warmup/sync_worker`，sync 身份投影继续使用 `match_detail_sync` 与 `priority=-10`。默认 Python 3.13.2 在多个 `IsolatedAsyncioTestCase`/`asyncio.to_thread` 用例整套串行时出现可复现的事件循环停滞；相同用例单跑、分组回归和 reviewer 运行均可通过，阶段验证因此保留分组证据，未为该环境行为修改生产代码。
 
+任务 2.1/2.2 复审时确认，`cached_at` 版本水位可以是带小数的有限正数，但不接受数值文本；同步补入的 `data.match_time` 优先于旧 `detail.match_time`。`source_hash` 仅覆盖规范源摘要，保留原始 `total_score/score` 而排除 `game_score/score_source`、组合键与聚合分数等派生字段，使同源高 schema 可重建而不被误判为等时冲突。
+
 ## Decision Log
 
 2026-08-25：用户确认不固定主客方向，配置只表示两边分别包含所选心法；每边允许 0～3 项、队内无序且可重复，单边空表示任意，双方空表示浏览全部。
@@ -113,6 +115,8 @@ This execution plan is a living document and must be kept up to date according t
 2026-08-25：最近 N 天在查询时转为绝对 Unix 秒写入 URL，自定义结束日期包含全天；点击对局复用现有详情接口查看装备与奇穴，首版不做奇穴选择率汇总。
 
 2026-08-25：三路只读方案复审最终均为 Ready；关键修订包括明确保存成功契约、入口矩阵、时间/分数规范化、canonical hash/CAS 真值表、tombstone、单键组合索引锚点、请求错误包装和性能门禁。
+
+2026-08-25：事实构建的 `source_hash` 与派生 schema 解耦；同一规范源在不同 schema 版本下 hash 保持一致，仅真实源字段变化才改变 hash。
 
 ## Outcomes & Retrospective
 
