@@ -23,6 +23,7 @@ from src.storage.mongo_repos.jjc_match_participant_repo import JjcMatchParticipa
 from src.storage.mongo_repos.jjc_match_snapshot_repo import JjcMatchSnapshotRepo
 from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
 from src.services.jx3.match_detail_participant_projection import MatchDetailParticipantProjectionService
+from src.services.jx3.match_detail_persistence import MatchDetailPersistenceService
 from src.utils.tuilan_request import tuilan_request
 
 env = Environment(loader=FileSystemLoader("templates"))
@@ -63,6 +64,14 @@ match_detail_identity_projection_service = MatchDetailIdentityProjectionService(
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
 )
 
+jjc_inspect_repo = _new_jjc_inspect_repo(snapshot_repo=JjcMatchSnapshotRepo())
+match_detail_persistence_service = MatchDetailPersistenceService(
+    inspect_repo=jjc_inspect_repo,
+    identity_projector=match_detail_identity_projection_service,
+    participant_projector=match_detail_participant_projection_service,
+    fact_projector=None,
+)
+
 jjc_ranking_service = JjcRankingService(
     token=cfg.TOKEN,
     ticket=cfg.TICKET,
@@ -82,6 +91,7 @@ jjc_ranking_service = JjcRankingService(
     match_replay_url=cfg.API_URLS["竞技场战局回放"],
     match_detail_projection_service=match_detail_identity_projection_service,
     match_detail_participant_projection_service=match_detail_participant_projection_service,
+    match_detail_persistence_service=match_detail_persistence_service,
 )
 
 match_detail_client = MatchDetailClient(
@@ -118,12 +128,13 @@ jjc_ranking_inspect_service = JjcRankingInspectService(
     match_history_client=match_history_client,
     match_detail_client=match_detail_client,
     match_replay_client=match_replay_client,
-    cache_repo=_new_jjc_inspect_repo(snapshot_repo=JjcMatchSnapshotRepo()),
+    cache_repo=jjc_inspect_repo,
     tuilan_request=tuilan_request,
     role_indicator_fetcher=get_role_indicator,
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
     match_detail_projection_service=match_detail_identity_projection_service,
     match_detail_participant_projection_service=match_detail_participant_projection_service,
+    match_detail_persistence_service=match_detail_persistence_service,
     current_season=cfg.CURRENT_SEASON,
     season_start_time=parse_season_start_timestamp(cfg.CURRENT_SEASON_START),
     role_recent_ttl_seconds=86400,
@@ -141,6 +152,7 @@ jjc_match_data_sync_service = JjcMatchDataSyncService(
     identity_repo=role_identity_repo,
     match_detail_projection_service=match_detail_identity_projection_service,
     match_detail_participant_projection_service=match_detail_participant_projection_service,
+    match_detail_persistence_service=match_detail_persistence_service,
     dispatcher_idle_sleep=getattr(cfg, "JJC_SYNC_DISPATCHER_IDLE_SLEEP", 10),
     dispatcher_batch_size=getattr(cfg, "JJC_SYNC_DISPATCHER_BATCH_SIZE", 20),
     dispatcher_target_per_worker=getattr(cfg, "JJC_SYNC_DISPATCHER_TARGET_PER_WORKER", 3),

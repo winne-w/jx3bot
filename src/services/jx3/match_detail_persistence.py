@@ -55,8 +55,8 @@ class MatchDetailPersistenceService:
     """Persist the match-detail source of truth before independent projections."""
 
     inspect_repo: Any
-    identity_projector: Any
-    participant_projector: Any
+    identity_projector: Optional[Any]
+    participant_projector: Optional[Any]
     fact_projector: Optional[Any] = None
     schema: str = PERSIST_MATCH_DETAIL_SCHEMA
 
@@ -128,59 +128,63 @@ class MatchDetailPersistenceService:
 
         identity_result = None
         identity_error = None
-        try:
-            wrapped_data = payload.get("data")
-            identity_payload = wrapped_data if isinstance(wrapped_data, dict) else payload
-            identity_result = await self.identity_projector.project_payload(
-                match_id=match_id,
-                payload=copy.deepcopy(identity_payload),
-                source=source,
-            )
-            identity_error = _result_error(identity_result)
-            if identity_error is not None:
+        identity_attempted = self.identity_projector is not None
+        if self.identity_projector is not None:
+            try:
+                wrapped_data = payload.get("data")
+                identity_payload = wrapped_data if isinstance(wrapped_data, dict) else payload
+                identity_result = await self.identity_projector.project_payload(
+                    match_id=match_id,
+                    payload=copy.deepcopy(identity_payload),
+                    source=source,
+                )
+                identity_error = _result_error(identity_result)
+                if identity_error is not None:
+                    self._log_error(
+                        match_id=match_id,
+                        source=source,
+                        stage="identity",
+                        error=identity_error,
+                    )
+            except Exception as exc:
+                identity_error = str(exc)
                 self._log_error(
                     match_id=match_id,
                     source=source,
                     stage="identity",
                     error=identity_error,
                 )
-        except Exception as exc:
-            identity_error = str(exc)
-            self._log_error(
-                match_id=match_id,
-                source=source,
-                stage="identity",
-                error=identity_error,
-            )
 
         participant_result = None
         participant_error = None
-        try:
-            if _is_unavailable(payload):
-                participant_result = await self.participant_projector.clear_match(match_id)
-            else:
-                participant_result = await self.participant_projector.project_payload(
-                    match_id=match_id,
-                    payload=copy.deepcopy(payload),
-                    seen_doc=copy.deepcopy(seen_doc),
-                    source=source,
-                )
-            participant_error = _result_error(participant_result)
-            if participant_error is not None:
+        participant_attempted = self.participant_projector is not None
+        if self.participant_projector is not None:
+            try:
+                if _is_unavailable(payload):
+                    participant_result = await self.participant_projector.clear_match(match_id)
+                else:
+                    participant_result = await self.participant_projector.project_payload(
+                        match_id=match_id,
+                        payload=copy.deepcopy(payload),
+                        seen_doc=copy.deepcopy(seen_doc),
+                        source=source,
+                    )
+                participant_error = _result_error(participant_result)
+                if participant_error is not None:
+                    self._log_error(
+                        match_id=match_id,
+                        source=source,
+                        stage="participant",
+                        error=participant_error,
+                    )
+            except Exception as exc:
+                participant_error = str(exc)
                 self._log_error(
                     match_id=match_id,
                     source=source,
                     stage="participant",
                     error=participant_error,
                 )
-        except Exception as exc:
-            participant_error = str(exc)
-            self._log_error(
-                match_id=match_id,
-                source=source,
-                stage="participant",
-                error=participant_error,
-            )
 
         fact_result = None
         fact_error = None
@@ -214,10 +218,10 @@ class MatchDetailPersistenceService:
             source=source,
             schema=self.schema,
             main_saved=True,
-            identity_attempted=True,
+            identity_attempted=identity_attempted,
             identity_result=identity_result,
             identity_error=identity_error,
-            participant_attempted=True,
+            participant_attempted=participant_attempted,
             participant_result=participant_result,
             participant_error=participant_error,
             fact_attempted=fact_attempted,

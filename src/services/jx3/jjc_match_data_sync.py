@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
 import os
 import socket
@@ -471,6 +472,7 @@ class JjcMatchDataSyncService:
         role_indicator_client: Optional[RoleIndicatorClient] = None,
         match_detail_projection_service: Optional[Any] = None,
         match_detail_participant_projection_service: Optional[Any] = None,
+        match_detail_persistence_service: Optional[Any] = None,
         sleep_func: Callable[[], Awaitable[None]] = random_sleep,
         page_size: int = 20,
         max_pages_per_role: int = 300,
@@ -490,6 +492,7 @@ class JjcMatchDataSyncService:
         self._role_indicator_client = role_indicator_client
         self._match_detail_projection_service = match_detail_projection_service
         self._match_detail_participant_projection_service = match_detail_participant_projection_service
+        self._match_detail_persistence_service = match_detail_persistence_service
         self._sleep_func = sleep_func
         self._page_size = page_size
         self._max_pages_per_role = max_pages_per_role
@@ -2179,6 +2182,11 @@ class JjcMatchDataSyncService:
                     if detail is None:
                         reason = str(payload.get("message") or "no data found")
                         code = payload.get("code") if payload.get("code") is not None else -1
+                        await self._persist_sync_match_detail(
+                            match_id=match_id,
+                            payload=self._build_sync_persistence_payload(payload, source_changed=False),
+                            unavailable=True,
+                        )
                         await renew_processing_context(force=True)
                         marked = await self._repo.mark_match_detail_unavailable(
                             match_id,
@@ -2190,13 +2198,15 @@ class JjcMatchDataSyncService:
                             raise JjcSyncStaleMatchDetailLeaseError(
                                 "stale_match_detail_lease: match_id={} owner={}".format(match_id, lease_owner)
                             )
-                        await self._clear_match_detail_participants_if_configured(match_id=match_id)
                         return "unavailable"
                     if isinstance(detail, dict):
                         detail_payload = dict(payload)
                         detail_payload["detail"] = detail
+                        source_changed = False
                         if match_time is not None:
-                            detail_payload.setdefault("match_time", match_time)
+                            if _coerce_int(detail_payload.get("match_time")) != _coerce_int(match_time):
+                                detail_payload["match_time"] = match_time
+                                source_changed = True
                         await renew_processing_context(force=True)
                         await self._enrich_detail_with_replay(
                             detail,
@@ -2205,13 +2215,13 @@ class JjcMatchDataSyncService:
                             lease_renewer=renew_processing_context,
                         )
                         await renew_processing_context(force=True)
-                        await self._project_match_detail_if_configured(
+                        await self._persist_sync_match_detail(
                             match_id=match_id,
-                            payload=detail_payload,
-                        )
-                        await self._project_match_detail_participants_if_configured(
-                            match_id=match_id,
-                            payload=detail_payload,
+                            payload=self._build_sync_persistence_payload(
+                                detail_payload,
+                                source_changed=source_changed,
+                            ),
+                            unavailable=False,
                         )
                     await renew_processing_context(force=True)
                     marked = await self._repo.mark_match_detail_saved(match_id, lease_owner=lease_owner)
@@ -2247,6 +2257,55 @@ class JjcMatchDataSyncService:
                 "stale_match_detail_lease: match_id={} owner={}".format(match_id, lease_owner)
             )
         return "failed"
+
+    def _build_sync_persistence_payload(
+        self,
+        payload: Dict[str, Any],
+        *,
+        source_changed: bool,
+    ) -> Dict[str, Any]:
+        data = {
+            key: copy.deepcopy(value)
+            for key, value in payload.items()
+            if key not in ("cache", "projection_error", "projection_message")
+        }
+        cached_at = payload.get("cached_at")
+        cache = payload.get("cache")
+        if isinstance(cache, dict) and cache.get("cached_at") is not None:
+            cached_at = cache.get("cached_at")
+        try:
+            old_cached_at = float(cached_at)
+        except (TypeError, ValueError):
+            old_cached_at = 0.0
+        if source_changed:
+            cached_at = max(time.time(), old_cached_at + 0.000001)
+        elif cached_at is None:
+            cached_at = time.time()
+        return {"cached_at": cached_at, "data": data}
+
+    async def _persist_sync_match_detail(
+        self,
+        *,
+        match_id: int,
+        payload: Dict[str, Any],
+        unavailable: bool,
+    ) -> None:
+        service = self._match_detail_persistence_service
+        if service is not None:
+            result = await service.persist(match_id, payload, "sync_worker")
+            if getattr(result, "main_saved", None) is not True:
+                raise RuntimeError(
+                    "match_detail_persistence_main_save_failed: match_id={}".format(match_id)
+                )
+            return
+
+        # Compatibility for older callers that have not yet been switched to the
+        # shared persistence service. Production singletons always inject it.
+        if unavailable:
+            await self._clear_match_detail_participants_if_configured(match_id)
+        else:
+            await self._project_match_detail_if_configured(match_id, payload["data"])
+            await self._project_match_detail_participants_if_configured(match_id, payload["data"])
 
     async def _project_match_detail_if_configured(
         self,

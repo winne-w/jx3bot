@@ -60,6 +60,20 @@ class FakeProjectionService:
         return {"projected": 1}
 
 
+class FakeMatchDetailPersistenceService:
+    def __init__(self) -> None:
+        self.calls: List[Dict[str, Any]] = []
+
+    async def persist(self, match_id: Any, payload: Dict[str, Any], source: str, **kwargs: Any) -> Any:
+        self.calls.append({
+            "match_id": match_id,
+            "payload": payload,
+            "source": source,
+            **kwargs,
+        })
+        return {"main_saved": True}
+
+
 class DirectJjcRankingInspectService(JjcRankingInspectService):
     async def _run_serialized_tuilan_query(
         self,
@@ -134,6 +148,7 @@ class FakeJjcInspectRepo:
 
     async def save_match_detail(self, match_id, payload):
         self.saved_match_detail.append((match_id, payload))
+        return True
 
     async def batch_load_cached_detail_summaries(self, match_ids):
         result = {}
@@ -274,6 +289,7 @@ class FakeWarmupInspectRepo:
 
     async def save_match_detail(self, match_id, payload):
         self.saved_match_detail.append((match_id, payload))
+        return True
 
 
 class WarmupJjcRankingService(JjcRankingService):
@@ -281,6 +297,7 @@ class WarmupJjcRankingService(JjcRankingService):
         self,
         inspect_repo: FakeWarmupInspectRepo,
         projection_service: Any = None,
+        persistence_service: Any = None,
         tuilan_request: Any = None,
         match_replay_url: Optional[str] = None,
     ) -> None:
@@ -302,6 +319,7 @@ class WarmupJjcRankingService(JjcRankingService):
             defget_get=MagicMock(),
             match_replay_url=match_replay_url,
             match_detail_projection_service=projection_service,
+            match_detail_persistence_service=persistence_service,
         )
         object.__setattr__(self, "inspect_repo", inspect_repo)
 
@@ -441,6 +459,28 @@ class TestTuilanEndpointLocks(unittest.IsolatedAsyncioTestCase):
 
 
 class TestRankingWarmupInspectCache(unittest.IsolatedAsyncioTestCase):
+    async def test_warmup_uses_unified_persistence_entry(self):
+        inspect_repo = FakeWarmupInspectRepo()
+        persistence_service = FakeMatchDetailPersistenceService()
+        service = WarmupJjcRankingService(inspect_repo, persistence_service=persistence_service)
+
+        await service._warmup_inspect_cache_from_kungfu_detail(
+            server="梦江南",
+            name="示例角色",
+            kungfu_detail={
+                "_cache_warmup": {
+                    "match_detail": {
+                        "match_id": 12345,
+                        "raw": {"code": -1, "msg": "no data found", "data": None},
+                    },
+                }
+            },
+        )
+
+        self.assertEqual(inspect_repo.saved_match_detail, [])
+        self.assertEqual(len(persistence_service.calls), 1)
+        self.assertEqual(persistence_service.calls[0]["source"], "ranking_warmup")
+        self.assertTrue(persistence_service.calls[0]["payload"]["data"]["unavailable"])
     async def test_warmup_writes_indicator_and_match_detail_cache(self):
         inspect_repo = FakeWarmupInspectRepo()
         service = WarmupJjcRankingService(inspect_repo)
@@ -844,6 +884,67 @@ class TestHydrateRecentMatchesWithCachedDetails(unittest.IsolatedAsyncioTestCase
 
 
 class TestJjcRankingInspectRoleRecent(unittest.IsolatedAsyncioTestCase):
+    async def test_match_detail_cache_miss_uses_wrapped_unified_persistence(self) -> None:
+        cache_repo = FakeJjcInspectRepo()
+        persistence_service = FakeMatchDetailPersistenceService()
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(), kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(), match_detail_client=FakeMatchDetailClient(make_match_detail_response()),
+            cache_repo=cache_repo, tuilan_request=MagicMock(), role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={"huajian": "花间游"},
+            match_detail_persistence_service=persistence_service,
+        )
+
+        result = await service.get_match_detail(match_id=12345)
+
+        self.assertFalse(result["cache"]["hit"])
+        self.assertEqual(cache_repo.saved_match_detail, [])
+        self.assertEqual(len(persistence_service.calls), 1)
+        call = persistence_service.calls[0]
+        self.assertEqual(call["source"], "inspect_cache_miss")
+        self.assertEqual(call["payload"]["data"]["match_id"], 12345)
+        self.assertNotIn("cache", call["payload"]["data"])
+
+    async def test_match_detail_unavailable_uses_unified_persistence(self) -> None:
+        cache_repo = FakeJjcInspectRepo()
+        persistence_service = FakeMatchDetailPersistenceService()
+        unavailable = MatchDetailResponse(code=-1, msg="no data found", data=None)
+        service = DirectJjcRankingInspectService(
+            ranking_service=MagicMock(), kungfu_cache_repo=MagicMock(),
+            match_history_client=MagicMock(), match_detail_client=FakeMatchDetailClient(unavailable),
+            cache_repo=cache_repo, tuilan_request=MagicMock(), role_indicator_fetcher=MagicMock(),
+            kungfu_pinyin_to_chinese={}, match_detail_persistence_service=persistence_service,
+        )
+
+        result = await service.get_match_detail(match_id=12345)
+
+        self.assertTrue(result["unavailable"])
+        self.assertEqual(cache_repo.saved_match_detail, [])
+        self.assertEqual(persistence_service.calls[0]["source"], "inspect_cache_miss_unavailable")
+        self.assertTrue(persistence_service.calls[0]["payload"]["data"]["unavailable"])
+
+    async def test_cached_replay_only_enrichment_keeps_cached_at_with_unified_persistence(self) -> None:
+        cache_repo = FakeJjcInspectRepo()
+        cache_repo.load_match_detail = AsyncMock(return_value={
+            "cached_at": 1778000000,
+            "data": {"match_id": 1001, "detail": {"team1": {"players_info": [
+                {"role_name": "示例角色", "server": "梦江南", "role_id": "30284767"}
+            ]}, "team2": {"players_info": []}}},
+        })
+        persistence_service = FakeMatchDetailPersistenceService()
+        service = SlowCacheHitReplayEnrichService(
+            ranking_service=MagicMock(), kungfu_cache_repo=MagicMock(), match_history_client=MagicMock(),
+            match_detail_client=MagicMock(), cache_repo=cache_repo, tuilan_request=MagicMock(),
+            role_indicator_fetcher=MagicMock(), kungfu_pinyin_to_chinese={},
+            match_detail_persistence_service=persistence_service,
+        )
+
+        await service.get_match_detail(match_id=1001)
+
+        self.assertEqual(len(persistence_service.calls), 1)
+        self.assertEqual(persistence_service.calls[0]["source"], "inspect_cache_hit_replay_enrich")
+        self.assertEqual(persistence_service.calls[0]["payload"]["cached_at"], 1778000000)
+
     async def test_role_recent_default_window_returns_20_3v3_matches(self) -> None:
         history = [
             {

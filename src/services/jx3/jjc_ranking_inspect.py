@@ -20,6 +20,7 @@ from src.services.jx3.kungfu import (
 )
 from src.services.jx3.match_history import MatchHistoryClient
 from src.services.jx3.match_detail import MatchDetailClient, MatchDetailResponse
+from src.services.jx3.match_detail_persistence import MatchDetailPersistenceService
 from src.services.jx3.match_replay import MatchReplayClient
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
@@ -213,6 +214,7 @@ class JjcRankingInspectService:
     match_replay_client: Optional[MatchReplayClient] = None
     match_detail_projection_service: Any = None
     match_detail_participant_projection_service: Any = None
+    match_detail_persistence_service: Any = None
     role_identity_repo: Any = None
     sync_repo: Any = None
     role_recent_ttl_seconds: int = 86400
@@ -269,7 +271,6 @@ class JjcRankingInspectService:
             if value is not None:
                 result[key] = str(value) if key.endswith("_id") else value
         return result
-
     @staticmethod
     def _serialize_sync_status(doc: Optional[dict[str, Any]]) -> dict[str, Any]:
         if not doc:
@@ -550,19 +551,10 @@ class JjcRankingInspectService:
             return {"data": data}
 
         effective_cached_at = cached_at or time.time()
-        await self.cache_repo.save_match_detail(
-            match_id,
-            {"cached_at": effective_cached_at, "data": data},
-        )
-        await self._project_match_detail_payload(
-            match_id=match_id,
-            payload=data,
-            source="inspect_cache_hit_replay_enrich",
-        )
-        await self._project_match_detail_participants(
+        await self._persist_match_detail(
             match_id=match_id,
             payload={"cached_at": effective_cached_at, "data": data},
-            detail_source="ranking_detail",
+            source="inspect_cache_hit_replay_enrich",
         )
         return {"data": data}
 
@@ -1277,9 +1269,9 @@ class JjcRankingInspectService:
                 "detail": None,
             }
             cached_at = time.time()
-            await self.cache_repo.save_match_detail(normalized_match_id, {"cached_at": cached_at, "data": payload})
-            await self._clear_match_detail_participants(
+            await self._persist_match_detail(
                 match_id=normalized_match_id,
+                payload={"cached_at": cached_at, "data": payload},
                 source="inspect_cache_miss_unavailable",
             )
             payload["cache"] = {"hit": False, "cached_at": cached_at}
@@ -1304,84 +1296,33 @@ class JjcRankingInspectService:
                 player["kungfu"] = self._translate_kungfu_name(player.get("kungfu"))
         await self._enrich_detail_payload_with_replay(payload)
         cached_at = time.time()
-        await self.cache_repo.save_match_detail(normalized_match_id, {"cached_at": cached_at, "data": payload})
-        await self._project_match_detail_payload(
-            match_id=normalized_match_id,
-            payload=payload,
-            source="inspect_cache_miss",
-        )
-        await self._project_match_detail_participants(
+        persistence_result = await self._persist_match_detail(
             match_id=normalized_match_id,
             payload={"cached_at": cached_at, "data": payload},
-            detail_source="ranking_detail",
+            source="inspect_cache_miss",
         )
+        if getattr(persistence_result, "identity_error", None):
+            payload["projection_error"] = True
+            payload["projection_message"] = persistence_result.identity_error
         payload["cache"] = {"hit": False, "cached_at": cached_at}
         return payload
 
-    async def _project_match_detail_payload(
+    async def _persist_match_detail(
         self,
         *,
         match_id: int,
-        payload: dict[str, Any],
+        payload: Dict[str, Any],
         source: str,
-    ) -> None:
-        if self.match_detail_projection_service is None:
-            return
-        try:
-            await self.match_detail_projection_service.project_payload(
-                match_id=match_id,
-                payload=payload,
-                source=source,
-            )
-        except Exception as exc:
-            logger.warning(
-                "JJC 对局详情身份投影失败: match_id=%s source=%s error=%s",
-                match_id,
-                source,
-                exc,
-            )
-            payload["projection_error"] = True
-            payload["projection_message"] = str(exc) or exc.__class__.__name__
-
-    async def _project_match_detail_participants(
-        self,
-        *,
-        match_id: int,
-        payload: dict[str, Any],
-        detail_source: str,
-    ) -> None:
-        service = self.match_detail_participant_projection_service
+    ) -> Any:
+        service = self.match_detail_persistence_service
         if service is None:
-            return
-        try:
-            await service.project_payload(
-                match_id=match_id,
-                payload=payload,
-                source=detail_source,
+            service = MatchDetailPersistenceService(
+                inspect_repo=self.cache_repo,
+                identity_projector=self.match_detail_projection_service,
+                participant_projector=self.match_detail_participant_projection_service,
+                fact_projector=None,
             )
-        except Exception as exc:
-            logger.warning(
-                "JJC 对局详情参与者投影失败: match_id=%s source=%s error=%s",
-                match_id,
-                detail_source,
-                exc,
-            )
-
-    async def _clear_match_detail_participants(
-        self,
-        *,
-        match_id: int,
-        source: str,
-    ) -> None:
-        service = self.match_detail_participant_projection_service
-        if service is None:
-            return
-        try:
-            await service.clear_match(match_id)
-        except Exception as exc:
-            logger.warning(
-                "JJC 对局详情参与者投影清理失败: match_id=%s source=%s error=%s",
-                match_id,
-                source,
-                exc,
-            )
+        result = await service.persist(match_id, copy.deepcopy(payload), source)
+        if getattr(result, "main_saved", True) is not True:
+            logger.warning("JJC 对局详情主保存未成功: match_id=%s source=%s", match_id, source)
+        return result

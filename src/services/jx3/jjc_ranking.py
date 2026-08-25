@@ -19,6 +19,7 @@ from src.services.jx3.tuilan_rate_limit import fixed_sleep, random_sleep
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
+from src.services.jx3.match_detail_persistence import MatchDetailPersistenceService
 
 
 CACHED_MATCH_DETAIL_WIN_KUNGFU_FIELDS = (
@@ -52,6 +53,7 @@ class JjcRankingService:
     match_replay_url: Optional[str] = None
     match_detail_projection_service: Any = None
     match_detail_participant_projection_service: Any = None
+    match_detail_persistence_service: Any = None
 
     def _api(self) -> JjcApiClient:
         return JjcApiClient(
@@ -198,27 +200,16 @@ class JjcRankingService:
                         }
                     if payload is not None:
                         await self._enrich_warmup_match_detail_with_replay(normalized_match_id, payload)
-                        try:
-                            await repo.save_match_detail(
-                                normalized_match_id,
-                                {"cached_at": cached_at, "data": payload},
-                            )
-                        except Exception as exc:
+                        persistence_result = await self._persist_match_detail(
+                            repo=repo,
+                            match_id=normalized_match_id,
+                            payload={"cached_at": cached_at, "data": payload},
+                            source="ranking_warmup",
+                        )
+                        if getattr(persistence_result, "main_saved", True) is not True:
                             logger.warning(
-                                "定时统计预热 match_detail 缓存失败: match_id={} error={}",
+                                "定时统计预热 match_detail 主保存未成功: match_id={}",
                                 normalized_match_id,
-                                exc,
-                            )
-                        else:
-                            await self._project_match_detail_payload(
-                                match_id=normalized_match_id,
-                                payload=payload,
-                                source="ranking_warmup",
-                            )
-                            await self._project_match_detail_participants(
-                                match_id=normalized_match_id,
-                                payload={"cached_at": cached_at, "data": payload},
-                                detail_source="warmup",
                             )
 
         role_recent = cache_warmup.get("role_recent")
@@ -293,56 +284,23 @@ class JjcRankingService:
                         exc,
                     )
 
-    async def _project_match_detail_payload(
+    async def _persist_match_detail(
         self,
         *,
+        repo: JjcInspectRepo,
         match_id: int,
-        payload: dict[str, Any],
+        payload: Dict[str, Any],
         source: str,
-    ) -> None:
-        if self.match_detail_projection_service is None:
-            return
-        try:
-            await self.match_detail_projection_service.project_payload(
-                match_id=match_id,
-                payload=payload,
-                source=source,
-            )
-        except Exception as exc:
-            logger.warning(
-                "定时统计预热 match_detail 身份投影失败: match_id=%s source=%s error=%s",
-                match_id,
-                source,
-                exc,
-            )
-
-    async def _project_match_detail_participants(
-        self,
-        *,
-        match_id: int,
-        payload: dict[str, Any],
-        detail_source: str,
-    ) -> None:
-        service = self.match_detail_participant_projection_service
+    ) -> Any:
+        service = self.match_detail_persistence_service
         if service is None:
-            return
-        try:
-            data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-            if isinstance(data, dict) and data.get("unavailable"):
-                await service.clear_match(match_id)
-            else:
-                await service.project_payload(
-                    match_id=match_id,
-                    payload=payload,
-                    source=detail_source,
-                )
-        except Exception as exc:
-            logger.warning(
-                "定时统计预热 match_detail 参与者投影失败: match_id=%s source=%s error=%s",
-                match_id,
-                detail_source,
-                exc,
+            service = MatchDetailPersistenceService(
+                inspect_repo=repo,
+                identity_projector=self.match_detail_projection_service,
+                participant_projector=self.match_detail_participant_projection_service,
+                fact_projector=None,
             )
+        return await service.persist(match_id, payload, source)
 
     async def _get_cached_match_detail_win_kungfu(
         self,
