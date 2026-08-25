@@ -387,9 +387,9 @@ class TestSaveMatchDetailRoundTrip(unittest.IsolatedAsyncioTestCase):
 
 
 class TestSaveMatchDetailSnapshotFailure(unittest.IsolatedAsyncioTestCase):
-    """When snapshot save fails, the exception propagates and match_detail is NOT written."""
+    """Snapshot failures do not change a successful primary match-detail save."""
 
-    async def test_equipment_snapshot_failure_prevents_save(self):
+    async def test_equipment_snapshot_failure_does_not_prevent_save(self):
         armors = [{"pos": 1, "name": "破军"}]
         player = _make_player(kungfu="冰心诀", armors=copy.deepcopy(armors))
         payload_data = {
@@ -405,13 +405,12 @@ class TestSaveMatchDetailSnapshotFailure(unittest.IsolatedAsyncioTestCase):
 
         repo = _build_repo(db=db, snapshot_repo=snapshot_repo)
 
-        with self.assertRaises(RuntimeError):
-            await repo.save_match_detail(800, payload)
+        result = await repo.save_match_detail(800, payload)
 
-        # jjc_match_detail must NOT be updated
-        db.jjc_match_detail.update_one.assert_not_called()
+        self.assertIs(result, True)
+        db.jjc_match_detail.update_one.assert_awaited_once()
 
-    async def test_talent_snapshot_failure_prevents_save(self):
+    async def test_talent_snapshot_failure_does_not_prevent_save(self):
         talents = [{"level": 1, "name": "奇穴一"}]
         player = _make_player(kungfu="冰心诀", talents=copy.deepcopy(talents))
         payload_data = {
@@ -427,10 +426,10 @@ class TestSaveMatchDetailSnapshotFailure(unittest.IsolatedAsyncioTestCase):
 
         repo = _build_repo(db=db, snapshot_repo=snapshot_repo)
 
-        with self.assertRaises(RuntimeError):
-            await repo.save_match_detail(801, payload)
+        result = await repo.save_match_detail(801, payload)
 
-        db.jjc_match_detail.update_one.assert_not_called()
+        self.assertIs(result, True)
+        db.jjc_match_detail.update_one.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -466,10 +465,11 @@ class TestLoadMatchDetailEdgeCases(unittest.IsolatedAsyncioTestCase):
 
 
 class TestSaveMatchDetailEdgeCases(unittest.IsolatedAsyncioTestCase):
-    async def test_invalid_match_id_is_noop(self):
+    async def test_invalid_match_id_raises_value_error(self):
         db = _mock_db()
         repo = _build_repo(db=db)
-        await repo.save_match_detail("not_a_number", {"data": {}})
+        with self.assertRaises(ValueError):
+            await repo.save_match_detail("not_a_number", {"data": {}})
         db.jjc_match_detail.update_one.assert_not_called()
 
     async def test_payload_without_data_key(self):

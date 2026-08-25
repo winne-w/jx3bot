@@ -81,27 +81,52 @@ class JjcInspectRepo:
             return None
         return doc
 
-    async def save_match_detail(self, match_id: Union[int, str], payload: dict[str, Any]) -> None:
+    async def save_match_detail(self, match_id: Union[int, str], payload: dict[str, Any]) -> bool:
+        if isinstance(match_id, bool) or not isinstance(match_id, (int, str)):
+            raise ValueError("match_id must be an integer")
         try:
             normalized_id = int(match_id)
-        except (ValueError, TypeError):
-            return
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError("match_id must be an integer")
+        if normalized_id <= 0:
+            raise ValueError("match_id must be a positive integer")
         db = self.db if self.db is not None else _get_db()
         data = payload.get("data") or payload
         mongo_data = copy.deepcopy(data)
-        if not data.get("unavailable"):
-            await self._extract_snapshots(mongo_data, payload.get("cached_at"))
+        cached_at = payload.get("cached_at") or time.time()
+        snapshot_operations: List[Dict[str, Any]] = []
         try:
-            await db.jjc_match_detail.update_one(
-                {"match_id": normalized_id},
-                {"$set": {
-                    "cached_at": payload.get("cached_at") or time.time(),
-                    "data": mongo_data,
-                }},
-                upsert=True,
-            )
+            snapshot_operations = self._prepare_snapshots(mongo_data)
         except Exception as exc:
-            logger.warning(f"保存 JJC 对局详情缓存失败: match_id={match_id} error={exc}")
+            mongo_data = copy.deepcopy(data)
+            logger.bind(
+                match_id=normalized_id,
+                derivative_type="snapshots",
+                derivative_stage="prepare",
+                error=str(exc),
+            ).warning("JJC 对局详情快照派生失败")
+        await db.jjc_match_detail.update_one(
+            {"match_id": normalized_id},
+            {"$set": {
+                "cached_at": cached_at,
+                "data": mongo_data,
+            }},
+            upsert=True,
+        )
+
+        if data.get("unavailable"):
+            return True
+
+        try:
+            await self._save_snapshot_operations(snapshot_operations, cached_at)
+        except Exception as exc:
+            logger.bind(
+                match_id=normalized_id,
+                derivative_type="snapshots",
+                derivative_stage="save",
+                error=str(exc),
+            ).warning("JJC 对局详情快照派生失败")
+        return True
 
     async def _hydrate_match_detail(self, doc: dict[str, Any], match_id: int) -> bool:
         """Fill players_info[].armors/talents from snapshot hashes in-place.
@@ -165,11 +190,9 @@ class JjcInspectRepo:
             for player in players:
                 if not isinstance(player, dict):
                     continue
-                player.pop("armors", None)
-                player.pop("talents", None)
-
                 h = player.get("equipment_snapshot_hash")
                 if isinstance(h, str) and h:
+                    player.pop("armors", None)
                     snap = equip_snapshots.get(h)
                     if snap is not None:
                         player["armors"] = snap.get("armors", [])
@@ -179,6 +202,7 @@ class JjcInspectRepo:
 
                 h = player.get("talent_snapshot_hash")
                 if isinstance(h, str) and h:
+                    player.pop("talents", None)
                     snap = talent_snapshots.get(h)
                     if snap is not None:
                         player["talents"] = snap.get("talents", [])
@@ -844,21 +868,17 @@ class JjcInspectRepo:
             "cached_at": cached_at,
         }
 
-    async def _extract_snapshots(self, data: dict[str, Any], cached_at: Optional[float] = None) -> None:
-        """For each player with armors/talents, save to snapshot collections and replace with hashes.
-
-        Modifies *data* in-place.  If snapshot_repo is None, the method is a no-op.
-        Exceptions from snapshot saving propagate so callers can abort the match_detail write.
-        """
+    def _prepare_snapshots(self, data: dict[str, Any]) -> List[Dict[str, Any]]:
+        """Replace player payloads with hashes and return the snapshots to persist."""
         if self.snapshot_repo is None:
-            return
+            return []
         if data.get("unavailable"):
-            return
+            return []
         detail = data.get("detail")
         if not isinstance(detail, dict):
-            return
-        seen_at = cached_at or time.time()
+            return []
 
+        snapshot_operations: List[Dict[str, Any]] = []
         for team_key in ("team1", "team2"):
             team = detail.get(team_key)
             if not isinstance(team, dict):
@@ -873,15 +893,55 @@ class JjcInspectRepo:
                 armors = player.get("armors")
                 if isinstance(armors, list) and armors:
                     snapshot = build_equipment_snapshot(armors)
-                    h = snapshot["snapshot_hash"]
-                    await self.snapshot_repo.save_equipment_snapshot(h, snapshot["armors"], seen_at=seen_at)
-                    player["equipment_snapshot_hash"] = h
+                    player["equipment_snapshot_hash"] = snapshot["snapshot_hash"]
                     player.pop("armors", None)
+                    snapshot_operations.append({
+                        "type": "equipment",
+                        "snapshot_hash": snapshot["snapshot_hash"],
+                        "data": snapshot["armors"],
+                    })
 
                 talents = player.get("talents")
                 if isinstance(talents, list) and talents:
                     snapshot = build_talent_snapshot(talents)
-                    h = snapshot["snapshot_hash"]
-                    await self.snapshot_repo.save_talent_snapshot(h, snapshot["talents"], seen_at=seen_at)
-                    player["talent_snapshot_hash"] = h
+                    player["talent_snapshot_hash"] = snapshot["snapshot_hash"]
                     player.pop("talents", None)
+                    snapshot_operations.append({
+                        "type": "talent",
+                        "snapshot_hash": snapshot["snapshot_hash"],
+                        "data": snapshot["talents"],
+                    })
+        return snapshot_operations
+
+    async def _save_snapshot_operations(
+        self,
+        snapshot_operations: List[Dict[str, Any]],
+        cached_at: Optional[float] = None,
+    ) -> None:
+        if self.snapshot_repo is None:
+            return
+        seen_at = cached_at or time.time()
+        for operation in snapshot_operations:
+            if operation["type"] == "equipment":
+                await self.snapshot_repo.save_equipment_snapshot(
+                    operation["snapshot_hash"],
+                    operation["data"],
+                    seen_at=seen_at,
+                )
+            else:
+                await self.snapshot_repo.save_talent_snapshot(
+                    operation["snapshot_hash"],
+                    operation["data"],
+                    seen_at=seen_at,
+                )
+
+    async def _extract_snapshots(self, data: dict[str, Any], cached_at: Optional[float] = None) -> bool:
+        """For each player with armors/talents, save to snapshot collections and replace with hashes.
+
+        Modifies *data* in-place and returns whether hashes were written. If snapshot_repo is
+        None, the method is a no-op. Exceptions propagate so callers can handle the
+        derivation failure independently from the primary match-detail write.
+        """
+        snapshot_operations = self._prepare_snapshots(data)
+        await self._save_snapshot_operations(snapshot_operations, cached_at)
+        return bool(snapshot_operations)
