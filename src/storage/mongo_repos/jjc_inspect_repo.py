@@ -94,17 +94,6 @@ class JjcInspectRepo:
         data = payload.get("data") or payload
         mongo_data = copy.deepcopy(data)
         cached_at = payload.get("cached_at") or time.time()
-        snapshot_operations: List[Dict[str, Any]] = []
-        try:
-            snapshot_operations = self._prepare_snapshots(mongo_data)
-        except Exception as exc:
-            mongo_data = copy.deepcopy(data)
-            logger.bind(
-                match_id=normalized_id,
-                derivative_type="snapshots",
-                derivative_stage="prepare",
-                error=str(exc),
-            ).warning("JJC 对局详情快照派生失败")
         await db.jjc_match_detail.update_one(
             {"match_id": normalized_id},
             {"$set": {
@@ -117,6 +106,18 @@ class JjcInspectRepo:
         if data.get("unavailable"):
             return True
 
+        compacted_data = copy.deepcopy(mongo_data)
+        try:
+            snapshot_operations = self._prepare_snapshots(compacted_data)
+        except Exception as exc:
+            logger.bind(
+                match_id=normalized_id,
+                derivative_type="snapshots",
+                derivative_stage="prepare",
+                error=str(exc),
+            ).warning("JJC 对局详情快照派生失败")
+            return True
+
         try:
             await self._save_snapshot_operations(snapshot_operations, cached_at)
         except Exception as exc:
@@ -124,6 +125,27 @@ class JjcInspectRepo:
                 match_id=normalized_id,
                 derivative_type="snapshots",
                 derivative_stage="save",
+                error=str(exc),
+            ).warning("JJC 对局详情快照派生失败")
+            return True
+
+        if not snapshot_operations:
+            return True
+
+        try:
+            await db.jjc_match_detail.update_one(
+                {"match_id": normalized_id},
+                {"$set": {
+                    "cached_at": cached_at,
+                    "data": compacted_data,
+                }},
+                upsert=True,
+            )
+        except Exception as exc:
+            logger.bind(
+                match_id=normalized_id,
+                derivative_type="snapshots",
+                derivative_stage="compact",
                 error=str(exc),
             ).warning("JJC 对局详情快照派生失败")
         return True

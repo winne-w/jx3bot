@@ -235,10 +235,15 @@ class TestSaveMatchDetailExtractsSnapshots(unittest.IsolatedAsyncioTestCase):
         snapshot_repo.save_equipment_snapshot.assert_called_once()
         snapshot_repo.save_talent_snapshot.assert_called_once()
 
-        # The match_detail update should have hashes, not full arrays
-        db.jjc_match_detail.update_one.assert_called_once()
-        call_args, _ = db.jjc_match_detail.update_one.call_args
-        stored_data = call_args[1]["$set"]["data"]
+        # The primary write keeps the complete detail; the successful derivation then
+        # writes the compact hash-only representation.
+        self.assertEqual(db.jjc_match_detail.update_one.await_count, 2)
+        primary_data = db.jjc_match_detail.update_one.await_args_list[0].args[1]["$set"]["data"]
+        primary_player = primary_data["detail"]["team1"]["players_info"][0]
+        self.assertEqual(primary_player["armors"], armors)
+        self.assertEqual(primary_player["talents"], talents)
+
+        stored_data = db.jjc_match_detail.update_one.await_args_list[1].args[1]["$set"]["data"]
         stored_player = stored_data["detail"]["team1"]["players_info"][0]
         self.assertNotIn("armors", stored_player)
         self.assertNotIn("talents", stored_player)
