@@ -129,7 +129,8 @@ class MatchDetailPersistenceService:
         identity_result = None
         identity_error = None
         try:
-            identity_payload = payload.get("data")
+            wrapped_data = payload.get("data")
+            identity_payload = wrapped_data if isinstance(wrapped_data, dict) else payload
             identity_result = await self.identity_projector.project_payload(
                 match_id=match_id,
                 payload=copy.deepcopy(identity_payload),

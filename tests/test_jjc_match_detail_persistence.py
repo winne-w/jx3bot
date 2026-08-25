@@ -23,15 +23,19 @@ class FakeInspectRepo:
 
 
 class FakeIdentityProjector:
-    def __init__(self, events: List[str], result: Optional[Dict[str, Any]] = None, error: Optional[Exception] = None) -> None:
+    def __init__(self, events: List[str], result: Optional[Dict[str, Any]] = None,
+                 error: Optional[Exception] = None, mutate_payload: bool = False) -> None:
         self.events = events
         self.result = result if result is not None else {"projected": 1}
         self.error = error
+        self.mutate_payload = mutate_payload
         self.calls: List[Dict[str, Any]] = []
 
     async def project_payload(self, **kwargs: Any) -> Dict[str, Any]:
         self.events.append("identity")
-        self.calls.append(kwargs)
+        self.calls.append(copy.deepcopy(kwargs))
+        if self.mutate_payload and isinstance(kwargs.get("payload"), dict):
+            kwargs["payload"]["identity_mutated"] = True
         if self.error is not None:
             raise self.error
         return self.result
@@ -39,16 +43,24 @@ class FakeIdentityProjector:
 
 class FakeParticipantProjector:
     def __init__(self, events: List[str], project_error: Optional[Exception] = None,
-                 clear_error: Optional[Exception] = None) -> None:
+                 clear_result: Optional[Dict[str, Any]] = None, clear_error: Optional[Exception] = None,
+                 mutate_payload: bool = False, mutate_seen_doc: bool = False) -> None:
         self.events = events
         self.project_error = project_error
+        self.clear_result = clear_result if clear_result is not None else {"deleted": 6}
         self.clear_error = clear_error
+        self.mutate_payload = mutate_payload
+        self.mutate_seen_doc = mutate_seen_doc
         self.project_calls: List[Dict[str, Any]] = []
         self.clear_calls: List[Any] = []
 
     async def project_payload(self, **kwargs: Any) -> Dict[str, Any]:
         self.events.append("participant_project")
-        self.project_calls.append(kwargs)
+        self.project_calls.append(copy.deepcopy(kwargs))
+        if self.mutate_payload and isinstance(kwargs.get("payload"), dict):
+            kwargs["payload"]["participant_mutated"] = True
+        if self.mutate_seen_doc and isinstance(kwargs.get("seen_doc"), dict):
+            kwargs["seen_doc"]["participant_mutated"] = True
         if self.project_error is not None:
             raise self.project_error
         return {"projected": 6}
@@ -58,20 +70,23 @@ class FakeParticipantProjector:
         self.clear_calls.append(match_id)
         if self.clear_error is not None:
             raise self.clear_error
-        return {"deleted": 6}
+        return self.clear_result
 
 
 class FakeFactProjector:
     def __init__(self, events: List[str], result: Optional[Dict[str, Any]] = None,
-                 error: Optional[Exception] = None) -> None:
+                 error: Optional[Exception] = None, mutate_payload: bool = False) -> None:
         self.events = events
         self.result = result if result is not None else {"status": "updated"}
         self.error = error
+        self.mutate_payload = mutate_payload
         self.calls: List[Dict[str, Any]] = []
 
     async def project_payload(self, **kwargs: Any) -> Dict[str, Any]:
         self.events.append("fact")
-        self.calls.append(kwargs)
+        self.calls.append(copy.deepcopy(kwargs))
+        if self.mutate_payload and isinstance(kwargs.get("payload"), dict):
+            kwargs["payload"]["fact_mutated"] = True
         if self.error is not None:
             raise self.error
         return self.result
@@ -92,16 +107,38 @@ class TestMatchDetailPersistenceService(unittest.IsolatedAsyncioTestCase):
         main_error: Optional[Exception] = None,
         identity_error: Optional[Exception] = None,
         participant_error: Optional[Exception] = None,
+        participant_clear_result: Optional[Dict[str, Any]] = None,
+        participant_clear_error: Optional[Exception] = None,
         fact_error: Optional[Exception] = None,
         fact_result: Optional[Dict[str, Any]] = None,
         fact_projector: bool = True,
+        identity_mutates_payload: bool = False,
+        participant_mutates_payload: bool = False,
+        participant_mutates_seen_doc: bool = False,
+        fact_mutates_payload: bool = False,
     ) -> Any:
         self.events: List[str] = []
         self.repo = FakeInspectRepo(self.events, save_result=save_result, error=main_error)
-        self.identity = FakeIdentityProjector(self.events, error=identity_error)
-        self.participant = FakeParticipantProjector(self.events, project_error=participant_error)
+        self.identity = FakeIdentityProjector(
+            self.events,
+            error=identity_error,
+            mutate_payload=identity_mutates_payload,
+        )
+        self.participant = FakeParticipantProjector(
+            self.events,
+            project_error=participant_error,
+            clear_result=participant_clear_result,
+            clear_error=participant_clear_error,
+            mutate_payload=participant_mutates_payload,
+            mutate_seen_doc=participant_mutates_seen_doc,
+        )
         self.fact = (
-            FakeFactProjector(self.events, result=fact_result, error=fact_error)
+            FakeFactProjector(
+                self.events,
+                result=fact_result,
+                error=fact_error,
+                mutate_payload=fact_mutates_payload,
+            )
             if fact_projector
             else None
         )
@@ -201,8 +238,46 @@ class TestMatchDetailPersistenceService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.participant_result, {"deleted": 6})
         self.assertTrue(result.fact_attempted)
 
+    async def test_unwrapped_unavailable_payload_is_passed_to_identity_and_fact(self) -> None:
+        service = self.build_service()
+        payload = {"unavailable": True, "detail": {"reason": "not found"}}
+
+        result = await service.persist(987, payload, "unwrapped_unavailable")
+
+        self.assertEqual(self.events, ["main", "identity", "participant_clear", "fact"])
+        self.assertEqual(self.participant.project_calls, [])
+        self.assertEqual(self.participant.clear_calls, [987])
+        self.assertEqual(self.identity.calls[0]["payload"], payload)
+        self.assertEqual(self.fact.calls[0]["payload"], payload)
+        self.assertEqual(result.participant_result, {"deleted": 6})
+
+    async def test_unavailable_clear_error_result_is_recorded_without_blocking_fact(self) -> None:
+        service = self.build_service(participant_clear_result={"error": "clear pending retry"})
+
+        result = await service.persist(987, build_payload(unavailable=True), "unavailable_source")
+
+        self.assertEqual(self.events, ["main", "identity", "participant_clear", "fact"])
+        self.assertEqual(result.participant_result, {"error": "clear pending retry"})
+        self.assertEqual(result.participant_error, "clear pending retry")
+        self.assertEqual(result.fact_result, {"status": "updated"})
+
+    async def test_unavailable_clear_exception_is_recorded_without_blocking_fact(self) -> None:
+        service = self.build_service(participant_clear_error=RuntimeError("clear failed"))
+
+        result = await service.persist(987, build_payload(unavailable=True), "unavailable_source")
+
+        self.assertEqual(self.events, ["main", "identity", "participant_clear", "fact"])
+        self.assertEqual(result.participant_error, "clear failed")
+        self.assertEqual(result.fact_result, {"status": "updated"})
+
     async def test_persist_passes_contract_arguments_without_mutating_input(self) -> None:
-        service = self.build_service(fact_result={"error": "pending retry"})
+        service = self.build_service(
+            fact_result={"error": "pending retry"},
+            identity_mutates_payload=True,
+            participant_mutates_payload=True,
+            participant_mutates_seen_doc=True,
+            fact_mutates_payload=True,
+        )
         payload = build_payload()
         seen_doc = {"status": "detail_saved", "nested": {"value": 1}}
         original_payload = copy.deepcopy(payload)
