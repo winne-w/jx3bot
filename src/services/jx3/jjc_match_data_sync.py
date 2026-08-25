@@ -2232,6 +2232,9 @@ class JjcMatchDataSyncService:
                             ),
                             unavailable=False,
                         )
+                    else:
+                        last_error = "invalid_detail_response"
+                        continue
                     await renew_processing_context(force=True)
                     marked = await self._repo.mark_match_detail_saved(match_id, lease_owner=lease_owner)
                     if not marked:

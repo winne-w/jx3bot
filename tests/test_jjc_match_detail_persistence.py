@@ -221,6 +221,25 @@ class TestMatchDetailPersistenceService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.participant_error, "participant failed")
         self.assertEqual(result.fact_result, {"status": "updated"})
 
+    async def test_persist_maps_participant_source_without_changing_event_source_for_identity_or_fact(self) -> None:
+        expected_participant_sources = {
+            "inspect_cache_miss": "ranking_detail",
+            "inspect_cache_hit_replay_enrich": "ranking_detail",
+            "ranking_warmup": "warmup",
+            "sync_worker": "sync_worker",
+            "manual_repair": "manual_repair",
+        }
+
+        for event_source, participant_source in expected_participant_sources.items():
+            with self.subTest(event_source=event_source):
+                service = self.build_service()
+
+                await service.persist(987, build_payload(), event_source)
+
+                self.assertEqual(self.identity.calls[0]["source"], event_source)
+                self.assertEqual(self.participant.project_calls[0]["source"], participant_source)
+                self.assertEqual(self.fact.calls[0]["source"], event_source)
+
     async def test_fact_exception_is_recorded(self) -> None:
         service = self.build_service(fact_error=RuntimeError("fact failed"))
 

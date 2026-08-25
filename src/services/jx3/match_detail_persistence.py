@@ -13,6 +13,12 @@ except Exception:  # pragma: no cover - fallback for isolated unit tests
 
 
 PERSIST_MATCH_DETAIL_SCHEMA = "jjc_match_detail_persistence.v1"
+PARTICIPANT_DETAIL_SOURCE_BY_EVENT_SOURCE = {
+    "inspect_cache_miss": "ranking_detail",
+    "inspect_cache_hit_replay_enrich": "ranking_detail",
+    "ranking_warmup": "warmup",
+    "sync_worker": "sync_worker",
+}
 
 
 @dataclass(frozen=True)
@@ -48,6 +54,11 @@ def _is_unavailable(payload: Dict[str, Any]) -> bool:
     data = payload.get("data")
     candidate = data if isinstance(data, dict) else payload
     return candidate.get("unavailable") is True
+
+
+def participant_detail_source(event_source: str) -> str:
+    """Map persistence events to the participant projection's stable source contract."""
+    return PARTICIPANT_DETAIL_SOURCE_BY_EVENT_SOURCE.get(event_source, event_source)
 
 
 @dataclass(frozen=True)
@@ -167,7 +178,7 @@ class MatchDetailPersistenceService:
                         match_id=match_id,
                         payload=copy.deepcopy(payload),
                         seen_doc=copy.deepcopy(seen_doc),
-                        source=source,
+                        source=participant_detail_source(source),
                     )
                 participant_error = _result_error(participant_result)
                 if participant_error is not None:

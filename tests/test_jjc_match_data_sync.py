@@ -1458,6 +1458,37 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(persistence_service.calls), 1)
         self.assertEqual(repo.detail_failed_calls[0]["match_id"], 12)
 
+    async def test_sync_invalid_non_dict_detail_fails_without_persisting_or_marking_saved(self) -> None:
+        repo = FakeRepo()
+        inspect_service = FakeInspectService()
+
+        async def get_match_detail(*, match_id: int) -> Dict[str, Any]:
+            return {"match_id": match_id, "detail": ["invalid"]}
+
+        inspect_service.get_match_detail = get_match_detail  # type: ignore[assignment]
+        persistence_service = FakeMatchDetailPersistenceService(repo.events)
+        service = JjcMatchDataSyncService(
+            repo=repo,
+            current_season="赛季",
+            current_season_start="2026-04-24",
+            inspect_service=inspect_service,
+            match_detail_persistence_service=persistence_service,
+            sleep_func=_noop_sleep,
+        )
+
+        result = await service._sync_match_detail(
+            match_id=17,
+            match_time=1810000000,
+            lease_owner="worker-1",
+            max_attempts=1,
+        )
+
+        self.assertEqual(result, "failed")
+        self.assertEqual(persistence_service.calls, [])
+        self.assertEqual(repo.detail_saved_calls, [])
+        self.assertEqual(repo.detail_failed_calls[0]["match_id"], 17)
+        self.assertEqual(repo.detail_failed_calls[0]["error_message"], "invalid_detail_response")
+
     async def test_sync_match_detail_unavailable_persists_before_marker(self) -> None:
         repo = FakeRepo()
         persistence_service = FakeMatchDetailPersistenceService(repo.events)
