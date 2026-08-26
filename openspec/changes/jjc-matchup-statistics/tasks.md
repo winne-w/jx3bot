@@ -59,11 +59,11 @@ This execution plan is a living document and must be kept up to date according t
 
 ### 5. 独立查询页面与详情复用
 
-- [ ] 5.1 新建 `tests/test_jjc_matchups_frontend.py`，先用静态结构断言失败测试覆盖：meta/search API、默认最近 7 天、绝对时间 URL、`Asia/Shanghai` 结束日期次日 00:00、双方 0～3 标签、重复心法、交换按钮、分数未填禁用、20/50/100 分页、原始统计字段、四种方向标记和现有 match-detail API。
-- [ ] 5.2 新建 `public/jjc-matchups.html`，从 meta API 加载心法目录，不保留第二份心法 ID 常量；实现滚动 N×24 小时与自定义日期转换、URL 恢复、请求竞态序号、加载/空/错误状态、筛选重置页码、交换双方但不重排源队伍摘要。
-- [ ] 5.3 实现统计与列表展示：只显示 match_count、orientation_sample_count、双方胜场/百分比胜率、bidirectional_match_count、missing_score_match_count；每场显示时间、地图、时长、双方三人心法/游戏分、平均分和胜负，双向样本在列表中只出现一次。
-- [ ] 5.4 从 `public/jjc-ranking-stats.html` 提取或在新页内最小复用现有详情弹窗所需适配，点击 `match_id` 调用 `/api/jjc/ranking-stats/match-detail` 展示装备与奇穴；不得修改详情接口合同或新增奇穴选择率统计。
-- [ ] 5.5 运行 `python -m unittest tests.test_jjc_matchups_frontend tests.test_jjc_ranking_stats_frontend -v`，本地启动后手工检查 `/public/jjc-matchups.html` 的查询、交换、URL 刷新、分页和详情弹窗；提交 `feat: add JJC matchup statistics page`。
+- [x] 5.1 新建 `tests/test_jjc_matchups_frontend.py`，先用静态结构断言失败测试覆盖：meta/search API、默认最近 7 天、绝对时间 URL、`Asia/Shanghai` 结束日期次日 00:00、双方 0～3 标签、重复心法、交换按钮、分数未填禁用、20/50/100 分页、原始统计字段、四种方向标记和现有 match-detail API。
+- [x] 5.2 新建 `public/jjc-matchups.html`，从 meta API 加载心法目录，不保留第二份心法 ID 常量；实现滚动 N×24 小时与自定义日期转换、URL 恢复、请求竞态序号、加载/空/错误状态、筛选重置页码、交换双方但不重排源队伍摘要。
+- [x] 5.3 实现统计与列表展示：只显示 match_count、orientation_sample_count、双方胜场/百分比胜率、bidirectional_match_count、missing_score_match_count；每场显示时间、地图、时长、双方三人心法/游戏分、平均分和胜负，双向样本在列表中只出现一次。
+- [x] 5.4 从 `public/jjc-ranking-stats.html` 提取或在新页内最小复用现有详情弹窗所需适配，点击 `match_id` 调用 `/api/jjc/ranking-stats/match-detail` 展示装备与奇穴；不得修改详情接口合同或新增奇穴选择率统计。
+- [x] 5.5 运行 `python -m unittest tests.test_jjc_matchups_frontend tests.test_jjc_ranking_stats_frontend -v`，本地启动后手工检查 `/public/jjc-matchups.html` 的查询、交换、URL 刷新、分页和详情弹窗；提交 `feat: add JJC matchup statistics page`。
 
 ### 6. 历史回填、核验与性能门禁
 
@@ -125,6 +125,18 @@ This execution plan is a living document and must be kept up to date according t
 任务 4.3 显式注册 matchup router，并以已有唯一 `jjc_match_fact_repo` 同时装配事实 projector 与 `JjcMatchupService`。首次规格复审指出缺少共享实例回归合同，原实现 agent 补充隔离构造 spy，锁定 repo 只实例化一次且两项服务接收同一对象；复审和质量审查随后批准，凭据红线 PASS。主 agent 独立运行 40 项 API/事实投影测试、相关 `py_compile` 与 diff 检查通过。
 
 任务 4.4 提交前门禁确认 40 项 API/事实投影回归通过，任务列出的 router/service/repo 及装配和测试文件全部 `py_compile` 通过，新增 FastAPI 路径未使用 Python 3.10 `X | Y` 联合注解；diff 空白检查通过。凭据扫描仅命中既有 `cfg.TOKEN` 配置引用与测试空值，不存在硬编码凭据。
+
+任务 5.1 的静态合同先后收敛了两类风险：不以孤立 token 冒充运行时证明，也不把合法页面锁死在具名 payload、特定 swap 或请求封装。最终 11 项页面合同覆盖规定结构，另有 2 项 endpoint/本地心法目录 helper 正反例；Terra 规格与质量审查均批准，凭据红线 PASS。主 agent 独立运行时 2 项 helper 通过、11 项仅因 `public/jjc-matchups.html` 缺失而按预期 RED，测试文件 `py_compile` 与 no-index 空白检查通过。运行时数据流、交换、重复选择、方向与详情点击精确行为保留给 5.5 浏览器 QA。
+
+任务 5.2 直接沿用现有排行榜的浅色蓝粉视觉体系，用户明确跳过 ImageGen，不保留概念图资产。首轮规格审查发现生产 API 前缀、在途请求失效、非法绝对时间 URL 降级和 meta 分页大小回显四项运行时缺口；复审又发现查询按钮会把 `MouseEvent` 误作请求体。质量审查进一步发现非法 URL 降级后控件未同步，以及自定义时间上限、meta 防御和交换状态重置问题。全部问题修复后，Terra 规格复审为 `Spec compliant`、质量复审为 `Approved`，凭据红线 PASS。主 agent 独立运行新页面 13 项合同测试、旧排行榜 4 项前端回归、内联 JavaScript 语法与新文件 no-index 空白检查均通过；真实浏览器中的数据流、响应式和视觉验收仍按 5.5 执行。
+
+任务 5.3 完成六类客观统计、四种方向说明、源 `team1/team2` 顺序下的唯一对局列表和页码状态。审查先后发现残缺统计/玩家可能显示 `undefined`、大型列表不应作为 live region、统计与列表非原子渲染、合法零方向样本会被误拒、胜率未按 service 的 half-up 一位小数复核，以及规范化筛选回写前缺少 meta 边界校验；全部改为先验证统计恒等式、精确胜率、完整摘要、分页与规范筛选，再一次性渲染，异常时清空半真状态。Terra 规格复审 `Spec compliant`、质量复审 `Approved`，凭据与 DOM 注入红线 PASS；主 agent 独立运行 17 项新旧前端回归、JavaScript 语法、no-index 空白检查通过。浏览器真实数据、分页与移动端视觉仍按 5.5 验收。
+
+任务 5.4 在新页面内用 DOM API 最小适配现有详情能力：点击对局 ID 请求生产前缀下的既有 match-detail 路由，按源 `team1/team2` 展示六名玩家、装备与奇穴，并提供 unavailable、加载、格式错误和请求错误状态。弹窗加入 AbortController 与请求序号、成功缓存、遮罩/Escape 关闭、Tab 焦点环、焦点恢复和移动端内层滚动；外部图片仅允许 HTTP(S)，失败时显示可访问占位，动态数据不使用 HTML 注入。审查发现最初玩家结构校验过松，硬化后又误拒 service 合法的空姓名字符串，最终按 `MatchDetailPlayerInfo` 真实合同允许空字符串并保留“未知角色”降级，同时拒绝空对象和非法装备/奇穴元素。Terra 规格与质量复审均通过，凭据/XSS 红线 PASS；主 agent 独立运行 17 项前端回归、JavaScript 语法与 no-index 空白检查通过，真实焦点、图片和详情数据仍按 5.5 浏览器验收。
+
+任务 5.5 验收时当前会话未提供 Browser plugin，按前端测试技能记录为 `Browser plugin not available` 并使用 Playwright Chromium 1.51。用户明确跳过 ImageGen，因此没有概念图资产可对照；视觉 fidelity 直接对照 `public/jjc-ranking-stats.html` 的浅色蓝粉、白色面板和克制阴影体系。主 agent 在 1440×1000 与 390×844 两种 viewport 下以真实浏览器和 route mock 验证 meta/search/match-detail 数据流：默认 7 天、分数未填禁用、重复心法与空边、绝对时间 URL、交换双方 payload 且源 `team1/team2` 不重排、刷新 URL 自动重放、20/50/100 每页、前后翻页、四种方向中的正向/反向/双向、六名玩家装备与奇穴、Escape 关闭、焦点恢复、移动端弹窗内层 `overflow:auto` 均符合预期；两种 viewport 均无横向溢出，console warning/error 与 page error 均为空。首次浏览器运行发现 `.match-detail-overlay { display:grid }` 覆盖 `hidden` 状态并透明拦截页面点击，随后先增加失败测试，再用 `.match-detail-overlay[hidden] { display:none!important }` 做单点修复，最终重复浏览器全流程通过。截图只保存在 `/tmp/jjc-matchups-{desktop,detail,mobile,mobile-detail}.png`，不作为仓库资产提交。
+
+任务 5.5 的 Terra 规格复核确认页面实现 `Spec compliant`；质量/安全复核为 `Approved`，凭据红线 PASS，未发现 Blocker、High 或 Medium 问题。唯一 Low 观察是仓库测试仍以静态合同为主，浏览器级路径由本任务的临时 Playwright 脚本和记录证据覆盖。主 agent 随后独立运行 18 项新旧前端回归、测试文件 `py_compile`、内联 JavaScript 解析、凭据/危险 DOM API 扫描及空白检查，均通过。
 
 
 ## Decision Log
