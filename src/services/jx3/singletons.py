@@ -9,6 +9,7 @@ from src.infra.jx3api_get import get
 from src.storage.mongo_repos.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
+from src.services.jx3.jjc_matchup import JjcMatchupService
 from src.services.jx3.jjc_match_data_sync import JjcMatchDataSyncService, parse_season_start_timestamp
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
@@ -44,6 +45,7 @@ jjc_sync_repo = JjcSyncRepo()
 role_identity_repo = RoleIdentityRepo()
 match_participant_repo: Any = JjcMatchParticipantRepo()
 jjc_match_fact_repo: Any = JjcMatchFactRepo()
+jjc_matchup_service = JjcMatchupService(matchup_repo=jjc_match_fact_repo)
 
 match_detail_participant_projection_service: Any = MatchDetailParticipantProjectionService(
     participant_repo=match_participant_repo,

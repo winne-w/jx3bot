@@ -52,10 +52,10 @@ This execution plan is a living document and must be kept up to date according t
 
 ### 4. FastAPI 元数据与搜索接口
 
-- [ ] 4.1 新建 `tests/test_jjc_matchups_router.py`，沿用现有 fake FastAPI/router 测试模式，先覆盖 `GET /api/jjc/matchups/meta` 统一成功结构，以及 `POST /api/jjc/matchups/search` 的正常响应、非对象 JSON、损坏 JSON、字段类型错误、页码越界和 service 异常统一错误结构。
-- [ ] 4.2 新建 `src/api/routers/jjc_matchups.py`：router 接收 `Request` 并在函数内捕获 `await request.json()` 失败，不使用会在进入函数前产生默认 422 的 Pydantic body；调用 singleton 中的 `JjcMatchupService`，仅通过 `success_response()`/`error_response()` 返回 `status_code/status_msg/data`。
-- [ ] 4.3 修改 `src/api/__init__.py` 显式 include 新 router，修改 `src/services/jx3/singletons.py` 装配共享 fact repo 与 matchup service；增加路由注册测试并运行 `python -m unittest tests.test_jjc_matchups_router tests.test_jjc_ranking_stats_router -v`。
-- [ ] 4.4 执行 `python -m py_compile src/api/routers/jjc_matchups.py src/services/jx3/jjc_matchup.py src/services/jx3/jjc_kungfu_meta.py src/storage/mongo_repos/jjc_match_fact_repo.py`，确认没有 Python 3.10 `X | None` 或内置泛型联合注解进入 FastAPI 可解析路径；提交 `feat: expose JJC matchup APIs`。
+- [x] 4.1 新建 `tests/test_jjc_matchups_router.py`，沿用现有 fake FastAPI/router 测试模式，先覆盖 `GET /api/jjc/matchups/meta` 统一成功结构，以及 `POST /api/jjc/matchups/search` 的正常响应、非对象 JSON、损坏 JSON、字段类型错误、页码越界和 service 异常统一错误结构。
+- [x] 4.2 新建 `src/api/routers/jjc_matchups.py`：router 接收 `Request` 并在函数内捕获 `await request.json()` 失败，不使用会在进入函数前产生默认 422 的 Pydantic body；调用 singleton 中的 `JjcMatchupService`，仅通过 `success_response()`/`error_response()` 返回 `status_code/status_msg/data`。
+- [x] 4.3 修改 `src/api/__init__.py` 显式 include 新 router，修改 `src/services/jx3/singletons.py` 装配共享 fact repo 与 matchup service；增加路由注册测试并运行 `python -m unittest tests.test_jjc_matchups_router tests.test_jjc_ranking_stats_router -v`。
+- [x] 4.4 执行 `python -m py_compile src/api/routers/jjc_matchups.py src/services/jx3/jjc_matchup.py src/services/jx3/jjc_kungfu_meta.py src/storage/mongo_repos/jjc_match_fact_repo.py`，确认没有 Python 3.10 `X | None` 或内置泛型联合注解进入 FastAPI 可解析路径；提交 `feat: expose JJC matchup APIs`。
 
 ### 5. 独立查询页面与详情复用
 
@@ -117,6 +117,14 @@ This execution plan is a living document and must be kept up to date according t
 任务 3.5 实现单次 aggregate 的候选、稳定排序、方向、分数与四分支 facet，并对空 facet 提供稳定零值解码。质量复审发现新增 repo 反向依赖 services，最终将 `normalize_positive_int`/`encode_combo_key` 唯一下沉至 `src/utils/jjc_match_fact.py`，service 保持公开重导出，repo 与 service 都只依赖 utils；100 项相关回归、`py_compile` 与 diff 检查通过，规格与质量复审均批准。真实 Mongo 的阻塞排序、扫描量与 facet 容量仍按 6.3/6.5 门禁验证。
 
 任务 3.6/3.7 固化方向样本恒等式、半入舍入胜率、双空 null 语义和分页元数据。复审发现 Mongo `_id` 与内部投影字段若原样透传会破坏 JSON 编码和摘要合同，最终由 service 构造全新的白名单对局摘要，并按查询上下文校验三种有方向标记或双空的空方向；ObjectId、CAS、组合键和分数中间字段不再进入响应。主 agent 独立运行 62 项查询主回归与 50 项相关事实/投影回归，相关 `py_compile` 和 diff 检查通过，规格与质量复审均批准；保留 `duration=True`/`score_avg=NaN` 的显式测试增强建议，现实现已正确拒绝。
+
+任务 4.1 的 RED 测试锁定 meta/search 路径、Request 内 JSON 解析、非对象/损坏 JSON、参数与服务异常的稳定公共错误，以及必须调用项目统一 success/error wrapper。复审补齐了 `sys.modules` 桩恢复、wrapper 精确签名与调用 spy、meta 异常和错误详情不泄漏；最终 8 个测试方法、11 个场景仅因 router 尚未实现而预期失败，规格与质量复审均批准。
+
+任务 4.2 实现 `Request` 内部 JSON 解析与固定公开错误映射，所有成功和失败只经过项目统一 response wrapper；普通异常不会泄漏内部详情，且不捕获 `BaseException`，保留取消传播。Terra 规格与质量复审均批准，凭据红线 PASS；主 agent 独立运行 8 项路由测试、`py_compile` 和新增文件 diff 检查通过。
+
+任务 4.3 显式注册 matchup router，并以已有唯一 `jjc_match_fact_repo` 同时装配事实 projector 与 `JjcMatchupService`。首次规格复审指出缺少共享实例回归合同，原实现 agent 补充隔离构造 spy，锁定 repo 只实例化一次且两项服务接收同一对象；复审和质量审查随后批准，凭据红线 PASS。主 agent 独立运行 40 项 API/事实投影测试、相关 `py_compile` 与 diff 检查通过。
+
+任务 4.4 提交前门禁确认 40 项 API/事实投影回归通过，任务列出的 router/service/repo 及装配和测试文件全部 `py_compile` 通过，新增 FastAPI 路径未使用 Python 3.10 `X | Y` 联合注解；diff 空白检查通过。凭据扫描仅命中既有 `cfg.TOKEN` 配置引用与测试空值，不存在硬编码凭据。
 
 
 ## Decision Log

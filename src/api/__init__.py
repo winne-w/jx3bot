@@ -3,12 +3,21 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routers import announcements, arena, jjc_ranking_stats, jjc_sync, mongo_health, servers
+from src.api.routers import (
+    announcements,
+    arena,
+    jjc_matchups,
+    jjc_ranking_stats,
+    jjc_sync,
+    mongo_health,
+    servers,
+)
 
 
 def register_api(app: FastAPI) -> None:
     app.include_router(announcements.router)
     app.include_router(arena.router)
+    app.include_router(jjc_matchups.router)
     app.include_router(jjc_ranking_stats.router)
     app.include_router(jjc_sync.router)
     app.include_router(mongo_health.router)
