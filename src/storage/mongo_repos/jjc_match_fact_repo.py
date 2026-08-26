@@ -12,6 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo.errors import DuplicateKeyError
 
 from src.infra.mongo import get_db as _get_db
+from src.utils.jjc_match_fact import encode_combo_key
 
 
 _COLLECTION_NAME = "jjc_match_facts"
@@ -220,3 +221,183 @@ class JjcMatchFactRepo:
             if isinstance(document, dict) and self._is_bson_positive_int(document.get("match_id")):
                 result[document["match_id"]] = copy.deepcopy(document)
         return result
+
+    async def search_matchups(self, filters: Dict[str, Any]) -> Dict[str, Any]:
+        """Aggregate the raw matchup statistics and one stable page of facts.
+
+        Input validation and filter normalization belong to the matchup service.
+        This repository deliberately returns only fact-level counts and summaries.
+        """
+        team_a_kungfu_ids = list(filters["team_a_kungfu_ids"])
+        team_b_kungfu_ids = list(filters["team_b_kungfu_ids"])
+        has_directions = bool(team_a_kungfu_ids or team_b_kungfu_ids)
+
+        candidate_match: Dict[str, Any] = {
+            "active": True,
+            "match_time": {
+                "$gte": filters["start_time"],
+                "$lt": filters["end_time"],
+            },
+        }
+        if has_directions:
+            candidate_match["any_team_combo_keys"] = min(
+                encode_combo_key(kungfu_ids)
+                for kungfu_ids in (team_a_kungfu_ids, team_b_kungfu_ids)
+                if kungfu_ids
+            )
+
+        def contains_expression(kungfu_ids: Any, team_path: str) -> Dict[str, Any]:
+            if not kungfu_ids:
+                return {"$literal": True}
+            return {"$in": [encode_combo_key(kungfu_ids), team_path + ".combo_keys"]}
+
+        if has_directions:
+            forward = {
+                "$and": [
+                    contains_expression(team_a_kungfu_ids, "$team1"),
+                    contains_expression(team_b_kungfu_ids, "$team2"),
+                ]
+            }
+            reverse = {
+                "$and": [
+                    contains_expression(team_a_kungfu_ids, "$team2"),
+                    contains_expression(team_b_kungfu_ids, "$team1"),
+                ]
+            }
+            direction_candidate = {"$or": ["$_forward", "$_reverse"]}
+        else:
+            forward = {"$literal": False}
+            reverse = {"$literal": False}
+            direction_candidate = {"$literal": True}
+
+        incomplete_score = {
+            "$or": [
+                {"$not": ["$team1.score_complete"]},
+                {"$not": ["$team2.score_complete"]},
+            ]
+        }
+        score_min_sum = filters["score_min"] * 3
+        score_max_sum = filters["score_max"] * 3
+        complete_in_range = {
+            "$and": [
+                "$team1.score_complete",
+                "$team2.score_complete",
+                {"$gte": ["$team1.score_sum", score_min_sum]},
+                {"$lt": ["$team1.score_sum", score_max_sum]},
+                {"$gte": ["$team2.score_sum", score_min_sum]},
+                {"$lt": ["$team2.score_sum", score_max_sum]},
+            ]
+        }
+        orientation_values = {
+            "$concatArrays": [
+                {"$cond": ["$_forward", ["forward"], []]},
+                {"$cond": ["$_reverse", ["reverse"], []]},
+            ]
+        }
+        bidirectional = {"$and": ["$_forward", "$_reverse"]}
+        team_a_wins = {
+            "$add": [
+                {"$cond": [{"$and": ["$_forward", "$team1.won"]}, 1, 0]},
+                {"$cond": [{"$and": ["$_reverse", "$team2.won"]}, 1, 0]},
+            ]
+        }
+        team_b_wins = {
+            "$add": [
+                {"$cond": [{"$and": ["$_forward", "$team2.won"]}, 1, 0]},
+                {"$cond": [{"$and": ["$_reverse", "$team1.won"]}, 1, 0]},
+            ]
+        }
+        offset = (filters["page"] - 1) * filters["page_size"]
+        pipeline = [
+            {"$match": candidate_match},
+            {"$sort": {"match_time": -1, "match_id": -1}},
+            {"$set": {"_forward": forward, "_reverse": reverse}},
+            {"$match": {"$expr": direction_candidate}},
+            {
+                "$facet": {
+                    "missing": [
+                        {"$match": {"$expr": incomplete_score}},
+                        {"$count": "missing_score_match_count"},
+                    ],
+                    "statistics": [
+                        {"$match": {"$expr": complete_in_range}},
+                        {
+                            "$group": {
+                                "_id": None,
+                                "match_count": {"$sum": 1},
+                                "bidirectional_match_count": {
+                                    "$sum": {"$cond": [bidirectional, 1, 0]}
+                                },
+                                "team_a_wins": {"$sum": team_a_wins},
+                                "team_b_wins": {"$sum": team_b_wins},
+                            }
+                        },
+                    ],
+                    "total": [
+                        {"$match": {"$expr": complete_in_range}},
+                        {"$count": "total"},
+                    ],
+                    "items": [
+                        {"$match": {"$expr": complete_in_range}},
+                        {"$set": {"matched_orientations": orientation_values}},
+                        {"$skip": offset},
+                        {"$limit": filters["page_size"]},
+                    ],
+                }
+            },
+        ]
+
+        facet_document: Dict[str, Any] = {}
+        cursor = self._collection().aggregate(pipeline)
+        async for document in cursor:
+            if isinstance(document, dict):
+                facet_document = document
+            break
+
+        statistics = {
+            "match_count": 0,
+            "bidirectional_match_count": 0,
+            "team_a_wins": 0,
+            "team_b_wins": 0,
+            "missing_score_match_count": 0,
+        }
+        statistics_branch = facet_document.get("statistics")
+        if isinstance(statistics_branch, list) and statistics_branch:
+            aggregate_statistics = statistics_branch[0]
+            if isinstance(aggregate_statistics, dict):
+                for field in (
+                    "match_count",
+                    "bidirectional_match_count",
+                    "team_a_wins",
+                    "team_b_wins",
+                ):
+                    if field in aggregate_statistics:
+                        statistics[field] = aggregate_statistics[field]
+
+        missing_branch = facet_document.get("missing")
+        if isinstance(missing_branch, list) and missing_branch:
+            missing_statistics = missing_branch[0]
+            if isinstance(missing_statistics, dict):
+                statistics["missing_score_match_count"] = missing_statistics.get(
+                    "missing_score_match_count", 0
+                )
+
+        total = 0
+        total_branch = facet_document.get("total")
+        if isinstance(total_branch, list) and total_branch:
+            total_document = total_branch[0]
+            if isinstance(total_document, dict):
+                total = total_document.get("total", 0)
+
+        items = []
+        items_branch = facet_document.get("items")
+        if isinstance(items_branch, list):
+            for item in items_branch:
+                if not isinstance(item, dict):
+                    continue
+                decoded_item = copy.deepcopy(item)
+                decoded_item.pop("_forward", None)
+                decoded_item.pop("_reverse", None)
+                items.append(decoded_item)
+
+        return {"statistics": statistics, "items": items, "total": total}

@@ -42,13 +42,13 @@ This execution plan is a living document and must be kept up to date according t
 
 ### 3. 组合查询领域服务与 Mongo 聚合
 
-- [ ] 3.1 新建 `tests/test_jjc_matchup_service.py`，先覆盖请求规范化失败测试：时间正整数且不超过 90 天、分数整数 `0..1000000` 且下限小于上限、双方数组最多三项且保留重复、`page=1..100000`、`page_size=20/50/100`、未知但合法历史心法 ID 可查、双方 ID 升序回显。
-- [ ] 3.2 新建 `src/services/jx3/jjc_kungfu_meta.py`，把 `public/jjc-ranking-stats.html` 的 `kungfuIconIdByName` 迁为服务端 ID/名称/类别/图标/展示序号目录，并合并 `config.KUNGFU_META`；新增测试保证 ID 唯一、正整数、目录排序稳定、所有现有可展示心法有名称与类别。
-- [ ] 3.3 新建 `src/services/jx3/jjc_matchup.py`，实现 `JjcMatchupFilters`、`JjcMatchupService.get_meta()`、`normalize_filters()` 和 `search()`；meta 固定返回时间预设、分页大小与 limits，service 只返回原始数据，不产生优势、置信区间或样本充分性字段，使 3.1 与 3.2 测试通过。
-- [ ] 3.4 扩展 `tests/test_jjc_match_fact_repo.py`，先用确定的事实样本覆盖候选与统计失败测试：奶秀 vs 明教其余不限、策藏 vs 奶花、策藏 vs 气明歌、重复心法、A/B 交换、单边空、双方空、A=B、正向/反向/双向、分数左闭右开、缺分计数和唯一分页。
-- [ ] 3.5 在 `src/storage/mongo_repos/jjc_match_fact_repo.py` 实现查询 pipeline：固定 `active=true` 与 `[start_time,end_time)`；双方非空取规范组合键中字典序较小者做单键索引锚点，单边非空锚定该边，双方空走时间索引；按 `match_time DESC, match_id DESC` 排序后计算 forward/reverse，再用 `$facet` 同时返回缺分、统计、total 和当前页，不在 facet 内重复排序。
-- [ ] 3.6 在 service 层固化统计响应：`total=match_count`，有方向时 `orientation_sample_count=match_count+bidirectional_match_count`、双方胜场之和等于方向样本数、百分比胜率四舍五入一位；有方向零样本返回胜场 0/胜率 null，双方空返回方向样本与双向数 0、胜场和胜率 null；摘要保持源 team1/team2 并返回四种 `matched_orientations`。
-- [ ] 3.7 运行 `python -m unittest tests.test_jjc_matchup_service tests.test_jjc_match_fact_repo -v`，并针对 A/B 交换、双向、单边空、双方空逐项断言统计恒等式；只暂存本组改动后提交 `feat: query JJC matchup statistics`。
+- [x] 3.1 新建 `tests/test_jjc_matchup_service.py`，先覆盖请求规范化失败测试：时间正整数且不超过 90 天、分数整数 `0..1000000` 且下限小于上限、双方数组最多三项且保留重复、`page=1..100000`、`page_size=20/50/100`、未知但合法历史心法 ID 可查、双方 ID 升序回显。
+- [x] 3.2 新建 `src/services/jx3/jjc_kungfu_meta.py`，把 `public/jjc-ranking-stats.html` 的 `kungfuIconIdByName` 迁为服务端 ID/名称/类别/图标/展示序号目录，并合并 `config.KUNGFU_META`；新增测试保证 ID 唯一、正整数、目录排序稳定、所有现有可展示心法有名称与类别。
+- [x] 3.3 新建 `src/services/jx3/jjc_matchup.py`，实现 `JjcMatchupFilters`、`JjcMatchupService.get_meta()`、`normalize_filters()` 和 `search()`；meta 固定返回时间预设、分页大小与 limits，service 只返回原始数据，不产生优势、置信区间或样本充分性字段，使 3.1 与 3.2 测试通过。
+- [x] 3.4 扩展 `tests/test_jjc_match_fact_repo.py`，先用确定的事实样本覆盖候选与统计失败测试：奶秀 vs 明教其余不限、策藏 vs 奶花、策藏 vs 气明歌、重复心法、A/B 交换、单边空、双方空、A=B、正向/反向/双向、分数左闭右开、缺分计数和唯一分页。
+- [x] 3.5 在 `src/storage/mongo_repos/jjc_match_fact_repo.py` 实现查询 pipeline：固定 `active=true` 与 `[start_time,end_time)`；双方非空取规范组合键中字典序较小者做单键索引锚点，单边非空锚定该边，双方空走时间索引；按 `match_time DESC, match_id DESC` 排序后计算 forward/reverse，再用 `$facet` 同时返回缺分、统计、total 和当前页，不在 facet 内重复排序。
+- [x] 3.6 在 service 层固化统计响应：`total=match_count`，有方向时 `orientation_sample_count=match_count+bidirectional_match_count`、双方胜场之和等于方向样本数、百分比胜率四舍五入一位；有方向零样本返回胜场 0/胜率 null，双方空返回方向样本与双向数 0、胜场和胜率 null；摘要保持源 team1/team2 并返回四种 `matched_orientations`。
+- [x] 3.7 运行 `python -m unittest tests.test_jjc_matchup_service tests.test_jjc_match_fact_repo -v`，并针对 A/B 交换、双向、单边空、双方空逐项断言统计恒等式；只暂存本组改动后提交 `feat: query JJC matchup statistics`。
 
 ### 4. FastAPI 元数据与搜索接口
 
@@ -105,6 +105,19 @@ This execution plan is a living document and must be kept up to date according t
 任务 2.5 复审确认，`partialFilterExpression` 已纳入既有索引定义漂移比较，三个事实索引的键序、唯一性和 active partial 合同准确；组合索引只包含 `any_team_combo_keys` 一个数组字段，tombstone 不进入查询索引。规格与质量复审均无 Critical、Important 或 Minor 问题，37 项事实构建与 repo 测试通过。
 
 任务 2.6/2.7 复审确认，事实 projector 只复用 `build_match_fact()` 并透明交给共享 repo CAS，不复制 active/tombstone 领域规则；`source` 保留为统一调用合同和持久化日志上下文，事实版本仍来自 payload。singleton 已启用共享 projector，repo 异常由持久化编排按 `stage=fact` 结构化记录且不阻断其他派生。规格与质量复审均批准，主 agent 独立运行 60 项阶段测试、相关 `py_compile` 和 `git diff --check` 通过。
+
+任务 3.1 的 RED 测试复审补齐了 A/B 两侧对非列表输入与未知历史心法 ID 的对称覆盖，并避免宽泛捕获 `ImportError` 掩盖真实依赖错误。最终 20 个测试在生产模块尚不存在时产生预期 RED，规格与质量复审均批准；该任务只定义请求规范化合同，GREEN 留给 3.3。
+
+任务 3.2 将旧页面 32 项心法 ID/图标映射固化为服务端目录，保留旧页兼容；当前展示目录按名称合并 `config.KUNGFU_META`，配置独有条目不会扩大目录，缺失或非法类别回退到目录默认分类。复审补充了配置快照、返回隔离、名称 trim 和 `dps/healer/tank` 白名单；最终 8 项测试与 `py_compile` 通过，规格和质量复审均批准。
+
+任务 3.3 完成严格请求规范化、固定 meta 合同与异步 repo 委托；service 只在 repo 原始结果上附加独立的 `normalized_filters`，不生成优势、置信区间或样本充分性字段。31 项 service/meta 测试与 `py_compile` 通过，规格和质量复审均批准；仅保留一个不阻断的测试增强建议，可后续用完整请求深拷贝直接断言输入不变性。
+
+任务 3.4 的 RED 测试复审将 aggregate fake 从关键字扫描收紧为可执行 Mongo 阶段的精确合同，并模拟 `$facet` 原始数组形状，要求 repo 独立解包缺分、统计、total 与 items。8 个场景覆盖包含组合、重复数量、空边、双向、精确分数和时间边界、真实 tombstone、零有效但有缺分，以及同时间跨页的 `match_id DESC` tie-break；既有 18 项 repo/index 回归保持通过，规格与质量复审均批准。
+
+任务 3.5 实现单次 aggregate 的候选、稳定排序、方向、分数与四分支 facet，并对空 facet 提供稳定零值解码。质量复审发现新增 repo 反向依赖 services，最终将 `normalize_positive_int`/`encode_combo_key` 唯一下沉至 `src/utils/jjc_match_fact.py`，service 保持公开重导出，repo 与 service 都只依赖 utils；100 项相关回归、`py_compile` 与 diff 检查通过，规格与质量复审均批准。真实 Mongo 的阻塞排序、扫描量与 facet 容量仍按 6.3/6.5 门禁验证。
+
+任务 3.6/3.7 固化方向样本恒等式、半入舍入胜率、双空 null 语义和分页元数据。复审发现 Mongo `_id` 与内部投影字段若原样透传会破坏 JSON 编码和摘要合同，最终由 service 构造全新的白名单对局摘要，并按查询上下文校验三种有方向标记或双空的空方向；ObjectId、CAS、组合键和分数中间字段不再进入响应。主 agent 独立运行 62 项查询主回归与 50 项相关事实/投影回归，相关 `py_compile` 和 diff 检查通过，规格与质量复审均批准；保留 `duration=True`/`score_avg=NaN` 的显式测试增强建议，现实现已正确拒绝。
+
 
 ## Decision Log
 

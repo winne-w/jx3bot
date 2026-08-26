@@ -13,27 +13,12 @@ import math
 import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from src.utils.jjc_match_fact import encode_combo_key, normalize_positive_int
 
-_CANONICAL_POSITIVE_INT = re.compile(r"[1-9][0-9]*\Z")
+
 _CANONICAL_SCORE_INT = re.compile(r"(?:0|[1-9][0-9]*)\Z")
 _TIME_KEYS = ("match_time", "matchTime", "start_time", "startTime", "time")
 _AUDIT_FIELDS = frozenset(("schema_version", "source_cached_at", "source_hash", "projected_at"))
-
-
-def normalize_positive_int(value: Any) -> Optional[int]:
-    """Return a positive integer only for exact, non-boolean representations."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value if value > 0 else None
-    if isinstance(value, float):
-        if not math.isfinite(value) or not value.is_integer():
-            return None
-        integer_value = int(value)
-        return integer_value if integer_value > 0 else None
-    if isinstance(value, str) and _CANONICAL_POSITIVE_INT.fullmatch(value):
-        return int(value)
-    return None
 
 
 def normalize_game_score(value: Any) -> Optional[int]:
@@ -92,20 +77,6 @@ def extract_match_time(payload: Mapping[str, Any]) -> Optional[int]:
     # Sync can add the actual occurrence time to the data envelope after an
     # older nested detail was fetched, so envelope deliberately outranks it.
     return _first_positive_time(outer, envelope, detail, basic_info)
-
-
-def encode_combo_key(kungfu_ids: List[int]) -> str:
-    """Encode a non-empty kungfu multiset in its stable v1 representation."""
-    normalized: List[int] = []
-    for value in kungfu_ids:
-        kungfu_id = normalize_positive_int(value)
-        if kungfu_id is None:
-            raise ValueError("kungfu_ids must contain positive integers")
-        normalized.append(kungfu_id)
-    if not normalized:
-        raise ValueError("kungfu_ids must not be empty")
-    normalized.sort()
-    return "v1:%d:%s" % (len(normalized), ",".join(str(item) for item in normalized))
 
 
 def _source_cached_at(payload: Mapping[str, Any]) -> Optional[float]:
