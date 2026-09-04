@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from src.services.jx3.jjc_kungfu_meta import get_jjc_kungfu_catalog
 
 
-_MAX_DAYS = 90
+_MAX_DAYS = 14
 _MAX_TIME_SPAN_SECONDS = _MAX_DAYS * 24 * 60 * 60
 _SCORE_MIN = 0
 _SCORE_MAX = 1_000_000
@@ -120,7 +120,7 @@ class JjcMatchupService:
         """Return fresh service metadata; HTTP response wrapping belongs to the router."""
         return {
             "kungfus": get_jjc_kungfu_catalog(),
-            "time_presets": [1, 3, 7, 14, 30],
+            "time_presets": [1, 3, 7, 14],
             "page_sizes": list(_SUPPORTED_PAGE_SIZES),
             "limits": {
                 "max_days": _MAX_DAYS,

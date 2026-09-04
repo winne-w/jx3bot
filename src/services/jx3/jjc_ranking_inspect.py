@@ -1316,6 +1316,7 @@ class JjcRankingInspectService:
     ) -> Any:
         service = self.match_detail_persistence_service
         if service is None:
+            logger.warning("JJC match persistence service unavailable; fact projection skipped: match_id={} source={}", match_id, source)
             service = MatchDetailPersistenceService(
                 inspect_repo=self.cache_repo,
                 identity_projector=self.match_detail_projection_service,

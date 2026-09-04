@@ -14,7 +14,7 @@ This execution plan is a living document and must be kept up to date according t
 
 ## Purpose / Big Picture
 
-用户完成本计划后，可以选择最近 1/3/7/14/30 天或最长 90 天自定义范围，输入双方平均游戏分左闭右开区间，并让两边分别选择 0～3 个心法。非空组合使用队内无序、保留重复数量的“包含”匹配；空边表示任意配置；双方为空时只浏览该时间和分段内的全部有效对局。页面仅展示唯一对局数、方向样本数、双方胜场与胜率、双向命中数和缺分数，不输出优势判断。
+用户完成本计划后，可以选择最近 1/3/7/14 天或最长 14 天自定义范围，输入双方平均游戏分左闭右开区间，并让两边分别选择 0～3 个心法。非空组合使用队内无序、保留重复数量的“包含”匹配；空边表示任意配置；双方为空时只浏览该时间和分段内的全部有效对局。页面仅展示唯一对局数、方向样本数、双方胜场与胜率、双向命中数和缺分数，不输出优势判断。
 
 实现必须先解决现有 `JjcInspectRepo.save_match_detail()` 吞写入异常和多保存入口重复投影的问题，再建立事实双写。历史数据先 dry-run、后显式 `--apply --yes` 回填，并在目标 Mongo 通过索引体积和查询性能门禁后才注册页面入口。点击列表对局继续调用现有 `/api/jjc/ranking-stats/match-detail`，不复制装备、奇穴或 replay。
 
@@ -42,7 +42,7 @@ This execution plan is a living document and must be kept up to date according t
 
 ### 3. 组合查询领域服务与 Mongo 聚合
 
-- [x] 3.1 新建 `tests/test_jjc_matchup_service.py`，先覆盖请求规范化失败测试：时间正整数且不超过 90 天、分数整数 `0..1000000` 且下限小于上限、双方数组最多三项且保留重复、`page=1..100000`、`page_size=20/50/100`、未知但合法历史心法 ID 可查、双方 ID 升序回显。
+- [x] 3.1 新建 `tests/test_jjc_matchup_service.py`，先覆盖请求规范化失败测试：时间正整数且不超过 14 天、分数整数 `0..1000000` 且下限小于上限、双方数组最多三项且保留重复、`page=1..100000`、`page_size=20/50/100`、未知但合法历史心法 ID 可查、双方 ID 升序回显。
 - [x] 3.2 新建 `src/services/jx3/jjc_kungfu_meta.py`，把 `public/jjc-ranking-stats.html` 的 `kungfuIconIdByName` 迁为服务端 ID/名称/类别/图标/展示序号目录，并合并 `config.KUNGFU_META`；新增测试保证 ID 唯一、正整数、目录排序稳定、所有现有可展示心法有名称与类别。
 - [x] 3.3 新建 `src/services/jx3/jjc_matchup.py`，实现 `JjcMatchupFilters`、`JjcMatchupService.get_meta()`、`normalize_filters()` 和 `search()`；meta 固定返回时间预设、分页大小与 limits，service 只返回原始数据，不产生优势、置信区间或样本充分性字段，使 3.1 与 3.2 测试通过。
 - [x] 3.4 扩展 `tests/test_jjc_match_fact_repo.py`，先用确定的事实样本覆盖候选与统计失败测试：奶秀 vs 明教其余不限、策藏 vs 奶花、策藏 vs 气明歌、重复心法、A/B 交换、单边空、双方空、A=B、正向/反向/双向、分数左闭右开、缺分计数和唯一分页。
@@ -67,22 +67,22 @@ This execution plan is a living document and must be kept up to date according t
 
 ### 6. 历史回填、核验与性能门禁
 
-- [ ] 6.1 新建 `tests/test_backfill_jjc_match_facts.py`，先覆盖 CLI 与批处理失败测试：默认 dry-run、写入必须同时 `--apply --yes`、`--verify-only` 只读、正整数 `--resume-after-match-id` 水位、batch/limit、active/tombstone、缺分、结构跳过、旧版本跳过、冲突和异常计数。
-- [ ] 6.2 新建 `scripts/backfill_jjc_match_facts.py`，只投影 `jjc_match_detail` 必需字段，按整数 `match_id ASC` 分批复用 `build_match_fact()` 与 repo CAS；输出批次范围、累计统计和最后成功水位，verify 报告缺失、孤儿、应失效、hash 不一致、schema 过期与构建失败，运行 6.1 测试和 `--help`。
-- [ ] 6.3 新建 `tests/test_check_jjc_matchup_performance.py` 与 `scripts/check_jjc_matchup_performance.py`：复用实际 repo pipeline，对单心法、双心法、完整组合、单边空、双方空和 7/90 天输出 `explain("executionStats")` 的索引名、阻塞 SORT、keys/docs examined、耗时和 facet 错误，并抽样外推 active/tombstone 文档、组合索引项和 BSON 体积。
-- [ ] 6.4 在目标 Mongo 先运行 backfill dry-run 和存储外推，不满足磁盘/缓存预算时停止；确认后才运行 `python scripts/backfill_jjc_match_facts.py --apply --yes --batch-size 500`，保存开始/结束水位和统计，再执行 `python scripts/backfill_jjc_match_facts.py --verify-only --batch-size 500`，要求缺失、孤儿、应失效、hash 不一致与 schema 过期均为 0 或有逐条解释。
-- [ ] 6.5 对目标数据运行性能脚本：常见 7 天查询要求不超过 2 秒，90 天或双方空不超过 5 秒，并检查无不可接受阻塞 SORT/facet 内存；若失败，先拆分统计/分页 pipeline 或增加按日预聚合及其测试，全部已确认查询形态达标前不开放页面。
-- [ ] 6.6 运行 `python -m unittest tests.test_backfill_jjc_match_facts tests.test_check_jjc_matchup_performance -v` 与两个脚本的 `python -m py_compile`；提交 `feat: backfill and verify JJC match facts`，不提交包含线上数据、Mongo URI 或凭据的输出文件。
+- [x] 6.1 新建 `tests/test_backfill_jjc_match_facts.py`，先覆盖 CLI 与批处理失败测试：默认 dry-run、写入必须同时 `--apply --yes`、`--verify-only` 只读、正整数 `--resume-after-match-id` 水位、batch/limit、active/tombstone、缺分、结构跳过、旧版本跳过、冲突和异常计数。
+- [x] 6.2 新建 `scripts/backfill_jjc_match_facts.py`，只投影 `jjc_match_detail` 必需字段，按整数 `match_id ASC` 分批复用 `build_match_fact()` 与 repo CAS；输出批次范围、累计统计和最后成功水位，verify 报告缺失、孤儿、应失效、hash 不一致、schema 过期与构建失败，运行 6.1 测试和 `--help`。
+- [x] 6.3 新建 `tests/test_check_jjc_matchup_performance.py` 与 `scripts/check_jjc_matchup_performance.py`：复用实际 repo pipeline，对单心法、双心法、完整组合、单边空、双方空和 7/14 天输出 `explain("executionStats")` 的索引名、阻塞 SORT、keys/docs examined、耗时和 facet 错误，并抽样外推 active/tombstone 文档、组合索引项和 BSON 体积。
+- [x] 6.4 在目标 Mongo 先运行 backfill dry-run 和存储外推，不满足磁盘/缓存预算时停止；确认后才运行 `python scripts/backfill_jjc_match_facts.py --apply --yes --batch-size 500`，保存开始/结束水位和统计，再执行 `python scripts/backfill_jjc_match_facts.py --verify-only --batch-size 500`，要求缺失、孤儿、应失效、hash 不一致与 schema 过期均为 0 或有逐条解释。
+- [x] 6.5 对目标数据运行性能脚本：常见 7 天查询要求不超过 2 秒，14 天或双方空不超过 5 秒，并检查无不可接受阻塞 SORT/facet 内存；若失败，先拆分统计/分页 pipeline 或增加按日预聚合及其测试，全部已确认查询形态达标前不开放页面。
+- [x] 6.6 运行 `python -m unittest tests.test_backfill_jjc_match_facts tests.test_check_jjc_matchup_performance -v` 与两个脚本的 `python -m py_compile`；提交 `feat: backfill and verify JJC match facts`，不提交包含线上数据、Mongo URI 或凭据的输出文件。
 
 ### 7. 文档、全量回归、review 与验收
 
-- [ ] 7.1 更新 `README.md` 增加 meta/search API 与 `/jx3/jjc-matchups.html` 页面说明；更新 `docs/design-docs/database-design.md` 记录 `jjc_match_facts` 字段、active/tombstone、三个索引和 repo 归属；更新 `docs/references/runbook.md` 记录 dry-run/apply/verify、性能门禁、页面冒烟与非破坏性回滚。
-- [ ] 7.2 在当前 change 新增并填写 `test-plan.md`，逐项映射 spec scenarios 到自动化测试、目标 Mongo explain 和手工页面冒烟；不得把未执行的命令记录为已通过。
-- [ ] 7.3 运行新功能自动化集：`python -m unittest tests.test_jjc_inspect_repo tests.test_jjc_match_detail_persistence tests.test_jjc_match_fact tests.test_jjc_match_fact_repo tests.test_jjc_match_fact_projection tests.test_jjc_matchup_service tests.test_jjc_matchups_router tests.test_jjc_matchups_frontend tests.test_backfill_jjc_match_facts tests.test_check_jjc_matchup_performance -v`。
-- [ ] 7.4 运行既有 JJC 回归：`python -m unittest tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot_repo tests.test_jjc_match_detail_hydration tests.test_jjc_match_participant_projection tests.test_jjc_match_participant_repo tests.test_jjc_ranking_inspect tests.test_jjc_match_data_sync tests.test_jjc_ranking_stats_router tests.test_jjc_ranking_stats_frontend -v`，再执行相关源码和脚本 `python -m py_compile`、`nb plugin list --json` 与 `openspec validate jjc-matchup-statistics --strict`。
-- [ ] 7.5 使用子 agent 对照 proposal/design/spec/tasks/diff 做只读 code review，强制检查凭据硬编码、分层依赖、所有保存入口、CAS/tombstone、统计恒等式、Python 3.9、URL 时间、错误包装和文档一致性；主 agent 复核意见并把结论写入 change 的 `review.md`。
-- [ ] 7.6 手工验收最近 7 天奶秀 vs 明教、策藏 vs 奶花、策藏 vs 气明歌、单边空、双方空、重复心法、双向命中、分数边界、越界页、URL 分享和奇穴详情；把输入、结果和未覆盖外部依赖写入 `acceptance.md`。
-- [ ] 7.7 仅在自动化、回填核验、性能门禁、review 和手工验收都有新鲜证据后更新本计划的 Progress、Surprises、Decision Log 与 Outcomes，并提交最终文档；方案生效后再执行 OpenSpec specs sync/archive 流程。
+- [x] 7.1 更新 `README.md` 增加 meta/search API 与 `/jx3/jjc-matchups.html` 页面说明；更新 `docs/design-docs/database-design.md` 记录 `jjc_match_facts` 字段、active/tombstone、三个索引和 repo 归属；更新 `docs/references/runbook.md` 记录 dry-run/apply/verify、性能门禁、页面冒烟与非破坏性回滚。
+- [x] 7.2 在当前 change 新增并填写 `test-plan.md`，逐项映射 spec scenarios 到自动化测试、目标 Mongo explain 和手工页面冒烟；不得把未执行的命令记录为已通过。
+- [x] 7.3 运行新功能自动化集：`python -m unittest tests.test_jjc_inspect_repo tests.test_jjc_match_detail_persistence tests.test_jjc_match_fact tests.test_jjc_match_fact_repo tests.test_jjc_match_fact_projection tests.test_jjc_matchup_service tests.test_jjc_matchups_router tests.test_jjc_matchups_frontend tests.test_backfill_jjc_match_facts tests.test_check_jjc_matchup_performance -v`。
+- [x] 7.4 运行既有 JJC 回归：`python -m unittest tests.test_jjc_match_detail_snapshots tests.test_jjc_snapshot_repo tests.test_jjc_match_detail_hydration tests.test_jjc_match_participant_projection tests.test_jjc_match_participant_repo tests.test_jjc_ranking_inspect tests.test_jjc_match_data_sync tests.test_jjc_ranking_stats_router tests.test_jjc_ranking_stats_frontend -v`，再执行相关源码和脚本 `python -m py_compile`、`nb plugin list --json` 与 `openspec validate jjc-matchup-statistics --strict`。
+- [x] 7.5 使用子 agent 对照 proposal/design/spec/tasks/diff 做只读 code review，强制检查凭据硬编码、分层依赖、所有保存入口、CAS/tombstone、统计恒等式、Python 3.9、URL 时间、错误包装和文档一致性；主 agent 复核意见并把结论写入 change 的 `review.md`。
+- [x] 7.6 手工验收最近 7 天奶秀 vs 明教、策藏 vs 奶花、策藏 vs 气明歌、单边空、双方空、重复心法、双向命中、分数边界、越界页、URL 分享和奇穴详情；把输入、结果和未覆盖外部依赖写入 `acceptance.md`。
+- [x] 7.7 仅在自动化、回填核验、性能门禁、review 和手工验收都有新鲜证据后更新本计划的 Progress、Surprises、Decision Log 与 Outcomes，并提交最终文档；方案生效后再执行 OpenSpec specs sync/archive 流程。
 
 ## Surprises & Discoveries
 
@@ -137,6 +137,16 @@ This execution plan is a living document and must be kept up to date according t
 任务 5.5 验收时当前会话未提供 Browser plugin，按前端测试技能记录为 `Browser plugin not available` 并使用 Playwright Chromium 1.51。用户明确跳过 ImageGen，因此没有概念图资产可对照；视觉 fidelity 直接对照 `public/jjc-ranking-stats.html` 的浅色蓝粉、白色面板和克制阴影体系。主 agent 在 1440×1000 与 390×844 两种 viewport 下以真实浏览器和 route mock 验证 meta/search/match-detail 数据流：默认 7 天、分数未填禁用、重复心法与空边、绝对时间 URL、交换双方 payload 且源 `team1/team2` 不重排、刷新 URL 自动重放、20/50/100 每页、前后翻页、四种方向中的正向/反向/双向、六名玩家装备与奇穴、Escape 关闭、焦点恢复、移动端弹窗内层 `overflow:auto` 均符合预期；两种 viewport 均无横向溢出，console warning/error 与 page error 均为空。首次浏览器运行发现 `.match-detail-overlay { display:grid }` 覆盖 `hidden` 状态并透明拦截页面点击，随后先增加失败测试，再用 `.match-detail-overlay[hidden] { display:none!important }` 做单点修复，最终重复浏览器全流程通过。截图只保存在 `/tmp/jjc-matchups-{desktop,detail,mobile,mobile-detail}.png`，不作为仓库资产提交。
 
 任务 5.5 的 Terra 规格复核确认页面实现 `Spec compliant`；质量/安全复核为 `Approved`，凭据红线 PASS，未发现 Blocker、High 或 Medium 问题。唯一 Low 观察是仓库测试仍以静态合同为主，浏览器级路径由本任务的临时 Playwright 脚本和记录证据覆盖。主 agent 随后独立运行 18 项新旧前端回归、测试文件 `py_compile`、内联 JavaScript 解析、凭据/危险 DOM API 扫描及空白检查，均通过。
+
+任务 6.1/6.2 以 TDD 完成安全回填与只读核验脚本。多轮真实 Motor 无网络探针和 Terra 规格复核发现并修复了 Database 真值判断、无默认数据库 URI 的 `ConfigurationError` 回退、非法 schema 漏报、必要字段投影过宽/缺失、孤儿游标批大小和异常路径 client 释放问题；字段级投影同时兼容 `data` 直接详情与 `data.detail` 包装，且不读取装备、奇穴大字段。最终独立 Terra 规格复核为 `Spec compliant`，质量复核为 `Approved`、凭据红线 PASS；主 agent 独立运行 71 项回填/事实/repo 回归、CLI `--help`、`py_compile`、空白检查、凭据扫描与 Motor 默认库/真值探针均通过。全程未连接真实 Mongo，未执行 `--apply --yes`。
+
+任务 6.3 以 TDD 完成只读 explain 与容量外推脚本：10 种查询形态直接捕获实际 repo pipeline，容量在历史回填前从 `jjc_match_detail` 以 `$sample` 后字段级 `$project` 抽样，并复用同一 `build_match_fact()` 区分 active、缺分 active、tombstone、非法 ID 与构建失败。Terra 规格与质量复核发现并修复了 rejected plan SORT/索引误报、standalone 与 shard `stages[].$cursor` 获选计划提取、大集合抽样阶段顺序以及假 builder 镜像测试问题；四轮范围复审关闭所有 Critical/Important，凭据红线 PASS。主 agent 独立运行 21 项性能脚本测试、46 项回填/性能组合测试与 92 项回填/性能/事实/repo 回归，两个 CLI `--help`、`py_compile`、空白、凭据和写操作扫描均通过。全程未连接真实 Mongo；目标数据容量、explain 结构与耗时仍属 6.4/6.5 未完成门禁。
+
+2026-08-27 首次进入 6.4/6.5 时得到的宿主 Motor/PyMongo `AutoReconnect` 是隔离环境的假故障：诊断命令运行在 `network: restricted` 沙箱中。同时 feature worktree 没有主工作区被 Git 忽略的 `runtime_config.json`，脚本因而继承了全局 `MONGO_URI`，错误指向本机另一个项目 `fuyao-ai-quality-inspector-scheduler` 占用的 27017；非隔离 ping 虽成功，但实际读命令返回 Mongo 错误码 13 `Unauthorized`。在 worktree 建立同样受 Git 忽略的本地符号链接，复用主工作区真实运行配置后，脱敏 ping 返回 `ok`，无需修改业务代码、Mongo 服务或凭据。
+
+真实目标库只读容量检查确认 `jjc_match_detail` 有 1,622,185 条；1000 条随机样本外推约 1,552,431 条 active、69,754 条 tombstone，active BSON 约 3.34 GB、组合索引项约 20.72 million。500 条默认 dry-run 成功读取并构建 400 条 active 与 100 条 tombstone，`apply_failed/build_failed/blocking_failure/conflict` 均为 0，全程未写库。当前 `jjc_match_facts` 为空，10 种 explain 虽均成功但扫描 0 条，不能作为真实性能结论；6.4/6.5 继续保持未完成，必须先取得明确 apply 授权并核对容量预算，再在已回填数据上重跑性能门禁。
+
+2026-09-01 在 MongoDB 4.4.30 目标库完成新的上线前门禁。预检时数据库 storage 约 26.1 GB、索引约 1.95 GB，文件系统约 100.2 GB；只针对空 `jjc_match_facts` 创建并逐项核对 `idx_match_id` unique、`idx_active_combo_time` active partial 与 `idx_active_time` active partial，没有调用会影响其他集合的全局索引初始化。全量默认 dry-run 先以 `batch-size=500` 扫描 169,500 条至稳定水位 `254438072`，再用 `--resume-after-match-id 254438072 --batch-size 5000` 完成剩余 1,454,288 条；合并后覆盖全部 1,623,788 条详情，预测 active 1,494,220、tombstone 129,568、结构非法 7,326，`invalid_match_id/score_incomplete/build_failed/apply_failed/conflict/blocking_failure` 均为 0。复核事实文档仍为 0，说明 dry-run 全程未写事实；结束时文件系统统计约 73.3 GB 已用、26.9 GB 可用。阶段六/事实投影 100 项回归、相关 `py_compile` 与 diff 检查通过；凭据扫描只命中测试专用 `example.invalid` URI。6.4/6.5/6.6 仍保持未完成，下一步必须取得明确 `--apply --yes` 授权，按 500 条批次写入并核验后才能得到真实性能结论和提交阶段六。
 
 
 ## Decision Log
@@ -220,7 +230,7 @@ python scripts/backfill_jjc_match_facts.py --verify-only --batch-size 500
 
 自动化验收以 Progress 7.3 和 7.4 的完整命令退出码 0、`unittest` 无 failure/error 为准。Python 3.9 兼容性以所有新增/修改 router、service、repo、script 的 `python -m py_compile` 退出码 0 为准；插件装配以 `nb plugin list --json` 能列出既有插件且无导入异常为准；规格一致性以 `openspec validate jjc-matchup-statistics --strict` 通过为准。
 
-数据验收要求 dry-run 先给出 active、tombstone、缺分、结构跳过、旧版本、冲突和预计索引体积；apply 后 verify 的缺失、孤儿、应失效、hash 不一致和 schema 过期必须为 0，或每条异常都有保留原因。目标 Mongo explain 必须证明常见 7 天查询不超过 2 秒，90 天或双方空查询不超过 5 秒；若出现阻塞 SORT、facet 内存或扫描量不可接受，页面不得开放，先回到查询实现增加拆分或预聚合。
+数据验收要求 dry-run 先给出 active、tombstone、缺分、结构跳过、旧版本、冲突和预计索引体积；apply 后 verify 的缺失、孤儿、应失效、hash 不一致和 schema 过期必须为 0，或每条异常都有保留原因。目标 Mongo explain 必须证明常见 7 天查询不超过 2 秒，14 天或双方空查询不超过 5 秒；若出现阻塞 SORT、facet 内存或扫描量不可接受，页面不得开放，先回到查询实现增加拆分或预聚合。
 
 业务验收至少复核奶秀 vs 明教确实只约束两边各包含指定心法、其余四个不限；策藏 vs 奶花和策藏 vs 气明歌支持不同组合数量；单边空、双方空、重复心法、A=B 和双向命中符合统计公式；双方三人平均分都处于左闭右开区间；分页一场只出现一次；URL 重放绝对时间；详情能显示既有装备与奇穴；页面和 API 均不产生优势结论。
 

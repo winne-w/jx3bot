@@ -45,16 +45,16 @@ class TestJjcMatchupFilterNormalization(unittest.TestCase):
         self.assertIsInstance(normalized, JjcMatchupFilters)
         return normalized
 
-    def test_accepts_a_positive_time_window_of_exactly_ninety_days(self) -> None:
+    def test_accepts_a_positive_time_window_of_exactly_fourteen_days(self) -> None:
         start_time = 1_700_000_000
 
         normalized = self._normalize(self._request(
             start_time=start_time,
-            end_time=start_time + 90 * 24 * 60 * 60,
+            end_time=start_time + 14 * 24 * 60 * 60,
         ))
 
         self.assertEqual(normalized.start_time, start_time)
-        self.assertEqual(normalized.end_time, start_time + 90 * 24 * 60 * 60)
+        self.assertEqual(normalized.end_time, start_time + 14 * 24 * 60 * 60)
 
     def test_rejects_missing_time_bounds(self) -> None:
         for missing_field in ("start_time", "end_time"):
@@ -86,12 +86,12 @@ class TestJjcMatchupFilterNormalization(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         self._normalize(self._request(**{field: value}))
 
-    def test_rejects_reversed_or_over_ninety_day_time_windows(self) -> None:
+    def test_rejects_reversed_or_over_fourteen_day_time_windows(self) -> None:
         start_time = 1_700_000_000
         invalid_windows = (
             (start_time, start_time),
             (start_time + 1, start_time),
-            (start_time, start_time + 90 * 24 * 60 * 60 + 1),
+            (start_time, start_time + 14 * 24 * 60 * 60 + 1),
         )
 
         for invalid_start, invalid_end in invalid_windows:
@@ -235,12 +235,12 @@ class TestJjcMatchupFilterNormalization(unittest.TestCase):
             set(meta),
             {"kungfus", "time_presets", "page_sizes", "limits"},
         )
-        self.assertEqual(meta["time_presets"], [1, 3, 7, 14, 30])
+        self.assertEqual(meta["time_presets"], [1, 3, 7, 14])
         self.assertEqual(meta["page_sizes"], [20, 50, 100])
         self.assertEqual(
             meta["limits"],
             {
-                "max_days": 90,
+                "max_days": 14,
                 "score_min": 0,
                 "score_max": 1_000_000,
                 "max_team_kungfus": 3,
@@ -255,8 +255,8 @@ class TestJjcMatchupFilterNormalization(unittest.TestCase):
         meta["limits"]["max_days"] = 0
         next_meta = service.get_meta()
         self.assertNotEqual(next_meta["kungfus"][0]["name"], "mutated")
-        self.assertEqual(next_meta["time_presets"], [1, 3, 7, 14, 30])
-        self.assertEqual(next_meta["limits"]["max_days"], 90)
+        self.assertEqual(next_meta["time_presets"], [1, 3, 7, 14])
+        self.assertEqual(next_meta["limits"]["max_days"], 14)
 
 
 class TestJjcMatchupSearch(unittest.IsolatedAsyncioTestCase):

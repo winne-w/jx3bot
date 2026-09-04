@@ -21,6 +21,73 @@ _TIME_KEYS = ("match_time", "matchTime", "start_time", "startTime", "time")
 _AUDIT_FIELDS = frozenset(("schema_version", "source_cached_at", "source_hash", "projected_at"))
 
 
+def _match_fact_source_projection() -> Dict[str, int]:
+    """Return the minimal persisted-detail fields required to rebuild a fact."""
+    projection = {
+        "_id": 0,
+        "match_id": 1,
+        "cached_at": 1,
+        "match_time": 1,
+        "matchTime": 1,
+        "start_time": 1,
+        "startTime": 1,
+        "time": 1,
+        "data.unavailable": 1,
+        "data.match_time": 1,
+        "data.matchTime": 1,
+        "data.start_time": 1,
+        "data.startTime": 1,
+        "data.time": 1,
+        "data.detail.unavailable": 1,
+        "data.detail.match_time": 1,
+        "data.detail.matchTime": 1,
+        "data.detail.start_time": 1,
+        "data.detail.startTime": 1,
+        "data.detail.time": 1,
+        "data.detail.map": 1,
+        "data.detail.map_name": 1,
+        "data.detail.duration": 1,
+        "data.detail.fight_seconds": 1,
+        "data.detail.match_type": 1,
+        "data.detail.matchType": 1,
+        "data.detail.type": 1,
+    }
+    for detail_prefix in ("data", "data.detail"):
+        for detail_field in (
+            "map", "map_name", "duration", "fight_seconds",
+            "match_type", "matchType", "type",
+        ):
+            projection["{}.{}".format(detail_prefix, detail_field)] = 1
+        for basic_info_field in (
+            "match_time", "matchTime", "start_time", "startTime", "time",
+            "map", "map_name", "duration", "fight_seconds",
+            "match_type", "matchType", "type",
+        ):
+            projection["{}.basic_info.{}".format(detail_prefix, basic_info_field)] = 1
+        for team_key in ("team1", "team2"):
+            projection["{}.{}.won".format(detail_prefix, team_key)] = 1
+            for players_key in ("players_info", "players"):
+                for player_field in (
+                    "role_name", "server", "kungfu_id", "kungfu", "total_score", "score"
+                ):
+                    projection["{}.{}.{}.{}".format(
+                        detail_prefix, team_key, players_key, player_field
+                    )] = 1
+    return projection
+
+
+MATCH_FACT_SOURCE_PROJECTION = _match_fact_source_projection()
+
+
+def match_fact_source_payload(document: Mapping[str, Any]) -> Dict[str, Any]:
+    """Keep source fields and actual-time aliases used by fact reconstruction."""
+    payload = {"cached_at": document.get("cached_at"), "data": document.get("data")}
+    for key in _TIME_KEYS:
+        if key in document:
+            payload[key] = document.get(key)
+    return payload
+
+
 def normalize_game_score(value: Any) -> Optional[int]:
     """Normalize one game score in the inclusive ``0..1000000`` range."""
     if isinstance(value, bool):

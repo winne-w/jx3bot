@@ -149,6 +149,13 @@ python test_tuilan_match_history.py
 
 ### 5. 竞技相关
 
+#### JJC 对阵统计
+
+- 页面：`/jx3/jjc-matchups.html`；查询最长 14 天，支持双方 0～3 个心法、重复心法、空边和平均游戏分区间。
+- 回填先执行 `python scripts/backfill_jjc_match_facts.py --batch-size 500`（dry-run），确认容量后才允许 `--apply --yes`；完成后执行 `--verify-only`，异常必须为 0 或逐条解释。
+- 性能门禁：运行 `python scripts/check_jjc_matchup_performance.py`，7 天常见查询 ≤2 秒，14 天及双方空 ≤5 秒，确认无阻塞 SORT/facet 内存异常。
+- 回滚为非破坏性：隐藏页面/路由并停止事实 projector，保留 `jjc_match_facts` 供核验。
+
 - `竞技查询`
 - `竞技排名`
 - `竞技排名 拆分`
