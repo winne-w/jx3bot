@@ -23,7 +23,7 @@
 - 不汇总奇穴选择率；首版只支持逐场打开详情查看奇穴。
 - 不替换 `jjc_match_participants` 的角色查询职责。
 - 不保证事实集合变化期间 offset 页码的跨请求快照一致性。
-- 不支持超过 90 天的单次查询，不引入离线报表仓库或新的数据库依赖。
+- 不支持超过 14 天的单次查询，不引入离线报表仓库或新的数据库依赖。
 - 不删除或重写完整历史详情、装备快照和奇穴快照。
 
 ## Decisions
@@ -34,7 +34,7 @@
 
 ```text
 match_id, active, invalid_reason, match_time, map, duration, match_type
-schema_version, projected_at, source_cached_at, source_hash
+schema_version, source_cached_at, source_hash
 team1/team2:
   won
   players[{role_name, server, kungfu_id, kungfu, game_score, score_source}]
@@ -113,7 +113,7 @@ max_team_score_sum < score_max * 3
 
 新增：
 
-- `GET /api/jjc/matchups/meta`：使用统一响应封装，`data` 返回 `kungfus[{id,name,category,icon_id,display_order}]`、`time_presets=[1,3,7,14,30]`、`page_sizes=[20,50,100]` 和 `limits{max_days:90,score_min:0,score_max:1000000,max_team_kungfus:3,max_page:100000}`。心法按 `display_order ASC, id ASC` 返回。
+- `GET /api/jjc/matchups/meta`：使用统一响应封装，`data` 返回 `kungfus[{id,name,category,icon_id,display_order}]`、`time_presets=[1,3,7,14]`、`page_sizes=[20,50,100]` 和 `limits{max_days:14,score_min:0,score_max:1000000,max_team_kungfus:3,max_page:100000}`。心法按 `display_order ASC, id ASC` 返回。
 - `POST /api/jjc/matchups/search`：统一统计和分页。
 
 请求字段：
@@ -121,7 +121,7 @@ max_team_score_sum < score_max * 3
 | 字段 | 类型 | 必填/默认 | 约束 |
 |---|---|---|---|
 | `start_time` | int | 必填 | 正整数 Unix 秒 |
-| `end_time` | int | 必填 | 大于 start，范围不超过 90 天 |
+| `end_time` | int | 必填 | 大于 start，范围不超过 14 天 |
 | `score_min` | int | 必填 | `0..1000000` |
 | `score_max` | int | 必填 | `score_min < score_max <= 1000000` |
 | `team_a_kungfu_ids` | list[int] | `[]` | 最多 3 个正整数，保留重复 |
@@ -146,7 +146,7 @@ match_time DESC, match_id DESC
 
 Mongo 流水线固定为“`active=true` partial index 候选 `$match` → 与索引一致的 `$sort` → 另一组合键、方向和最终条件 → `$facet`”。`$facet` 只在候选已缩小和排序后计算缺分数、统计、总数及当前页，分页分支不重复排序。分数范围无法与数组、时间和排序同时全部由一个复合索引满足，因此在组合与时间候选之后过滤。多键索引是否能在目标 Mongo 消除阻塞排序仍以 `explain` 为准，不由文档假定。
 
-实现门禁使用目标 Mongo 的 `explain("executionStats")` 验证索引命中、是否存在阻塞 `SORT`、`keysExamined/docsExamined`、执行时间和 `$facet` 内存；同时从真实详情抽样外推事实文档、索引项数与存储体积。常见 7 天查询目标为 2 秒内，90 天或双方为空查询目标为 5 秒内。若单次 `$facet` 未达到门禁，必须先拆分统计/分页聚合或增加按日预聚合；全部规格形态达到门禁后才开放页面，而不是删减已确认的查询能力。
+实现门禁使用目标 Mongo 的 `explain("executionStats")` 验证索引命中、是否存在阻塞 `SORT`、`keysExamined/docsExamined`、执行时间和 `$facet` 内存；同时从真实详情抽样外推事实文档、索引项数与存储体积。常见 7 天查询目标为 2 秒内，14 天或双方为空查询目标为 5 秒内。若单次 `$facet` 未达到门禁，必须先拆分统计/分页聚合或增加按日预聚合；全部规格形态达到门禁后才开放页面，而不是删减已确认的查询能力。
 
 ### 8. 页码分页保持现有交互，并明确一致性边界
 
@@ -189,7 +189,7 @@ active 事实与 tombstone 都保存 `source_cached_at` 和 `source_hash`。统�
 - [主详情保存契约变化影响既有调用方] → 先用调用入口测试锁定现状，再统一改为明确结果；所有保存入口迁入编排后才开放新事实投影。
 - [派生投影失败造成短暂漏数] → 主事实优先，结构化记录 `match_id/source/schema/error`，回填与核验幂等修复。
 - [组合多键索引仍可能较大] → 已由最多 49 键降到最多 14 键；上线前抽样外推并以目标 Mongo 存储和缓存压力为门禁。
-- [热门单心法或双方为空候选较多] → 默认 7 天、最长 90 天，按真实 `explain` 和 `$facet` 内存决定是否开放高成本形态。
+- [热门单心法或双方为空候选较多] → 默认 7 天、最长 14 天，按真实 `explain` 和 `$facet` 内存决定是否开放高成本形态。
 - [历史详情字段异常] → 严格区分结构非法与仅缺分；不推测心法、时间、胜负或分数。
 - [当前心法目录不含历史 ID] → 页面选项使用单一服务端目录，但 API 接受任意格式合法的正整数历史 ID。
 - [页码期间事实变化导致 offset 漂移] → 规格明确只保证固定事实集下稳定；刷新查询获取最新总数，不新增复杂快照协议。
@@ -200,6 +200,6 @@ active 事实与 tombstone 都保存 `source_cached_at` 和 `source_hash`。统�
 2. 新增事实纯构建、源 hash、CAS upsert/clear、索引和事实投影 service，完成 Python 3.9 编译与 repo/service 测试。
 3. 发布双投影写入但暂不开放新 API 页面，运行历史回填 dry-run，抽样估算 BSON、索引项和总存储。
 4. 核对 dry-run 后使用 `--apply --yes` 分批回填，再运行缺失、孤儿、应失效、hash 和 schema 核验。
-5. 在目标 Mongo 对单心法、双心法、完整组合、单边空、双方空以及 7/90 天范围执行 `explain` 和响应耗时检查；性能门禁不通过的查询形态不开放。
+5. 在目标 Mongo 对单心法、双心法、完整组合、单边空、双方空以及 7/14 天范围执行 `explain` 和响应耗时检查；性能门禁不通过的查询形态不开放。
 6. 注册 meta/search API 和独立页面，完成参数错误包装、统计恒等式、分页、交换双方、URL 恢复及现有详情弹窗冒烟。
 7. 若需回滚，先隐藏页面和路由并停止事实投影调用；完整详情和玩家投影继续工作。事实集合可保留供修复后重新启用，无需破坏性删除。

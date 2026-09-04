@@ -23,6 +23,16 @@
 
 ## 集合设计
 
+### `jjc_match_facts`
+
+用途：每场 3v3 对局一条的统计读模型，由 `jjc_match_detail` 派生；`active=false` 为保留源水位的 tombstone，不参与查询。
+
+读写归属：`src/storage/mongo_repos/jjc_match_fact_repo.py`；构建与投影由 `src/services/jx3/jjc_match_fact.py`、`match_detail_fact_projection.py` 负责。
+
+核心字段：`match_id`（int）、`match_time`（int Unix 秒）、`team1/team2`（三人心法 ID、组合键、分数和）、胜负字段、`game_score`/`score_avg`、`source_hash`、`source_cached_at`、`schema_version`、`active`、`invalid_reason`。
+
+索引：`idx_match_id`（`match_id` unique）、`idx_active_combo_time`（`any_team_combo_keys, match_time, match_id`，partial `active=true`）、`idx_active_time`（`match_time, match_id`，partial `active=true`）。历史回填使用 `scripts/backfill_jjc_match_facts.py`，repo 以源水位/hash/schema CAS 防止旧来源复活 tombstone。
+
 ### `group_configs`
 
 用途：群配置持久化，替代旧 `groups.json`。用于开服监控、日常推送、群默认服务器等按群配置。

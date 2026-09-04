@@ -4,6 +4,8 @@ JX3Bot 是一个基于 NoneBot2 的剑网 3 QQ 机器人，运行在 OneBot V11 
 
 ## 当前能力
 
+- JJC 对阵统计页面：`/jx3/jjc-matchups.html`；接口 `GET /api/jjc/matchups/meta` 与 `POST /api/jjc/matchups/search` 支持最长 14 天、双方 0～3 个心法和平均游戏分区间，并分页展示客观对局数据。点击 `match_id` 复用既有详情接口查看装备与奇穴。
+
 - QQ 群消息命令处理
 - 剑网 3 常见查询能力，如公告、竞技、名片、资历、交易行、百战、骗子查询等
 - 万宝楼检索与订阅能力
