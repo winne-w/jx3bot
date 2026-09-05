@@ -312,6 +312,62 @@ class TestJjcMatchupsFrontendContract(unittest.TestCase):
             "the class display rule must not override the modal's hidden state",
         )
 
+    def test_results_use_a_match_list_and_win_rate_split_layout(self) -> None:
+        source = self._page_source()
+
+        self._assert_contains_all(source, (
+            'class="results-workspace"',
+            'class="match-column"',
+            'id="win-rate-panel"',
+            'id="team-a-rate-bar"',
+            'id="team-b-rate-bar"',
+        ))
+        self.assertRegex(
+            source,
+            r"\.results-workspace\s*\{[^}]*display\s*:\s*grid[^}]*"
+            r"grid-template-columns\s*:\s*minmax\([^)]*\)\s+minmax\(",
+        )
+
+    def test_match_rows_are_full_card_detail_triggers_with_kungfu_icons(self) -> None:
+        source = self._page_source()
+
+        self._assert_contains_all(source, (
+            'className = "match-card"',
+            'renderKungfuPortrait',
+            'data-match-id',
+            '查看完整对局',
+            'https://img.jx3box.com/image/xf/',
+        ))
+
+    def test_picker_groups_healers_and_dps_and_exposes_icon_options(self) -> None:
+        source = self._page_source()
+
+        self._assert_contains_all(source, (
+            'class="kungfu-picker"',
+            'class="kungfu-picker-menu"',
+            '输出 DPS',
+            '奶妈',
+            'data-picker-id',
+            'renderKungfuPicker',
+            'https://img.jx3box.com/image/xf/',
+        ))
+
+    def test_detail_modal_matches_synced_match_team_and_player_structure(self) -> None:
+        source = self._page_source()
+
+        self._assert_contains_all(source, (
+            'className = "team-grid"',
+            'className = `team-card',
+            'className = "team-player"',
+            'className = "team-kungfu-icons"',
+            'className = "player-section"',
+            'className = "icon-grid"',
+            'className = "talent-grid"',
+            'data-detail-item',
+            'data-detail-item-type", "equipment"',
+            'data-detail-item-type", "talent"',
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()
