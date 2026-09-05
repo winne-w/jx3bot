@@ -43,6 +43,25 @@
             margin-bottom: 18px;
         }
 
+        .site-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 18px;
+            padding: 14px 16px;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--panel);
+            box-shadow: 0 12px 28px rgba(24, 33, 47, 0.06);
+        }
+        .site-brand { display: inline-flex; min-width: 0; flex-direction: column; gap: 2px; color: var(--ink); text-decoration: none; }
+        .site-brand strong { letter-spacing: 1px; }
+        .site-brand span { color: var(--muted); font-size: 0.78rem; }
+        .site-nav { display: flex; gap: 6px; overflow-x: auto; padding: 2px; }
+        .site-nav a { flex: 0 0 auto; padding: 8px 11px; border-radius: 8px; color: var(--muted); font-size: 0.86rem; text-decoration: none; white-space: nowrap; }
+        .site-nav a:hover, .site-nav a[aria-current="page"] { color: var(--accent); background: rgba(91, 124, 250, 0.10); }
+
         h1 {
             margin: 0 0 6px;
             font-size: clamp(1.45rem, 3vw, 2.15rem);
@@ -883,6 +902,8 @@
                 display: grid;
             }
 
+            .site-header { align-items: stretch; gap: 10px; }
+
             .search-form {
                 grid-template-columns: 1fr;
             }
@@ -903,6 +924,14 @@
 </head>
 <body>
     <main class="page">
+        <header class="site-header">
+            <a class="site-brand" href="index.html"><strong>JJC 数据中心</strong><span>剑网 3 竞技场数据浏览</span></a>
+            <nav class="site-nav" aria-label="JJC 数据中心导航">
+                <a href="index.html">心法排名</a>
+                <a href="jjc-synced-matches.html" aria-current="page">对局查询</a>
+                <a href="jjc-matchups.html">心法对阵</a>
+            </nav>
+        </header>
         <div class="topbar">
             <div>
                 <h1>JJC 对局查询</h1>

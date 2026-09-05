@@ -1,0 +1,4070 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JJC 数据中心 · 心法排名统计</title>
+    <style>
+        :root {
+            --bg: #f7fafd;
+            --bg-accent: #e8f2ff;
+            --ink: #2c3e50;
+            --muted: #65748b;
+            --card: #ffffff;
+            --stroke: rgba(137, 196, 244, 0.22);
+            --accent: #5b7cfa;
+            --accent-2: #ff78b1;
+            --shadow: 0 12px 32px rgba(94, 125, 245, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            color: var(--ink);
+            font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+            background:
+                radial-gradient(circle at 15% 10%, rgba(137, 196, 244, 0.18), transparent 55%),
+                radial-gradient(circle at 85% 0%, rgba(255, 121, 176, 0.18), transparent 60%),
+                linear-gradient(140deg, var(--bg), #ffffff);
+            min-height: 100vh;
+            padding: 36px 24px 60px;
+        }
+
+        .page {
+            width: 100%;
+            max-width: none;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .site-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 18px;
+            padding: 14px 18px;
+            border: 1px solid var(--stroke);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.86);
+            box-shadow: var(--shadow);
+        }
+        .site-brand { display: inline-flex; min-width: 0; flex-direction: column; gap: 2px; color: var(--ink); text-decoration: none; }
+        .site-brand strong { letter-spacing: 1px; }
+        .site-brand span { color: var(--muted); font-size: 0.78rem; }
+        .site-nav { display: flex; gap: 6px; overflow-x: auto; padding: 2px; }
+        .site-nav a { flex: 0 0 auto; padding: 8px 11px; border-radius: 10px; color: var(--muted); font-size: 0.86rem; text-decoration: none; white-space: nowrap; }
+        .site-nav a:hover, .site-nav a[aria-current="page"] { color: var(--accent); background: rgba(91, 124, 250, 0.10); }
+
+        .page::before {
+            content: "";
+            position: absolute;
+            inset: -20px;
+            background: repeating-linear-gradient(
+                130deg,
+                rgba(255, 255, 255, 0.55),
+                rgba(255, 255, 255, 0.55) 1px,
+                transparent 1px,
+                transparent 18px
+            );
+            border-radius: 32px;
+            z-index: -1;
+        }
+
+        header {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 24px 28px;
+            border-radius: 28px;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: var(--shadow);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+        }
+
+        .title {
+            font-size: clamp(1.6rem, 2.6vw, 2.4rem);
+            letter-spacing: 4px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 0.98rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 18px;
+        }
+
+        .announcement {
+            border-radius: 14px;
+            padding: 10px 14px;
+            background: rgba(91, 124, 250, 0.08);
+            border: 1px solid rgba(91, 124, 250, 0.22);
+            color: #324a7d;
+            font-size: 0.95rem;
+            letter-spacing: 0.5px;
+        }
+
+        .meta {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
+        .meta-card {
+            border-radius: 16px;
+            padding: 12px 14px;
+            background: var(--card);
+            border: 1px solid var(--stroke);
+            font-size: 0.92rem;
+            color: var(--muted);
+        }
+
+        .meta-card strong {
+            display: block;
+            color: var(--ink);
+            font-size: 1.04rem;
+            margin-bottom: 6px;
+            letter-spacing: 1px;
+        }
+
+        .status {
+            margin-top: 18px;
+            padding: 12px 16px;
+            border-radius: 16px;
+            font-size: 0.95rem;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px dashed rgba(94, 125, 245, 0.25);
+            color: var(--muted);
+        }
+
+        .status.hidden {
+            display: none;
+        }
+
+        .history-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 12px;
+            align-items: flex-end;
+        }
+
+        .history-field {
+            display: inline-flex;
+            flex-direction: column;
+            gap: 5px;
+            min-width: 132px;
+            color: var(--muted);
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
+        .history-field.snapshot-field {
+            min-width: min(360px, 100%);
+            flex: 1 1 280px;
+        }
+
+        .history-field select,
+        .legacy-date-select {
+            min-height: 34px;
+            border-radius: 10px;
+            border: 1px solid rgba(137, 196, 244, 0.35);
+            background: #ffffff;
+            color: var(--ink);
+            font-family: inherit;
+            font-size: 0.9rem;
+            padding: 6px 10px;
+            outline: none;
+        }
+
+        .history-field select:focus,
+        .legacy-date-select:focus {
+            border-color: rgba(91, 124, 250, 0.65);
+            box-shadow: 0 0 0 3px rgba(91, 124, 250, 0.12);
+        }
+
+        .tabs {
+            margin-top: 18px;
+            display: inline-flex;
+            gap: 10px;
+            padding: 6px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: var(--shadow);
+            flex-wrap: wrap;
+        }
+
+        .tab-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab-btn {
+            border: none;
+            padding: 6px 16px;
+            border-radius: 999px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            color: var(--muted);
+            background: transparent;
+            transition: all 0.2s ease;
+        }
+
+        .tab-btn.active {
+            color: #ffffff;
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+            box-shadow: 0 8px 20px rgba(91, 124, 250, 0.25);
+        }
+
+        .tab-export-btn {
+            border: none;
+            padding: 0;
+            font-size: 0.76rem;
+            font-weight: 600;
+            color: var(--accent);
+            background: transparent;
+            cursor: pointer;
+            line-height: 1;
+            transition: color 0.2s ease, opacity 0.2s ease;
+        }
+
+        .tab-export-btn:hover {
+            color: var(--accent-2);
+        }
+
+        .toggle-wrap {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: var(--shadow);
+            width: fit-content;
+        }
+
+        .toggle-wrap.hidden {
+            display: none;
+        }
+
+        .toggle-wrap label {
+            font-size: 0.88rem;
+            color: var(--muted);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+
+        .toggle-wrap input[type="checkbox"] {
+            width: 36px;
+            height: 20px;
+            appearance: none;
+            background: rgba(91, 124, 250, 0.2);
+            border-radius: 999px;
+            position: relative;
+            outline: none;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .toggle-wrap input[type="checkbox"]::after {
+            content: "";
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ffffff;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+            transition: transform 0.2s ease;
+        }
+
+        .toggle-wrap input[type="checkbox"]:checked {
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+        }
+
+        .toggle-wrap input[type="checkbox"]:checked::after {
+            transform: translateX(16px);
+        }
+
+        .grid {
+            margin-top: 28px;
+            display: grid;
+            gap: 24px;
+            grid-template-columns: repeat(1, minmax(0, 1fr));
+        }
+
+        .range-card {
+            min-width: 0;
+            background: var(--card);
+            border-radius: 20px;
+            padding: 18px 18px 22px;
+            border: 1px solid var(--stroke);
+            box-shadow: 0 10px 28px rgba(94, 125, 245, 0.12);
+        }
+
+        .range-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .range-heading {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 10px;
+        }
+
+        .range-title h3 {
+            margin: 0;
+            font-size: 1.1rem;
+            letter-spacing: 2px;
+        }
+
+        .range-title span {
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+
+        .range-meta {
+            margin: 6px 0 4px;
+            font-size: 0.86rem;
+            color: var(--muted);
+        }
+
+        .export-btn {
+            border: none;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            color: var(--accent);
+            background: rgba(91, 124, 250, 0.12);
+            box-shadow: none;
+            transition: transform 0.2s ease, background 0.2s ease;
+            margin-left: auto;
+        }
+
+        .export-btn svg {
+            width: 14px;
+            height: 14px;
+            display: block;
+            fill: currentColor;
+        }
+
+        .export-btn:hover {
+            transform: translateY(-1px);
+            background: rgba(91, 124, 250, 0.18);
+        }
+
+        .range-card.is-exporting .export-btn {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .range-card.is-exporting .detail-list {
+            display: none;
+        }
+
+        .page.is-exporting-full .tab-export-btn,
+        .page.is-exporting-full .export-btn {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .page.is-exporting-full .detail-list {
+            display: none;
+        }
+
+        .export-meta {
+            font-size: 0.86rem;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+
+        .lane {
+            margin-top: 12px;
+        }
+
+        .lane-title {
+            font-size: 0.98rem;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        .bar-row {
+            display: grid;
+            grid-template-columns: 96px 1fr 52px 60px;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 4px;
+            font-size: 0.9rem;
+        }
+
+        .bar {
+            height: 16px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(91, 124, 250, 0.14), rgba(255, 120, 177, 0.18));
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--accent), var(--accent-2));
+            transition: width 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bar-value {
+            font-weight: 700;
+            color: var(--ink);
+            text-align: right;
+        }
+
+        .bar-percent {
+            color: var(--muted);
+            text-align: right;
+            font-size: 0.84rem;
+        }
+
+        .bar-legendary {
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: linear-gradient(90deg, rgba(245, 197, 66, 0.9), rgba(245, 168, 66, 0.9));
+            opacity: 0.85;
+        }
+
+        .bar-kungfu {
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .arrow {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            color: var(--accent);
+            background: rgba(91, 124, 250, 0.12);
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+        .detail[open] .arrow {
+            transform: rotate(90deg);
+            background: rgba(255, 120, 177, 0.15);
+        }
+
+        .detail {
+            padding: 0;
+            margin-bottom: 6px;
+            transition: color 0.2s ease;
+        }
+
+        .detail summary {
+            list-style: none;
+            cursor: pointer;
+        }
+
+        .detail:hover {
+            color: var(--ink);
+        }
+
+        .detail summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .detail-list {
+            margin-top: 8px;
+            padding-top: 4px;
+            border-top: 1px solid rgba(137, 196, 244, 0.25);
+            display: grid;
+            gap: 4px;
+            font-size: 0.88rem;
+        }
+
+        .detail-item {
+            display: grid;
+            grid-template-columns: 72px 1fr 70px;
+            gap: 8px;
+            align-items: center;
+            color: var(--muted);
+        }
+
+        .detail-item-btn {
+            width: 100%;
+            border: none;
+            background: rgba(91, 124, 250, 0.04);
+            border-radius: 12px;
+            padding: 10px 12px;
+            text-align: left;
+            cursor: pointer;
+            transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .detail-item-btn:hover {
+            transform: translateY(-1px);
+            background: rgba(91, 124, 250, 0.09);
+            box-shadow: 0 8px 18px rgba(94, 125, 245, 0.12);
+        }
+
+        .detail-name {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .detail-weapon {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex: 0 0 auto;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+        }
+
+        .detail-weapon.is-legendary {
+            border: 2px solid #f5c542;
+            box-shadow: 0 2px 8px rgba(245, 197, 66, 0.45);
+        }
+
+        .detail-kungfu-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 4px;
+        }
+
+        .detail-kungfu-wrap {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .detail-kungfu-wrap::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translate(-50%, -4px);
+            background: rgba(30, 40, 55, 0.92);
+            color: #ffffff;
+            font-size: 0.78rem;
+            padding: 4px 8px;
+            border-radius: 8px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+        }
+
+        .detail-kungfu-wrap[data-tooltip=""]::after {
+            display: none;
+        }
+
+        .detail-kungfu-wrap:hover::after {
+            opacity: 1;
+            transform: translate(-50%, -10px);
+        }
+
+        .detail-kungfu {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            object-fit: cover;
+            background: #fff;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        .detail-kungfu.is-legendary {
+            border: 2px solid #f5c542;
+            box-shadow: 0 2px 8px rgba(245, 197, 66, 0.45);
+        }
+
+        .detail-rank {
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .detail-score {
+            text-align: right;
+            color: var(--ink);
+        }
+
+        .ranking-list-card {
+            grid-column: 1 / -1;
+            background: rgba(255, 255, 255, 0.86);
+            border: 1px solid rgba(91, 124, 250, 0.14);
+            border-radius: 18px;
+            padding: 18px;
+            box-shadow: 0 14px 34px rgba(24, 33, 47, 0.08);
+        }
+
+        .ranking-list-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 14px;
+        }
+
+        .ranking-list-toolbar h3 {
+            margin: 0 0 4px;
+            font-size: 1.05rem;
+        }
+
+        .scope-inline {
+            margin: 8px 0 0;
+            padding: 0 4px;
+            color: var(--muted);
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+
+        .scope-inline strong {
+            color: var(--ink);
+            font-weight: 700;
+        }
+
+        .ranking-table {
+            display: grid;
+            gap: 8px;
+        }
+
+        .ranking-row {
+            display: grid;
+            grid-template-columns: 72px minmax(180px, 1.5fr) minmax(90px, 0.7fr) minmax(100px, 0.8fr) minmax(90px, 0.6fr) minmax(160px, 1fr);
+            gap: 10px;
+            align-items: center;
+            padding: 10px 12px;
+            border: 1px solid rgba(137, 196, 244, 0.18);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.72);
+            color: inherit;
+            text-align: left;
+        }
+
+        .ranking-row.header {
+            font-size: 0.78rem;
+            color: var(--muted);
+            background: rgba(91, 124, 250, 0.08);
+            font-weight: 700;
+        }
+
+        .ranking-row-list {
+            grid-template-columns: 72px minmax(220px, 1.6fr) minmax(180px, 1fr) minmax(90px, 0.7fr) minmax(220px, 1.4fr);
+        }
+
+        .ranking-row-list .ranking-kungfu-cell {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .ranking-kungfu-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex: 0 0 auto;
+        }
+
+        .match-icon-cluster {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .peak-match-icons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+
+        .peak-match-self,
+        .peak-match-team {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        button.ranking-row {
+            cursor: pointer;
+        }
+
+        button.ranking-row:hover {
+            border-color: rgba(91, 124, 250, 0.34);
+            transform: translateY(-1px);
+        }
+
+        .ranking-score {
+            font-weight: 800;
+            color: var(--ink);
+        }
+
+        .ranking-match-btn {
+            border: none;
+            background: rgba(91, 124, 250, 0.1);
+            color: var(--accent);
+            border-radius: 12px;
+            padding: 7px 9px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 5px;
+            max-width: 100%;
+            text-align: left;
+        }
+
+        .ranking-match-btn:hover {
+            background: rgba(91, 124, 250, 0.16);
+        }
+
+        .ranking-match-time {
+            color: var(--ink);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .ranking-match-team-icons {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .ranking-name-btn {
+            border: none;
+            background: transparent;
+            color: var(--ink);
+            font-weight: 700;
+            cursor: pointer;
+            padding: 0;
+            text-align: left;
+        }
+
+        .ranking-name-btn:hover {
+            color: var(--accent);
+        }
+
+        @media (max-width: 860px) {
+            .ranking-row {
+                grid-template-columns: 54px 1fr 78px;
+            }
+            .ranking-row > span:nth-child(3),
+            .ranking-row > span:nth-child(4),
+            .ranking-row > span:nth-child(6) {
+                display: none;
+            }
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(24, 33, 47, 0.56);
+            backdrop-filter: blur(6px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            z-index: 2000;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal-card {
+            width: min(960px, 100%);
+            max-height: min(86vh, 920px);
+            overflow: auto;
+            border-radius: 24px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(244, 249, 255, 0.98));
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: 0 24px 60px rgba(24, 33, 47, 0.24);
+            padding: 22px;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .modal-title {
+            margin: 0;
+            font-size: 1.18rem;
+            letter-spacing: 1px;
+        }
+
+        .modal-subtitle {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .modal-close {
+            border: none;
+            background: rgba(91, 124, 250, 0.12);
+            color: var(--accent);
+            width: 34px;
+            height: 34px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            line-height: 1;
+        }
+
+        .modal-loading,
+        .modal-empty {
+            padding: 18px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.82);
+            border: 1px dashed rgba(94, 125, 245, 0.24);
+            color: var(--muted);
+        }
+
+        .role-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .role-overview-toolbar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .match-list-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin: 2px 0 10px;
+        }
+
+        .match-list-title {
+            font-weight: 700;
+            color: var(--ink);
+            font-size: 0.95rem;
+        }
+
+        .match-list-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .role-overview-toolbar .cache-label,
+        .match-list-toolbar .cache-label {
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        .role-refresh-btn,
+        .match-refresh-btn {
+            border: 1px solid rgba(137, 196, 244, 0.35);
+            background: rgba(255, 255, 255, 0.92);
+            color: var(--ink);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.86rem;
+            cursor: pointer;
+        }
+
+        .role-refresh-btn:disabled,
+        .match-refresh-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .role-overview-card {
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+        }
+
+        .role-overview-card strong {
+            display: block;
+            font-size: 1.12rem;
+            color: var(--ink);
+            margin-bottom: 6px;
+        }
+
+        .role-overview-card span {
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .match-list-panel {
+            display: grid;
+            gap: 10px;
+        }
+
+        .load-more-wrap {
+            display: flex;
+            justify-content: center;
+            padding: 12px 0 4px;
+        }
+
+        .load-more-wrap.hidden {
+            display: none;
+        }
+
+        .load-more-btn {
+            border: none;
+            padding: 10px 32px;
+            border-radius: 999px;
+            font-size: 0.92rem;
+            font-weight: 600;
+            cursor: pointer;
+            color: #ffffff;
+            background: linear-gradient(120deg, var(--accent), var(--accent-2));
+            box-shadow: 0 8px 20px rgba(91, 124, 250, 0.22);
+            transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+        }
+
+        .load-more-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px rgba(91, 124, 250, 0.3);
+        }
+
+        .load-more-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .load-more-btn.loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .match-row-btn {
+            border: none;
+            width: 100%;
+            text-align: left;
+            border-radius: 16px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+
+        .match-row-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 24px rgba(94, 125, 245, 0.12);
+            border-color: rgba(91, 124, 250, 0.28);
+        }
+
+        .match-row-btn.win {
+            border-left: 4px solid #34b56a;
+        }
+
+        .match-row-btn.lose {
+            border-left: 4px solid #d46a6a;
+        }
+
+        .match-row-top,
+        .match-row-bottom {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 14px;
+        }
+
+        .match-row-top {
+            margin-bottom: 8px;
+        }
+
+        .match-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(91, 124, 250, 0.1);
+            color: var(--accent);
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        .match-tag.win {
+            background: rgba(52, 181, 106, 0.12);
+            color: #248651;
+        }
+
+        .match-tag.lose {
+            background: rgba(212, 106, 106, 0.12);
+            color: #a34a4a;
+        }
+
+        .match-row-meta {
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .detail-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .detail-summary-card {
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+        }
+
+        .detail-summary-card strong {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 1.06rem;
+        }
+
+        .team-grid {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        }
+
+        .team-card {
+            border-radius: 18px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+        }
+
+        .team-card.won {
+            border-color: rgba(52, 181, 106, 0.3);
+            box-shadow: inset 0 0 0 1px rgba(52, 181, 106, 0.08);
+        }
+
+        .team-card h4 {
+            margin: 0 0 12px;
+            font-size: 1rem;
+        }
+
+        .team-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .team-title-row h4 {
+            margin: 0;
+        }
+
+        .team-kungfu-icons {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .team-kungfu-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: 0 3px 8px rgba(24, 33, 47, 0.08);
+            overflow: hidden;
+        }
+
+        .team-kungfu-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .team-player-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .team-player {
+            border-radius: 14px;
+            padding: 12px;
+            background: rgba(91, 124, 250, 0.05);
+        }
+
+        .team-player.is-clickable {
+            cursor: pointer;
+            transition: background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .team-player.is-clickable:hover {
+            background: rgba(91, 124, 250, 0.1);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 14px rgba(24, 33, 47, 0.08);
+        }
+
+        .team-player.focus {
+            background: rgba(255, 120, 177, 0.09);
+            border: 1px solid rgba(255, 120, 177, 0.18);
+        }
+
+        .team-player-top,
+        .team-player-bottom {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            align-items: center;
+        }
+
+        .team-player-top {
+            margin-bottom: 6px;
+        }
+
+        .player-name {
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .player-meta {
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .player-section {
+            margin-top: 10px;
+        }
+
+        .player-section-label {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+
+        .icon-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(36px, 36px));
+            gap: 8px;
+        }
+
+        .icon-chip {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: 0 4px 10px rgba(24, 33, 47, 0.08);
+        }
+
+        .icon-chip.legendary {
+            border: 2px solid #f5a623;
+            box-shadow: 0 4px 12px rgba(245, 166, 35, 0.35);
+        }
+
+        .icon-chip img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .icon-chip.empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            font-size: 0.72rem;
+        }
+
+        .talent-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .talent-chip {
+            position: relative;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            cursor: default;
+        }
+
+        .talent-chip-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+            box-shadow: 0 4px 10px rgba(24, 33, 47, 0.08);
+            flex-shrink: 0;
+        }
+
+        .talent-chip-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .talent-chip-name {
+            font-size: 0.76rem;
+            color: var(--ink);
+            max-width: 60px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            text-align: center;
+            line-height: 1.3;
+        }
+
+        .talent-chip.empty-chip {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            color: var(--muted);
+            font-size: 0.72rem;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(137, 196, 244, 0.22);
+        }
+
+        .talent-chip::after {
+            content: attr(data-desc);
+            position: absolute;
+            bottom: calc(100% + 2px);
+            left: 0;
+            transform: translate(0, -4px);
+            background: rgba(30, 40, 55, 0.94);
+            color: #ffffff;
+            font-size: 0.78rem;
+            padding: 6px 10px;
+            border-radius: 8px;
+            white-space: normal;
+            word-break: break-all;
+            max-width: 220px;
+            width: max-content;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            line-height: 1.5;
+        }
+
+        .talent-chip[data-desc=""]::after {
+            display: none;
+        }
+
+        .talent-chip:hover::after {
+            opacity: 1;
+            transform: translate(0, -10px);
+        }
+
+        @media (min-width: 760px) {
+            .grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1120px) {
+            .grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1460px) {
+            .grid {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+        }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        .error {
+            color: #8a2d2d;
+        }
+
+        .match-icons-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+
+        .match-team-icons {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .match-kungfu-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            background: #fff;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .match-kungfu-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .match-vs {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--muted);
+            margin: 0 2px;
+        }
+
+        /* ---- Announcement Popup ---- */
+        .announcement-hero {
+            background: linear-gradient(135deg, rgba(91, 124, 250, 0.06), rgba(255, 121, 176, 0.05));
+            border-radius: 16px;
+            padding: 18px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(137, 196, 244, 0.18);
+        }
+
+        .announcement-hero .announcement-date {
+            font-size: 0.78rem;
+            color: #fff;
+            background: var(--accent);
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+        }
+
+        .announcement-hero .announcement-title {
+            font-size: 1.12rem;
+            font-weight: 700;
+            margin: 0 0 6px;
+        }
+
+        .announcement-hero .announcement-body {
+            font-size: 0.92rem;
+            color: var(--muted);
+            line-height: 1.65;
+            white-space: pre-wrap;
+        }
+
+        .announcement-list-title {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: var(--muted);
+            margin-bottom: 10px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(137, 196, 244, 0.18);
+        }
+
+        .announcement-list-item {
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(137, 196, 244, 0.1);
+        }
+
+        .announcement-list-item:last-of-type {
+            border-bottom: none;
+        }
+
+        .announcement-list-item .item-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .announcement-list-item .item-date {
+            font-size: 0.76rem;
+            color: var(--muted);
+            background: rgba(137, 196, 244, 0.1);
+            padding: 1px 8px;
+            border-radius: 8px;
+            flex-shrink: 0;
+        }
+
+        .announcement-list-item .item-title {
+            font-size: 0.94rem;
+            font-weight: 600;
+        }
+
+        .announcement-list-item .item-body {
+            font-size: 0.86rem;
+            color: var(--muted);
+            line-height: 1.55;
+            white-space: pre-wrap;
+        }
+
+        .announcement-modal-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 14px;
+            margin-top: 10px;
+            border-top: 1px solid rgba(137, 196, 244, 0.14);
+        }
+
+        .announcement-feedback-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            color: var(--accent);
+            font-size: 0.88rem;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(137, 196, 244, 0.25);
+            background: rgba(137, 196, 244, 0.08);
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .announcement-feedback-link:hover {
+            background: rgba(137, 196, 244, 0.16);
+            border-color: var(--accent);
+        }
+
+        .announcement-dismiss-btn {
+            border: none;
+            border-radius: 10px;
+            padding: 10px 28px;
+            font-size: 0.94rem;
+            font-family: inherit;
+            cursor: pointer;
+            background: var(--accent);
+            color: #fff;
+            transition: opacity 0.15s;
+        }
+
+        .announcement-dismiss-btn:hover {
+            opacity: 0.85;
+        }
+
+        .announcement-modal-loading {
+            text-align: center;
+            padding: 14px;
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        /* ---- Floating Feedback Circle ---- */
+
+        .floating-feedback {
+            position: fixed;
+            bottom: 40px;
+            right: 40px;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 999;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            transition: opacity 0.15s, box-shadow 0.15s;
+        }
+
+        .floating-feedback:hover {
+            box-shadow: 0 6px 28px rgba(0, 0, 0, 0.45);
+        }
+
+        .floating-feedback.dragging {
+            opacity: 0.75;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .floating-feedback.hidden {
+            display: none;
+        }
+
+        .floating-feedback-text {
+            font-size: 0.82rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            pointer-events: none;
+        }
+
+        .floating-feedback-close {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.55);
+            border: none;
+            color: #fff;
+            font-size: 11px;
+            line-height: 20px;
+            text-align: center;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .floating-feedback:hover .floating-feedback-close {
+            opacity: 1;
+        }
+
+        .floating-feedback-close:hover {
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        @media (max-width: 700px) {
+            body {
+                padding: 20px 14px 40px;
+            }
+
+            header {
+                padding: 18px;
+            }
+
+            .site-header { align-items: stretch; flex-direction: column; gap: 10px; }
+            .site-nav { margin: 0 -4px; }
+
+            .bar-row {
+                grid-template-columns: 88px 1fr 48px 56px;
+            }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+</head>
+<body>
+    <div class="page">
+        <header class="site-header">
+            <a class="site-brand" href="index.html"><strong>JJC 数据中心</strong><span>剑网 3 竞技场数据浏览</span></a>
+            <nav class="site-nav" aria-label="JJC 数据中心导航">
+                <a href="index.html" aria-current="page">心法排名</a>
+                <a href="jjc-synced-matches.html">对局查询</a>
+                <a href="jjc-matchups.html">心法对阵</a>
+            </nav>
+        </header>
+        <header>
+            <div class="title">竞技场心法排名统计</div>
+            <div class="subtitle" id="subtitle">
+                <span class="muted">正在加载实时数据...</span>
+            </div>
+            <div class="status" id="status">正在请求统计接口</div>
+        </header>
+
+        <section class="grid" id="grid"></section>
+        <footer style="text-align:center; padding: 24px 0 8px; color: var(--muted); font-size: 0.92rem;">
+            数据来源：<a href="https://qike.rickchen.cn/jx3/jjc-ranking-stats.html" target="_blank" rel="noopener" style="color: var(--accent);">https://qike.rickchen.cn/jx3/jjc-ranking-stats.html</a>
+            &nbsp;|&nbsp;
+            <a href="https://github.com/winne-w/jx3bot/issues" target="_blank" rel="noopener" style="color: var(--accent);">遇到问题？在 GitHub 提 issue</a>
+        </footer>
+    </div>
+
+    <div class="modal-overlay" id="role-modal" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title" id="role-modal-title">角色近期战绩</h3>
+                    <div class="modal-subtitle" id="role-modal-subtitle"></div>
+                </div>
+                <button class="modal-close" type="button" data-close-modal="role" aria-label="关闭">×</button>
+            </div>
+            <div id="role-modal-body"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="match-modal" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title" id="match-modal-title">对局详情</h3>
+                    <div class="modal-subtitle" id="match-modal-subtitle"></div>
+                </div>
+                <button class="modal-close" type="button" data-close-modal="match" aria-label="关闭">×</button>
+            </div>
+            <div id="match-modal-body"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="announcement-modal" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title">公告 / 更新说明</h3>
+                </div>
+                <button class="modal-close" type="button" data-close-modal="announcement" aria-label="关闭">×</button>
+            </div>
+            <div id="announcement-modal-body"></div>
+            <div class="announcement-modal-footer">
+                <a href="https://github.com/winne-w/jx3bot/issues" target="_blank" rel="noopener" class="announcement-feedback-link">反馈 & 交流</a>
+                <button class="announcement-dismiss-btn" id="announcement-dismiss-btn">知道了</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="floating-feedback hidden" id="floating-feedback">
+        <button class="floating-feedback-close" id="floating-feedback-close" aria-label="关闭">×</button>
+        <span class="floating-feedback-text">反馈</span>
+    </div>
+
+    <script>
+        const BASE_API = "/jx3bot/api/jjc/ranking-stats";
+        const SEASONS_API = `${BASE_API}?action=seasons`;
+        const DEFAULT_READ_API = `${BASE_API}?action=read`;
+        const params = new URLSearchParams(window.location.search);
+        const seasonsApiUrl = params.get("seasons_api") || SEASONS_API;
+        const seasonHistoryApiBase = params.get("season_history_api") || BASE_API;
+        const readApiBase = params.get("api") || DEFAULT_READ_API;
+        const detailsApiBase = params.get("details_api") || `${BASE_API}/details`;
+        const flatMembersApiBase = params.get("flat_members_api") || `${BASE_API}/flat-members`;
+        const peakScoreApiBase = params.get("peak_score_api") || `${BASE_API}/peak-score`;
+        const roleRecentApiBase = params.get("role_recent_api") || `${BASE_API}/role-recent`;
+        const roleIndicatorApiBase = params.get("role_indicator_api") || `${BASE_API}/role-indicator`;
+        const matchDetailApiBase = params.get("match_detail_api") || `${BASE_API}/match-detail`;
+
+        const rangeConfigs = [
+            { key: "top_1000", label: "前1000" },
+            { key: "top_200", label: "前200" },
+            { key: "top_100", label: "前100" },
+            { key: "top_50", label: "前50" },
+        ];
+
+        const kungfuIconIdByName = {
+            "易筋经": "10003",
+            "紫霞功": "10014",
+            "太虚剑意": "10015",
+            "花间游": "10021",
+            "离经易道": "10028",
+            "傲血战意": "10062",
+            "铁牢律": "10061",
+            "冰心诀": "10081",
+            "云裳心经": "10080",
+            "毒经": "10175",
+            "补天诀": "10176",
+            "山居剑意": "10144",
+            "问水诀": "10145",
+            "天罗诡道": "10224",
+            "惊羽诀": "10225",
+            "分山劲": "10268",
+            "铁骨衣": "10267",
+            "笑尘诀": "10390",
+            "焚影圣诀": "10242",
+            "明尊琉璃体": "10243",
+            "莫问": "10447",
+            "相知": "10448",
+            "北傲诀": "10464",
+            "凌海诀": "10533",
+            "隐龙诀": "10585",
+            "无方": "10615",
+            "灵素": "10616",
+            "孤锋诀": "10698",
+            "山海心诀": "10756",
+            "周天功": "10786",
+            "太玄经": "10821",
+            "幽罗引": "10886",
+        };
+
+        const subtitle = document.getElementById("subtitle");
+        const grid = document.getElementById("grid");
+        const statusNode = document.getElementById("status");
+        const pageNode = document.querySelector(".page");
+        const roleModal = document.getElementById("role-modal");
+        const roleModalTitle = document.getElementById("role-modal-title");
+        const roleModalSubtitle = document.getElementById("role-modal-subtitle");
+        const roleModalBody = document.getElementById("role-modal-body");
+        const matchModal = document.getElementById("match-modal");
+        const matchModalTitle = document.getElementById("match-modal-title");
+        const matchModalSubtitle = document.getElementById("match-modal-subtitle");
+        const matchModalBody = document.getElementById("match-modal-body");
+
+        let currentStats = null;
+        let currentStatsTimestamp = "";
+        let currentOuterTab = "all";
+        let currentInnerView = "distribution";
+        let currentListRange = "top_1000";
+        let showLegendaryOverlay = false;
+        let currentRoleInspect = null;
+        const detailCache = new Map();
+        const roleRecentCache = new Map();
+        const roleIndicatorCache = new Map();
+        const matchDetailCache = new Map();
+        const rankingListCache = new Map();
+
+        let currentPagination = {
+            hasMore: false,
+            nextCursor: null,
+            server: "",
+            name: "",
+            identityHints: {},
+            isLoading: false,
+        };
+
+        // ---- Announcement State ----
+        const ANNOUNCEMENT_API = "/jx3bot/api/announcements";
+        const ANNOUNCEMENT_SEEN_KEY = "announcement_seen_at";
+        let announcementCursor = null;
+        let announcementHasMore = true;
+        let announcementLoading = false;
+        let announcementObserver = null;
+        let currentPopupSeenAt = null;
+
+        const announcementModal = document.getElementById("announcement-modal");
+        const announcementBody = document.getElementById("announcement-modal-body");
+        const announcementDismissBtn = document.getElementById("announcement-dismiss-btn");
+
+        function safeGetAnnouncementSeen() {
+            try { return localStorage.getItem(ANNOUNCEMENT_SEEN_KEY); } catch (e) { return null; }
+        }
+        function safeSetAnnouncementSeen(value) {
+            try { localStorage.setItem(ANNOUNCEMENT_SEEN_KEY, value); } catch (e) { /* ignore */ }
+        }
+
+        const LEGENDARY_WEAPON_NAMES = new Set([
+            "钗蝶语双", "七月嘉树", "万象金声", "幽微夜", "蜕骨", "伏魔悲音", "意真",
+            "长安", "掠炎", "金乌回首", "栖贤韵", "瀚海引", "镇恶", "仙灵", "暴龙震江",
+            "烛微刀", "碧血豪侠", "伏龙阳焰", "天下宏愿", "龙鲤", "银羽雪辉", "子不语",
+            "碧岚幽炎", "逾潮声", "静雨", "折枝花满", "昭佛光", "烬灭",
+        ]);
+
+        function isLegendaryWeapon(item) {
+            if (!item || String(item.weapon_quality) !== "5") {
+                return false;
+            }
+            const weaponName = item.weapon_name || item.weapon?.name || "";
+            if (weaponName !== "") {
+                return LEGENDARY_WEAPON_NAMES.has(weaponName);
+            }
+            return false;
+        }
+
+        const listContainer = document.createElement("div");
+        listContainer.className = "status";
+        listContainer.id = "list-status";
+        listContainer.innerHTML = `<span class="muted">正在加载日期列表...</span>`;
+        statusNode.insertAdjacentElement("afterend", listContainer);
+
+        let dateSelect = null;
+        let seasonSelect = null;
+        let weekSelect = null;
+        let typeSelect = null;
+        let snapshotSelect = null;
+        let metadataStore = { seasons: [], weeksBySeason: {}, typesBySeasonWeek: {}, snapshotsByKey: {}, items: [] };
+        let availableSeasons = [];
+        let loadedSeason = "";
+        let seasonHistoryRequestId = 0;
+        let statsRequestId = 0;
+
+        const tabContainer = document.createElement("div");
+        tabContainer.className = "tabs";
+        tabContainer.innerHTML = `
+            <div class="tab-group">
+                <button class="tab-btn active" data-tab="all" type="button">推栏排名</button>
+                <button class="tab-export-btn" data-export-mode="all" type="button">整体导出</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-btn" data-tab="purple" type="button">推栏排名-紫武</button>
+                <button class="tab-export-btn" data-export-mode="purple" type="button">整体导出</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-btn" data-tab="peak-game" type="button">14日游戏内分数排名</button>
+                <button class="tab-export-btn" data-export-mode="peak-game" type="button">整体导出</button>
+            </div>
+        `;
+        listContainer.insertAdjacentElement("afterend", tabContainer);
+
+        const scopeInlineNode = document.createElement("div");
+        scopeInlineNode.className = "scope-inline";
+        tabContainer.insertAdjacentElement("afterend", scopeInlineNode);
+
+        const innerTabContainer = document.createElement("div");
+        innerTabContainer.className = "tabs";
+        innerTabContainer.innerHTML = `
+            <div class="tab-group">
+                <button class="tab-btn active" data-view="distribution" type="button">心法分布</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-btn" data-view="list" type="button">排名列表</button>
+            </div>
+        `;
+        scopeInlineNode.insertAdjacentElement("afterend", innerTabContainer);
+
+        const toggleContainer = document.createElement("div");
+        toggleContainer.className = "toggle-wrap hidden";
+        toggleContainer.innerHTML = `
+            <label>
+                <input type="checkbox" id="legendary-toggle">
+                <span>橙武占比覆盖</span>
+            </label>
+        `;
+        innerTabContainer.insertAdjacentElement("afterend", toggleContainer);
+        const legendaryToggle = toggleContainer.querySelector("#legendary-toggle");
+
+        function escapeHtml(value) {
+            return String(value ?? "")
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#39;");
+        }
+
+        function formatTime(timestamp, includeWeekday = false) {
+            if (!timestamp) {
+                return "未知时间";
+            }
+            const date = new Date(timestamp * 1000);
+            if (Number.isNaN(date.getTime())) {
+                return "未知时间";
+            }
+            const options = {
+                hour12: false,
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+            };
+            if (includeWeekday) {
+                options.weekday = "short";
+            }
+            return date.toLocaleString("zh-CN", options);
+        }
+
+        function formatDuration(seconds) {
+            const value = Number(seconds);
+            if (!Number.isFinite(value) || value <= 0) {
+                return "-";
+            }
+            const mins = Math.floor(value / 60);
+            const secs = value % 60;
+            return `${mins}分${String(secs).padStart(2, "0")}秒`;
+        }
+
+        const JJC_MAP_NAMES = {
+            "128": "乐山大佛库",
+            "362": "墟海之眼",
+            "238": "青竹书院",
+            "696": "红叶泽",
+            "277": "拭剑台",
+            "624": "沃石火狱",
+            "127": "天山碎冰谷",
+            "129": "华山之巅",
+        };
+
+        function formatMapName(value) {
+            if (value == null || value === "") {
+                return "-";
+            }
+            const key = String(value);
+            return JJC_MAP_NAMES[key] || key;
+        }
+
+        function formatGrade(value) {
+            if (value == null || value === "") {
+                return "-";
+            }
+            return `${value}段`;
+        }
+
+        function setStatus(message, type) {
+            const isError = type === "error";
+            statusNode.textContent = message;
+            statusNode.classList.toggle("error", isError);
+            statusNode.classList.toggle("hidden", !isError);
+        }
+
+        function unwrapResponse(payload) {
+            if (!payload || typeof payload !== "object") {
+                throw new Error("响应格式异常");
+            }
+            if (Object.prototype.hasOwnProperty.call(payload, "status_code")) {
+                if (payload.status_code !== 0) {
+                    throw new Error(payload.status_msg || "接口返回错误");
+                }
+                return payload.data;
+            }
+            return payload;
+        }
+
+        function getWeekLabel(item, weekNumber) {
+            const weekInfo = String(item.week_info || "");
+            const match = weekInfo.match(/第\s*\d+\s*周/);
+            if (match) {
+                return match[0].replace(/\s+/g, "");
+            }
+            if (Number.isFinite(weekNumber)) {
+                return `第${weekNumber}周`;
+            }
+            return "未知周次";
+        }
+
+        function normalizeHistoryItems(rawItems) {
+            if (!Array.isArray(rawItems)) {
+                return [];
+            }
+            return rawItems
+                .map(function (item) {
+                    if (!item || typeof item !== "object") {
+                        return null;
+                    }
+                    const timestampNumber = Number(item.timestamp);
+                    if (!Number.isFinite(timestampNumber)) {
+                        return null;
+                    }
+                    const weekRaw = item.default_week ?? item.week;
+                    const weekNumber = Number(weekRaw);
+                    const hasWeekNumber = Number.isFinite(weekNumber);
+                    const season = String(item.current_season ?? item.season ?? "未知赛季");
+                    const weekKey = hasWeekNumber ? String(weekNumber) : "unknown";
+                    const weekLabel = getWeekLabel(item, hasWeekNumber ? weekNumber : NaN);
+                    const weekInfo = String(item.week_info || "");
+                    const isSettlement = item.is_settlement === true
+                        || item.snapshot_kind === "settlement"
+                        || weekInfo.indexOf("结算") >= 0;
+                    const kind = isSettlement ? "settlement" : "daily";
+                    const kindLabel = isSettlement ? "结算" : "日常快照";
+                    const timeLabel = formatTime(timestampNumber, true);
+                    return {
+                        timestamp: String(item.timestamp),
+                        timestampNumber: timestampNumber,
+                        season: season || "未知赛季",
+                        weekKey: weekKey,
+                        weekNumber: hasWeekNumber ? weekNumber : null,
+                        weekLabel: weekLabel,
+                        kind: kind,
+                        kindLabel: kindLabel,
+                        timeLabel: timeLabel,
+                        snapshotLabel: `${kindLabel} · ${timeLabel}`,
+                    };
+                })
+                .filter(Boolean)
+                .sort(function (a, b) {
+                    if (a.timestampNumber !== b.timestampNumber) {
+                        return b.timestampNumber - a.timestampNumber;
+                    }
+                    return a.season.localeCompare(b.season);
+                });
+        }
+
+        function buildHistoryGroups(items) {
+            const seasons = [];
+            const seasonMap = new Map();
+            items.forEach(function (item) {
+                if (!seasonMap.has(item.season)) {
+                    const seasonEntry = { value: item.season, label: item.season, latest: item.timestampNumber, weeks: [], weekMap: new Map() };
+                    seasonMap.set(item.season, seasonEntry);
+                    seasons.push(seasonEntry);
+                }
+                const seasonEntry = seasonMap.get(item.season);
+                seasonEntry.latest = Math.max(seasonEntry.latest, item.timestampNumber);
+                if (!seasonEntry.weekMap.has(item.weekKey)) {
+                    const weekEntry = {
+                        value: item.weekKey,
+                        label: item.weekLabel,
+                        weekNumber: item.weekNumber,
+                        latest: item.timestampNumber,
+                        items: [],
+                    };
+                    seasonEntry.weekMap.set(item.weekKey, weekEntry);
+                    seasonEntry.weeks.push(weekEntry);
+                }
+                const weekEntry = seasonEntry.weekMap.get(item.weekKey);
+                weekEntry.latest = Math.max(weekEntry.latest, item.timestampNumber);
+                weekEntry.items.push(item);
+            });
+            seasons.sort(function (a, b) { return b.latest - a.latest; });
+            seasons.forEach(function (seasonEntry) {
+                seasonEntry.weeks.sort(function (a, b) {
+                    if (a.weekNumber != null && b.weekNumber != null && a.weekNumber !== b.weekNumber) {
+                        return b.weekNumber - a.weekNumber;
+                    }
+                    if (a.weekNumber != null && b.weekNumber == null) {
+                        return -1;
+                    }
+                    if (a.weekNumber == null && b.weekNumber != null) {
+                        return 1;
+                    }
+                    return b.latest - a.latest;
+                });
+            });
+            return { seasons: seasons, seasonMap: seasonMap, items: items };
+        }
+
+        function populateSelect(selectEl, options, selectedValue) {
+            if (!selectEl) {
+                return;
+            }
+            selectEl.innerHTML = options.map(function (option) {
+                const selected = option.value === selectedValue ? " selected" : "";
+                return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(option.label)}</option>`;
+            }).join("");
+            selectEl.disabled = options.length === 0;
+        }
+
+        function getSelectedWeekEntry(seasonValue) {
+            const seasonEntry = metadataStore.seasonMap && metadataStore.seasonMap.get(seasonValue);
+            if (!seasonEntry || !weekSelect) {
+                return null;
+            }
+            return seasonEntry.weekMap.get(weekSelect.value) || null;
+        }
+
+        function updateWeekSelect(seasonValue) {
+            const seasonEntry = metadataStore.seasonMap && metadataStore.seasonMap.get(seasonValue);
+            const weeks = seasonEntry ? seasonEntry.weeks : [];
+            const options = weeks.map(function (week) {
+                return { value: week.value, label: week.label };
+            });
+            populateSelect(weekSelect, options, options[0] ? options[0].value : "");
+        }
+
+        function updateSnapshotSelect(loadSelected) {
+            const seasonValue = seasonSelect ? seasonSelect.value : "";
+            const weekEntry = getSelectedWeekEntry(seasonValue);
+            const typeValue = typeSelect ? typeSelect.value : "all";
+            let snapshots = weekEntry ? weekEntry.items.slice() : [];
+            if (typeValue === "settlement") {
+                snapshots = snapshots.filter(function (item) { return item.kind === "settlement"; });
+            } else if (typeValue === "daily") {
+                snapshots = snapshots.filter(function (item) { return item.kind === "daily"; });
+            }
+            snapshots.sort(function (a, b) {
+                if (a.kind !== b.kind) {
+                    return a.kind === "settlement" ? -1 : 1;
+                }
+                return b.timestampNumber - a.timestampNumber;
+            });
+            const options = snapshots.map(function (item) {
+                return {
+                    value: item.timestamp,
+                    label: `${item.weekLabel} · ${item.snapshotLabel}`,
+                };
+            });
+            populateSelect(snapshotSelect, options, options[0] ? options[0].value : "");
+            if (loadSelected && snapshotSelect && snapshotSelect.value) {
+                loadStats(snapshotSelect.value);
+            }
+        }
+
+        function renderMetadataList(rawItems, seasons, selectedSeason) {
+            const items = normalizeHistoryItems(rawItems);
+            if (!items.length) {
+                listContainer.textContent = "暂无可用快照数据";
+                return;
+            }
+            metadataStore = buildHistoryGroups(items);
+            loadedSeason = selectedSeason;
+            dateSelect = null;
+
+            listContainer.innerHTML = `
+                <div class="history-controls">
+                    <label class="history-field">赛季<select id="season-select"></select></label>
+                    <label class="history-field">周次<select id="week-select"></select></label>
+                    <label class="history-field">类型<select id="type-select"></select></label>
+                    <label class="history-field snapshot-field">快照<select id="snapshot-select"></select></label>
+                </div>
+            `;
+            seasonSelect = listContainer.querySelector("#season-select");
+            weekSelect = listContainer.querySelector("#week-select");
+            typeSelect = listContainer.querySelector("#type-select");
+            snapshotSelect = listContainer.querySelector("#snapshot-select");
+
+            const seasonOptions = (seasons || []).map(function (season) {
+                return { value: season.name, label: season.name };
+            });
+            populateSelect(seasonSelect, seasonOptions, selectedSeason);
+            populateSelect(typeSelect, [
+                { value: "all", label: "全部" },
+                { value: "settlement", label: "结算" },
+                { value: "daily", label: "日常快照" },
+            ], "all");
+            updateWeekSelect(seasonSelect.value);
+            updateSnapshotSelect(true);
+
+            seasonSelect.addEventListener("change", function () {
+                loadSeasonHistory(seasonSelect.value);
+            });
+            weekSelect.addEventListener("change", function () {
+                typeSelect.value = "all";
+                updateSnapshotSelect(true);
+            });
+            typeSelect.addEventListener("change", function () {
+                updateSnapshotSelect(true);
+            });
+            snapshotSelect.addEventListener("change", function () {
+                if (snapshotSelect.value) {
+                    loadStats(snapshotSelect.value);
+                }
+            });
+        }
+
+        function renderDateList(timestamps) {
+            if (!Array.isArray(timestamps) || timestamps.length === 0) {
+                listContainer.textContent = "暂无可用日期数据";
+                return;
+            }
+            var items = timestamps
+                .filter(function (value) { return Number.isFinite(Number(value)); })
+                .sort(function (a, b) { return Number(b) - Number(a); })
+                .map(function (value) {
+                    return {
+                        value: String(value),
+                        label: formatTime(Number(value), true),
+                    };
+                });
+            if (!items.length) {
+                listContainer.textContent = "暂无可用日期数据";
+                return;
+            }
+
+            seasonSelect = null;
+            weekSelect = null;
+            typeSelect = null;
+            snapshotSelect = null;
+            listContainer.innerHTML = "<label class=\"muted\" for=\"date-select\">可用日期：</label>"
+                + "<select id=\"date-select\" class=\"legacy-date-select\"></select>";
+            dateSelect = listContainer.querySelector("#date-select");
+
+            dateSelect.innerHTML = items
+                .map(function (item) { return "<option value=\"" + item.value + "\">" + item.label + "</option>"; })
+                .join("");
+            dateSelect.disabled = false;
+            dateSelect.value = items[0].value;
+
+            dateSelect.addEventListener("change", function (event) {
+                var value = event.target.value;
+                if (value) { loadStats(value); }
+            });
+        }
+
+        function buildDetailsCacheKey(source, timestamp, rangeKey, lane, kungfu) {
+            return [source, timestamp, rangeKey, lane, kungfu].join("::");
+        }
+
+        function setSeasonHistoryLoading() {
+            [weekSelect, typeSelect, snapshotSelect].forEach(function (select) {
+                if (!select) {
+                    return;
+                }
+                select.innerHTML = "";
+                select.disabled = true;
+            });
+        }
+
+        function restoreLoadedSeasonControls() {
+            if (!loadedSeason || !seasonSelect || !metadataStore.items.length) {
+                return;
+            }
+            seasonSelect.value = loadedSeason;
+            populateSelect(typeSelect, [
+                { value: "all", label: "全部" },
+                { value: "settlement", label: "结算" },
+                { value: "daily", label: "日常快照" },
+            ], "all");
+            updateWeekSelect(loadedSeason);
+            updateSnapshotSelect(false);
+        }
+
+        function buildDetailsUrl(timestamp, rangeKey, lane, kungfu) {
+            const url = new URL(detailsApiBase, window.location.origin);
+            url.searchParams.set("timestamp", timestamp);
+            url.searchParams.set("range", rangeKey);
+            url.searchParams.set("lane", lane);
+            url.searchParams.set("kungfu", kungfu);
+            return url.toString();
+        }
+
+        function buildPeakDetailsUrl(timestamp, scoreType, rangeKey, kungfu) {
+            const url = new URL(`${peakScoreApiBase}/details`, window.location.origin);
+            url.searchParams.set("timestamp", timestamp);
+            url.searchParams.set("score_type", scoreType);
+            url.searchParams.set("range", rangeKey);
+            url.searchParams.set("kungfu", kungfu);
+            return url.toString();
+        }
+
+        function buildFlatMembersUrl(timestamp, rangeKey) {
+            const url = new URL(flatMembersApiBase, window.location.origin);
+            url.searchParams.set("timestamp", timestamp);
+            url.searchParams.set("range", rangeKey);
+            return url.toString();
+        }
+
+        function buildPeakScoreUrl(timestamp, scoreType, rangeKey, options = {}) {
+            const url = new URL(peakScoreApiBase, window.location.origin);
+            url.searchParams.set("timestamp", timestamp);
+            url.searchParams.set("score_type", scoreType);
+            url.searchParams.set("range", rangeKey);
+            if (options.includeMatchSummary === false) {
+                url.searchParams.set("include_match_summary", "0");
+            }
+            return url.toString();
+        }
+
+        function buildRoleRecentUrl(server, name, identityHints = {}, cursor = 0, options = {}) {
+            const url = new URL(roleRecentApiBase, window.location.origin);
+            url.searchParams.set("server", server);
+            url.searchParams.set("name", name);
+            if (cursor > 0) {
+                url.searchParams.set("cursor", String(cursor));
+            }
+            if (identityHints.game_role_id) {
+                url.searchParams.set("game_role_id", identityHints.game_role_id);
+            }
+            if (identityHints.global_role_id) {
+                url.searchParams.set("global_role_id", identityHints.global_role_id);
+            }
+            if (identityHints.role_id) {
+                url.searchParams.set("role_id", identityHints.role_id);
+            }
+            if (identityHints.zone) {
+                url.searchParams.set("zone", identityHints.zone);
+            }
+            if (options.forceRefresh) {
+                url.searchParams.set("force_refresh", "true");
+            }
+            return url.toString();
+        }
+
+        function buildRoleIndicatorUrl(server, name, identityHints = {}, options = {}) {
+            const url = new URL(roleIndicatorApiBase, window.location.origin);
+            url.searchParams.set("server", server);
+            url.searchParams.set("name", name);
+            if (identityHints.game_role_id) {
+                url.searchParams.set("game_role_id", identityHints.game_role_id);
+            }
+            if (identityHints.global_role_id) {
+                url.searchParams.set("global_role_id", identityHints.global_role_id);
+            }
+            if (identityHints.role_id) {
+                url.searchParams.set("role_id", identityHints.role_id);
+            }
+            if (identityHints.zone) {
+                url.searchParams.set("zone", identityHints.zone);
+            }
+            if (options.forceRefresh) {
+                url.searchParams.set("force_refresh", "true");
+            }
+            return url.toString();
+        }
+
+        function buildMatchDetailUrl(matchId) {
+            const url = new URL(matchDetailApiBase, window.location.origin);
+            url.searchParams.set("match_id", matchId);
+            return url.toString();
+        }
+
+        function openModal(modal) {
+            if (!(modal instanceof HTMLElement)) {
+                return;
+            }
+            modal.classList.add("show");
+            modal.setAttribute("aria-hidden", "false");
+            document.body.style.overflow = "hidden";
+        }
+
+        function closeModal(modal) {
+            if (!(modal instanceof HTMLElement)) {
+                return;
+            }
+            modal.classList.remove("show");
+            modal.setAttribute("aria-hidden", "true");
+            if (!roleModal.classList.contains("show") && !matchModal.classList.contains("show") && !announcementModal.classList.contains("show")) {
+                document.body.style.overflow = "";
+            }
+        }
+
+        function renderDetailContent(members) {
+            const filteredMembers = currentOuterTab === "purple"
+                ? (members || []).filter((member) => !isLegendaryWeapon(member))
+                : (members || []);
+            if (!filteredMembers.length) {
+                return "<div class='muted'>暂无明细</div>";
+            }
+
+            return filteredMembers.map((member) => {
+                const kungfuIcons = [];
+                if (member.kungfu_id) {
+                    const isLegendary = isLegendaryWeapon(member);
+                    kungfuIcons.push(`<img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${member.kungfu_id}.png" alt="kungfu">`);
+                }
+                if (Array.isArray(member.teammates)) {
+                    member.teammates.forEach((teammate) => {
+                        if (teammate && teammate.kungfu_id) {
+                            const isLegendary = isLegendaryWeapon(teammate);
+                            const teammateName = teammate.role_name ?? "未知";
+                            const tooltip = `${teammateName}`;
+                            kungfuIcons.push(`<span class="detail-kungfu-wrap" data-tooltip="${escapeHtml(tooltip)}"><img class="detail-kungfu${isLegendary ? " is-legendary" : ""}" src="https://img.jx3box.com/image/xf/${teammate.kungfu_id}.png" alt="teammate"></span>`);
+                        }
+                    });
+                }
+                const kungfuRow = kungfuIcons.length
+                    ? `<div class="detail-kungfu-row">${kungfuIcons.join("")}</div>`
+                    : "";
+                return `
+                    <button
+                        class="detail-item detail-item-btn"
+                        type="button"
+                        data-role-server="${escapeHtml(member.server ?? "")}"
+                        data-role-name="${escapeHtml(member.name ?? "")}"
+                        data-game-role-id="${escapeHtml(member.game_role_id ?? "")}"
+                        data-global-role-id="${escapeHtml(member.global_role_id ?? "")}"
+                        data-role-id="${escapeHtml(member.role_id ?? "")}"
+                        data-zone="${escapeHtml(member.zone ?? "")}"
+                    >
+                        <div class="detail-rank">#${member.rank ?? "-"}</div>
+                        <div class="detail-name">
+                            ${member.weapon_icon ? `<img class="detail-weapon${isLegendaryWeapon(member) ? " is-legendary" : ""}" src="${escapeHtml(member.weapon_icon)}" alt="weapon">` : ""}
+                            <div>
+                                <div>${escapeHtml(member.name ?? "未知")}·${escapeHtml(member.server ?? "未知")}</div>
+                                ${kungfuRow}
+                            </div>
+                        </div>
+                        <div class="detail-score">${member.score ?? "-"}</div>
+                    </button>
+                `;
+            }).join("");
+        }
+
+        async function ensureDetailLoaded(detailsNode) {
+            if (!(detailsNode instanceof HTMLElement) || !detailsNode.open) {
+                return;
+            }
+            const detailListNode = detailsNode.querySelector(".detail-list");
+            if (!(detailListNode instanceof HTMLElement)) {
+                return;
+            }
+
+            const rangeKey = detailsNode.dataset.range || "";
+            const lane = detailsNode.dataset.lane || "";
+            const kungfu = decodeURIComponent(detailsNode.dataset.kungfu || "");
+            if (!currentStatsTimestamp || !rangeKey || !lane || !kungfu) {
+                detailListNode.innerHTML = "<div class='muted'>缺少详情参数</div>";
+                return;
+            }
+
+            const detailSource = currentOuterTab === "peak-game" ? "peak-game" : "ranking";
+            const cacheKey = buildDetailsCacheKey(detailSource, currentStatsTimestamp, rangeKey, lane, kungfu);
+            if (detailCache.has(cacheKey)) {
+                detailListNode.innerHTML = renderDetailContent(detailCache.get(cacheKey) || []);
+                detailListNode.dataset.loaded = "true";
+                return;
+            }
+
+            detailListNode.innerHTML = "<div class='muted'>正在加载明细...</div>";
+            try {
+                const detailsUrl = currentOuterTab === "peak-game"
+                    ? buildPeakDetailsUrl(currentStatsTimestamp, "game", rangeKey, kungfu)
+                    : buildDetailsUrl(currentStatsTimestamp, rangeKey, lane, kungfu);
+                const response = await fetch(detailsUrl, { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                const members = Array.isArray(data.members) ? data.members : [];
+                detailCache.set(cacheKey, members);
+                detailListNode.innerHTML = renderDetailContent(members);
+                detailListNode.dataset.loaded = "true";
+            } catch (error) {
+                detailListNode.innerHTML = `<div class='muted error'>加载明细失败：${escapeHtml(error.message || error)}</div>`;
+                detailListNode.dataset.loaded = "false";
+            }
+        }
+
+        function renderList(rangeKey, laneName, list, validCount, legendaryCountMap) {
+            const maxCount = list.reduce((maxValue, item) => Math.max(maxValue, item[1]), 1);
+            return list.map(([kungfu, count]) => {
+                const percent = validCount > 0 ? (count / validCount) * 100 : 0;
+                const legendaryCount = Number((legendaryCountMap || {})[kungfu] || 0);
+                const legendaryPercent = count > 0 ? (legendaryCount / count) * 100 : 0;
+                const overlayPercent = showLegendaryOverlay ? legendaryPercent : 0;
+                return `
+                    <details class="detail" data-range="${rangeKey}" data-lane="${laneName}" data-kungfu="${encodeURIComponent(kungfu)}">
+                        <summary>
+                            <div class="bar-row">
+                                <div class="bar-kungfu"><span class="arrow">›</span>${escapeHtml(kungfu)}</div>
+                                <div class="bar">
+                                    <div class="bar-fill" style="width:${(count / maxCount) * 100}%">
+                                        <div class="bar-legendary" style="width:${overlayPercent}%"></div>
+                                    </div>
+                                </div>
+                                <div class="bar-value">${count}</div>
+                                <div class="bar-percent">${percent.toFixed(1)}%</div>
+                            </div>
+                        </summary>
+                        <div class="detail-list" data-loaded="false">
+                            <div class='muted'>展开后加载明细</div>
+                        </div>
+                    </details>
+                `;
+            }).join("");
+        }
+
+        function renderRangeCard(rangeKey, rangeLabel, stats, outerTab) {
+            const healer = stats.healer || {};
+            const dps = stats.dps || {};
+            const minScore = healer.min_score ?? dps.min_score ?? "-";
+            const healerList = healer.list || [];
+            const dpsList = dps.list || [];
+            const healerLegendaryCountMap = healer.legendary_count_map || {};
+            const dpsLegendaryCountMap = dps.legendary_count_map || {};
+            const titleSuffix = outerTab === "purple" ? "（紫武）" : "";
+            const rankingLabel = getOuterTabLabel(outerTab);
+            const showMeta = ["前1000", "前200", "前100", "前50"].includes(rangeLabel);
+            const seasonText = window.currentSeasonLabel || "-";
+
+            return `
+                <div class="range-card">
+                    <div class="range-title">
+                        <div class="range-heading">
+                            <h3>${escapeHtml(rankingLabel)} · ${rangeLabel} 心法分布${titleSuffix}</h3>
+                            <span>最低分数：${minScore}</span>
+                        </div>
+                        <button class="export-btn" type="button" data-range="${rangeLabel}" aria-label="分享统计图片">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M14 3a1 1 0 0 0 0 2h3.59l-6.3 6.3a1 1 0 1 0 1.42 1.4L19 6.41V10a1 1 0 1 0 2 0V4a1 1 0 0 0-1-1h-6z"></path>
+                                <path d="M5 7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-4a1 1 0 1 0-2 0v4H5V9h4a1 1 0 1 0 0-2H5z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    ${showMeta ? `<div class="range-meta">赛季：${escapeHtml(seasonText)}</div>` : ""}
+                    <div class="lane">
+                        <div class="lane-title">奶妈（${healer.valid_count ?? 0}）</div>
+                        ${healerList.length ? renderList(rangeKey, "healer", healerList, healer.valid_count || 0, healerLegendaryCountMap) : "<div class='muted'>暂无奶妈数据</div>"}
+                    </div>
+                    <div class="lane">
+                        <div class="lane-title">DPS（${dps.valid_count ?? 0}）</div>
+                        ${dpsList.length ? renderList(rangeKey, "dps", dpsList, dps.valid_count || 0, dpsLegendaryCountMap) : "<div class='muted'>暂无DPS数据</div>"}
+                    </div>
+                </div>
+            `;
+        }
+
+        function buildFilteredLane(lane, mode) {
+            const sourceList = lane.list || [];
+            const sourceLegendaryCountMap = lane.legendary_count_map || {};
+            const listItems = [];
+            let validCount = 0;
+            const filteredLegendaryCountMap = {};
+
+            sourceList.forEach(([kungfu, count]) => {
+                const legendaryCount = Number(sourceLegendaryCountMap[kungfu] || 0);
+                const filteredCount = mode === "purple"
+                    ? Math.max(Number(count || 0) - legendaryCount, 0)
+                    : Number(count || 0);
+                if (filteredCount > 0) {
+                    listItems.push([kungfu, filteredCount]);
+                    filteredLegendaryCountMap[kungfu] = mode === "purple" ? 0 : legendaryCount;
+                }
+                validCount += filteredCount;
+            });
+
+            listItems.sort((a, b) => b[1] - a[1]);
+
+            return {
+                ...lane,
+                valid_count: validCount,
+                list: listItems,
+                distribution: Object.fromEntries(listItems),
+                min_score: lane.min_score,
+                legendary_count_map: filteredLegendaryCountMap,
+            };
+        }
+
+        function buildFilteredStats(stats, mode) {
+            const result = {};
+            Object.keys(stats || {}).forEach((rangeKey) => {
+                const rangeStats = stats[rangeKey] || {};
+                if (!rangeStats.healer || !rangeStats.dps) {
+                    result[rangeKey] = rangeStats;
+                    return;
+                }
+                result[rangeKey] = {
+                    ...rangeStats,
+                    healer: buildFilteredLane(rangeStats.healer, mode),
+                    dps: buildFilteredLane(rangeStats.dps, mode),
+                };
+            });
+            return result;
+        }
+
+        function getRankingItemName(item) {
+            return item.name || normalizeDetailPlayerName(item.role_name, item.server) || "未知";
+        }
+
+        function isPeakTab(tab) {
+            return tab === "peak-game";
+        }
+
+        function getOuterTabLabel(tab) {
+            const labelMap = {
+                all: "推栏排名",
+                purple: "推栏排名-紫武",
+                "peak-game": "14日游戏最高分排名",
+            };
+            return labelMap[tab] || tab;
+        }
+
+        function getRankingScopeText(tab) {
+            if (tab === "purple") {
+                return "统计口径：基于当前排名快照中的推栏竞技场排名数据，剔除被判定为橙武/紫武影响口径的角色后，按心法统计分布并展示排名列表。";
+            }
+            if (tab === "peak-game") {
+                return "统计口径：以当前排名快照时间为锚点，回溯前 14 天本地已收录的 3v3 对局，按角色在对局中的游戏内分数取个人最高分排名；可能因对局同步缺失导致数据不完整。";
+            }
+            return "统计口径：基于当前排名快照中的推栏竞技场排名数据，按推栏当前分数统计全部角色的心法分布和排名列表。";
+        }
+
+        function syncScopeInlineText() {
+            if (!scopeInlineNode) {
+                return;
+            }
+            const text = getRankingScopeText(currentOuterTab);
+            scopeInlineNode.innerHTML = `<strong>统计口径：</strong>${escapeHtml(text.replace(/^统计口径：/, ""))}`;
+        }
+
+        function resolveKungfuIconId(playerOrName) {
+            if (playerOrName && typeof playerOrName === "object") {
+                const directId = playerOrName.kungfu_id || playerOrName.kungfuId;
+                if (directId !== undefined && directId !== null && String(directId).trim()) {
+                    return String(directId).trim();
+                }
+                const name = String(playerOrName.kungfu || playerOrName.kungfu_name || "").trim();
+                return kungfuIconIdByName[name] || "";
+            }
+            const name = String(playerOrName || "").trim();
+            return kungfuIconIdByName[name] || "";
+        }
+
+        function renderTeamKungfuIconsInline(players) {
+            if (!Array.isArray(players) || !players.length) {
+                return "";
+            }
+            const icons = players
+                .map((player) => {
+                    const iconId = resolveKungfuIconId(player);
+                    if (!iconId) {
+                        return "";
+                    }
+                    return `
+                    <span class="team-kungfu-icon" title="${escapeHtml(player.role_name || player.person_name || player.kungfu || "")}">
+                        <img src="https://img.jx3box.com/image/xf/${escapeHtml(iconId)}.png" alt="${escapeHtml(player.kungfu || "kungfu")}">
+                    </span>
+                `;
+                })
+                .filter(Boolean);
+            if (!icons.length) {
+                return "";
+            }
+            return `<span class="match-icon-cluster">${icons.join("")}</span>`;
+        }
+
+        function normalizePlayerNameForCompare(name, server) {
+            return normalizeDetailPlayerName(name, server || "").trim();
+        }
+
+        function findPeakSelfPlayer(summary, name, server) {
+            if (!summary || typeof summary !== "object") {
+                return null;
+            }
+            const teams = ["team1", "team2"];
+            const targetName = String(name || "").trim();
+            const targetServer = String(server || "").trim();
+            for (const teamKey of teams) {
+                const players = summary[teamKey] && Array.isArray(summary[teamKey].players)
+                    ? summary[teamKey].players
+                    : [];
+                for (const player of players) {
+                    const roleName = normalizePlayerNameForCompare(player && player.role_name, player && player.server);
+                    const rawRoleName = String((player && player.role_name) || "").trim();
+                    const serverName = String((player && player.server) || "").trim();
+                    if ((roleName === targetName || rawRoleName === targetName) && serverName === targetServer) {
+                        return { player, teamKey };
+                    }
+                }
+            }
+            return null;
+        }
+
+        function resolveRankingItemKungfuIconId(item, name, server) {
+            const self = findPeakSelfPlayer(item && item.cached_detail_summary, name, server);
+            if (self && self.player) {
+                const selfIconId = resolveKungfuIconId(self.player);
+                if (selfIconId) {
+                    return selfIconId;
+                }
+            }
+            const directId = resolveKungfuIconId(item);
+            if (directId) {
+                return directId;
+            }
+            return resolveKungfuIconId(item && item.kungfu);
+        }
+
+        function renderPeakMatchSummary(summary, name, server) {
+            if (!summary || typeof summary !== "object") {
+                return `<span class="muted">等待对局摘要</span>`;
+            }
+            const team1 = summary.team1 && Array.isArray(summary.team1.players) ? summary.team1.players : [];
+            const team2 = summary.team2 && Array.isArray(summary.team2.players) ? summary.team2.players : [];
+            const self = findPeakSelfPlayer(summary, name, server);
+            const selfTeam = self && self.teamKey === "team2" ? team2 : self && self.teamKey === "team1" ? team1 : [];
+            const teamIcons = renderTeamKungfuIconsInline(selfTeam);
+            if (!teamIcons) {
+                return `<span class="muted">暂无对局图标</span>`;
+            }
+            return `
+                <div class="peak-match-icons">
+                    <span class="peak-match-team">${teamIcons}</span>
+                </div>
+            `;
+        }
+
+        function renderPeakMatchButton(item, name, server) {
+            const matchId = item && item.match_id;
+            if (!matchId) {
+                return renderPeakMatchSummary(item && item.cached_detail_summary, name, server);
+            }
+            const summary = item.cached_detail_summary;
+            const self = findPeakSelfPlayer(summary, name, server);
+            const team1 = summary && summary.team1 && Array.isArray(summary.team1.players) ? summary.team1.players : [];
+            const team2 = summary && summary.team2 && Array.isArray(summary.team2.players) ? summary.team2.players : [];
+            const selfTeam = self && self.teamKey === "team2" ? team2 : self && self.teamKey === "team1" ? team1 : [];
+            const teamIcons = renderTeamKungfuIconsInline(selfTeam);
+            const matchTime = formatTime(item.match_time || item.start_time || item.matchTime);
+            return `
+                <button
+                    class="ranking-match-btn"
+                    type="button"
+                    data-match-id="${escapeHtml(matchId)}"
+                    data-focus-name="${escapeHtml(name)}"
+                    data-focus-server="${escapeHtml(server)}"
+                    title="查看对局详情"
+                >
+                    <span class="ranking-match-time">${escapeHtml(matchTime)}</span>
+                    ${teamIcons ? `<span class="ranking-match-team-icons">${teamIcons}</span>` : "<span class='muted'>暂无对局图标</span>"}
+                </button>
+            `;
+        }
+
+        function getListSourceConfig(tab) {
+            if (tab === "peak-game") {
+                return { api: "peak-score", scoreType: "game", title: "14日游戏最高分排名" };
+            }
+            return { api: "flat-members", scoreType: null, title: tab === "purple" ? "推栏排名-紫武列表" : "推栏排名列表" };
+        }
+
+        function renderDistributionView(statsPayload, outerTab) {
+            const stats = outerTab === "purple"
+                ? buildFilteredStats(statsPayload.kungfu_statistics || {}, "purple")
+                : (statsPayload.kungfu_statistics || {});
+            const cards = rangeConfigs
+                .filter((config) => stats[config.key])
+                .map((config) => renderRangeCard(config.key, config.label, stats[config.key], outerTab));
+            grid.innerHTML = cards.length ? cards.join("") : "<div class='range-card'>暂无统计数据</div>";
+        }
+
+        async function loadPeakDistributionView() {
+            if (!currentStatsTimestamp) {
+                grid.innerHTML = "<div class='range-card'>缺少统计时间</div>";
+                return;
+            }
+            const cacheKey = ["peak-game", currentStatsTimestamp, "distribution"].join("::");
+            if (rankingListCache.has(cacheKey)) {
+                renderDistributionView(rankingListCache.get(cacheKey), "peak-game");
+                return;
+            }
+            grid.innerHTML = "<div class='range-card'>正在加载14日最高分心法分布...</div>";
+            try {
+                const results = await Promise.all(rangeConfigs.map(async (config) => {
+                    const response = await fetch(
+                        buildPeakScoreUrl(currentStatsTimestamp, "game", config.key, { includeMatchSummary: false }),
+                        { cache: "no-store" }
+                    );
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    const data = unwrapResponse(await response.json());
+                    return [config.key, data.kungfu_statistics || {}];
+                }));
+                const payload = {
+                    kungfu_statistics: Object.fromEntries(results),
+                };
+                rankingListCache.set(cacheKey, payload);
+                renderDistributionView(payload, "peak-game");
+                setStatus("14日最高分心法分布加载完成");
+            } catch (error) {
+                grid.innerHTML = `<div class='range-card muted error'>加载14日最高分心法分布失败：${escapeHtml(error.message || error)}</div>`;
+            }
+        }
+
+        function renderListView(payload, outerTab, rangeKey) {
+            const items = Array.isArray(payload.items) ? payload.items : [];
+            const isPeak = isPeakTab(outerTab);
+            const rangeLabel = (rangeConfigs.find((item) => item.key === rangeKey) || {}).label || rangeKey;
+            const titleLabel = getOuterTabLabel(outerTab);
+            const metaParts = [];
+            if (isPeak) {
+                metaParts.push(`窗口：${formatTime(payload.window_start)} 至 ${formatTime(payload.window_end)}`);
+            } else {
+                metaParts.push(`榜单时间：${formatTime(Number(currentStatsTimestamp))}`);
+            }
+            metaParts.push(`展示条数：${payload.total ?? payload.item_count ?? items.length}`);
+            const rows = items.map((item) => {
+                const name = getRankingItemName(item);
+                const server = item.server || "未知";
+                const kungfu = item.kungfu || "未知心法";
+                const score = item.score ?? "-";
+                const nameDisplay = `${name}·${server}`;
+                const kungfuIconId = resolveRankingItemKungfuIconId(item, name, server);
+                const kungfuIcon = kungfuIconId
+                    ? `<img class="ranking-kungfu-icon" src="https://img.jx3box.com/image/xf/${escapeHtml(kungfuIconId)}.png" alt="${escapeHtml(kungfu)}">`
+                    : "";
+                const matchSummary = isPeak
+                    ? renderPeakMatchButton(item, name, server)
+                    : `<span class="muted">当前榜单</span>`;
+                return `
+                    <div class="ranking-row ranking-row-list">
+                        <span>#${escapeHtml(item.rank ?? "-")}</span>
+                        <span>
+                            <button
+                                class="ranking-name-btn ranking-list-role-btn"
+                                type="button"
+                                data-role-server="${escapeHtml(server)}"
+                                data-role-name="${escapeHtml(name)}"
+                                data-game-role-id="${escapeHtml(item.game_role_id ?? "")}"
+                                data-global-role-id="${escapeHtml(item.global_role_id ?? "")}"
+                                data-role-id="${escapeHtml(item.role_id ?? "")}"
+                                data-zone="${escapeHtml(item.zone ?? "")}"
+                            >${escapeHtml(nameDisplay)}</button>
+                        </span>
+                        <span class="ranking-kungfu-cell">${kungfuIcon}${escapeHtml(kungfu)}</span>
+                        <span class="ranking-score">${escapeHtml(score)}</span>
+                        <span>${matchSummary}</span>
+                    </div>
+                `;
+            }).join("");
+
+            grid.innerHTML = `
+                <div class="ranking-list-card">
+                    <div class="ranking-list-toolbar">
+                        <div>
+                            <h3>${escapeHtml(titleLabel)} · ${escapeHtml(rangeLabel)}</h3>
+                            <div class="muted">${metaParts.map(escapeHtml).join(" ｜ ")}</div>
+                        </div>
+                    </div>
+                    <div class="ranking-table">
+                        <div class="ranking-row header">
+                            <span>名次</span>
+                            <span>角色</span>
+                            <span>心法</span>
+                            <span>分数</span>
+                            <span>${isPeak ? "最高分对局" : "来源"}</span>
+                        </div>
+                        ${rows || "<div class='muted'>暂无列表数据</div>"}
+                    </div>
+                </div>
+            `;
+        }
+
+        async function loadRankingListView(outerTab, rangeKey) {
+            if (!currentStatsTimestamp) {
+                grid.innerHTML = "<div class='range-card'>缺少统计时间</div>";
+                return;
+            }
+            const sourceConfig = getListSourceConfig(outerTab);
+            const url = sourceConfig.api === "flat-members"
+                ? buildFlatMembersUrl(currentStatsTimestamp, rangeKey)
+                : buildPeakScoreUrl(currentStatsTimestamp, sourceConfig.scoreType, rangeKey);
+            const cacheKey = [outerTab, currentStatsTimestamp, rangeKey].join("::");
+            if (rankingListCache.has(cacheKey)) {
+                renderListView(rankingListCache.get(cacheKey), outerTab, rangeKey);
+                return;
+            }
+            grid.innerHTML = "<div class='range-card'>正在加载列表...</div>";
+            try {
+                const response = await fetch(url, { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                rankingListCache.set(cacheKey, data);
+                renderListView(data, outerTab, rangeKey);
+                setStatus("列表加载完成");
+            } catch (error) {
+                grid.innerHTML = `<div class='range-card muted error'>加载列表失败：${escapeHtml(error.message || error)}</div>`;
+            }
+        }
+
+        function syncOuterTabUI() {
+            tabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.tab === currentOuterTab);
+            });
+        }
+
+        function syncInnerViewUI() {
+            innerTabContainer.querySelectorAll(".tab-btn").forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.view === currentInnerView);
+            });
+        }
+
+        function renderCurrentView() {
+            syncOuterTabUI();
+            syncInnerViewUI();
+            syncScopeInlineText();
+            if (toggleContainer) {
+                toggleContainer.classList.toggle("hidden", currentInnerView !== "distribution");
+            }
+
+            if (currentInnerView === "distribution") {
+                if (isPeakTab(currentOuterTab)) {
+                    loadPeakDistributionView();
+                    return;
+                }
+                if (currentStats) {
+                    renderDistributionView(currentStats, currentOuterTab);
+                }
+                return;
+            }
+
+            loadRankingListView(currentOuterTab, currentListRange);
+        }
+
+        function setOuterTab(tab) {
+            currentOuterTab = tab || "all";
+            if (isPeakTab(currentOuterTab)) {
+                currentInnerView = "distribution";
+            }
+            renderCurrentView();
+        }
+
+        function setInnerView(view) {
+            currentInnerView = view || "distribution";
+            renderCurrentView();
+        }
+
+        function render(data) {
+            const seasonLabel = data.current_season ? `${data.current_season}${data.week_info || ""}` : (data.week_info || "-");
+            window.currentSeasonLabel = seasonLabel || "-";
+            window.currentRankingTimeLabel = formatTime(data.ranking_cache_time || data.generated_at);
+            subtitle.innerHTML = `
+                <span>赛季：${escapeHtml(seasonLabel || "-")}</span>
+                <span>榜单时间：${formatTime(data.ranking_cache_time || data.generated_at)}</span>
+            `;
+
+            currentStats = data;
+            renderCurrentView();
+
+            if (!grid.innerHTML) {
+                grid.innerHTML = "<div class='range-card'>暂无统计数据</div>";
+            }
+        }
+
+        function buildReadUrl(timestamp) {
+            const hasQuery = readApiBase.includes("?");
+            const joiner = hasQuery ? "&" : "?";
+            return `${readApiBase}${joiner}timestamp=${encodeURIComponent(timestamp)}`;
+        }
+
+        function buildSeasonHistoryUrl(season) {
+            const url = new URL(seasonHistoryApiBase, window.location.origin);
+            url.searchParams.set("action", "season-history");
+            url.searchParams.set("season", season);
+            return url.toString();
+        }
+
+        async function loadStats(timestamp) {
+            if (!timestamp) {
+                setStatus("缺少 timestamp 参数，无法读取统计数据", "error");
+                return;
+            }
+            const requestId = ++statsRequestId;
+            currentStatsTimestamp = String(timestamp);
+            setStatus(`请求接口：${buildReadUrl(timestamp)}`);
+            try {
+                const response = await fetch(buildReadUrl(timestamp), { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                if (requestId !== statsRequestId) {
+                    return;
+                }
+                render(unwrapResponse(payload));
+                setStatus("数据加载完成");
+            } catch (error) {
+                if (requestId === statsRequestId) {
+                    setStatus(`获取统计失败：${error.message || error}`, "error");
+                }
+            }
+        }
+
+        async function loadSeasonHistory(season) {
+            const requestId = ++seasonHistoryRequestId;
+            ++statsRequestId;
+            setSeasonHistoryLoading();
+            setStatus(`正在加载${season}赛季历史快照...`);
+            try {
+                const response = await fetch(buildSeasonHistoryUrl(season), { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = unwrapResponse(await response.json());
+                if (requestId !== seasonHistoryRequestId) {
+                    return;
+                }
+                if (!data || data.season !== season || !Array.isArray(data.items)) {
+                    throw new Error("赛季历史数据格式异常");
+                }
+                renderMetadataList(data.items, availableSeasons, season);
+                setStatus("数据加载完成");
+            } catch (error) {
+                if (requestId === seasonHistoryRequestId) {
+                    restoreLoadedSeasonControls();
+                    setStatus(`获取赛季历史失败：${error.message || error}`, "error");
+                }
+            }
+        }
+
+        async function loadDateList() {
+            try {
+                const response = await fetch(seasonsApiUrl, { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                availableSeasons = data && Array.isArray(data.seasons) ? data.seasons : [];
+                const defaultSeason = data && typeof data.default_season === "string"
+                    ? data.default_season : "";
+                if (!availableSeasons.length || !defaultSeason) {
+                    listContainer.textContent = "暂无可用赛季快照数据";
+                    return;
+                }
+                await loadSeasonHistory(defaultSeason);
+            } catch (error) {
+                listContainer.textContent = `获取赛季列表失败：${error.message || error}`;
+                listContainer.classList.add("error");
+            }
+        }
+
+        function renderCachedTeamIcons(cachedDetailSummary) {
+            if (!cachedDetailSummary || typeof cachedDetailSummary !== "object") {
+                return "";
+            }
+            var team1 = cachedDetailSummary.team1 && Array.isArray(cachedDetailSummary.team1.players)
+                ? cachedDetailSummary.team1.players
+                : [];
+            var team2 = cachedDetailSummary.team2 && Array.isArray(cachedDetailSummary.team2.players)
+                ? cachedDetailSummary.team2.players
+                : [];
+
+            function renderIcons(players) {
+                return players
+                    .map(function (p) {
+                        var iconId = resolveKungfuIconId(p);
+                        if (!iconId) {
+                            return "";
+                        }
+                        return "<span class=\"match-kungfu-icon\" title=\"" + escapeHtml(p.role_name || p.kungfu || "") + "\"><img src=\"https://img.jx3box.com/image/xf/" + escapeHtml(iconId) + ".png\" alt=\"" + escapeHtml(p.kungfu || "kungfu") + "\"></span>";
+                    })
+                    .filter(Boolean)
+                    .join("");
+            }
+
+            var team1Icons = renderIcons(team1);
+            var team2Icons = renderIcons(team2);
+
+            if (!team1Icons && !team2Icons) {
+                return "";
+            }
+
+            return "<div class=\"match-icons-row\"><div class=\"match-team-icons\">" + (team1Icons || "") + "</div><span class=\"match-vs\">vs</span><div class=\"match-team-icons\">" + (team2Icons || "") + "</div></div>";
+        }
+
+        function renderRoleRecentMatchItem(match, playerName, playerServer) {
+            var cachedIconsHtml = renderCachedTeamIcons(match.cached_detail_summary);
+            return `
+                <button
+                    class="match-row-btn ${match.won ? "win" : "lose"}"
+                    type="button"
+                    data-match-id="${match.match_id ?? ""}"
+                    data-focus-name="${escapeHtml(playerName)}"
+                    data-focus-server="${escapeHtml(playerServer)}"
+                >
+                    <div class="match-row-top">
+                        <span class="match-tag ${match.won ? "win" : "lose"}">${match.won ? "胜利" : "失败"}</span>
+                        <span>${formatGrade(match.avg_grade)}</span>
+                        <span>${escapeHtml(match.kungfu || "未知心法")}</span>
+                        <span>${match.total_mmr ?? "-"}${match.mmr_delta != null ? ` (${match.mmr_delta > 0 ? "+" : ""}${match.mmr_delta})` : ""}</span>
+                    </div>
+                    <div class="match-row-bottom match-row-meta">
+                        <span>开始时间：${formatTime(match.start_time)}</span>
+                        <span>时长：${formatDuration(match.duration)}</span>
+                    </div>
+                    ${cachedIconsHtml}
+                </button>
+            `;
+        }
+
+        function renderLoadMoreButton() {
+            if (!currentPagination.hasMore) {
+                return "<div class='load-more-wrap hidden'></div>";
+            }
+            const disabledAttr = currentPagination.isLoading ? " disabled" : "";
+            const loadingClass = currentPagination.isLoading ? " loading" : "";
+            return `
+                <div class="load-more-wrap">
+                    <button class="load-more-btn${loadingClass}" type="button" id="load-more-btn"${disabledAttr}>
+                        ${currentPagination.isLoading ? "加载中..." : "加载更多对局"}
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderRoleRecentModal(data, isAppend = false, indicatorData = null) {
+            const matches = Array.isArray(data.recent_matches) ? data.recent_matches : [];
+            const pagination = data.pagination || {};
+            const playerName = data.player?.name || "未知角色";
+            const playerServer = data.player?.server || "未知服务器";
+
+            roleModalTitle.textContent = `${playerName}·${playerServer}`;
+            roleModalSubtitle.textContent = "";
+
+            currentPagination = {
+                hasMore: !!pagination.has_more,
+                nextCursor: pagination.next_cursor ?? null,
+                server: playerServer,
+                name: playerName,
+                identityHints: data.identity || {},
+                isLoading: false,
+            };
+
+            if (isAppend) {
+                const panel = roleModalBody.querySelector(".match-list-panel");
+                if (panel) {
+                    const modalEmpty = panel.querySelector(".modal-empty");
+                    if (modalEmpty) modalEmpty.remove();
+                    const loadMoreWrap = panel.querySelector(".load-more-wrap");
+                    const fragment = document.createElement("div");
+                    fragment.innerHTML = matches.map((match) => renderRoleRecentMatchItem(match, playerName, playerServer)).join("");
+                    if (loadMoreWrap) {
+                        loadMoreWrap.insertAdjacentElement("beforebegin", fragment);
+                        loadMoreWrap.outerHTML = renderLoadMoreButton();
+                    } else {
+                        panel.insertAdjacentHTML("beforeend", fragment.innerHTML);
+                        panel.insertAdjacentHTML("beforeend", renderLoadMoreButton());
+                    }
+                }
+                return;
+            }
+
+            let overviewHtml = "";
+            if (indicatorData && !indicatorData.error) {
+                const ind = indicatorData.indicator || {};
+                const indicatorCards = [
+                    { label: "场次", value: ind.total_matches ?? "-" },
+                    { label: "胜率", value: ind.win_rate != null ? `${ind.win_rate}%` : "-" },
+                    { label: "评分", value: ind.score ?? "-" },
+                    { label: "最佳", value: ind.mvp_count ?? "-" },
+                    { label: "当前段位", value: formatGrade(ind.grade) },
+                ];
+                overviewHtml = indicatorCards.map((item) => `
+                    <div class="role-overview-card">
+                        <strong>${escapeHtml(item.value)}</strong>
+                        <span>${escapeHtml(item.label)}</span>
+                    </div>
+                `).join("");
+            } else if (indicatorData && indicatorData.error) {
+                overviewHtml = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">赛季战绩加载失败</strong><span>${escapeHtml(indicatorData.message || "indicator_unavailable")}</span></div>`;
+            } else {
+                overviewHtml = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">正在加载赛季战绩...</strong><span>等待战绩数据</span></div>`;
+            }
+
+            const hasMore = !!(pagination.has_more);
+            const matchListHtml = matches.length
+                ? matches.map((match) => renderRoleRecentMatchItem(match, playerName, playerServer)).join("")
+                : (hasMore ? "" : "<div class='modal-empty'>暂无最近 3v3 对局数据</div>");
+
+            roleModalBody.innerHTML = `
+                <div class="role-overview-toolbar">
+                    <span class="cache-label" id="role-indicator-cache-label">${renderIndicatorCacheLabel(indicatorData)}</span>
+                    <button class="role-refresh-btn" id="refresh-role-indicator-btn" type="button">刷新战绩</button>
+                </div>
+                <div class="role-overview" id="role-overview">
+                    ${overviewHtml}
+                </div>
+                <div class="match-list-toolbar">
+                    <span class="match-list-title">近期对局</span>
+                    <div class="match-list-actions">
+                        <span class="cache-label" id="role-recent-cache-label">${renderRoleRecentCacheLabel(data)}</span>
+                        <button class="match-refresh-btn" id="refresh-role-recent-btn" type="button">刷新对局</button>
+                    </div>
+                </div>
+                <div class="match-list-panel">
+                    ${matchListHtml}
+                    ${renderLoadMoreButton()}
+                </div>
+            `;
+        }
+
+        function renderRoleRecentCacheLabel(data) {
+            const cache = data && data.cache;
+            if (!cache || !cache.cached_at) {
+                return "对局列表：实时获取";
+            }
+            return `对局列表：${cache.hit ? "缓存于" : "刚更新于"} ${formatTime(cache.cached_at)}`;
+        }
+
+        function renderIndicatorCacheLabel(indicatorData) {
+            const cache = indicatorData && indicatorData.cache;
+            if (!cache || !cache.cached_at) {
+                return "";
+            }
+            return `赛季战绩：${cache.hit ? "缓存于" : "刚更新于"} ${formatTime(cache.cached_at)}`;
+        }
+
+        function updateRoleOverviewIndicator(indicatorData) {
+            const overview = document.getElementById("role-overview");
+            if (!overview) {
+                return;
+            }
+            const cacheLabel = document.getElementById("role-indicator-cache-label");
+            if (cacheLabel) {
+                cacheLabel.textContent = renderIndicatorCacheLabel(indicatorData);
+            }
+            if (indicatorData && !indicatorData.error) {
+                const ind = indicatorData.indicator || {};
+                const indicatorCards = [
+                    { label: "场次", value: ind.total_matches ?? "-" },
+                    { label: "胜率", value: ind.win_rate != null ? `${ind.win_rate}%` : "-" },
+                    { label: "评分", value: ind.score ?? "-" },
+                    { label: "最佳", value: ind.mvp_count ?? "-" },
+                    { label: "当前段位", value: formatGrade(ind.grade) },
+                ];
+                overview.innerHTML = indicatorCards.map((item) => `
+                    <div class="role-overview-card">
+                        <strong>${escapeHtml(item.value)}</strong>
+                        <span>${escapeHtml(item.label)}</span>
+                    </div>
+                `).join("");
+            } else if (indicatorData && indicatorData.error) {
+                overview.innerHTML = `<div class="role-overview-card" style="grid-column:1/-1"><strong class="muted">赛季战绩加载失败</strong><span>${escapeHtml(indicatorData.message || "indicator_unavailable")}</span></div>`;
+            }
+        }
+
+        function renderIconGrid(items, emptyText) {
+            if (!Array.isArray(items) || !items.length) {
+                return `<div class="icon-grid"><div class="icon-chip empty">${escapeHtml(emptyText || "无")}</div></div>`;
+            }
+            const chips = items
+                .filter((item) => item && item.icon)
+                .map((item) => `
+                    <div class="icon-chip${String(item.quality) === "5" ? " legendary" : ""}" title="${escapeHtml(item.name || "")}">
+                        <img src="${escapeHtml(item.icon)}" alt="${escapeHtml(item.name || "icon")}">
+                    </div>
+                `);
+            if (!chips.length) {
+                return `<div class="icon-grid"><div class="icon-chip empty">${escapeHtml(emptyText || "无")}</div></div>`;
+            }
+            return `<div class="icon-grid">${chips.join("")}</div>`;
+        }
+
+        function renderTalentGrid(talents, emptyText) {
+            if (!Array.isArray(talents) || !talents.length) {
+                return `<div class="talent-grid"><div class="talent-chip empty-chip">${escapeHtml(emptyText || "无")}</div></div>`;
+            }
+            const chips = talents
+                .filter((t) => t && t.name)
+                .map((t) => {
+                    const desc = t.desc || "";
+                    const icon = t.icon || "";
+                    const iconHtml = icon
+                        ? `<div class="talent-chip-icon"><img src="${escapeHtml(icon)}" alt="${escapeHtml(t.name)}"></div>`
+                        : `<div class="talent-chip-icon" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.72rem;">-</div>`;
+                    return `<span class="talent-chip" data-desc="${escapeHtml(desc)}">${iconHtml}<span class="talent-chip-name">${escapeHtml(t.name)}</span></span>`;
+                });
+            if (!chips.length) {
+                return `<div class="talent-grid"><div class="talent-chip empty-chip">${escapeHtml(emptyText || "无")}</div></div>`;
+            }
+            return `<div class="talent-grid">${chips.join("")}</div>`;
+        }
+
+        function renderTeamKungfuIcons(players) {
+            if (!Array.isArray(players) || !players.length) {
+                return "";
+            }
+            const icons = players
+                .map((player) => {
+                    const iconId = resolveKungfuIconId(player);
+                    if (!iconId) {
+                        return "";
+                    }
+                    return `
+                    <span class="team-kungfu-icon" title="${escapeHtml(player.role_name || player.person_name || player.kungfu || "")}">
+                        <img src="https://img.jx3box.com/image/xf/${escapeHtml(iconId)}.png" alt="${escapeHtml(player.kungfu || "kungfu")}">
+                    </span>
+                `;
+                })
+                .filter(Boolean);
+            if (!icons.length) {
+                return "";
+            }
+            return `<div class="team-kungfu-icons">${icons.join("")}</div>`;
+        }
+
+        function normalizeDetailPlayerName(name, server) {
+            const rawName = String(name || "").trim();
+            const serverName = String(server || "").trim();
+            if (!rawName || !serverName) {
+                return rawName;
+            }
+            for (const separator of ["·", "@"]) {
+                const suffix = `${separator}${serverName}`;
+                if (rawName.endsWith(suffix)) {
+                    return rawName.slice(0, -suffix.length).trim();
+                }
+            }
+            return rawName;
+        }
+
+        function renderTeam(team, focusPlayer) {
+            if (!team) {
+                return "<div class='modal-empty'>暂无队伍数据</div>";
+            }
+            const players = Array.isArray(team.players_info) ? team.players_info : [];
+            return `
+                <div class="team-card ${team.won ? "won" : ""}">
+                    <div class="team-title-row">
+                        <h4>${escapeHtml(team.team_name || "队伍")} ${team.won ? "· 胜利" : "· 失败"}</h4>
+                        ${renderTeamKungfuIcons(players)}
+                    </div>
+                    <div class="team-player-list">
+                        ${players.map((player) => {
+                            const playerServer = String(player.server || "").trim();
+                            const playerName = normalizeDetailPlayerName(player.role_name, playerServer);
+                            const isFocus = focusPlayer
+                                && playerName === focusPlayer.name
+                                && playerServer === focusPlayer.server;
+                            const canNavigate = Boolean(playerName && playerServer);
+                            return `
+                                <div
+                                    class="team-player ${isFocus ? "focus" : ""} ${canNavigate ? "is-clickable" : ""}"
+                                    data-role-nav="${canNavigate ? "1" : "0"}"
+                                    data-player-name="${escapeHtml(playerName)}"
+                                    data-player-server="${escapeHtml(playerServer)}"
+                                >
+                                    <div class="team-player-top">
+                                        <span class="player-name">${escapeHtml(player.role_name || "未知")}</span>
+                                        <span class="player-meta">${escapeHtml(player.server || "未知服")}</span>
+                                        <span class="player-meta">${escapeHtml(player.kungfu || "未知心法")}</span>
+                                        ${player.mvp ? "<span class='match-tag win'>MVP</span>" : ""}
+                                    </div>
+                                    <div class="team-player-bottom player-meta">
+                                        <span>推栏分数：${player.mmr ?? "-"}</span>
+                                        <span>游戏分数：${player.total_score ?? "-"}</span>
+                                        <span>装分：${(player.equip_score ?? 0) + (player.equip_strength_score ?? 0) + (player.stone_score ?? 0) || "-"}</span>
+                                        <span>血量：${player.max_hp ?? "-"}</span>
+                                    </div>
+                                    <div class="player-section">
+                                        <div class="player-section-label">装备</div>
+                                        ${renderIconGrid(player.armors || [], "无装备")}
+                                    </div>
+                                    <div class="player-section">
+                                        <div class="player-section-label">奇穴</div>
+                                        ${renderTalentGrid(player.talents || [], "无奇穴")}
+                                    </div>
+                                </div>
+                            `;
+                        }).join("")}
+                    </div>
+                </div>
+            `;
+        }
+
+        function buildSyncedMatchesRoleUrl(server, name) {
+            const url = new URL("jjc-synced-matches.html", window.location.href);
+            url.searchParams.set("server", server);
+            url.searchParams.set("name", name);
+            return url.toString();
+        }
+
+        function openSyncedMatchesForPlayer(server, name) {
+            if (!server || !name) {
+                return;
+            }
+            window.open(buildSyncedMatchesRoleUrl(server, name), "_blank", "noopener");
+        }
+
+        function renderMatchDetailModal(payload, focusPlayer) {
+            if (payload.unavailable) {
+                matchModalTitle.textContent = "对局详情";
+                matchModalSubtitle.textContent = payload.cache?.cached_at
+                    ? `对局详情数据：缓存于 ${formatTime(payload.cache.cached_at)}`
+                    : "对局详情数据：实时获取";
+                matchModalBody.innerHTML = `
+                    <div class="modal-loading">
+                        该对局查询不到数据
+                        <div class="player-meta">match_id：${escapeHtml(payload.match_id || "-")}</div>
+                    </div>
+                `;
+                return;
+            }
+
+            const detail = payload.detail || {};
+            const basicInfo = detail.basic_info || {};
+            matchModalTitle.textContent = "对局详情";
+            matchModalSubtitle.textContent = payload.cache?.cached_at
+                ? `对局详情数据：缓存于 ${formatTime(payload.cache.cached_at)}`
+                : "对局详情数据：实时获取";
+            matchModalBody.innerHTML = `
+                <div class="detail-summary-grid">
+                    <div class="detail-summary-card"><strong>${escapeHtml(formatMapName(basicInfo.map))}</strong><span class="player-meta">地图</span></div>
+                    <div class="detail-summary-card"><strong>${formatGrade(basicInfo.grade)}</strong><span class="player-meta">分段</span></div>
+                    <div class="detail-summary-card"><strong>${formatDuration(basicInfo.duration)}</strong><span class="player-meta">时长</span></div>
+                    <div class="detail-summary-card"><strong>${formatTime(basicInfo.start_time || detail.match_time)}</strong><span class="player-meta">开始时间</span></div>
+                </div>
+                <div class="team-grid">
+                    ${renderTeam(detail.team1, focusPlayer)}
+                    ${renderTeam(detail.team2, focusPlayer)}
+                </div>
+            `;
+        }
+
+        async function fetchRoleIndicator(server, name, identityHints, cacheKey, forceRefresh = false) {
+            try {
+                const response = await fetch(
+                    buildRoleIndicatorUrl(server, name, identityHints, { forceRefresh }),
+                    { cache: "no-store" },
+                );
+                if (response.ok) {
+                    const payload = await response.json();
+                    const data = unwrapResponse(payload);
+                    roleIndicatorCache.set(cacheKey, { fetchedAt: Date.now(), data });
+                    updateRoleOverviewIndicator(data);
+                    return data;
+                } else {
+                    const data = { error: true, message: "indicator_unavailable" };
+                    updateRoleOverviewIndicator(data);
+                    return data;
+                }
+            } catch (e) {
+                const data = { error: true, message: "indicator_unavailable" };
+                updateRoleOverviewIndicator(data);
+                return data;
+            }
+        }
+
+        async function refreshRoleIndicator() {
+            if (!currentRoleInspect || !currentRoleInspect.cacheKey) {
+                return;
+            }
+            const button = document.getElementById("refresh-role-indicator-btn");
+            if (button) {
+                button.disabled = true;
+                button.textContent = "刷新中...";
+            }
+            const previous = roleIndicatorCache.get(currentRoleInspect.cacheKey)?.data || null;
+            const data = await fetchRoleIndicator(
+                currentRoleInspect.server,
+                currentRoleInspect.name,
+                currentRoleInspect.identityHints || {},
+                currentRoleInspect.cacheKey,
+                true,
+            );
+            if (data && data.error && previous && !previous.error) {
+                updateRoleOverviewIndicator(previous);
+                const cacheLabel = document.getElementById("role-indicator-cache-label");
+                if (cacheLabel) {
+                    cacheLabel.textContent = `刷新失败，保留${renderIndicatorCacheLabel(previous) || "现有数据"}`;
+                }
+            }
+            if (button) {
+                button.disabled = false;
+                button.textContent = "刷新战绩";
+            }
+        }
+
+        async function fetchRoleRecent(server, name, identityHints, cacheKey, forceRefresh = false) {
+            const response = await fetch(
+                buildRoleRecentUrl(server, name, identityHints, 0, { forceRefresh }),
+                { cache: "no-store" },
+            );
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const recentPayload = await response.json();
+            const recentData = unwrapResponse(recentPayload);
+            roleRecentCache.set(cacheKey, { fetchedAt: Date.now(), data: recentData });
+            return recentData;
+        }
+
+        async function refreshRoleRecent() {
+            if (!currentRoleInspect || !currentRoleInspect.cacheKey) {
+                return;
+            }
+            const button = document.getElementById("refresh-role-recent-btn");
+            if (button) {
+                button.disabled = true;
+                button.textContent = "刷新中...";
+            }
+            try {
+                const recentData = await fetchRoleRecent(
+                    currentRoleInspect.server,
+                    currentRoleInspect.name,
+                    currentRoleInspect.identityHints || {},
+                    currentRoleInspect.cacheKey,
+                    true,
+                );
+                const cachedIndicator = roleIndicatorCache.get(currentRoleInspect.cacheKey);
+                const indicatorData = cachedIndicator ? cachedIndicator.data : null;
+                renderRoleRecentModal(recentData, false, indicatorData);
+            } catch (error) {
+                const cacheLabel = document.getElementById("role-recent-cache-label");
+                if (cacheLabel) {
+                    cacheLabel.textContent = `对局刷新失败：${error.message || error}`;
+                }
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = "点击重试";
+                }
+            }
+        }
+
+        async function loadRoleRecent(server, name, identityHints = {}) {
+            const cacheKey = `${server}::${name}::${identityHints.global_role_id || ""}::${identityHints.game_role_id || ""}::${identityHints.zone || ""}`;
+            openModal(roleModal);
+            roleModalTitle.textContent = `${name}·${server}`;
+            roleModalSubtitle.textContent = "";
+            roleModalBody.innerHTML = "<div class='modal-loading'>正在加载角色近期战绩...</div>";
+
+            const cached = roleRecentCache.get(cacheKey);
+            if (cached && Date.now() - cached.fetchedAt < 600000) {
+                currentRoleInspect = { server, name, identityHints, cacheKey };
+                const cachedIndicator = roleIndicatorCache.get(cacheKey);
+                const validIndicator = (cachedIndicator && Date.now() - cachedIndicator.fetchedAt < 86400000) ? cachedIndicator.data : null;
+                renderRoleRecentModal(cached.data, false, validIndicator);
+                if (!validIndicator) {
+                    const indicatorRequest = fetchRoleIndicator(server, name, identityHints, cacheKey);
+                    indicatorRequest.catch(function () {});
+                }
+                return;
+            }
+
+            try {
+                const indicatorRequest = fetchRoleIndicator(server, name, identityHints, cacheKey);
+                const [recentData, indicatorResponse] = await Promise.all([
+                    fetchRoleRecent(server, name, identityHints, cacheKey),
+                    indicatorRequest.catch(function () { return null; }),
+                ]);
+
+                var indicatorData = null;
+                if (indicatorResponse) {
+                    indicatorData = indicatorResponse;
+                } else {
+                    indicatorData = { error: true, message: "indicator_unavailable" };
+                }
+
+                currentRoleInspect = { server, name, identityHints, cacheKey };
+                renderRoleRecentModal(recentData, false, indicatorData);
+            } catch (error) {
+                roleModalBody.innerHTML = `<div class='modal-loading error'>加载角色近期战绩失败：${escapeHtml(error.message || error)}</div>`;
+            }
+        }
+
+        async function loadMoreMatches() {
+            if (currentPagination.isLoading || !currentPagination.hasMore || currentPagination.nextCursor == null) {
+                return;
+            }
+            currentPagination.isLoading = true;
+            const loadMoreBtn = roleModalBody.querySelector("#load-more-btn");
+            if (loadMoreBtn) {
+                loadMoreBtn.textContent = "加载中...";
+                loadMoreBtn.classList.add("loading");
+                loadMoreBtn.disabled = true;
+            }
+
+            try {
+                const url = buildRoleRecentUrl(
+                    currentPagination.server,
+                    currentPagination.name,
+                    currentPagination.identityHints,
+                    currentPagination.nextCursor,
+                );
+                const response = await fetch(url, { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                renderRoleRecentModal(data, true);
+            } catch (error) {
+                if (loadMoreBtn) {
+                    loadMoreBtn.textContent = "加载失败，点击重试";
+                    loadMoreBtn.classList.remove("loading");
+                    loadMoreBtn.disabled = false;
+                }
+                currentPagination.isLoading = false;
+            }
+        }
+
+        async function loadMatchDetail(matchId, focusPlayer) {
+            if (!matchId) {
+                return;
+            }
+            openModal(matchModal);
+            matchModalTitle.textContent = "对局详情";
+            matchModalSubtitle.textContent = "";
+            matchModalBody.innerHTML = "<div class='modal-loading'>正在加载对局详情...</div>";
+
+            const cached = matchDetailCache.get(String(matchId));
+            if (cached) {
+                renderMatchDetailModal(cached, focusPlayer);
+                return;
+            }
+
+            try {
+                const response = await fetch(buildMatchDetailUrl(matchId), { cache: "no-store" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const data = unwrapResponse(payload);
+                matchDetailCache.set(String(matchId), data);
+                renderMatchDetailModal(data, focusPlayer);
+            } catch (error) {
+                matchModalBody.innerHTML = `<div class='modal-loading error'>加载对局详情失败：${escapeHtml(error.message || error)}</div>`;
+            }
+        }
+
+        async function exportCardImage(card, label) {
+            if (typeof window.html2canvas !== "function") {
+                setStatus("图片生成库未加载，请稍后重试", "error");
+                return;
+            }
+            const safeLabel = (label || "心法统计").replace(/\s+/g, "");
+            const seasonLabel = (window.currentSeasonLabel || "").replace(/\s+/g, "") || "赛季";
+            const modeSuffix = currentOuterTab === "purple" ? "_紫武" : "";
+            const fileName = `${safeLabel}_${seasonLabel}_心法分布${modeSuffix}.png`;
+            const openDetails = Array.from(card.querySelectorAll("details[open]"));
+            try {
+                card.classList.add("is-exporting");
+                openDetails.forEach((detail) => detail.removeAttribute("open"));
+                const canvas = await window.html2canvas(card, {
+                    backgroundColor: "#ffffff",
+                    scale: 2,
+                    useCORS: true,
+                });
+                const link = document.createElement("a");
+                link.download = fileName;
+                link.href = canvas.toDataURL("image/png");
+                link.click();
+            } catch (error) {
+                setStatus(`生成图片失败：${error.message || error}`, "error");
+            } finally {
+                openDetails.forEach((detail) => detail.setAttribute("open", ""));
+                card.classList.remove("is-exporting");
+            }
+        }
+
+        async function exportFullPageImage(modeOverride) {
+            if (typeof window.html2canvas !== "function") {
+                setStatus("图片生成库未加载，请稍后重试", "error");
+                return;
+            }
+            if (!pageNode) {
+                setStatus("页面节点不存在，无法导出", "error");
+                return;
+            }
+            const previousTab = currentOuterTab;
+            const exportTab = modeOverride || currentOuterTab;
+            if (exportTab !== currentOuterTab) {
+                currentOuterTab = exportTab;
+                renderCurrentView();
+                await new Promise((resolve) => window.requestAnimationFrame(resolve));
+            }
+            const seasonLabel = (window.currentSeasonLabel || "").replace(/\s+/g, "") || "赛季";
+            const rankingTimeLabel = (window.currentRankingTimeLabel || "").replace(/[^\dA-Za-z\u4e00-\u9fa5]+/g, "_") || "榜单";
+            const modeSuffix = exportTab === "purple" ? "_推栏排名-紫武" : exportTab === "peak-game" ? "_14日游戏最高分排名" : "_推栏排名";
+            const fileName = `竞技场心法排名统计_${seasonLabel}_${rankingTimeLabel}${modeSuffix}.png`;
+            const openDetails = Array.from(pageNode.querySelectorAll("details[open]"));
+            try {
+                pageNode.classList.add("is-exporting-full");
+                openDetails.forEach((detail) => detail.removeAttribute("open"));
+                setStatus("正在生成整页图片，请稍候");
+                const canvas = await window.html2canvas(pageNode, {
+                    backgroundColor: "#f7fafd",
+                    scale: 2,
+                    useCORS: true,
+                    scrollX: 0,
+                    scrollY: -window.scrollY,
+                    windowWidth: document.documentElement.scrollWidth,
+                    windowHeight: document.documentElement.scrollHeight,
+                });
+                const link = document.createElement("a");
+                link.download = fileName;
+                link.href = canvas.toDataURL("image/png");
+                link.click();
+                setStatus("整页图片导出完成");
+            } catch (error) {
+                setStatus(`生成整页图片失败：${error.message || error}`, "error");
+            } finally {
+                openDetails.forEach((detail) => detail.setAttribute("open", ""));
+                pageNode.classList.remove("is-exporting-full");
+                if (previousTab !== exportTab) {
+                    currentOuterTab = previousTab;
+                    renderCurrentView();
+                }
+            }
+        }
+
+        if (legendaryToggle) {
+            legendaryToggle.addEventListener("change", (event) => {
+                showLegendaryOverlay = event.target.checked;
+                if (currentStats && currentInnerView === "distribution") {
+                    renderCurrentView();
+                }
+            });
+        }
+
+        // ---- Announcement Popup ----
+
+        async function openAnnouncementFromCircle() {
+            try {
+                const resp = await fetch(ANNOUNCEMENT_API + "/latest-date", { cache: "no-store" });
+                if (!resp.ok) return;
+                const payload = await resp.json();
+                const data = unwrapResponse(payload);
+                const hero = data.announcement || null;
+                const seenAt = hero ? String(hero.created_at || "") : null;
+                showAnnouncementPopup(hero, seenAt);
+            } catch (e) {
+                // non-critical, silently ignore
+            }
+        }
+
+        function renderAnnouncementPopup(heroAnnouncement, listItems) {
+            var html = '';
+            if (heroAnnouncement) {
+                html += '<div class="announcement-hero">';
+                html += '<div class="announcement-date">' + escapeHtml(heroAnnouncement.date || "") + '</div>';
+                html += '<h3 class="announcement-title">' + escapeHtml(heroAnnouncement.title || "") + '</h3>';
+                html += '<div class="announcement-body">' + escapeHtml(heroAnnouncement.content || "") + '</div>';
+                html += '</div>';
+            }
+
+            if (listItems.length > 0) {
+                html += '<div class="announcement-list-title">历史公告</div>';
+                for (var i = 0; i < listItems.length; i++) {
+                    var item = listItems[i];
+                    html += '<div class="announcement-list-item">';
+                    html += '<div class="item-header">';
+                    html += '<span class="item-date">' + escapeHtml(item.date || "") + '</span>';
+                    html += '<span class="item-title">' + escapeHtml(item.title || "") + '</span>';
+                    html += '</div>';
+                    html += '<div class="item-body">' + escapeHtml(item.content || "") + '</div>';
+                    html += '</div>';
+                }
+            }
+
+            if (announcementHasMore) {
+                html += '<div id="announcement-sentinel" style="height:1px;"></div>';
+                html += '<div id="announcement-loading" class="announcement-modal-loading" style="display:none;">加载中...</div>';
+            }
+
+            announcementBody.innerHTML = html;
+
+            if (announcementHasMore) {
+                var sentinel = document.getElementById("announcement-sentinel");
+                if (sentinel) {
+                    if (announcementObserver) announcementObserver.disconnect();
+                    var modalCard = announcementModal.querySelector(".modal-card");
+                    announcementObserver = new IntersectionObserver(function (entries) {
+                        if (entries[0].isIntersecting && announcementHasMore && !announcementLoading) {
+                            loadMoreAnnouncements();
+                        }
+                    }, { root: modalCard, rootMargin: "80px" });
+                    announcementObserver.observe(sentinel);
+                }
+            }
+        }
+
+        function showAnnouncementPopup(heroAnnouncement, seenAt) {
+            currentPopupSeenAt = seenAt;
+            announcementCursor = null;
+            announcementHasMore = true;
+            announcementLoading = false;
+
+            loadAnnouncementPage(heroAnnouncement);
+            openModal(announcementModal);
+        }
+
+        async function loadAnnouncementPage(heroAnnouncement) {
+            announcementBody.innerHTML = '<div class="modal-loading">加载公告...</div>';
+            announcementLoading = true;
+            try {
+                var url = ANNOUNCEMENT_API + "/list?limit=5";
+                if (announcementCursor !== null) url += "&cursor=" + announcementCursor;
+                var resp = await fetch(url, { cache: "no-store" });
+                if (!resp.ok) throw new Error("HTTP " + resp.status);
+                var payload = await resp.json();
+                var data = unwrapResponse(payload);
+                var listItems = data.announcements || [];
+                announcementCursor = data.next_cursor;
+                announcementHasMore = data.has_more;
+                renderAnnouncementPopup(heroAnnouncement, listItems);
+            } catch (e) {
+                announcementBody.innerHTML = '<div class="modal-loading error">加载公告失败</div>';
+            } finally {
+                announcementLoading = false;
+            }
+        }
+
+        async function loadMoreAnnouncements() {
+            announcementLoading = true;
+            var loadingEl = document.getElementById("announcement-loading");
+            if (loadingEl) loadingEl.style.display = "block";
+            try {
+                var url = ANNOUNCEMENT_API + "/list?limit=5";
+                if (announcementCursor !== null) url += "&cursor=" + announcementCursor;
+                var resp = await fetch(url, { cache: "no-store" });
+                if (!resp.ok) throw new Error("HTTP " + resp.status);
+                var payload = await resp.json();
+                var data = unwrapResponse(payload);
+                var items = data.announcements || [];
+                announcementCursor = data.next_cursor;
+                announcementHasMore = data.hasMore;
+
+                var sentinel = document.getElementById("announcement-sentinel");
+                var container = sentinel ? sentinel.parentNode : announcementBody;
+                for (var i = 0; i < items.length; i++) {
+                    var item = items[i];
+                    var div = document.createElement("div");
+                    div.className = "announcement-list-item";
+                    div.innerHTML =
+                        '<div class="item-header">' +
+                        '<span class="item-date">' + escapeHtml(item.date || "") + '</span>' +
+                        '<span class="item-title">' + escapeHtml(item.title || "") + '</span>' +
+                        '</div>' +
+                        '<div class="item-body">' + escapeHtml(item.content || "") + '</div>';
+                    container.insertBefore(div, sentinel);
+                }
+
+                if (!announcementHasMore && sentinel) {
+                    sentinel.remove();
+                }
+            } catch (e) {
+                if (loadingEl) loadingEl.textContent = "加载失败";
+            } finally {
+                announcementLoading = false;
+                if (loadingEl && announcementHasMore) loadingEl.style.display = "none";
+            }
+        }
+
+        function dismissAnnouncement() {
+            if (currentPopupSeenAt) safeSetAnnouncementSeen(currentPopupSeenAt);
+            currentPopupSeenAt = null;
+            if (announcementObserver) announcementObserver.disconnect();
+            closeModal(announcementModal);
+        }
+
+        if (announcementDismissBtn) {
+            announcementDismissBtn.addEventListener("click", dismissAnnouncement);
+        }
+
+        // ---- Floating Feedback Circle ----
+        (function () {
+            const circle = document.getElementById("floating-feedback");
+            const closeBtn = document.getElementById("floating-feedback-close");
+            if (!circle) return;
+
+            const HIDDEN_KEY = "feedback_circle_hidden";
+
+            if (!sessionStorage.getItem(HIDDEN_KEY)) {
+                circle.classList.remove("hidden");
+            }
+
+            let dragState = null;
+
+            function setPos(left, top) {
+                circle.style.left = left + "px";
+                circle.style.top = top + "px";
+                circle.style.right = "auto";
+                circle.style.bottom = "auto";
+            }
+
+            circle.addEventListener("pointerdown", function (e) {
+                if (e.target === closeBtn) return;
+                const rect = circle.getBoundingClientRect();
+                dragState = {
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    startLeft: rect.left,
+                    startTop: rect.top
+                };
+                circle.setPointerCapture(e.pointerId);
+                circle.classList.add("dragging");
+            });
+
+            circle.addEventListener("pointermove", function (e) {
+                if (!dragState) return;
+                setPos(
+                    dragState.startLeft + e.clientX - dragState.startX,
+                    dragState.startTop + e.clientY - dragState.startY
+                );
+            });
+
+            circle.addEventListener("pointerup", function (e) {
+                if (!dragState) return;
+                const dx = e.clientX - dragState.startX;
+                const dy = e.clientY - dragState.startY;
+                const wasDrag = Math.abs(dx) > 3 || Math.abs(dy) > 3;
+                dragState = null;
+                circle.classList.remove("dragging");
+                if (!wasDrag) {
+                    openAnnouncementFromCircle();
+                }
+            });
+
+            circle.addEventListener("pointercancel", function () {
+                dragState = null;
+                circle.classList.remove("dragging");
+            });
+
+            closeBtn.addEventListener("click", function (e) {
+                e.stopPropagation();
+                circle.classList.add("hidden");
+                try { sessionStorage.setItem(HIDDEN_KEY, "1"); } catch (ignored) {}
+            });
+        })();
+
+        loadDateList();
+
+        if (grid) {
+            grid.addEventListener("click", (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) {
+                    return;
+                }
+
+                const exportButton = target.closest(".export-btn");
+                if (exportButton) {
+                    const card = exportButton.closest(".range-card");
+                    if (card) {
+                        exportCardImage(card, exportButton.getAttribute("data-range") || "心法统计");
+                    }
+                    return;
+                }
+
+                const rankingMatchButton = target.closest(".ranking-match-btn");
+                if (rankingMatchButton) {
+                    const matchId = rankingMatchButton.getAttribute("data-match-id") || "";
+                    if (matchId) {
+                        loadMatchDetail(matchId, {
+                            name: rankingMatchButton.getAttribute("data-focus-name") || "",
+                            server: rankingMatchButton.getAttribute("data-focus-server") || "",
+                        });
+                    }
+                    return;
+                }
+
+                const memberButton = target.closest(".detail-item-btn, .ranking-list-role-btn");
+                if (memberButton) {
+                    const server = memberButton.getAttribute("data-role-server") || "";
+                    const name = memberButton.getAttribute("data-role-name") || "";
+                    if (server && name) {
+                        loadRoleRecent(server, name, {
+                            game_role_id: memberButton.getAttribute("data-game-role-id") || "",
+                            global_role_id: memberButton.getAttribute("data-global-role-id") || "",
+                            role_id: memberButton.getAttribute("data-role-id") || "",
+                            zone: memberButton.getAttribute("data-zone") || "",
+                        });
+                    }
+                    return;
+                }
+
+                const summary = target.closest("summary");
+                if (summary) {
+                    const detailsNode = summary.closest(".detail");
+                    if (detailsNode instanceof HTMLElement) {
+                        window.requestAnimationFrame(() => {
+                            ensureDetailLoaded(detailsNode);
+                        });
+                    }
+                }
+            });
+        }
+
+        roleModal.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target === roleModal || target.closest("[data-close-modal='role']")) {
+                closeModal(roleModal);
+                return;
+            }
+            const loadMoreBtn = target.closest("#load-more-btn");
+            if (loadMoreBtn) {
+                loadMoreMatches();
+                return;
+            }
+            const refreshIndicatorBtn = target.closest("#refresh-role-indicator-btn");
+            if (refreshIndicatorBtn) {
+                refreshRoleIndicator();
+                return;
+            }
+            const refreshRecentBtn = target.closest("#refresh-role-recent-btn");
+            if (refreshRecentBtn) {
+                refreshRoleRecent();
+                return;
+            }
+            const matchButton = target.closest(".match-row-btn");
+            if (!matchButton) {
+                return;
+            }
+            const matchId = matchButton.getAttribute("data-match-id") || "";
+            if (!matchId) {
+                return;
+            }
+            const focusPlayer = {
+                name: matchButton.getAttribute("data-focus-name") || currentRoleInspect?.name || "",
+                server: matchButton.getAttribute("data-focus-server") || currentRoleInspect?.server || "",
+            };
+            loadMatchDetail(matchId, focusPlayer);
+        });
+
+        matchModal.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            const playerCard = target.closest(".team-player[data-role-nav='1']");
+            if (playerCard) {
+                openSyncedMatchesForPlayer(
+                    playerCard.getAttribute("data-player-server") || "",
+                    playerCard.getAttribute("data-player-name") || "",
+                );
+                return;
+            }
+            if (target === matchModal || target.closest("[data-close-modal='match']")) {
+                closeModal(matchModal);
+            }
+        });
+
+        announcementModal.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target === announcementModal || target.closest("[data-close-modal='announcement']")) {
+                dismissAnnouncement();
+            }
+        });
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key !== "Escape") {
+                return;
+            }
+            if (matchModal.classList.contains("show")) {
+                closeModal(matchModal);
+                return;
+            }
+            if (roleModal.classList.contains("show")) {
+                closeModal(roleModal);
+                return;
+            }
+            if (announcementModal.classList.contains("show")) {
+                dismissAnnouncement();
+            }
+        });
+
+        tabContainer.addEventListener("click", (event) => {
+            const exportButton = event.target.closest(".tab-export-btn");
+            if (exportButton) {
+                exportFullPageImage(exportButton.dataset.exportMode || currentOuterTab);
+                return;
+            }
+            const button = event.target.closest(".tab-btn");
+            if (!button) {
+                return;
+            }
+            setOuterTab(button.dataset.tab || "all");
+        });
+
+        innerTabContainer.addEventListener("click", (event) => {
+            const button = event.target.closest(".tab-btn");
+            if (!button) {
+                return;
+            }
+            setInnerView(button.dataset.view || "distribution");
+        });
+    </script>
+</body>
+</html>

@@ -40,6 +40,45 @@
             position: relative;
         }
 
+        .site-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 18px;
+            padding: 14px 18px;
+            border: 1px solid var(--stroke);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.86);
+            box-shadow: var(--shadow);
+        }
+
+        .site-brand {
+            display: inline-flex;
+            min-width: 0;
+            flex-direction: column;
+            gap: 2px;
+            color: var(--ink);
+            text-decoration: none;
+        }
+
+        .site-brand strong { letter-spacing: 1px; }
+        .site-brand span { color: var(--muted); font-size: 0.78rem; }
+        .site-nav { display: flex; gap: 6px; overflow-x: auto; padding: 2px; }
+        .site-nav a {
+            flex: 0 0 auto;
+            padding: 8px 11px;
+            border-radius: 10px;
+            color: var(--muted);
+            font-size: 0.86rem;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .site-nav a:hover, .site-nav a[aria-current="page"] {
+            color: var(--accent);
+            background: rgba(91, 124, 250, 0.10);
+        }
+
         .page::before {
             content: "";
             position: absolute;
@@ -1568,6 +1607,9 @@
                 padding: 18px;
             }
 
+            .site-header { align-items: stretch; flex-direction: column; gap: 10px; }
+            .site-nav { margin: 0 -4px; }
+
             .bar-row {
                 grid-template-columns: 88px 1fr 48px 56px;
             }
@@ -1577,6 +1619,14 @@
 </head>
 <body>
     <div class="page">
+        <header class="site-header">
+            <a class="site-brand" href="index.html"><strong>JJC 数据中心</strong><span>剑网 3 竞技场数据浏览</span></a>
+            <nav class="site-nav" aria-label="JJC 数据中心导航">
+                <a href="index.html" aria-current="page">心法排名</a>
+                <a href="jjc-synced-matches.html">对局查询</a>
+                <a href="jjc-matchups.html">心法对阵</a>
+            </nav>
+        </header>
         <header>
             <div class="title">竞技场心法排名统计</div>
             <div class="subtitle" id="subtitle">
