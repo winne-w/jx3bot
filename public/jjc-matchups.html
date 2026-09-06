@@ -25,7 +25,7 @@
         body {
             min-width: 0;
             margin: 0;
-            padding: 32px 20px 56px;
+            padding: 36px 24px 60px;
             color: var(--ink);
             font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
             font-size: 15px;
@@ -53,7 +53,7 @@
 
         button:disabled { cursor: not-allowed; opacity: 0.52; }
 
-        .page { width: min(1180px, 100%); margin: 0 auto; }
+        .page { width: 100%; max-width: 1280px; margin: 0 auto; position: relative; }
 
         .site-header {
             display: flex;
@@ -63,16 +63,18 @@
             margin-bottom: 18px;
             padding: 14px 18px;
             border: 1px solid var(--stroke);
-            border-radius: 16px;
-            background: var(--surface);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.86);
             box-shadow: var(--shadow);
         }
         .site-brand { display: inline-flex; min-width: 0; flex-direction: column; gap: 2px; color: var(--ink); text-decoration: none; }
         .site-brand strong { letter-spacing: 1px; }
         .site-brand span { color: var(--muted); font-size: 0.78rem; }
         .site-nav { display: flex; gap: 6px; overflow-x: auto; padding: 2px; }
-        .site-nav a { flex: 0 0 auto; padding: 8px 11px; border-radius: 9px; color: var(--muted); font-size: 0.86rem; text-decoration: none; white-space: nowrap; }
+        .site-nav a { flex: 0 0 auto; padding: 8px 11px; border-radius: 10px; color: var(--muted); font-size: 0.86rem; text-decoration: none; white-space: nowrap; }
         .site-nav a:hover, .site-nav a[aria-current="page"] { color: var(--accent); background: rgba(91, 124, 250, 0.10); }
+        .page-title-region { margin-bottom: 18px; }
+        .page-title-region h1 { margin: 0; font-size: clamp(1.6rem, 2.6vw, 2.4rem); line-height: 1.25; letter-spacing: 0.08em; }
 
         .page-header, .panel, .match-column, .win-rate-panel {
             border: 1px solid var(--stroke);
@@ -90,11 +92,12 @@
         }
 
         h1, h2, h3, p { margin: 0; }
-        h1 { font-size: clamp(1.65rem, 4vw, 2.3rem); letter-spacing: 0.08em; }
+        h1 { font-weight: 700; }
         h2 { font-size: 1.05rem; }
         .intro { margin-top: 7px; color: var(--muted); }
         .path-note { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
 
+        .page-title-region + .panel { margin-top: 0; }
         .panel { margin-top: 18px; padding: 22px; border-radius: 18px; }
         .panel-heading, .result-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
         .panel-heading p, .result-heading p { color: var(--muted); font-size: 0.88rem; }
@@ -319,6 +322,27 @@
         .talent-chip:hover::after, .talent-chip[aria-expanded="true"]::after, .icon-chip:hover::after, .icon-chip[aria-expanded="true"]::after { opacity: 1; transform: translateY(-4px); }
         .icon-chip[data-desc=""]::after, .talent-chip[data-desc=""]::after { display: none; }
 
+        .announcement-overlay { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 20px; background: rgba(44, 62, 80, 0.48); backdrop-filter: blur(4px); }
+        .announcement-overlay[hidden] { display: none !important; }
+        .announcement-card { width: min(620px, 100%); max-height: min(86vh, 760px); overflow: auto; padding: 20px; border: 1px solid rgba(137, 196, 244, 0.5); border-radius: 20px; background: #fff; box-shadow: 0 20px 50px rgba(44, 62, 80, 0.26); }
+        .announcement-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--stroke); }
+        .announcement-header h2 { font-size: 1.1rem; }
+        .announcement-close { width: 36px; min-height: 36px; flex: 0 0 auto; color: var(--accent); border-color: rgba(91, 124, 250, 0.24); background: #fff; font-size: 1.2rem; }
+        .announcement-content { padding-top: 16px; }
+        .announcement-loading, .announcement-empty { padding: 18px; color: var(--muted); border: 1px dashed rgba(94, 125, 245, 0.25); border-radius: 12px; background: rgba(247, 250, 253, 0.72); }
+        .announcement-item + .announcement-item { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--stroke); }
+        .announcement-item-date { color: var(--accent); font-size: 0.78rem; font-weight: 700; }
+        .announcement-item-title { margin: 4px 0; font-size: 1rem; }
+        .announcement-item-body { color: var(--muted); line-height: 1.65; white-space: pre-wrap; }
+        .announcement-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--stroke); }
+        .announcement-feedback-link { color: var(--accent); font-weight: 700; text-decoration: none; }
+        .announcement-dismiss-btn { min-height: 36px; padding: 6px 14px; color: #fff; background: var(--accent); }
+        .floating-feedback { position: fixed; right: 32px; bottom: 32px; z-index: 999; display: flex; width: 52px; height: 52px; align-items: center; justify-content: center; color: #fff; border-radius: 50%; background: var(--accent); box-shadow: 0 4px 20px rgba(24, 33, 47, 0.28); cursor: pointer; user-select: none; }
+        .floating-feedback.hidden { display: none; }
+        .floating-feedback-text { pointer-events: none; font-size: 0.82rem; font-weight: 700; }
+        .floating-feedback-close { position: absolute; top: -5px; right: -5px; width: 20px; min-height: 20px; padding: 0; color: #fff; border: none; border-radius: 50%; background: rgba(24, 33, 47, 0.68); font-size: 11px; line-height: 20px; opacity: 0; }
+        .floating-feedback:hover .floating-feedback-close, .floating-feedback:focus-within .floating-feedback-close { opacity: 1; }
+
         @media (max-width: 980px) {
             .results-workspace { grid-template-columns: 1fr; }
             .win-rate-panel { position: static; }
@@ -347,8 +371,17 @@
             .match-detail-header, .match-detail-body { padding-right: 14px; padding-left: 14px; }
             .detail-summary-grid, .detail-team-grid { grid-template-columns: 1fr; }
             .detail-item-grid { grid-template-columns: 1fr; }
+            .announcement-overlay { padding: 10px; }
+            .announcement-card { padding: 16px; border-radius: 16px; }
+        }
+
+        @media (max-width: 700px) {
+            body { padding: 20px 14px 40px; }
+            .site-header { align-items: stretch; flex-direction: column; gap: 10px; }
+            .site-nav { margin: 0 -4px; }
         }
     </style>
+    <link rel="stylesheet" href="jjc-site.css">
 </head>
 <body>
     <main class="page">
@@ -360,7 +393,7 @@
                 <a href="jjc-matchups.html" aria-current="page">心法对阵</a>
             </nav>
         </header>
-        <header class="page-header">
+        <header class="page-header page-title-region">
             <div>
                 <h1>竞技场心法对阵统计</h1>
                 <p class="intro">按双方心法组合、时间和队伍平均游戏分浏览原始对局数据。</p>
@@ -516,9 +549,32 @@
         </section>
     </div>
 
+    <div id="announcement-modal" class="announcement-overlay" hidden aria-hidden="true">
+        <section class="announcement-card" role="dialog" aria-modal="true" aria-labelledby="announcement-title" tabindex="-1">
+            <header class="announcement-header">
+                <div>
+                    <h2 id="announcement-title">公告 / 更新说明</h2>
+                    <p class="match-detail-subtitle">最近更新与页面说明</p>
+                </div>
+                <button id="announcement-close" class="announcement-close" type="button" aria-label="关闭公告">×</button>
+            </header>
+            <div id="announcement-modal-body" class="announcement-content" aria-live="polite"></div>
+            <footer class="announcement-footer">
+                <a href="https://github.com/winne-w/jx3bot/issues" target="_blank" rel="noopener" class="announcement-feedback-link">反馈 &amp; 交流</a>
+                <button id="announcement-dismiss-btn" class="announcement-dismiss-btn" type="button">知道了</button>
+            </footer>
+        </section>
+    </div>
+
+    <div class="floating-feedback hidden" id="floating-feedback">
+        <button class="floating-feedback-close" id="floating-feedback-close" type="button" aria-label="关闭">×</button>
+        <span class="floating-feedback-text">反馈</span>
+    </div>
+
     <script>
         const API_BASE = "/jx3bot/api/jjc/matchups";
         const MATCH_DETAIL_API = "/jx3bot/api/jjc/ranking-stats/match-detail";
+        const ANNOUNCEMENT_API = "/jx3bot/api/announcements";
         const defaultPresetDays = 7;
         const DEFAULT_PRESET_DAYS = defaultPresetDays;
         const FALLBACK_META = {

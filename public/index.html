@@ -35,7 +35,7 @@
 
         .page {
             width: 100%;
-            max-width: none;
+            max-width: 1280px;
             margin: 0 auto;
             position: relative;
         }
@@ -58,6 +58,8 @@
         .site-nav { display: flex; gap: 6px; overflow-x: auto; padding: 2px; }
         .site-nav a { flex: 0 0 auto; padding: 8px 11px; border-radius: 10px; color: var(--muted); font-size: 0.86rem; text-decoration: none; white-space: nowrap; }
         .site-nav a:hover, .site-nav a[aria-current="page"] { color: var(--accent); background: rgba(91, 124, 250, 0.10); }
+        .page-title-region { margin-bottom: 18px; }
+        .page-title-region h1 { margin: 0; font-size: clamp(1.6rem, 2.6vw, 2.4rem); line-height: 1.25; letter-spacing: 0.08em; }
 
         .page::before {
             content: "";
@@ -86,8 +88,6 @@
         }
 
         .title {
-            font-size: clamp(1.6rem, 2.6vw, 2.4rem);
-            letter-spacing: 4px;
             font-weight: 700;
         }
 
@@ -1596,6 +1596,7 @@
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <link rel="stylesheet" href="jjc-site.css">
 </head>
 <body>
     <div class="page">
@@ -1607,8 +1608,8 @@
                 <a href="jjc-matchups.html">心法对阵</a>
             </nav>
         </header>
-        <header>
-            <div class="title">竞技场心法排名统计</div>
+        <header class="page-title-region">
+            <h1 class="title">竞技场心法排名统计</h1>
             <div class="subtitle" id="subtitle">
                 <span class="muted">正在加载实时数据...</span>
             </div>
