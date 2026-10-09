@@ -417,44 +417,53 @@ class JjcRankingService:
             reasons.append("match_history_not_checked")
         return ",".join(reasons) if reasons else "unknown"
 
-    async def query_jjc_ranking(self) -> dict[str, Any]:
+    async def query_jjc_ranking(self, tag: Optional[int] = None) -> dict[str, Any]:
         logger.info("开始查询竞技场排行榜数据")
 
-        cached = await self._cache().load_ranking_cache()
-        if cached:
-            return cached
+        explicit_tag = tag is not None
+        if explicit_tag and (isinstance(tag, bool) or not isinstance(tag, int) or tag <= 0):
+            return {"error": True, "message": "tag 必须是正整数"}
+
+        if not explicit_tag:
+            cached = await self._cache().load_ranking_cache()
+            if cached:
+                return cached
 
         try:
-            logger.info("获取竞技场时间标签")
-            time_tag_result = await asyncio.to_thread(self._api().get_arena_time_tag)
+            if explicit_tag:
+                default_week = tag
+                logger.info("使用指定竞技场时间标签: tag={}", tag)
+            else:
+                logger.info("获取竞技场时间标签")
+                time_tag_result = await asyncio.to_thread(self._api().get_arena_time_tag)
 
-            if time_tag_result.get("error"):
-                logger.warning(f"获取竞技场时间标签失败: {time_tag_result}")
-                return {
-                    "error": True,
-                    "message": f"获取时间标签失败: {time_tag_result.get('error', '未知错误')}",
-                }
+                if time_tag_result.get("error"):
+                    logger.warning(f"获取竞技场时间标签失败: {time_tag_result}")
+                    return {
+                        "error": True,
+                        "message": f"获取时间标签失败: {time_tag_result.get('error', '未知错误')}",
+                    }
 
-            if time_tag_result.get("code") != 0:
-                logger.warning(f"获取竞技场时间标签失败: {time_tag_result}")
-                return {
-                    "error": True,
-                    "message": f"获取时间标签失败: {time_tag_result.get('msg', '未知错误')}",
-                }
+                if time_tag_result.get("code") != 0:
+                    logger.warning(f"获取竞技场时间标签失败: {time_tag_result}")
+                    return {
+                        "error": True,
+                        "message": f"获取时间标签失败: {time_tag_result.get('msg', '未知错误')}",
+                    }
 
-            await fixed_sleep(5.45)
+                await fixed_sleep(5.45)
 
-            data = time_tag_result.get("data", {})
-            default_week = int(data.get("defaultWeek") or 0)
-            if default_week <= 0:
-                return {
-                    "error": True,
-                    "message": f"获取时间标签失败: 缺少 defaultWeek 参数: {data}",
-                }
+                data = time_tag_result.get("data", {})
+                default_week = int(data.get("defaultWeek") or 0)
+                if default_week <= 0:
+                    return {
+                        "error": True,
+                        "message": f"获取时间标签失败: 缺少 defaultWeek 参数: {data}",
+                    }
 
-            tag = default_week
+                tag = default_week
 
-            logger.info(f"获取竞技场时间标签成功: defaultWeek={default_week} tag={tag}")
+                logger.info(f"获取竞技场时间标签成功: defaultWeek={default_week} tag={tag}")
             logger.info("获取竞技场排行榜")
             ranking_result = await asyncio.to_thread(self._api().get_arena_ranking, tag)
 
@@ -470,7 +479,8 @@ class JjcRankingService:
             ranking_result["defaultWeek"] = default_week
             ranking_result["cache_time"] = time.time()
 
-            await self._cache().save_ranking_cache(ranking_result)
+            if not explicit_tag:
+                await self._cache().save_ranking_cache(ranking_result)
 
             return ranking_result
         except Exception as exc:

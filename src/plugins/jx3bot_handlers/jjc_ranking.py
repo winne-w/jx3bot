@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from typing import Any, Awaitable, Callable, Optional
 
 from nonebot import logger
@@ -9,7 +11,7 @@ from nonebot.adapters.onebot.v11 import Bot, Event
 def register(
     zhanji_ranking_matcher: Any,
     *,
-    query_jjc_ranking: Callable[[], Awaitable[dict]],
+    query_jjc_ranking: Callable[..., Awaitable[dict]],
     calculate_season_week_info: Callable[[int, Optional[float]], str],
     get_ranking_kungfu_data: Callable[..., Awaitable[dict]],
     save_ranking_stats: Callable[[dict, dict, str], None],
@@ -20,6 +22,14 @@ def register(
     async def zhanji_ranking_to_image(bot: Bot, event: Event) -> None:
         try:
             message_text = event.get_plaintext().strip()
+            tag_tokens = [token for token in message_text.split()[1:] if token.startswith("tag=")]
+            tag = None
+            if tag_tokens:
+                value = tag_tokens[0][4:]
+                if len(tag_tokens) != 1 or not re.fullmatch(r"[0-9]+", value) or int(value) <= 0:
+                    await bot.send(event, "tag 必须是正整数且只能指定一次，例如：竞技排名 tag=40")
+                    return
+                tag = int(value)
             message_text_lower = message_text.lower()
             is_split_mode = "拆分" in message_text
             is_debug_mode = "debug" in message_text_lower
@@ -36,7 +46,7 @@ def register(
             else:
                 await bot.send(event, "正在统计竞技场心法排名，请稍候...")
 
-            ranking_result = await query_jjc_ranking()
+            ranking_result = await query_jjc_ranking(tag=tag) if tag is not None else await query_jjc_ranking()
             if ranking_result is None:
                 await bot.send(event, "获取竞技场排行榜数据失败：返回数据为空")
                 return

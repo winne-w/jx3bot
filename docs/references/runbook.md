@@ -159,6 +159,13 @@ python test_tuilan_match_history.py
 - `竞技查询`
 - `竞技排名`
 - `竞技排名 拆分`
+- `竞技排名 tag=40`（替换为接口可用 tag）
+- `竞技排名统计 tag=40 缓存心法`
+- `竞排名 拆分 tag=40 橙武占比 debug`
+- `竞技排名 tag=abc`、`竞技排名 tag=0`、`竞技排名 tag=40 tag=41`：应提示用法且不调用查询
+
+手动 tag 回归时核对日志：不请求时间标签接口，不读写默认排行榜缓存；图片周次及统计存档采用实际 tag。不带 tag 的命令继续使用默认缓存，未命中时取时间标签接口的 `data.defaultWeek`。tag 是接口原始值，历史排行榜的心法不保证为历史快照。
+
 - 添加并默认排队指定角色：`/jjc同步添加 <服务器> <角色名> [priority=100] [queued=1] [global_role_id=...] [role_id=...] [zone=...]`
 - 查看状态：`/jjc同步状态`
 - 批量入队：`/jjc同步开始 [default|full] [limit=10] [days=14|until=YYYY-MM-DD]`
