@@ -8,9 +8,11 @@ from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from nonebot import logger
+import config as cfg
 
 from src.services.jx3.indicator_utils import parse_3v3_indicator
-from src.services.jx3.kungfu import get_kungfu_detail_by_role_info, merge_replay_global_ids_into_match_detail
+from src.services.jx3.role_identity_recovery import indicator_matches_request, recover_query_ids
+from src.services.jx3.kungfu import get_role_indicator, get_kungfu_detail_by_role_info, merge_replay_global_ids_into_match_detail
 from src.services.jx3.weapon_quality import extract_member_weapon_name, extract_weapon_name, is_jjc_legendary_weapon
 from src.infra.mongo import get_db
 from src.services.jx3.jjc_api_client import JjcApiClient
@@ -130,7 +132,10 @@ class JjcRankingService:
             raw = role_indicator.get("raw")
             if isinstance(raw, dict):
                 parsed = parse_3v3_indicator(raw)
-                if parsed.get("error"):
+                if parsed.get("error") or not indicator_matches_request(
+                    role_indicator, raw, role_id=str(role_indicator.get("game_role_id") or role_indicator.get("role_id") or ""),
+                    zone=str(role_indicator.get("zone") or ""), server=server,
+                ):
                     logger.warning(
                         "定时统计预热 role_indicator 缓存失败: server={} name={} reason={}",
                         server,
@@ -150,6 +155,12 @@ class JjcRankingService:
                         if global_id
                         else (f"global:{global_role_id}" if global_role_id else None)
                     )
+                    if getattr(cfg, "JJC_ROLE_IDENTITY_RECOVERY_ENABLED", 0) and global_id:
+                        if not await self._recover_ranking_query_ids(
+                            server=server, name=name, role_indicator=role_indicator,
+                            cache_warmup=cache_warmup,
+                        ):
+                            identity_key = None
                     if identity_key:
                         await repo.save_role_indicator(
                             identity_key,
@@ -166,6 +177,7 @@ class JjcRankingService:
                                 "cached_at": cached_at,
                             },
                         )
+
                     else:
                         logger.warning(
                             "定时统计预热 role_indicator 缓存失败: server={} name={} reason=global_role_id_missing",
@@ -284,6 +296,44 @@ class JjcRankingService:
                         name,
                         exc,
                     )
+
+    async def _recover_ranking_query_ids(self, *, server: str, name: str,
+                                        role_indicator: Dict[str, Any],
+                                        cache_warmup: Dict[str, Any]) -> bool:
+        cache = self._cache()
+        identity_repo = cache._get_identity_repo()
+        existing = await identity_repo.resolve_best_identity_with_id(
+            server=server, name=name, global_id=str(role_indicator.get("global_id")),
+        )
+        if not existing or str(existing.get("global_id")) != str(role_indicator.get("global_id")):
+            return False
+        raw = role_indicator.get("raw") or {}
+        role_id = str(role_indicator.get("game_role_id") or role_indicator.get("role_id") or "")
+        if role_id == str(existing.get("game_role_id") or existing.get("role_id") or ""):
+            return indicator_matches_request(existing, raw, role_id=role_id,
+                                             zone=str(existing.get("zone") or ""), server=server)
+        if not self.match_replay_url:
+            return False
+        detail = cache_warmup.get("match_detail") or {}
+        locator = dict(role_indicator, role_id=role_id, server=server,
+                       match_id=detail.get("match_id"))
+        candidates = [locator] + await cache.load_query_id_recovery_candidates(existing)
+
+        def indicator_fetcher(**query: Any) -> Any:
+            return get_role_indicator(query["role_id"], query["zone"], query["server"],
+                                      tuilan_request=self.tuilan_request, name=name)
+
+        recovery = await recover_query_ids(
+            existing, identity_repo=identity_repo, candidates=candidates,
+            indicator_fetcher=indicator_fetcher,
+            replay_fetcher=lambda **query: self.tuilan_request(self.match_replay_url, query),
+            history_fetcher=lambda **query: self.tuilan_request(cfg.API_URLS["竞技场战局历史"], query),
+            current_indicator=raw,
+            current_indicator_request=dict(locator, observed_at=role_indicator.get("request_started_at")),
+            max_logical_calls=4, publish=True,
+        )
+        # A healthy original ID does not authorize caching the held alternative.
+        return recovery.get("status") == "recovered"
 
     async def _persist_match_detail(
         self,

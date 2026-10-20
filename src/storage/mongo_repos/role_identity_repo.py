@@ -13,14 +13,45 @@ from pymongo.errors import DuplicateKeyError
 
 from src.infra.mongo import get_db as _get_db
 from src.services.jx3.role_identity_matching import (
+    STRICT_QUERY_ID_REFRESH_SOURCE,
     build_guarded_profile_set_fields,
     build_identity_key as _build_role_identity_key,
     coerce_match_time,
+    has_verified_query_ids,
     legacy_identity_keys,
     should_overwrite_profile_fields,
 )
 
 SCHEMA_VERSION = 1
+
+QUERY_ID_CAS_FIELDS = (
+    "_id", "identity_key", "identity_level", "global_id", "global_role_id", "server",
+    "normalized_server", "name", "normalized_name", "zone", "role_id", "game_role_id",
+    "person_id", "profile_observed_at", "role_info_observed_match_time", "role_info_source",
+    "role_info_updated_at", "global_role_id_refreshed_at", "global_role_id_refresh_source",
+    "updated_at",
+)
+_QUERY_ID_UPDATE_FIELDS = (
+    "role_id", "game_role_id", "global_role_id_refreshed_at",
+    "global_role_id_refresh_source", "updated_at",
+)
+
+
+def _snapshot_filter(expected: Dict[str, Any]) -> Dict[str, Any]:
+    """Match the observed profile, including the distinction between null and absent."""
+    query: Dict[str, Any] = {}
+    if "_id" in expected:
+        query["_id"] = expected["_id"]
+    for field in QUERY_ID_CAS_FIELDS:
+        if field == "_id":
+            continue
+        if field not in expected:
+            query[field] = {"$exists": False}
+        elif expected[field] is None:
+            query[field] = {"$eq": None, "$exists": True}
+        else:
+            query[field] = {"$eq": expected[field]}
+    return query
 
 _LEVEL_ORDER = {"name": 0, "game_role": 1, "global": 2, "global_id": 3}
 
@@ -44,6 +75,10 @@ MATCH_DETAIL_IDENTITY_PROJECTION: Dict[str, int] = {
     "role_info_observed_match_time": 1,
     "last_seen_at": 1,
     "updated_at": 1,
+    "role_info_source": 1,
+    "role_info_updated_at": 1,
+    "global_role_id_refreshed_at": 1,
+    "global_role_id_refresh_source": 1,
 }
 
 
@@ -568,14 +603,12 @@ class RoleIdentityRepo:
         if object_id is None:
             return None
 
+        existing = await self.get_by_id(object_id)
+        if not existing:
+            return None
         now = datetime.now(timezone.utc)
-        set_fields: Dict[str, Any] = {
-            "global_role_id": global_role_id,
-            "global_role_id_refreshed_at": now,
-            "global_role_id_refresh_source": refresh_source,
-            "updated_at": now,
-        }
         optional_fields = {
+            "global_role_id": global_role_id,
             "zone": zone,
             "game_role_id": game_role_id,
             "role_id": role_id,
@@ -583,16 +616,86 @@ class RoleIdentityRepo:
             "server": server,
             "name": name,
         }
-        for field_name, value in optional_fields.items():
-            if value is not None:
-                set_fields[field_name] = value
         if server is not None:
-            set_fields["normalized_server"] = _normalize(server)
+            optional_fields["normalized_server"] = _normalize(server)
         if name is not None:
-            set_fields["normalized_name"] = _normalize(name)
+            optional_fields["normalized_name"] = _normalize(name)
+        set_fields = build_guarded_profile_set_fields(existing, optional_fields)
+        set_fields["updated_at"] = now
+        if not has_verified_query_ids(existing):
+            for field, value in optional_fields.items():
+                if value is not None and value != "" and value == existing.get(field):
+                    set_fields[field] = value
+            # Caller labels are not evidence, even if they copy the strict label.
+            set_fields["global_role_id_refreshed_at"] = now
+            set_fields["global_role_id_refresh_source"] = (
+                "indicator" if refresh_source == STRICT_QUERY_ID_REFRESH_SOURCE else refresh_source
+            )
 
-        await self._col().update_one({"_id": object_id}, {"$set": set_fields})
+        await self._col().update_one(_snapshot_filter(existing), {"$set": set_fields})
         return await self.get_by_id(object_id)
+
+    async def replace_query_ids_if_unchanged(
+        self,
+        expected: Dict[str, Any],
+        *,
+        game_role_id: str,
+        role_id: str,
+        observed_at: datetime,
+    ) -> bool:
+        """Internal verified-evidence boundary; callers must validate raw responses first."""
+        if (_coerce_object_id(expected.get("_id")) is None
+                or not role_id or role_id != game_role_id
+                or not expected.get("identity_key") or not expected.get("global_id")
+                or not str(expected.get("global_role_id") or "").startswith("SK01-")
+                or not isinstance(observed_at, datetime)):
+            return False
+        previous_observation = expected.get("global_role_id_refreshed_at")
+        if has_verified_query_ids(expected) and isinstance(previous_observation, datetime):
+            previous_utc = (previous_observation.replace(tzinfo=timezone.utc)
+                            if previous_observation.tzinfo is None else previous_observation)
+            observed_utc = (observed_at.replace(tzinfo=timezone.utc)
+                            if observed_at.tzinfo is None else observed_at)
+            if observed_utc < previous_utc:
+                return False
+        archived = await self._archive_profile_snapshot(
+            expected, replaced_by_identity_key=expected["identity_key"],
+            archive_reason="role_query_ids_recovered", source=STRICT_QUERY_ID_REFRESH_SOURCE,
+            observed_match_time=None, archived_at=observed_at,
+        )
+        if not archived:
+            return False
+        try:
+            result = await self._col().update_one(_snapshot_filter(expected), {"$set": {
+                "game_role_id": game_role_id, "role_id": role_id,
+                "global_role_id_refreshed_at": observed_at,
+                "global_role_id_refresh_source": STRICT_QUERY_ID_REFRESH_SOURCE,
+                "updated_at": observed_at,
+            }})
+            return result.matched_count == 1
+        except DuplicateKeyError:
+            return False
+
+    async def rollback_query_ids_if_unchanged(
+        self, expected_after: Dict[str, Any], before: Dict[str, Any],
+    ) -> bool:
+        """Conditionally restore only this operation's fields and their missing state."""
+        if (_coerce_object_id(expected_after.get("_id")) is None
+                or expected_after.get("_id") != before.get("_id")
+                or not has_verified_query_ids(expected_after)):
+            return False
+        update: Dict[str, Any] = {}
+        restore = {field: before[field] for field in _QUERY_ID_UPDATE_FIELDS if field in before}
+        remove = {field: "" for field in _QUERY_ID_UPDATE_FIELDS if field not in before}
+        if restore:
+            update["$set"] = restore
+        if remove:
+            update["$unset"] = remove
+        try:
+            result = await self._col().update_one(_snapshot_filter(expected_after), update)
+            return result.matched_count == 1
+        except DuplicateKeyError:
+            return False
 
     # ---- 显式升级 ----
 
@@ -614,6 +717,9 @@ class RoleIdentityRepo:
         existing = await self._col().find_one({"identity_key": current_identity_key})
         if not existing:
             return None
+        if has_verified_query_ids(existing):
+            existing.pop("_id", None)
+            return existing
 
         new_key, new_level = build_identity_key(
             global_id=global_id,
@@ -645,8 +751,8 @@ class RoleIdentityRepo:
             set_fields["game_role_id"] = game_role_id
 
         try:
-            await self._col().update_one(
-                {"identity_key": current_identity_key},
+            result = await self._col().update_one(
+                _snapshot_filter(existing),
                 {
                     "$set": set_fields,
                     "$push": {"aliases": current_identity_key},
@@ -659,6 +765,11 @@ class RoleIdentityRepo:
             )
             existing.pop("_id", None)
             return existing
+
+        if result.matched_count != 1:
+            latest = await self._col().find_one({"_id": existing["_id"]} if "_id" in existing
+                                                else {"identity_key": current_identity_key})
+            return self._strip_id(latest or existing)
 
         if cache_repo is not None:
             await cache_repo.migrate_identity_key(current_identity_key, new_key)
@@ -821,7 +932,8 @@ class RoleIdentityRepo:
             server=server, name=name,
         )
 
-        needs_upgrade = _LEVEL_ORDER.get(new_level, 0) > _LEVEL_ORDER.get(current_level, 0)
+        needs_upgrade = (not has_verified_query_ids(existing)
+                         and _LEVEL_ORDER.get(new_level, 0) > _LEVEL_ORDER.get(current_level, 0))
 
         set_fields: Dict[str, Any] = {
             "last_seen_at": now,
@@ -897,8 +1009,8 @@ class RoleIdentityRepo:
                 return existing
 
         try:
-            await self._col().update_one(
-                {"identity_key": current_key},
+            result = await self._col().update_one(
+                _snapshot_filter(existing),
                 update_op,
             )
         except DuplicateKeyError:
@@ -909,6 +1021,14 @@ class RoleIdentityRepo:
             if not preserve_id:
                 existing.pop("_id", None)
             return existing
+
+        if result.matched_count != 1:
+            latest = await self._col().find_one({"_id": existing["_id"]} if "_id" in existing
+                                                else {"identity_key": current_key})
+            latest = latest or existing
+            if not preserve_id:
+                latest.pop("_id", None)
+            return latest
 
         if needs_upgrade and cache_repo is not None:
             await cache_repo.migrate_identity_key(current_key, new_key)

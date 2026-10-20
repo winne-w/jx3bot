@@ -1,9 +1,10 @@
 import asyncio
 import time
+from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
 from typing import Any, Dict, List, Optional
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.services.jx3.jjc_match_data_sync import (
     JjcSyncMatchDetailClaimError,
@@ -3461,6 +3462,133 @@ class TestJjcMatchDataSyncService(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["error"])
         self.assertEqual(result["saved_details"], 1)
         self.assertEqual(result["failed_roles"], 0)
+
+
+class StrictObservedIdentitySyncTests(unittest.IsolatedAsyncioTestCase):
+    def build_service(self, *, refreshed_at, raw):
+        self.identity = {
+            "_id": "observed-1", "identity_key": "global_id:123456",
+            "global_id": "123456", "global_role_id": "SK01-target",
+            "game_role_id": "200", "role_id": "200", "zone": "zone-a",
+            "server": "server-a", "name": "target",
+            "global_role_id_refreshed_at": datetime.fromtimestamp(refreshed_at, timezone.utc),
+            "global_role_id_refresh_source": "indicator_replay_verified",
+        }
+        self.identities = FakeIdentityRepo()
+        self.identities.docs_by_id["observed-1"] = dict(self.identity)
+        self.indicator = FakeIndicatorClient({"zone-a:200:server-a": raw})
+        return JjcMatchDataSyncService(
+            repo=FakeRepo(), current_season="season", current_season_start="2026-04-24",
+            identity_repo=self.identities, role_indicator_client=self.indicator,
+            sleep_func=_noop_sleep,
+        )
+
+    async def test_r14_fresh_strict_marker_does_not_trigger_repeated_indicator(self):
+        service = self.build_service(refreshed_at=time.time(), raw={})
+        for _ in range(2):
+            await service._load_identity_for_sync({"identity_id": "observed-1"})
+        self.assertEqual(self.indicator.calls, [])
+        self.assertEqual(self.identities.refresh_indicator_calls, [])
+
+    async def test_r14_ordinary_indicator_cannot_advance_strict_observation(self):
+        original_time = time.time() - 200000
+        raw = {"code": 0, "data": {"role_info": {
+            "role_id": "200", "global_role_id": "SK01-target",
+            "zone": "zone-a", "server": "server-a",
+        }}}
+        service = self.build_service(refreshed_at=original_time, raw=raw)
+        await service._load_identity_for_sync({"identity_id": "observed-1"})
+        current = self.identities.docs_by_id["observed-1"]
+        self.assertEqual(current["global_role_id_refreshed_at"], datetime.fromtimestamp(original_time, timezone.utc))
+        self.assertEqual(current["global_role_id_refresh_source"], "indicator_replay_verified")
+
+    async def test_r30_unvalidated_new_transfer_cannot_partially_rewrite_strict_profile(self):
+        raw = {"code": 0, "data": {"role_info": {
+            "role_id": "300", "global_role_id": "SK01-target",
+            "zone": "zone-b", "server": "server-b",
+        }}}
+        service = self.build_service(refreshed_at=time.time() - 200000, raw=raw)
+        await service._load_identity_for_sync({"identity_id": "observed-1"})
+        current = self.identities.docs_by_id["observed-1"]
+        for key in ("server", "name", "zone", "game_role_id", "role_id"):
+            self.assertEqual(current[key], self.identity[key])
+
+
+class RecoveryUpstreamAuthSyncTests(unittest.IsolatedAsyncioTestCase):
+    def make_service(self, endpoint, code):
+        identity = {
+            "_id": "auth-role", "identity_key": "global_id:123456",
+            "global_id": "123456", "global_role_id": "SK01-target",
+            "game_role_id": "200", "role_id": "200", "zone": "zone-a",
+            "server": "server-a", "name": "target",
+        }
+        self.identities = FakeIdentityRepo()
+        self.identities.docs_by_id["auth-role"] = identity
+        self.identities.replace_query_ids_if_unchanged = AsyncMock(return_value=True)
+        self.repo = FakeRepo()
+        self.repo.claimed_queued_role = dict(identity, identity_id="auth-role", status="queued")
+        self.indicator = MagicMock()
+        self.history = MagicMock()
+        self.replay = MagicMock()
+        failure = {"code": code, "msg": "private-upstream-diagnostic"}
+        valid = {"code": 0, "data": {"role_info": {
+            "role_id": "300", "global_role_id": "SK01-target", "name": "target",
+            "zone": "zone-a", "server": "server-a",
+        }, "indicator": [{"type": "3c", "total_count": 12}]}}
+        self.indicator.get_role_indicator.side_effect = lambda **query: (
+            {"code": 0, "data": {"role_info": {}, "indicator": []}}
+            if query["role_id"] == "200" else failure if endpoint == "indicator" else valid
+        )
+        self.history.get_mine_match_history.side_effect = (
+            [failure, {"code": 0, "data": []}] if endpoint == "history"
+            else [{"code": 0, "data": []}]
+        )
+        self.replay.get_match_replay.return_value = failure
+        locator = {"role_id": "300", "zone": "zone-a", "server": "server-a"}
+        if endpoint != "history":
+            locator["match_id"] = 700
+        inspect = FakeInspectService()
+        inspect.kungfu_cache_repo = MagicMock()
+        inspect.kungfu_cache_repo.load_query_id_recovery_candidates = AsyncMock(return_value=[locator])
+        return JjcMatchDataSyncService(
+            repo=self.repo, current_season="season", current_season_start="2026-04-24",
+            identity_repo=self.identities, role_indicator_client=self.indicator,
+            match_history_client=self.history, match_replay_client=self.replay,
+            inspect_service=inspect, sleep_func=_noop_sleep,
+        )
+
+    async def test_candidate_history_replay_auth_pauses_worker_before_next_role(self):
+        for endpoint in ("indicator", "history", "replay"):
+            for code in (401, 403):
+                with self.subTest(endpoint=endpoint, code=code):
+                    service = self.make_service(endpoint, code)
+                    with patch("config.JJC_ROLE_IDENTITY_RECOVERY_ENABLED", 1):
+                        result = await service.worker_tick(mode="full", worker_id="worker-auth")
+                        self.assertTrue(result.get("auto_paused"), result)
+                        calls = (self.indicator.get_role_indicator.call_count,
+                                 self.history.get_mine_match_history.call_count,
+                                 self.replay.get_match_replay.call_count)
+                        second = await service.worker_tick(mode="full", worker_id="worker-auth")
+                    self.assertTrue(second.get("paused"))
+                    self.assertTrue(self.repo.paused)
+                    self.assertNotIn("private-upstream-diagnostic", self.repo.pause_reason)
+                    self.assertEqual(calls, (self.indicator.get_role_indicator.call_count,
+                                            self.history.get_mine_match_history.call_count,
+                                            self.replay.get_match_replay.call_count))
+                    self.identities.replace_query_ids_if_unchanged.assert_not_awaited()
+
+    async def test_rate_limit_stops_recovery_without_misclassifying_auth(self):
+        for endpoint in ("indicator", "history", "replay"):
+            with self.subTest(endpoint=endpoint):
+                service = self.make_service(endpoint, 429)
+                with patch("config.JJC_ROLE_IDENTITY_RECOVERY_ENABLED", 1):
+                    result = await service._refresh_identity_indicator_for_sync(
+                        {}, self.identities.docs_by_id["auth-role"],
+                    )
+                self.assertIsNone(result)
+                self.assertFalse(self.repo.paused)
+                self.assertEqual(self.identities.refresh_indicator_calls, [])
+                self.identities.replace_query_ids_if_unchanged.assert_not_awaited()
 
 
 if __name__ == "__main__":

@@ -15,6 +15,22 @@
 
 ## 运行方式
 
+### JJC 查询 ID 恢复与存量操作
+
+`JJC_ROLE_IDENTITY_RECOVERY_ENABLED` 默认 `0`，支持环境变量及运行配置。公开 API/排名/同步新增恢复入口只有开启才探测，CLI 显式维护不依赖该开关。关闭后仓储保护仍生效，不会还原数据。首次部署保持关闭，单角色试点通过后仅修改这一配置键并第二次重启。
+
+先运行 `python scripts/recover_jjc_role_identities.py --help`。`inventory --output <绝对私有目录>` 只读盘点所有本地身份及保留缓存/历史/排名的不同 locator；额外 replay 扫描须显式 `--replay-scan-limit N`，最大 1000000，结果报告扫描范围和截断可能。候选不是故障名单，无候选与未扫描来源均是未知，不是健康。操作目录须当前用户所有、0700、无符号链接。
+
+`verify` 和 `apply` 都需 `--manifest`、`--manifest-sha256` 及同一 `--run-dir`；apply 重新实时验证，还需 `--backup-dir`、`--confirm-target host:port/database`、`--yes`。同一 run 的 manifest/目标/版本绑定不能替换。每次最多 20 角色、单并发、上游逻辑调用间隔至少 1 秒；实现保守将整个 run 压至 100 次（包含 verify、apply、复验/API预留），不能靠切命令重置。上限耗尽保存进度停止，不连续创建新 run 绕限制。
+
+`--resume-from <原run目录>` 跳过该命令已处理终态；prepared 崩溃项先回读，不盲重放。显式 `--name/--server` 可受控复验；无证据、认证/429、冲突或预算不足如实留待处理。CLI 不写战绩缓存，保留关联缓存 before-image；成功 ID 更新先标 `applied_unverified`，由后续公开 API 写成功新缓存并验收，不能把旧缓存重新标新鲜。
+
+`verify-applied --run-dir ...` 只读数据库，不调用会写缓存/自愈的公开 API；主动 API 验收前用同命令 `--reserve-api-calls 5` 为每个无法证明缓存命中的请求保守预留 5 次，同 run 共享额度。公开 API 与真实页面验收另列为允许写缓存/自愈的操作。API/页面通过者才在验收证据记 recovered；脚本不伪造该状态。
+
+回滚默认 `rollback --run-dir ...` 只预览，显式 `--apply --yes --confirm-target ...` 才按 after-image CAS 还原本次字段/缺失状态，后续合法更新跳过。CLI 不写缓存，因此不删除后来合法缓存。代码、数据、启用配置分别回退；代码仅恢复本次 allowlist 并验证启动，配置只还原该键原值。旧代码可能重新允许历史回退，风险解除前同步保持暂停。
+
+生产发布须先确认容器挂载/原暂停状态、无旧独立写者、磁盘与备份校验、生产基线加实际补丁组合测试；受控停止容器后替换文件再启动。验证 Running/StartedAt/文件哈希、日志、业务 API、真实桌面及手机宽度页面、未修角色自动自愈和健康对照；按原状态恢复同步后至少观察 15 分钟。串号、越权修改、回退、认证/429或重启循环立即停止，分别判断代码/数据回滚。完整门禁和当前执行证据位于 `openspec/changes/jjc-role-identity-recovery/`。
+
 ### 本地 Python
 
 ```bash

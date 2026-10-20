@@ -8,6 +8,14 @@ IDENTITY_LEVEL_GLOBAL_ID = "global_id"
 IDENTITY_LEVEL_GLOBAL_ROLE = "global"
 IDENTITY_LEVEL_GAME_ROLE = "game_role"
 IDENTITY_LEVEL_NAME = "name"
+STRICT_QUERY_ID_REFRESH_SOURCE = "indicator_replay_verified"
+
+
+def has_verified_query_ids(existing: Dict[str, Any]) -> bool:
+    return (
+        existing.get("global_role_id_refresh_source") == STRICT_QUERY_ID_REFRESH_SOURCE
+        and isinstance(existing.get("global_role_id_refreshed_at"), datetime)
+    )
 
 PROFILE_GUARDED_FIELDS = (
     "server",
@@ -61,6 +69,8 @@ def should_overwrite_profile_fields(
     observed_match_time: Optional[int] = None,
     force_profile_update: bool = False,
 ) -> bool:
+    if has_verified_query_ids(existing):
+        return False
     if force_profile_update:
         return True
     if observed_match_time is None:
@@ -85,6 +95,11 @@ def build_guarded_profile_set_fields(
         observed_match_time=observed_match_time,
         force_profile_update=force_profile_update,
     )
+    if has_verified_query_ids(existing):
+        for field_name in PROFILE_GUARDED_FIELDS:
+            value = incoming.get(field_name)
+            if value is not None and value != "" and value != existing.get(field_name):
+                return {}
     set_fields: Dict[str, Any] = {}
     for field_name in PROFILE_GUARDED_FIELDS:
         value = incoming.get(field_name)
@@ -213,6 +228,49 @@ def parse_indicator_identity(indicator_data: Dict[str, Any]) -> Dict[str, Option
         "name": clean_id(role_info.get("name")),
         "person_id": clean_id(person_info.get("person_id")),
     }
+
+
+def validate_query_id_evidence(
+    existing: Dict[str, Any],
+    *,
+    request_zone: str,
+    request_server: str,
+    request_role_id: str,
+    indicator_data: Dict[str, Any],
+    replay_data: Dict[str, Any],
+) -> bool:
+    """Validate original upstream responses, not cached identity wrappers."""
+    from src.services.jx3.indicator_utils import parse_3v3_indicator
+
+    numeric_id = clean_id(existing.get("global_id"))
+    sk01 = clean_id(existing.get("global_role_id"))
+    if not numeric_id or not numeric_id.isdigit() or not sk01 or not sk01.startswith("SK01-"):
+        return False
+    if not all(clean_id(value) for value in (request_zone, request_server, request_role_id)):
+        return False
+    if request_zone != existing.get("zone") or request_server != existing.get("server"):
+        return False
+    if (not isinstance(indicator_data, dict) or type(indicator_data.get("code")) is not int
+            or indicator_data.get("code") != 0):
+        return False
+    if (not isinstance(replay_data, dict) or type(replay_data.get("code")) is not int
+            or replay_data.get("code") != 0):
+        return False
+    identity = parse_indicator_identity(indicator_data)
+    if (identity.get("role_id") != str(request_role_id)
+            or identity.get("zone") != request_zone
+            or identity.get("server") != request_server
+            or identity.get("global_role_id") != sk01
+            or identity.get("name") != existing.get("name")):
+        return False
+    if parse_3v3_indicator(indicator_data).get("error"):
+        return False
+    players = extract_replay_players(replay_data)
+    target = [player for player in players if player.get("global_id") == numeric_id]
+    if not target or any(player.get("role_id") != str(request_role_id) for player in target):
+        return False
+    return all(player.get("global_id") == numeric_id for player in players
+               if player.get("role_id") == str(request_role_id))
 
 
 def build_profile_history_entry(

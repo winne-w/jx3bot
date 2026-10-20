@@ -228,6 +228,12 @@
 
 ### `role_identities`
 
+查询 ID 恢复复用 `game_role_id` / `role_id`，不增加集合、字段或索引。仅原始成功 indicator 的请求/响应 ID、服务器、区服、SK01、名字与独立 replay 精确数字 `global_id` 映射一致时，内部 `replace_query_ids_if_unchanged` 才能以全画像快照 CAS 替换两个 ID。CAS 区分缺失和 null，冲突不强写；不改变稳定主键、画像对局水位或同步进度。
+
+复用的 `global_role_id_refreshed_at` 为本次严格请求开始的 UTC Date（毫秒精度），`global_role_id_refresh_source=indicator_replay_verified` 表示严格证据；普通调用方不能仅复制标签获得权限。严格标记后，历史/未验证写入不能部分回退服务器、名字、规范化字段、区服和 ID 组合，普通刷新不推进或擦除该标记。再次转服/改名超出本次 ID-only 范围，保守列为未解决。
+
+此严格 ID 覆盖前也归档旧画像到既有 `role_identities_history`，`archive_reason=role_query_ids_recovered`；归档失败零更新，归档成功但 CAS 失配不计修复。条件回滚仅还原本次 ID/观测字段及其原缺失状态，保留后续合法更新。一次性 CLI 的私有操作文件承担 before/after-image 和调用预算，不作为运行时缓存或 Mongo 恢复平台。
+
 用途：游戏角色身份统一模型。不存心法缓存结果，只维护角色在不同来源（排行榜、indicator、对局详情）中的身份标识及其关联关系。替代 `kungfu_cache` 中以 `server + name` 作为唯一键的弱身份模型。
 
 读写归属：
@@ -315,7 +321,7 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `archived_at` | datetime | 归档时间 |
-| `archive_reason` | string | 归档原因，当前包括 `"duplicate_global_role_id_merged"`、`"role_identity_profile_updated"` |
+| `archive_reason` | string | 归档原因，包括 `"duplicate_global_role_id_merged"`、`"role_identity_profile_updated"`、严格查询 ID 修复的 `"role_query_ids_recovered"` |
 | `replaced_by_identity_key` | string | 保留文档的 `identity_key` |
 | `archive_source` | string/null | 触发归档的写入来源，如 `match_detail` |
 | `replaced_by_observed_match_time` | int/null | 触发覆盖的新对局时间 Unix 秒 |

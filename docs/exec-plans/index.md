@@ -6,6 +6,10 @@
 
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
+## Active OpenSpec
+
+- `../../openspec/changes/jjc-role-identity-recovery/tasks.md`: 角色查询 ID 最小修复的 TDD 操作计划；用户已批准，子agent开发/独立review闭环中，发布与线上验收待门禁通过。唯一计划位于 change，不在 active 下另建副本。
+
 ## Completed
 
 - `completed/jjc-ranking-admin-error-notification-plan.md`: JJC 排名定时任务统计失败时私聊管理员报错信息计划

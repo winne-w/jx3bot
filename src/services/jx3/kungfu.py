@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional, Tuple, Union
 
 from src.services.jx3.indicator_utils import find_3v3_indicator, find_3v3_metrics
@@ -370,6 +371,8 @@ def get_kungfu_detail_by_role_info(
     if game_role_id == "未知" or server == "未知" or zone == "未知":
         return None
 
+    request_started_at = datetime.now(timezone.utc)
+    request_started_at = request_started_at.replace(microsecond=(request_started_at.microsecond // 1000) * 1000)
     role_detail = get_role_indicator(
         game_role_id,
         zone,
@@ -571,6 +574,7 @@ def get_kungfu_detail_by_role_info(
     result["teammates_checked"] = weapon_checked
     if isinstance(role_detail, dict):
         cache_warmup["role_indicator"] = {
+            "request_started_at": request_started_at,
             "raw": role_detail,
             "server": server,
             "name": role_name,

@@ -130,6 +130,10 @@ python scripts/jjc_sync.py worker
 
 ## 存储说明
 
+JJC 转服后的查询 ID 恢复由 `JJC_ROLE_IDENTITY_RECOVERY_ENABLED` 控制，默认 `0`，可通过环境变量或 `runtime_config.json` 配置，修改后需重启进程。开启后仅对原始 indicator 与独立 replay 数字身份一致的本地角色执行有界修复；不新增角色、不自动迁移服务器/名字。关闭开关不会撤销已修复资料或解除仓储的历史防回退保护。
+
+存量维护脚本为 `scripts/recover_jjc_role_identities.py`，默认只读，显式 `apply` 需要固定清单哈希、私有备份目录、目标确认及 `--yes`。发布、回滚和未解决范围见 `docs/references/runbook.md` 与 `openspec/changes/jjc-role-identity-recovery/tasks.md`。
+
 当前分支只记录现有文件型运行数据和存储边界。
 
 ## 手工验证

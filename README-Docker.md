@@ -72,6 +72,10 @@ docker compose up --build -d
 
 ## 部署前检查
 
+角色查询 ID 恢复开关 `JJC_ROLE_IDENTITY_RECOVERY_ENABLED` 默认 `0`，支持既有运行配置白名单；修改后必须实际重启加载配置的进程。首次发布保持关闭，完成显式 CLI 单角色试点后再设为 `1` 并受控重启；仅修改该键，不用本地配置文件覆盖生产配置。开关不影响普通查询或仓储安全保护，不等于数据回滚。
+
+发布前暂停并等待相关同步静默，记录全部写进程。独立 worker 必须升级并实际重载，或保持停止，不能仅凭磁盘文件已更新就恢复。代码挂载采用受审文件 allowlist 与生产基线组合验证，先备份，再停止容器、替换、启动，不需要重启宿主机或清库。操作与回滚见 `docs/references/runbook.md`。
+
 1. 宿主机已安装 Docker 与 Docker Compose
 2. `config.py` 已准备完成
 3. `groups.json`、`server_data.json` 的读写权限正确

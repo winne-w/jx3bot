@@ -127,6 +127,40 @@ class JjcCacheRepo:
 
     # ---- helpers (lazy repo access to avoid circular imports) ----
 
+    async def load_query_id_recovery_candidates(self, identity: Dict[str, Any]) -> list:
+        """Read bounded indexed evidence; expired values are locators, never metrics."""
+        from src.services.jx3.role_identity_recovery import collect_query_id_candidates
+        from src.services.jx3.role_identity_matching import extract_replay_players
+
+        db = self.db if self.db is not None else _get_db()
+        sources = []
+        identity_key = identity.get("identity_key")
+        keys = [identity_key]
+        if identity.get("global_role_id"):
+            keys.append("global:" + str(identity["global_role_id"]))
+        for key in dict.fromkeys(key for key in keys if key):
+            cached = await db.jjc_role_indicator.find_one({"cache_key": key})
+            if cached:
+                sources.append(cached)
+        if identity_key:
+            cached = await db.role_jjc_cache.find_one({"identity_key": identity_key})
+            if cached:
+                sources.append(cached)
+            async for historical in db.role_identities_history.find({"identity_key": identity_key}).limit(32):
+                sources.append(historical)
+        numeric_id = str(identity.get("global_id") or "")
+        if numeric_id.isdigit():
+            cursor = db.jjc_match_detail.find(
+                {"data.replay.data.players.global_role_id": numeric_id},
+                {"match_id": 1, "data.replay": 1},
+            ).sort("cached_at", -1).limit(16)
+            async for document in cursor:
+                replay = (document.get("data") or {}).get("replay") or {}
+                for player in extract_replay_players(replay):
+                    if player.get("global_id") == numeric_id:
+                        sources.append(dict(player, match_id=document.get("match_id")))
+        return collect_query_id_candidates(identity, sources)
+
     def _get_identity_repo(self):
         from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
         return RoleIdentityRepo(db=self.db if self.db is not None else _get_db())

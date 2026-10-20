@@ -33,6 +33,141 @@ class FakeDb:
         self.role_identities_history = FakeCollection()
 
 
+def recovery_snapshot():
+    return {
+        "_id": ObjectId(), "identity_key": "global_id:10001",
+        "identity_level": "global_id", "global_id": "10001",
+        "global_role_id": "SK01-test", "server": "new-server",
+        "normalized_server": "new-server", "name": "test-role",
+        "normalized_name": "test-role", "zone": "zone-a",
+        "role_id": "31300496", "game_role_id": "31300496", "person_id": "person-a",
+        "role_info_observed_match_time": 200,
+        "profile_observed_at": datetime(2026, 10, 19, tzinfo=timezone.utc),
+        "updated_at": datetime(2026, 10, 19, tzinfo=timezone.utc),
+    }
+
+
+class TestVerifiedQueryIdRepo(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.db = FakeDb()
+        self.repo = RoleIdentityRepo(db=self.db)
+        self.expected = recovery_snapshot()
+        self.observed_at = datetime(2026, 10, 20, tzinfo=timezone.utc)
+        self.db.role_identities.find_one.return_value = dict(self.expected)
+
+    async def replace(self):
+        method = getattr(self.repo, "replace_query_ids_if_unchanged", None)
+        self.assertTrue(callable(method), "a narrow ID-only CAS entry is required")
+        return await method(self.expected, game_role_id="34945120", role_id="34945120",
+                            observed_at=self.observed_at)
+
+    def mark_verified(self):
+        self.expected.update(global_role_id_refresh_source="indicator_replay_verified",
+                             global_role_id_refreshed_at=self.observed_at)
+        self.db.role_identities.find_one.return_value = dict(self.expected)
+
+    async def test_id_only_repair_archives_before_image_and_preserves_stable_fields(self):
+        self.assertTrue(await self.replace())
+        self.db.role_identities_history.insert_one.assert_awaited_once()
+        archived = self.db.role_identities_history.insert_one.call_args.args[0]
+        self.assertEqual(archived["role_id"], "31300496")
+        self.assertEqual(archived["server"], self.expected["server"])
+        self.assertIn("archive_reason", archived)
+        self.assertIn("archive_source", archived)
+        update = self.db.role_identities.update_one.call_args.args[1]
+        self.assertEqual(set(update), {"$set"})
+        self.assertEqual(set(update["$set"]), {
+            "role_id", "game_role_id", "global_role_id_refreshed_at",
+            "global_role_id_refresh_source", "updated_at"})
+        self.assertEqual(update["$set"]["role_id"], "34945120")
+        self.assertEqual(update["$set"]["game_role_id"], "34945120")
+        self.assertEqual(update["$set"]["global_role_id_refreshed_at"], self.observed_at)
+        self.assertEqual(update["$set"]["updated_at"], self.observed_at)
+        self.assertEqual(update["$set"]["global_role_id_refresh_source"], "indicator_replay_verified")
+
+    async def test_archive_failure_prevents_any_identity_write(self):
+        self.db.role_identities_history.insert_one.side_effect = RuntimeError("archive unavailable")
+        self.assertFalse(await self.replace())
+        self.db.role_identities.update_one.assert_not_awaited()
+
+    async def test_zero_matched_cas_does_not_report_repaired(self):
+        self.db.role_identities.update_one.return_value = SimpleNamespace(matched_count=0)
+        self.assertFalse(await self.replace())
+
+    async def test_mismatched_two_query_ids_are_never_published(self):
+        method = getattr(self.repo, "replace_query_ids_if_unchanged", None)
+        self.assertTrue(callable(method))
+        self.assertFalse(await method(self.expected, game_role_id="one", role_id="two",
+                                      observed_at=self.observed_at))
+        self.db.role_identities.update_one.assert_not_awaited()
+
+    async def test_naive_mongo_observation_can_be_compared_without_losing_guard(self):
+        self.mark_verified()
+        self.expected["global_role_id_refreshed_at"] = self.observed_at.replace(tzinfo=None)
+        self.assertTrue(await self.replace())
+
+    async def test_source_label_alone_cannot_mint_strict_marker(self):
+        await self.repo.refresh_indicator_fields_by_id(
+            self.expected["_id"], "SK01-test", refresh_source="indicator_replay_verified")
+        fields = self.db.role_identities.update_one.call_args.args[1]["$set"]
+        self.assertNotEqual(fields.get("global_role_id_refresh_source"), "indicator_replay_verified")
+
+    async def test_match_detail_future_time_cannot_partially_migrate_verified_profile(self):
+        self.mark_verified()
+        await self.repo.upsert_from_match_detail_with_id(
+            server="third-server", name="new-name", zone="new-zone",
+            global_id="10001", role_id="wrong-id", game_role_id="wrong-id",
+            observed_match_time=9999999999)
+        update = self.db.role_identities.update_one.call_args.args[1]["$set"]
+        protected = {"server", "normalized_server", "name", "normalized_name",
+                     "zone", "role_id", "game_role_id", "global_role_id", "person_id"}
+        self.assertFalse(protected.intersection(update), update)
+
+    async def test_direct_refresh_cannot_bypass_verified_combination_or_erase_marker(self):
+        self.mark_verified()
+        await self.repo.refresh_indicator_fields_by_id(
+            self.expected["_id"], "SK01-other", refresh_source="indicator_api",
+            server="old-server", name="old-name", zone="old-zone",
+            role_id="wrong", game_role_id="wrong")
+        for call in self.db.role_identities.update_one.call_args_list:
+            fields = call.args[1].get("$set", {})
+            for field in ("server", "name", "zone", "role_id", "game_role_id", "global_role_id",
+                          "global_role_id_refreshed_at", "global_role_id_refresh_source"):
+                if field in fields:
+                    self.assertEqual(fields[field], self.expected[field], field)
+
+    async def test_same_profile_ordinary_refresh_must_not_forge_new_strict_observation(self):
+        self.mark_verified()
+        await self.repo.refresh_indicator_fields_by_id(
+            self.expected["_id"], "SK01-test", refresh_source="indicator_api",
+            server="new-server", name="test-role", zone="zone-a",
+            role_id="31300496", game_role_id="31300496")
+        for call in self.db.role_identities.update_one.call_args_list:
+            fields = call.args[1].get("$set", {})
+            if "global_role_id_refreshed_at" in fields:
+                self.assertEqual(fields["global_role_id_refreshed_at"], self.observed_at)
+            if "global_role_id_refresh_source" in fields:
+                self.assertEqual(fields["global_role_id_refresh_source"], "indicator_replay_verified")
+
+    async def test_match_detail_projection_contains_existing_observation_markers(self):
+        from src.storage.mongo_repos.role_identity_repo import MATCH_DETAIL_IDENTITY_PROJECTION
+        self.assertEqual(MATCH_DETAIL_IDENTITY_PROJECTION.get("global_role_id_refreshed_at"), 1)
+        self.assertEqual(MATCH_DETAIL_IDENTITY_PROJECTION.get("global_role_id_refresh_source"), 1)
+
+    async def test_upgrade_cannot_change_verified_query_combination(self):
+        self.mark_verified()
+        self.expected.update(identity_level="game_role", identity_key="game:zone-a:31300496")
+        self.expected.pop("global_id")
+        self.db.role_identities.find_one.return_value = dict(self.expected)
+        await self.repo.upgrade_identity(
+            self.expected["identity_key"], global_role_id="SK01-test",
+            zone="old-zone", game_role_id="wrong")
+        for call in self.db.role_identities.update_one.call_args_list:
+            fields = call.args[1].get("$set", {})
+            self.assertNotIn("zone", fields)
+            self.assertNotIn("game_role_id", fields)
+
+
 class AggregateListCursor:
     def __init__(self, docs: List[Dict[str, Any]]) -> None:
         self._docs = docs
@@ -553,7 +688,8 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         )
 
         filter_doc, update = db.role_identities.update_one.call_args.args
-        self.assertEqual(filter_doc, {"identity_key": "global:SK01-abc"})
+        self.assertEqual(filter_doc["identity_key"], {"$eq": "global:SK01-abc"})
+        self.assertEqual(filter_doc["global_role_id"], {"$eq": "SK01-abc"})
         self.assertEqual(update["$set"]["identity_key"], "global_id:99999")
         self.assertEqual(update["$set"]["identity_level"], "global_id")
         self.assertEqual(update["$set"]["global_id"], "99999")
@@ -690,7 +826,8 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
         )
 
         filter_doc, update = db.role_identities.update_one.call_args.args
-        self.assertEqual(filter_doc, {"_id": identity_id})
+        self.assertEqual(filter_doc["_id"], identity_id)
+        self.assertEqual(filter_doc["global_role_id"], {"$eq": "gid-new"})
         self.assertEqual(update["$set"]["global_role_id"], "gid-new")
         self.assertIn("global_role_id_refreshed_at", update["$set"])
         self.assertEqual(update["$set"]["global_role_id_refresh_source"], "indicator_api")

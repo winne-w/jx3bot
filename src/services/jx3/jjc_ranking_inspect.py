@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from nonebot import logger
+import config as cfg
 
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.jjc_ranking import JjcRankingService
@@ -25,6 +26,7 @@ from src.services.jx3.match_replay import MatchReplayClient
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
 from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
+from src.services.jx3.role_identity_recovery import indicator_matches_request, recover_query_ids
 
 
 SYNCED_MATCH_PAGE_SYNC_PRIORITY = 2
@@ -225,6 +227,8 @@ class JjcRankingInspectService:
     cache_hit_replay_enrich_timeout_seconds: float = 5.0
     _tuilan_query_locks: WeakKeyDictionary = field(default_factory=WeakKeyDictionary, init=False, repr=False)
     _tuilan_query_locks_guard: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _identity_recovery_tasks: dict = field(default_factory=dict, init=False, repr=False)
+    _identity_recovery_cooldown: dict = field(default_factory=dict, init=False, repr=False)
 
     def _get_tuilan_query_lock(self, endpoint_key: str) -> asyncio.Lock:
         loop = asyncio.get_running_loop()
@@ -633,7 +637,57 @@ class JjcRankingInspectService:
             payload["cache"] = {"hit": False, "cached_at": time.time(), "force_refresh": bool(force_refresh)}
         return payload
 
-    async def get_role_indicator(
+    @staticmethod
+    def _cached_indicator_matches_identity(identity: dict[str, Any], cached: dict[str, Any]) -> bool:
+        expected = dict(identity)
+        query_id = _pick_str(identity.get("game_role_id"), identity.get("role_id"))
+        expected["game_role_id"] = query_id
+        expected["role_id"] = query_id
+        raw = cached.get("raw")
+        data = raw.get("data") if isinstance(raw, dict) else None
+        info = data.get("role_info") if isinstance(data, dict) else None
+        for source in (cached, info if isinstance(info, dict) else {}):
+            for key in ("identity_key", "game_role_id", "role_id", "zone", "server", "global_id", "global_role_id"):
+                actual = _pick_str(source.get(key))
+                wanted = _pick_str(expected.get(key))
+                if actual and wanted and actual != wanted:
+                    return False
+        return True
+
+    async def get_role_indicator(self, **kwargs: Any) -> dict[str, Any]:
+        if not getattr(cfg, "JJC_ROLE_IDENTITY_RECOVERY_ENABLED", 0):
+            return await self._get_role_indicator_once(**kwargs)
+        key = (kwargs.get("server"), _normalize_name(kwargs.get("name") or ""),
+               bool(kwargs.get("identity_only")),
+               *(str(kwargs.get(field) or "") for field in
+                 ("game_role_id", "global_role_id", "global_id", "role_id", "zone")))
+        cooldown = self._identity_recovery_cooldown.get(key)
+        if cooldown and cooldown[0] > time.monotonic():
+            return copy.deepcopy(cooldown[1])
+        loop_key = (asyncio.get_running_loop(), key, bool(kwargs.get("force_refresh")))
+        running = self._identity_recovery_tasks.get(loop_key)
+        if running is not None:
+            return await asyncio.shield(running)
+        if len(self._identity_recovery_tasks) >= 1024:
+            return {"error": True, "message": "indicator_recovery_busy"}
+        task = asyncio.create_task(self._get_role_indicator_once(**kwargs))
+        self._identity_recovery_tasks[loop_key] = task
+        try:
+            result = await asyncio.shield(task)
+            if result.get("error") and result.get("message") != "indicator_recovery_busy":
+                self._identity_recovery_cooldown.pop(key, None)
+                self._identity_recovery_cooldown[key] = (time.monotonic() + 180, copy.deepcopy(result))
+                while len(self._identity_recovery_cooldown) > 1024:
+                    self._identity_recovery_cooldown.pop(next(iter(self._identity_recovery_cooldown)))
+            return result
+        finally:
+            # A cancelled caller must not drop an active same-role recovery task.
+            if task.done():
+                self._identity_recovery_tasks.pop(loop_key, None)
+            else:
+                task.add_done_callback(lambda done: self._identity_recovery_tasks.pop(loop_key, None))
+
+    async def _get_role_indicator_once(
         self,
         *,
         server: str,
@@ -646,8 +700,10 @@ class JjcRankingInspectService:
         force_refresh: bool = False,
         identity_only: bool = False,
     ) -> dict[str, Any]:
+        raw_identity = None
         if identity_only:
             raw_identity = await self._resolve_synced_identity_only(server=server, name=name)
+            raw_identity = copy.deepcopy(raw_identity)
             if not raw_identity:
                 return {
                     "error": True,
@@ -690,7 +746,7 @@ class JjcRankingInspectService:
                 identity_key,
                 ttl_seconds=self.role_indicator_ttl_seconds,
             )
-        if cached:
+        if cached and self._cached_indicator_matches_identity(identity, cached):
             return {
                 "player": {"server": server, "name": _normalize_name(name)},
                 "identity": identity,
@@ -705,20 +761,55 @@ class JjcRankingInspectService:
 
         resolved_game_role_id = _pick_str(identity.get("game_role_id"))
         resolved_zone = _pick_str(identity.get("zone"))
+        raw = None
+        recovery_enabled = bool(getattr(cfg, "JJC_ROLE_IDENTITY_RECOVERY_ENABLED", 0) and raw_identity)
+        if resolved_game_role_id and resolved_zone and not recovery_enabled:
+            raw = await self._run_serialized_tuilan_query(
+                "role_indicator",
+                f"role_indicator:{server}:{name}",
+                self.role_indicator_fetcher,
+                resolved_game_role_id,
+                resolved_zone,
+                server,
+                tuilan_request=self.tuilan_request,
+                rank=None,
+                name=name,
+            )
+        if recovery_enabled:
+            try:
+                loader = getattr(self.kungfu_cache_repo, "load_query_id_recovery_candidates", None)
+                try:
+                    candidates = await loader(raw_identity) if callable(loader) else []
+                except Exception as exc:
+                    logger.warning("JJC recovery locators unavailable: {}", exc)
+                    candidates = []
+
+                def fetch_indicator(**query: Any) -> Any:
+                    return self.role_indicator_fetcher(
+                        query["role_id"], query["zone"], query["server"],
+                        tuilan_request=self.tuilan_request, rank=None, name=name,
+                    )
+
+                recovery = await recover_query_ids(
+                    raw_identity, identity_repo=self._role_identity_repo(), candidates=candidates,
+                    indicator_fetcher=fetch_indicator,
+                    replay_fetcher=(self.match_replay_client.get_match_replay if self.match_replay_client else lambda **_: {}),
+                    history_fetcher=self.match_history_client.get_mine_match_history,
+                    publish=True,
+                )
+                if recovery.get("status") == "busy":
+                    return {"error": True, "message": "indicator_recovery_busy", "identity": identity}
+                if recovery.get("status") in {"healthy", "recovered"}:
+                    if recovery.get("status") == "recovered":
+                        raw_identity = recovery["identity"]
+                        identity = self._serialize_identity(raw_identity)
+                    raw = recovery["raw"]
+                    resolved_game_role_id = identity.get("game_role_id")
+                    resolved_zone = identity.get("zone")
+            except Exception as exc:
+                logger.warning("JJC identity recovery failed: {}", exc)
         if not resolved_game_role_id or not resolved_zone:
             return {"error": True, "message": "indicator_params_missing", "identity": identity}
-
-        raw = await self._run_serialized_tuilan_query(
-            "role_indicator",
-            f"role_indicator:{server}:{name}",
-            self.role_indicator_fetcher,
-            resolved_game_role_id,
-            resolved_zone,
-            server,
-            tuilan_request=self.tuilan_request,
-            rank=None,
-            name=name,
-        )
         if not isinstance(raw, dict):
             return {"error": True, "message": "indicator_unavailable", "identity": identity}
         if raw.get("error"):
@@ -732,6 +823,11 @@ class JjcRankingInspectService:
                 "identity": identity,
                 "raw": raw,
             }
+
+        if (raw_identity is not None or identity.get("global_id")) and not indicator_matches_request(
+            identity, raw, role_id=resolved_game_role_id, zone=resolved_zone, server=server,
+        ):
+            return {"error": True, "message": "indicator_identity_conflict", "identity": identity}
 
         person_id = _extract_person_id_from_indicator(raw)
         raw_role_info = (raw.get("data") or {}).get("role_info") if isinstance(raw.get("data"), dict) else None
@@ -783,7 +879,21 @@ class JjcRankingInspectService:
             "raw": raw,
             "cached_at": cached_at,
         }
-        await self.cache_repo.save_role_indicator(identity_key, cache_payload)
+        if raw_identity is not None and raw_identity.get("_id") is not None:
+            latest = await self._role_identity_repo().get_by_id(raw_identity["_id"])
+            if not isinstance(latest, dict) or any(
+                latest.get(key) != raw_identity.get(key)
+                for key in ("identity_key", "global_id", "global_role_id", "game_role_id", "role_id", "server", "zone", "name")
+            ):
+                return {"error": True, "message": "indicator_identity_changed", "identity": identity}
+        try:
+            await self.cache_repo.save_role_indicator(identity_key, cache_payload)
+            saved = await self.cache_repo.load_role_indicator(identity_key, ttl_seconds=self.role_indicator_ttl_seconds)
+            if not saved or saved.get("cached_at") != cached_at:
+                return {"error": True, "message": "indicator_cache_write_failed", "identity": identity}
+        except Exception as exc:
+            logger.warning("JJC indicator cache write failed: {}", exc)
+            return {"error": True, "message": "indicator_cache_write_failed", "identity": identity}
 
         return {
             "player": {"server": server, "name": _normalize_name(name)},

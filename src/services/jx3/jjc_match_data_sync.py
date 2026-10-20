@@ -14,6 +14,9 @@ from src.services.jx3.match_replay import MatchReplayClient
 from src.services.jx3.match_detail_persistence import MatchDetailPersistenceService
 from src.services.jx3.role_indicator import RoleIndicatorClient
 from src.services.jx3.tuilan_rate_limit import random_sleep
+from src.services.jx3.role_identity_matching import has_verified_query_ids
+from src.services.jx3.role_identity_recovery import recover_query_ids
+import config as cfg
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
 
 from nonebot import logger
@@ -491,6 +494,7 @@ class JjcMatchDataSyncService:
         self._person_match_history_client = person_match_history_client
         self._match_replay_client = match_replay_client
         self._role_indicator_client = role_indicator_client
+        self._identity_indicator_checked_at: Dict[Any, float] = {}
         self._match_detail_projection_service = match_detail_projection_service
         self._match_detail_participant_projection_service = match_detail_participant_projection_service
         self._match_detail_persistence_service = match_detail_persistence_service
@@ -1223,6 +1227,9 @@ class JjcMatchDataSyncService:
         return None
 
     def _identity_indicator_refresh_needed(self, identity: Dict[str, Any]) -> bool:
+        checked = self._identity_indicator_checked_at.get(identity.get("_id"))
+        if checked is not None and time.monotonic() - checked < _IDENTITY_INDICATOR_REFRESH_SECONDS:
+            return False
         global_role_id = str(identity.get("global_role_id") or "").strip()
         refreshed_age = self._timestamp_age_seconds(identity.get("global_role_id_refreshed_at"))
         if not global_role_id.startswith("SK01-"):
@@ -1278,6 +1285,7 @@ class JjcMatchDataSyncService:
             return None
         try:
             await self._sleep_func()
+            request_started_at = datetime.now(timezone.utc)
             indicator_data = await asyncio.to_thread(
                 self._role_indicator_client.get_role_indicator,
                 role_id=role_id,
@@ -1305,7 +1313,45 @@ class JjcMatchDataSyncService:
         if not isinstance(payload, dict):
             payload = indicator_data
         role_info = payload.get("role_info") if isinstance(payload, dict) else None
+        if (getattr(cfg, "JJC_ROLE_IDENTITY_RECOVERY_ENABLED", 0)
+                and self._inspect_service is not None):
+            cache_repo = getattr(self._inspect_service, "kungfu_cache_repo", None)
+            loader = getattr(cache_repo, "load_query_id_recovery_candidates", None)
+            if callable(loader):
+                recovery = await recover_query_ids(
+                    identity, identity_repo=self._identity_repo,
+                    candidates=await loader(identity),
+                    indicator_fetcher=self._role_indicator_client.get_role_indicator,
+                    replay_fetcher=(self._match_replay_client.get_match_replay if self._match_replay_client else lambda **_: {}),
+                    history_fetcher=(self._match_history_client.get_mine_match_history if self._match_history_client else None),
+                    current_indicator=indicator_data,
+                    current_indicator_request={"role_id": role_id, "zone": zone, "server": server,
+                                               "observed_at": request_started_at},
+                    max_logical_calls=4, publish=True,
+                )
+                if recovery.get("status") == "recovered":
+                    return recovery["identity"]
+                if recovery.get("status") == "upstream_error":
+                    failure = recovery.get("upstream_error_data")
+                    failure_code = None
+                    if isinstance(failure, dict):
+                        failure_code = _coerce_int(failure.get("code")) or _coerce_int(failure.get("status_code"))
+                    if failure_code != 429 and is_tuilan_auth_error(failure):
+                        safe_failure = {"code": failure_code} if failure_code in (401, 403) else {"error": "upstream authentication rejected"}
+                        raise JjcSyncGlobalPauseError(build_tuilan_auth_pause_reason(
+                            safe_failure, context="role-recovery-" + str(recovery.get("upstream_endpoint") or "request"),
+                        ))
+                    return None
         if not isinstance(role_info, dict):
+            return None
+        if has_verified_query_ids(identity):
+            # A normal refresh is not a new replay-backed observation.
+            self._identity_indicator_checked_at[identity_id] = time.monotonic()
+            while len(self._identity_indicator_checked_at) > 1024:
+                self._identity_indicator_checked_at.pop(next(iter(self._identity_indicator_checked_at)))
+            if any(role_info.get(key) and str(role_info[key]) != str(identity.get(key) or "")
+                   for key in ("server", "zone", "role_id", "global_role_id")):
+                logger.warning("JJC verified identity migration unresolved: identity_id={}", identity_id)
             return None
         sk01_global = str(role_info.get("global_role_id") or "").strip()
         if not sk01_global.startswith("SK01-"):
@@ -1563,7 +1609,14 @@ class JjcMatchDataSyncService:
         mode: str,
         lease_owner: str,
     ) -> Dict[str, Any]:
-        role = await self._load_identity_for_sync(role)
+        try:
+            role = await self._load_identity_for_sync(role)
+        except JjcSyncGlobalPauseError as exc:
+            await self._pause_for_global_auth_error(
+                str(role.get("identity_key") or ""), exc.reason,
+                lease_owner=lease_owner, identity_id=self._extract_identity_id(role),
+            )
+            return {"error": True, "global_paused": True, "message": exc.reason}
         identity_key = str(role.get("identity_key") or "")
         identity_id = self._extract_identity_id(role)
         server = str(role.get("server") or "")
