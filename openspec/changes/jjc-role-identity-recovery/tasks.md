@@ -2,7 +2,7 @@
 
 This execution plan is a living document and must be kept up to date according to `docs/PLANS.md`.
 
-版本：2026-10-20，精简方案后的第一版操作计划。状态：用户已批准，G1/G2执行中。命令与未勾选步骤不代表已执行。
+版本：2026-10-20，精简方案后的执行计划。状态：G1-G6完成，G7首次关闭开关发布完成；因生产可用性异常暂停后续盘点、写入和第二次重启。命令与未勾选步骤不代表已执行。
 
 ## Purpose / Big Picture
 
@@ -24,7 +24,10 @@ This execution plan is a living document and must be kept up to date according t
 - [x] G3：开发子 agent 最小Green，独立review反例均补Red/Green闭环。
 - [x] G4：主agent独立核心/CLI83及服务222在3.13/真实3.9各自全绿，真实隔离Mongo/回滚和相关回归通过，无skip。
 - [x] G5：独立非实现作者子agent静态review，九项P2根因复审关闭，无未闭环P0/P1/P2，见review.md。
-- [ ] G6：主 agent 完成绿色 commit、文件 allowlist 和发布制品。
+- [x] G6：release commit acc63576dc77，11文件精确delta叠加生产基线，制品/备份校验和真实3.9组合验证完成；存量失败独立复审通过。
+- [x] 发布中projection性能反例补TDD/独立review，提交ef2d723fd9c7；最终overlay核心84/服务222/快照50及装配通过。
+- [x] G7部分：首发acc635/off备份与一次受控重启成功，runtime config原字节保持，原global pause保持。
+- [x] 生产异常处置：停止推进，确认自有inventory已退出；SSH、公网Mongo健康恢复，源码/配置hash及paused/off复核，未进行角色apply。
 - [ ] G7：生产预检/备份/同步静默、发布和容器受控重启通过。
 - [ ] G8：健康检查、单角色试点、公开 API/页面/健康对照通过。
 - [ ] G9：分批恢复、逐条回读、同步恢复及观察通过。
@@ -40,6 +43,20 @@ This execution plan is a living document and must be kept up to date according t
 
 ## Decision Log
 
+2026-10-20 19:39稳定复核：全部自有inventory进程为空，manifest仍不存在；零字节临时文件mtime为11:24:32.790429Z，属于本轮，作为可能到达首次JSON写入前阶段线索保留。1分钟load已从20.37降为0.16，MemAvailable约1.2GB；容器StartedAt/RestartCount不变。第三次公网Mongohealth仍200/业务0，耗时0.184秒。19:34以来所取日志无新增Mongo超时/调度miss，仅既有NapCat502；这不是全链路健康或角色恢复验收。继续保持paused/off，不推进恢复。
+
+2026-10-20 19:24-19:32生产可用性异常：第二次只读inventory期间公网Mongo health超时、SSH超时，调度日志出现miss/Mongo timeout。立即暂停verify/apply、第二次重启和启用；没有角色ID修复写入。原自有SSH guarded-stop无回执，不能将其记成已成功SIGTERM；约19:32重新连接后严格检查host PID9217已不存在，盘点无manifest，stdout/stderr空，仅零字节临时文件。不能确定退出原因；只记录与盘点并发的资源压力风险，不认定OOM。19:33容器running、OOMKilled=false、StartedAt仍10:24:05Z、RestartCount=0，host MemAvailable约1.2GB；19:34内核可读取日志未找到对应OOM条目，首发11文件和runtime config原hash一致。19:35运行开关0、Mongo ping成功、原paused=true；公网health已连续两次200且业务status_code=0。原run预算仍6/100，无run绑定/角色apply记录，第二次重启未发生。
+
+新增容量门禁：两处projection只证明传输减少，不能证明全流程内存有界。inventory仍保留所有身份/候选，再一次性BSON-aware JSON编码与读回hash；Mongo batch_size不限制这些内存。本轮禁止重跑全量inventory，不以--name/--limit误认为缩小盘点（该分支忽略两者）。独立review要求先健康观察与证据保存，再向用户确认缩为3故障+1对照的明确有界只读点查；必须是精确_id/稳定ID/缓存键/已知match_id及必要字段，不能把limit当索引扫描或字节上限。进程资源保护只约束维护进程，不调整共享bot容器限额。四样本证据先审阅，apply/第二次启用重启重新过确认门禁。全量覆盖需以后单独证明分页、字节及逐批释放有界；不新增领域对象、集合、worker或预算平台。本修订尚未执行/获批，既有pause/off和预算保持。
+
+2026-10-20发布中性能反例：原CLI下载完整rank成员和replay payload，完整历史rank扫描约30分钟，回放300份约20秒。核验PID后仅SIGTERM自有只读inventory（未生成manifest、零上游、零业务写），未停止bot、未重置run预算。service_tdd补真实Mongo CommandListener/wire payload行为Red，主agent复现1测试4失败；仅两处nested投影最小Green，保留dict/list replay、既有候选/顺序/match_id/计数/截断语义。独立review通过，补充commit ef2d723fd9c7297794a968d0461b671ad4b88ab5；双Python核心84、服务222，最终实际overlay核心84/服务222/快照50/装配通过，相关38仍35通过3相同存量失败。
+
+最终tar SHA256 45f66bc40cf7dedfa6c938b55475e552c2cac2cc603e6b47de8d594c00ac35e9。仅CLI与first release不同，10个依赖hash一致。维护CLI从私有/tmp/jjc-role-maintenance-ef2d723fd9c7/scripts运行，cwd/PYTHONPATH=/app，目录只含CLI以免遮蔽配置/源码；bot仍acc635/off，第二次统一最终11文件和开启尚未执行。新CLI曾重跑同一inventory/run，已有6次账本保留；显式replay上限收紧为20000以减I/O，保留截断未知，不代表201万详情全覆盖或内存安全。异常前曾拟议6个已知样本在run绑定前复用已有索引候选读取补定位、保留原manifest、另pin操作manifest及原hash；目前该拟议路径暂停、未执行，不构成当前授权，也不绕过独立实时校验或鉴权stop。
+
+2026-10-20 18:24首次发布：159个生产基线hash复核无变化，11文件备份和staging制品hash通过；release acc63576dc77，tar SHA256 ef17791a1c9cd860226e444549ea39b84d553c17990f181eef2c8258d0b5d7c1。第一次受控stop/start的StartedAt为2026-10-20T10:24:05.558228336Z，应用18:24:34启动完成，Mongo/公网health通过，开关0。生产原已因历史鉴权失败暂停，active角色/详情均0，本次不擅自resume；只读预检replay成功。本次调用已有status CLI触发了其既有索引初始化，不能将该步骤称纯只读。
+
+2026-10-20生产组合验证：实际overlay在真实3.9/隔离Mongo核心83、服务222、快照50及singletons装配通过。补齐生产public后routes/indicator/navigation/live 38项中35通过，3项baseline与overlay完全相同的存量失败（两个静态布局契约及live-refresh首屏未合并）；不声称组合全绿，不夹带无关修复。独立review确认11文件差异与依赖兼容，没有新增P0/P1/P2阻断。
+
 2026-10-20实施收敛：CLI不写战绩缓存，保存关联缓存before-image，ID成功后先标applied_unverified，由公开API验收写真实成功缓存；因此CLI数据回滚不删除后来的合法缓存。为避免跨子命令批次账本复杂化，将同run有效调用上限保守收紧为100（低于批准120），包含verify/apply/API预留；20只是每命令角色上限。resume用同run本地progress.json跳过各命令已处理终态，prepared崩溃项仍先回读；显式名字可重验。
 
 2026-10-20证据覆盖：inventory保留全部缓存/历史/排名不同locator；额外replay采用显式--replay-scan-limit流式有界扫描并报告截断。页面候选仍仅有限索引命中，不能当全量库存。ranking复用原响应必要依赖为kungfu.py仅加真实请求开始时间到已有临时warmup，不新增Mongo字段。
@@ -54,7 +71,7 @@ This execution plan is a living document and must be kept up to date according t
 
 ## Outcomes & Retrospective
 
-当前完成首轮TDD实现及本地验证，独立review发现的反例正逐项闭环。最终产出还需代码commit、制品hash、实际重启记录、生产备份、每批结果、真实API/页面与未解决清单。验收前不归档、不把“部署成功”当“所有角色恢复”。
+已完成代码TDD/独立review和两次代码commit、制品校验、生产备份及第一次关闭开关发布。生产盘点暴露容量门禁，健康恢复后仍暂停；未修复任何角色ID，未启用开关，未执行第二次重启。后续仍缺有界输入、试点/分批结果、真实API/桌面手机页面及观察证据。验收前不归档，不把“部署成功”或“四样本通过”当“所有角色恢复”。
 
 ## Context and Orientation
 
