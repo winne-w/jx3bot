@@ -2,7 +2,7 @@
 
 This execution plan is a living document and must be kept up to date according to `docs/PLANS.md`.
 
-版本：2026-10-20，精简方案后的执行计划。状态：G1-G6完成，G7首次关闭开关发布完成；因生产可用性异常暂停后续盘点、写入和第二次重启。命令与未勾选步骤不代表已执行。
+版本：2026-10-20，精简方案后的执行计划。状态：G1-G8完成，两次受控重启及开启恢复已执行；三故障角色和一健康对照完成外部验收，观察超过21分钟。全量覆盖、修复角色特定历史/排名写入回退演练仍未闭环，G9-G10不全勾、不归档。命令与未勾选步骤不代表已执行。
 
 ## Purpose / Big Picture
 
@@ -27,11 +27,12 @@ This execution plan is a living document and must be kept up to date according t
 - [x] G6：release commit acc63576dc77，11文件精确delta叠加生产基线，制品/备份校验和真实3.9组合验证完成；存量失败独立复审通过。
 - [x] 发布中projection性能反例补TDD/独立review，提交ef2d723fd9c7；最终overlay核心84/服务222/快照50及装配通过。
 - [x] G7部分：首发acc635/off备份与一次受控重启成功，runtime config原字节保持，原global pause保持。
-- [x] 生产异常处置：停止推进，确认自有inventory已退出；SSH、公网Mongo健康恢复，源码/配置hash及paused/off复核，未进行角色apply。
-- [ ] G7：生产预检/备份/同步静默、发布和容器受控重启通过。
-- [ ] G8：健康检查、单角色试点、公开 API/页面/健康对照通过。
-- [ ] G9：分批恢复、逐条回读、同步恢复及观察通过。
-- [ ] G10：线上证据/未解决清单、最终证据提交和验收。
+- [x] 历史生产异常处置：暂停并确认自有inventory退出；恢复后用户重新授权继续，原全量路径仍禁用。
+- [x] G7：生产基线/备份/同步静默通过；两次受控stop/start完成，最终11文件hash一致，唯一开关1已加载。
+- [x] G8：小耶猫试点/API/两终端页面通过，盖伊伊CLI后公网通过，颜魉未手工apply在线自动恢复及两终端通过，苍术健康对照通过；颜魉不唯一归因页面。
+- [x] 四身份有界manifest/备份/逐条回读、同run 68/100额度及21分钟观察完成；用户主动恢复同步，保持其选择不擅自pause。
+- [ ] G9剩余：全量覆盖未知，原inventory内存风险未解决；修复角色特定历史投影/排名入口的线上回退演练尚未覆盖。
+- [ ] G10：本轮受限验收证据和未解决清单完成，最终独立文档复核已通过，证据单独提交，仍保持change active，不宣称全量验收归档。
 
 ## Surprises & Discoveries
 
@@ -42,6 +43,13 @@ This execution plan is a living document and must be kept up to date according t
 本地 .venv 是 Python3.13.2，生产 Dockerfile 为3.9，当前未发现独立 python3.9。发布前补真实3.9验证，不能以3.13 py_compile替代。Docker CLI 可见不代表 daemon/测试镜像可用，G1实测，不在本轮启动测试基础设施。
 
 ## Decision Log
+
+2026-10-20 21:21本轮线上收尾：最终release ef2d723的11文件hash全部通过，第二次StartedAt=12:59:40.261225102Z，RestartCount=0，开关1/live-refresh0。小耶猫与盖伊伊CLI分别通过新鲜indicator+独立replay、不可变私有before-image及ID-only CAS，随后公网force为HTTP200/业务0/raw0且hit=false。颜魉未手工apply：采集时旧ID44421059，后回读31755654、新strict标记、关联旧CAS归档、缓存raw及两终端页面均通过；同期sync运行，不能唯一归因页面请求。苍术ID保持34750178。四身份结果为2 CLI外部验收recovered+1在线自动recovered+1healthy=4；CLI原applied_unverified不手工改写，以单独外部验收记录证明。原同run预算68/100（含保守API预留，不涵盖后台/公众自然流量）。13:21:00Z已运行1280.4秒，最近15分钟1746日志行未触发3000行上限，未见traceback/Mongo超时/调度miss/恢复或身份投影失败/接口5xx/真实鉴权失败；457条详情身份投影完成日志不是457个去重match，也不证明三个修复角色特定投影或排名入口已覆盖。NapCat502仍为存量告警。详见acceptance.md，完整敏感证据留私有操作目录。
+
+2026-10-20用户明确说明paused=false为其主动操作、非发布异常，并要求继续；不再恢复旧pause，不擅自干预已运行同步。后续精确点查/备份及CAS按当前身份复核，允许正常更新时间/画像水位推进，不将其直接认定串号。全量inventory仍禁用，不为收集验收证据暂停用户同步或额外重启。
+
+
+2026-10-20 20:17恢复执行：用户说明刚才网络异常、现已恢复，明确要求继续原安排。按既定试点apply/API/真实页面/第二次启用重启门禁继续，不将之前超时定性为程序故障；同时避免已确认的全量驻内存风险，不重跑inventory。复核host load0.03、MemAvailable约1.2GB、无旧inventory、首次StartedAt未变、运行开关0/global paused=true、原账本6/100、无manifest/run绑定。临时四身份manifest仅精确_id和三个已知match_id、窄字段、显式索引/limit2/maxTime、64KiB单文档/512KiB输出门禁及维护进程自身内存/时间限制，保留默认运行机制与release不变。临时运维脚本仍测试先行、主agent复现Red/Green、独立子agentreview，不把分页limit当全部负载保证；不新增领域对象/集合/worker。
 
 2026-10-20 19:39稳定复核：全部自有inventory进程为空，manifest仍不存在；零字节临时文件mtime为11:24:32.790429Z，属于本轮，作为可能到达首次JSON写入前阶段线索保留。1分钟load已从20.37降为0.16，MemAvailable约1.2GB；容器StartedAt/RestartCount不变。第三次公网Mongohealth仍200/业务0，耗时0.184秒。19:34以来所取日志无新增Mongo超时/调度miss，仅既有NapCat502；这不是全链路健康或角色恢复验收。继续保持paused/off，不推进恢复。
 
@@ -71,7 +79,9 @@ This execution plan is a living document and must be kept up to date according t
 
 ## Outcomes & Retrospective
 
-已完成代码TDD/独立review和两次代码commit、制品校验、生产备份及第一次关闭开关发布。生产盘点暴露容量门禁，健康恢复后仍暂停；未修复任何角色ID，未启用开关，未执行第二次重启。后续仍缺有界输入、试点/分批结果、真实API/桌面手机页面及观察证据。验收前不归档，不把“部署成功”或“四样本通过”当“所有角色恢复”。
+代码TDD/独立review、两次代码commit、两次生产受控重启及机制启用完成。三已知故障角色恢复并有公网外部证据，一健康对照未受损；21分钟观察覆盖正常详情流水线，未见本次相关新错误。用户主动resume同步，未修改其选择。首次网络/健康超时根因未证明，不认定OOM；原全量inventory保留驻内存风险，禁止再执行。
+
+本轮交付的是已上线机制及四身份受限验收，不是全部用户已修复。所有角色的影响/候选覆盖未知，缺证据或严格观测后再次转服等情况仍保守unresolved；未为验收制造目标角色历史/排名写入。全量盘点需要另行完成字节/分页/逐批释放有界方案及TDD/review，才能关闭G9并归档；未将容量修订偷换为新增对象/worker。完整证据与样本计数见acceptance.md。
 
 ## Context and Orientation
 

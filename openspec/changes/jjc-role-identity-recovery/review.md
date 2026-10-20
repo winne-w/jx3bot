@@ -39,7 +39,7 @@ identity repo   3bee91bf9a492ec0de959b4a2aaabb5d13522abbebaa89d8be8e046f96b178a9
 ```
 
 主agent历史本地checkout独立分组验证：真实Mongo参与的核心/CLI 83和服务222，在Python3.13/真实3.9各自全通过无skip；原本地checkout的38路由/导航/live及50详情快照回归均在3.9通过。这不是production overlay结果；后者相关38为35通过/3存量失败，见下。此为主agent执行，不冒称reviewer运行测试；当时commit、生产基线overlay组合、备份/重启/线上验收尚为后续独立门禁。
-## 生产容量异常后的独立复审：后续推进阻断
+## 生产容量异常后的历史独立复审：当时推进阻断
 
 19:24后只读inventory期间发生健康/SSH超时，19:32后确认自有进程已退出并恢复健康。independent_review静态复核后要求不再执行原全量路径，保持paused/off、原预算6/100、零apply和未执行第二次重启。未访问生产、未执行代码/测试、未修改文件。
 
@@ -51,7 +51,7 @@ identity repo   3bee91bf9a492ec0de959b4a2aaabb5d13522abbebaa89d8be8e046f96b178a9
 
 # 生产 Overlay 兼容性复审补记
 
-本节为可用性异常前的历史兼容性审查；其执行许可现已暂停，不构成当前授权。后续一律以当前容量门禁及用户重新确认为准。
+本节为可用性异常前的历史兼容性审查。后续执行许可曾暂停；用户网络恢复后已重新要求继续，实际执行以末尾复核及acceptance为准，原全量inventory始终禁用。
 
 发布中发现CLI两处projection读取无关完整payload。service_tdd仅修改CLI两处find（9增2删）及77行真实Mongo测试，主agent复现Red并独立确认双Python核心84通过、最终生产overlay核心84/服务222/快照50/装配通过。独立reviewer逐项核对replay解析五身份字段、dict/list两种shape、rank八字段、Mongo数组顺序/旧关联/候选/match_id/扫描界限，静态PASS，无新P0/P1/P2。补充提交ef2d723fd9c7297794a968d0461b671ad4b88ab5，不修改业务验证/写库链。
 
@@ -60,3 +60,16 @@ identity repo   3bee91bf9a492ec0de959b4a2aaabb5d13522abbebaa89d8be8e046f96b178a9
 2026-10-20，独立非实现作者reviewer继续只读复审实际release acc63576dc77、生产baseline及11文件overlay，结论无新增P0/P1/P2阻断。10个业务/CLI文件与已审commit hash一致；config只保留生产helper并加入批准的默认0开关/runtime key。既有http_client/live-refresh及依赖hash不变。
 
 最初routes38的9个异常中8个属于隔离快照缺public的测试装配缺口，不能宣称通过。主agent随后只读补入实际生产public，baseline和overlay均为35通过/3相同失败：home/ranking入口一致性、共享visual shell契约、live-refresh首屏覆盖40条为20条。静态文件及live-refresh不在本次11文件delta中，不夹带修复；运行日志和产物在私有诊断目录。当时结论仅针对兼容性，不等于线上角色已恢复，且不构成当前继续发布授权。
+
+
+## 网络恢复后有界运维与线上证据复核
+
+用户网络恢复后重新要求继续原计划；原容量问题不因该授权消失，仍禁用全量inventory。service_tdd以真实Mongo补精确四身份/三match点查、BSON类型、歧义/大小/时间/目录碰撞门禁16测试；storage_tdd为第二次部署补配置预序列化、fsync独占pending、失败阶段记录和禁止盲重试12测试；主agent独立重跑，独立非作者reviewer静态通过。browser验收14行为检查及可选角色参数/证据prefix/关闭既有公告delta静态通过。运维工具留受控诊断目录，不新增业务对象/集合/worker。
+
+用户明确global paused=false为其主动操作，review不要求恢复pause，不为隔离演示干预同步。natural-before精确备份与natural-readback由service_tdd交付，后者4fixture/3.9编译通过；独立静态复审无新增P0/P1/P2。主agent生产运行verified、12断言真，稳定身份与归档旧CAS差异均空；检查已知run无颜魉CLI apply。不是reviewer运行测试/访问生产。
+
+独立review提出并采纳三项证据边界：第一，备份至页面请求间自然sync可先修同角色，desktop miss+mobile hit不能唯一归因页面CAS，因此只称在线自动恢复。第二，同run保守预算仅约束本轮维护操作，不包括后台worker/公众流量。第三，health采证exit0不保证startup或无error，须检查字段/日志；主agent随后补90秒完整启动窗口与15分钟观察，确见13:00:33Z startup complete，相关错误分类为0，存量NapCat502保留。
+
+force API验收曾假设identity总暴露strict marker；fresh实际响应虽含，但缓存序列化不承诺，最小移除该断言，不扩业务API，marker由Mongo另验；增加hit=false/force_refresh=true，并对三份已保存响应离线复验通过，无额外上游调用。线上两次重启、11文件hash、三故障及健康对照、预算68/100和21分钟观察结果见acceptance，不据此宣称全量覆盖或已完成修复角色特定历史/排名演练。
+
+最终三份脱敏证据文档及本地已保存线上摘要由independent_review只读复核通过，无必须修正项或新增P0/P1/P2，可进行doc-only证据提交；reviewer未运行代码/测试/生产。OpenSpec strict及diff检查通过，主agent再次运行browser验收14项全绿。G9-G10全量验收及归档不冒称完成。

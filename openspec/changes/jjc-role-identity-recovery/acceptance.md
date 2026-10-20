@@ -1,60 +1,68 @@
-# 验收记录（暂停于生产容量门禁）
+# 验收记录（上线及四身份受限验收）
 
-状态：本地TDD/review和release commit完成，已发布默认关闭的机制并完成第一次受控重启；生产只读盘点期间发生可用性异常，健康恢复后暂停后续。2026-10-20用户明确批准tasks计划并要求继续，含既定commit/发布及两次bot容器重启。实际仅重启一次、零角色apply，不能声称页面或所有角色恢复。
+状态：2026-10-20 21:21完成本轮生产发布、两次受控重启及四身份验收。三例已知故障角色恢复、一例健康对照正常；全量受影响范围仍未知，不声称所有角色恢复。全量inventory容量风险与目标角色特定历史/排名入口验证未闭环，change保持active，不归档。此前暂停状态及零apply结论仅为19:39历史检查点，已被本记录的实际执行进展替代。
 
 ## 审批与版本
 
-计划批准：2026-10-20本会话用户“我确认方案没有问题，你继续操作”。起始HEAD为c8156708c8f9a24c2273ecac328a314524b120c2。代码commit acc63576dc77e3e9affd7a043ce88831e5024a68及ef2d723fd9c7297794a968d0461b671ad4b88ab5；前者为当前bot运行版本，后者仅追加CLI projection性能修复，私有维护CLI已使用后者。生产发布不是全仓Git覆盖，具体基线/制品hash见下。没有push/amend。纯文档证据提交不改变实际运行代码版本。
+用户明确批准tasks计划并要求继续，含开发、子agent review、commit、发布及两次bot容器重启；网络恢复后再次要求继续。用户另明确说明全局同步paused=false是其主动操作，本轮未执行resume，也未将其改回pause。
 
-## TDD与审查
+起始HEAD c8156708c8f9a24c2273ecac328a314524b120c2。机制commit acc63576dc77e3e9affd7a043ce88831e5024a68，CLI投影优化commit ef2d723fd9c7297794a968d0461b671ad4b88ab5；最终运行overlay对应后者。4a96390为此前暂停阶段文档证据。没有push/amend；本次最终纯文档证据提交不改变运行代码。
 
-storage_tdd和service_tdd先完成原30/171测试基线，再交付真实行为Red，主agent独立复现后授权最小Green；CLI由主agent测试先行。独立reviewer非实现作者、只读静态审查，重要发现补Red/Green再复审。未弱化身份断言，接口类型时间统一UTC毫秒datetime有明确记录。
+## TDD、回归与审查
 
-主agent最新独立命令（最后缓存loader透传补丁后服务已再次复验）：
+storage_tdd/service_tdd先完成原30/171基线及真实行为Red，主agent复现后授权最小Green；CLI由主agent测试先行。独立非实现作者reviewer静态只读审查，九项P2根因及发布中projection反例均补Red/Green、主agent验证、独立复审闭环。reviewer不冒称执行测试或生产操作。
 
-```bash
-JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/jjc_test_role_identity .venv/bin/python -m unittest tests.test_role_identity_matching tests.test_role_identity_repo tests.test_role_identity_recovery_mongo tests.test_recover_jjc_role_identities
-# 83 tests OK，含13仓储Mongo与2 CLI Mongo端到端，无skip
-.venv/bin/python -m unittest tests.test_role_identity_recovery tests.test_jjc_ranking_identity_recovery tests.test_jjc_ranking_inspect tests.test_jjc_match_data_sync
-# 222 tests OK，无skip
-```
+实际最终production baseline+overlay，而非只测本地checkout：真实Python3.9.25/独立Mongo7核心及CLI84、服务222、详情快照50和singletons装配通过，无skip；核心84在3.13也通过。组间有重叠，不相加宣称独立测试总数。生产public齐全的路由/导航/indicator/live38项为35通过、3项与baseline相同失败（home/ranking入口一致性、共享visual shell、live-refresh首屏覆盖摘要），不称全绿，不夹带无关修复。测试Mongo只绑定127.0.0.1:27029，不触及生产。
 
-以上两组在真实Python3.9.25（/tmp/jjc-recovery-py39/bin/python）各自同样83/222全部通过；本地日常venv为3.13.2。Mongo7.0.28仅绑定127.0.0.1:27029，随机测试库前缀且安全清理，不触碰生产。独立review静态PASS与九项根因闭环见review.md。
+本轮四身份临时运维工具未并入业务架构：targeted-manifest精确点查16项测试在3.9/3.13通过，deploy-second离线12项及browser验收14行为检查通过，主agent独立复验。natural-readback由service_tdd编写，4项离线fixture与3.9编译通过、独立静态复审通过，主agent运行生产只读回读12断言均真。唯一因果边界及force API字段假设修订见review.md；API marker不作公开契约，strict标记以Mongo回读证明。三份保存force响应补验hit=false和force_refresh=true，无重复调用。
 
-分组回归：indicator/router/navigation/live-refresh 38，detail/snapshot/hydration 50，sync-repo/indicator 56，均通过；组间有重叠，不把总和声称独立测试数。3.9单独import singletons装配通过。Red/Green日志留在/tmp/jjc-*及/tmp/service-*，完整上线后补受控证据归档。真实Mongo覆盖双进程CAS、各字段竞态、missing/null、归档失败零写、崩溃重入和条件回滚。
+## 制品、备份与两次重启
 
-## 发布与重启
+版本由生产基线manifest+overlay release SHA+制品hash确定，不用宿主旧Git HEAD冒称版本。生产基线tar SHA256 93212f431d2876b66475f69c41e06b776c829d50d3e2e755153dbb2d2dff8ef4。首发11文件tar SHA256 ef17791a1c9cd860226e444549ea39b84d553c17990f181eef2c8258d0b5d7c1；最终tar SHA256 45f66bc40cf7dedfa6c938b55475e552c2cac2cc603e6b47de8d594c00ac35e9。CLI最终SHA256 cc1da07c99ec191c59c1445ec375cf058fc5be983ddb2a84fb68ecd2082a00fa。
 
-release commit：acc63576dc77e3e9affd7a043ce88831e5024a68；生产源码基线tar SHA256：93212f431d2876b66475f69c41e06b776c829d50d3e2e755153dbb2d2dff8ef4。精确delta叠加生产副本，保留生产config helper和既有http_client/live-refresh，不以本地文件全覆盖。11文件发布tar SHA256：ef17791a1c9cd860226e444549ea39b84d553c17990f181eef2c8258d0b5d7c1。生产release/源码配置备份：/mnt/sata6-1/jx3bot-releases/role-identity-acc63576dc77-20261020，私有目录。
+精确delta叠加生产副本，保留既有config helper、http_client/live-refresh及其他依赖，不整仓覆盖、不改镜像/依赖。原源码/运行配置字节、权限、hash、首次与最终staging、manifest和重启阶段日志保存在私有目录 /mnt/sata6-1/jx3bot-releases/role-identity-acc63576dc77-20261020。原全局pause（历史鉴权问题）、发布前active角色/详情均0及唯一bot writer已核实，未发现独立旧writer。
 
-实际overlay的真实3.9/隔离Mongo核心83、服务222、快照50及装配通过。生产public补齐后的相关38项中35通过，3项与未修改baseline相同的存量失败：home/ranking入口不一致、共享视觉shell契约、live-refresh第一屏覆盖旧摘要。独立review静态确认不构成本次新增集成冲突；不声称线上组合全部通过。
+第一次stop请求10:23:04.705457Z、stopped10:24:05.049794Z、StartedAt10:24:05.558228336Z，应用10:24:34Z启动完成；等待约60秒，静默替换11文件，开关0，runtime config原字节不变，Mongo/公网health通过。
 
-首次stop请求2026-10-20T10:23:04.705457Z，stopped 10:24:05.049794Z，StartedAt 10:24:05.558228336Z，应用启动完成10:24:34Z；停止等待约60秒，进程静默后替换11文件并重读hash，未改镜像/依赖/全目录。第一次健康检查running、RestartCount=0（不能与重启前历史6直接相加）、Mongo ping及公网业务health成功，开关加载0，runtime config保持原字节。第二次启用重启及角色证据待填。
+小耶猫CLI试点、公开API及真实桌面/手机页面通过并持久落盘后，第二次stop请求12:58:38.648435Z、stopped12:59:39.343610Z、start请求12:59:39.371886Z、StartedAt12:59:40.261225102Z。仅CLI与首发不同，其余10个业务依赖hash一致；仅修改获批JJC_ROLE_IDENTITY_RECOVERY_ENABLED为1，其他配置键保留。第二次pending记录在stop前fsync独占发布，阶段记录完整，成功phase=started不冒充业务验收。应用13:00:33Z启动完成；11文件hash、运行开关1、live-refresh0、Mongo ping和后续业务均通过。RestartCount=0且未持续增长；两次受控stop/start不以RestartCount相加计数。没有第三次证明性重启、宿主重启、回滚或擅自resume。
 
-原同步状态已暂停（历史推栏战局历史403），本轮发布前active syncing/detail_syncing均0，未发现独立运行旧writer；四个bot内部worker随容器重载。原状态和原因保存在受控备份，不能为验收擅自resume。只读预检一次replay返回code0；这不证明历史接口鉴权已修复。已有status CLI会初始化既有索引（出现一个存量重复索引跳过警告），本轮不将其称零写操作。
+## 有界输入、预算和备份
 
-生产预检、配置未被覆盖、旧代码/数据/缓存备份位置和校验、原同步暂停状态、独立旧写者处置、实际停机区间、两次重启StartedAt/RestartCount、运行hash与健康/错误日志：待填。不记录凭据/完整Config.Env。
+私有操作root /app/data/role-identity-recovery-20261020，位于既有/app绑定。run_id=role-identity-acc63576dc77-20261020，release_sha绑定ef2d723fd9c7297794a968d0461b671ad4b88ab5，operation-manifest.json SHA256 b35e97a8ed1816a5a733a47c0f01da589d5538efbafc0b61b53cef6b094460f5，3491字节、4个去重身份、3个精确整数match_id。精确_id/已知match索引窄字段、limit2/maxTime2000、64KiB单doc/512KiB输出及维护进程自身512MiB/30秒限制；生成0.819秒、峰值RSS26056KiB。未调用原全量loader；manifest的未截断仅针对四输入，不代表全库。
 
-生产基线manifest+overlay release SHA+制品hash及隔离组合验证：待填。唯一发布开关首次0/试点后1、仅该配置项变更的审计、独立writer进程实际重载证明：待填。不得用本地commit通过代替线上组合通过。
+同一run预算最终68/100，保留已有6、不切run/重置。CLI verify/apply均再次鲜验；手工公网force及两终端页面按每请求上界5保守预留（含一次关闭既有公告后的canary重截图）。本维护账本不涵盖用户恢复的后台worker或其他公众流量，不能宣称全站100调用上限。无新增业务预算平台。
 
-## 线上与存量结果
+CLI不可变BSON-aware before-image分别为data-backup/<identity_id>.json：小耶猫68079字节、SHA256 ec461036339c6413f890ebdaedb48063ef91a4552be64923a3a87884a8c5dc26；盖伊伊84834字节、SHA256 dd310d0ce0c665524923de4c6299b1befbfaa4227a6244446ac209b2c6fa14b4。备份保存关联缓存，写前fsync/0600，仓储另有旧快照归档。自然恢复前颜魉独立natural-before-6a1991a0bb1af2baecffe727.json为10370字节、SHA256 6dc718354ab28a759994ca21bbc90f51d11c929e14f84149f48d1266eb4113ca，包含完整身份及两份精确缓存，不调用apply伪造自然恢复。
 
-### 生产异常与实际停止位置
+## 四身份线上结果
 
-最终稳定复核截至19:39：三次公网Mongo health均200/业务0，耗时0.218/0.105/0.184秒。自有inventory进程列表为空，容器未额外重启；1分钟load降至0.16。零字节临时文件mtime=2026-10-20T11:24:32.790429Z，属于本轮；只作为首次JSON写入前的阶段线索，不作根因证明。19:34后所取日志无新Mongo timeout/调度miss，仍有既有NapCat502，不能声称所有子系统健康。原暂停与开关0保持。
+| 身份 | 路径与查询ID | 公开验收指标（执行时） | 结果 |
+| --- | --- | --- | --- |
+| 梦江南/小耶猫 | CLI 31300496 -> 34945120 | 706场、56.2%、2808分、184最佳、15段 | fresh indicator+独立replay、备份CAS、两终端页面、重启后force复验均通过 |
+| 唯我独尊/颜魉 | 在线自动 44421059 -> 31755654，无本run CLI apply | 458场、55%、2642分、36最佳、15段 | 新strict标记、旧CAS归档、成功缓存及两终端页面通过；不唯一归因页面 |
+| 乾坤一掷/盖伊伊 | CLI 34971082 -> 26691973 | 420场、56.9%、2650分、93最佳、15段 | 新鲜verify+apply、备份CAS及公网force通过，未单独宣称两终端截图 |
+| 梦江南/苍术 | 健康对照34750178保持 | 849场、79.4%、3368分、364最佳、15段 | 公网force及身份点查通过，未执行ID修复 |
 
-2026-10-20 19:24后出现调度延迟/Mongo timeout，公网Mongo health超时、SSH亦超时。第一份旧inventory此前已按精确命令身份SIGTERM；第二份projection优化inventory的host PID9217在约19:32重连后确认已不存在，原guarded-stop未收到成功回执，不能断言其成功或退出原因。无manifest，stdout/stderr均为空，inventory仅有零字节临时文件。后者与到达JSON首次写入前阶段相容，不证明OOM或其他根因。
+两个CLI角色apply后立即回读expected-after通过，八个稳定身份/画像水位字段不变；13:21:06Z最终回读身份正确且画像水位仍未变。公开API会合法改变updated_at，不因此重apply或盲回滚。CLI记录仍applied_unverified；外部验收另存online-acceptance.json，不手工伪改CLI状态。四输入外部互斥结果为CLI recovered2+automatic recovered1+healthy1=4，未选入人口unknown；这个计数不是直接套CLI的最后一份单角色apply-report。
 
-19:33复核容器running、OOMKilled=false、StartedAt仍2026-10-20T10:24:05.558228336Z、RestartCount=0，host MemAvailable约1.2GB、swap约180MiB；可读dmesg未找到对应OOM条目。19:34首发11源码hash全匹配，runtime_config.json与发布前hash相同，key仍缺失默认off。19:35运行配置实际0、Mongo ping=1、原global paused=true。公网Mongo health两次均HTTP200、业务status_code=0/connected=true，耗时约0.218/0.105秒。没有为恢复健康重启bot/主机、解除pause或启用开关。完整本地脱敏证据位于诊断目录incident-evidence-*.json、incident-health-config.json和incident-public-health-*.txt。
+颜魉备份时旧ID44421059；13:12:54.899Z新strict标记与唯一归档时间一致，归档旧CAS逐字段missing/null和值与备份相符，七个稳定身份字段不变，after只改变两个ID/严格标记来源/时间/updated_at五字段。缓存raw code0、角色ID/SK01/区服一致、统计解析匹配，新cached_at通过；已知run无该角色apply记录。desktop hit=false、mobile hit=true，无强制刷新。同期自然sync已由用户恢复，因此这些证据只证明未手动apply的在线自动链路恢复和真实页面成功，不能排除sync先修后页面取值，不能唯一声称页面触发CAS。
 
-run目录/app/data/role-identity-recovery-20261020/run仍6/100，含1次既有预检replay及健康对照公开API保守预留5次；未新建run绕过限额，未绑定manifest。没有任何角色apply/角色备份记录、verify-applied或rollback。健康对照苍术/梦江南公开force indicator曾真实成功（849场，执行时响应），属于正常API可写缓存验收，不是零写盘点；不能替代故障角色验收。小耶猫/颜魉/盖伊伊尚未修复，也没有真实桌面/手机截图。
+小耶猫及颜魉原页面真实浏览器1440桌面/390手机均HTTP200、业务0、raw0，DOM四数值与响应一致，无“赛季战绩暂时不可用”、JS错误或横向溢出。既有公告关闭后主agent人工看图无遮挡；手机其他统计位于下方、DOM均校验，不冒称首屏显示全部。synced-role与synced-role-matches均200/业务0、global_id保持，列表非空；自动synced-role-refresh请求被明确阻断以避免额外上游。截图和17份证据文件hash保存在online-acceptance.json，无改前端。
 
-最终维护制品SHA256 45f66bc40cf7dedfa6c938b55475e552c2cac2cc603e6b47de8d594c00ac35e9，基于生产基线及ef2d723；仅CLI与首发制品不同、其他10文件hash一致。最终实际overlay真实3.9核心/CLI84、服务222、快照50、装配通过；核心84在3.13亦通过。第二次部署/启用/重启尚未执行，不能写成最终版本已生效。
+三份重启后force（小耶猫/盖伊伊/苍术）均HTTP200、业务0、原raw0、hit=false/force_refresh=true；身份与指标为实际本次值，不只凭传force参数或旧缓存宣称鲜验。strict标记由Mongo另验，不依赖公开API是否序列化该字段。
 
-未闭环容量门禁：全量inventory仍在内存保留身份/候选并整体JSON编码，projection减少传输但不足以证明容量安全。独立review要求禁止再跑该路径，先向用户确认三故障+一对照的精确点查/窄字段/维护进程单独资源保护；检查结果先审阅，角色apply和第二次启用重启另过确认门禁。四角色不等于全用户覆盖，全量范围与可恢复人数均未知。后续有界方案未执行，不能将暂停改写成验收通过。
+## 观察、生产异常与保留范围
 
-小耶猫/颜魉/盖伊伊和健康对照：实时验证、独立数字映射、身份回读、公开业务API、真实桌面/手机页面、重启后持久结果：待填。指标取执行时响应，不固定诊断数字。
+截至13:21:00.691Z，第二次启动后1280.4秒（超过21分钟），Running/StartedAt/RestartCount稳定。最近15分钟1746行、约172KiB，小于3000行/4MiB采证上限；本窗口未见traceback、Mongo超时、调度miss、恢复/身份投影失败、HTTP5xx、明确鉴权失败或ERROR级日志。最初启动后两分钟小尾部采集未找到startup字样，不能凭脚本exit0通过；随后独立90秒完整窗口147行明确找到Application startup complete及Uvicorn running。
 
-run_id/manifest hash、输入去重数、healthy/recovered/applied_unverified/conflict/concurrent_skip/no_candidate/upstream_error等互斥结果及守恒、完整备份/明细的受控位置：待填。无证据群体另列，不当健康，不从候选数或抽样估算故障/恢复数。
+后台自然同步运行中，窗口有457条详情身份投影完成日志，样例269331633/258563843显示projected=6；不是去重对局数，也不能证明三个修复角色被这些历史payload覆盖。未额外制造历史回放/排名写入或全榜抓取，修复角色特定历史防回退与排名入口的线上演练未观察；本地测试覆盖这些边界。NapCat502每分钟存量告警仍在（本15分钟15条），不是本修复引入，不称全部系统健康。host load约0.17、MemAvailable约1.2GB，最终公网Mongohealth再次业务0/connected=true/error=null，ping11.5ms，证据另存final-public-health.json。
 
-同步按原状态恢复、至少15分钟观察、实际历史写入/排名入口覆盖、自然周期未覆盖风险、是否触发回滚及CAS跳过、遗留角色后续建议：待填。全部门禁有证据后才同步基线spec/归档；不能因部署完成全勾验收。
+19:24前后原全量inventory期间出现公网/SSH超时、调度miss和Mongo timeout；19:32后确认自有进程退出，19:39健康恢复，零业务apply为当时历史状态。网络异常与盘点资源风险的根因未唯一证实，不认定OOM（容器OOMKilled=false、可读dmesg无证）。用户随后明确网络恢复并授权继续。全量inventory仍保留所有身份/候选和一次性JSON编码，projection不能证明容量安全；本轮严禁重跑，未为发布新增领域对象/集合/worker。
+
+所有角色影响范围与可恢复人数仍未知。证据不足、无候选、上游不可用或严格观测后再次转服/改名者不保证自动修复，保持unresolved；未把其他角色算healthy。完整有界盘点及逐批覆盖需要后续TDD/review，不能用这四例替代全量验收。G9及G10总体保持未完成，不同步基线spec或归档。
+
+## 回滚与证据保全
+
+本轮未触发回滚。代码/配置回滚只准原allowlist及获批配置项，保留其他键和数据；代码回退不等于ID数据回退。数据恢复以既有before/expected-after CAS为准，API或sync后续合法更新须跳过而非强写；颜魉自动恢复另据既有Mongo归档核实，不能假借CLI run盲回滚。用户当前同步状态不由本轮擅改。
+
+完整证据留在生产私有release目录、操作root的run/data-backup/natural-before和online-acceptance.json，以及本地_diagnostics/2026-10-20-role-identity-recovery。Git只提交本脱敏摘要/tasks/review，不提交原始响应、角色完整资料、凭据或数据库连接串。最终三份文档经独立review通过，无新增P0/P1/P2；OpenSpec strict/diff检查及browser14项复验通过。证据doc-only commit见Git历史，不冒称再次代码发布。
