@@ -288,3 +288,80 @@ class RecoveryCliMongoTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["replay_coverage"]["may_be_truncated"])
         default = await cli.inventory(self.db)
         self.assertFalse(default["replay_coverage"]["requested"])
+
+    async def test_inventory_projects_only_nested_identity_locators_on_real_mongo(self):
+        from bson import json_util
+        from motor.motor_asyncio import AsyncIOMotorClient
+        from pymongo.monitoring import CommandListener
+
+        marker = "UNRELATED_INVENTORY_PAYLOAD_"
+        bulky = marker + "x" * (128 * 1024)
+        member = dict(self.identity, role_id="500", game_role_id="500", match_id=900,
+                      equipment={"raw": bulky}, raw={"abilities": bulky}, metrics=bulky)
+        await self.db.jjc_ranking_stat_details.insert_one({"timestamp": 0, "members": [member]})
+        for match_id, role_id, legacy in ((8001, "600", False), (8002, "700", True)):
+            player = {"global_role_id": "12345", "role_id": role_id,
+                      "role_name": "role", "server": "server", "zone": "zone",
+                      "raw": {"equipment": bulky}, "armors": bulky, "talents": bulky}
+            replay_data = [player] if legacy else {"players": [player], "events": bulky, "timeline": bulky}
+            await self.db.jjc_match_detail.insert_one({"match_id": match_id, "data": {
+                "detail": {"unrelated": bulky},
+                "replay": {"code": 0, "raw": bulky, "data": replay_data},
+            }})
+
+        commands, batches = [], []
+        source_collections = {"jjc_ranking_stat_details", "jjc_match_detail"}
+        listener = CommandListener()
+
+        def started(event):
+            if event.database_name == self.db_name and event.command.get("find") in source_collections:
+                commands.append(copy.deepcopy(dict(event.command)))
+
+        def succeeded(event):
+            cursor = event.reply.get("cursor") or {}
+            if cursor.get("ns") in {self.db_name + "." + name for name in source_collections}:
+                batches.extend(copy.deepcopy(cursor.get("firstBatch") or cursor.get("nextBatch") or []))
+
+        listener.started = started
+        listener.succeeded = succeeded
+        listener.failed = lambda event: None
+        client = AsyncIOMotorClient(self.source_uri, tz_aware=True, event_listeners=[listener])
+        try:
+            result = await cli.inventory(client[self.db_name], batch_size=2, replay_scan_limit=2)
+        finally:
+            client.close()
+
+        candidates = {str(row["role_id"]): row for row in result["records"][0]["candidates"]}
+        with self.subTest(contract="all old and new locators retained"):
+            self.assertEqual(set(candidates), {"100", "200", "300", "500", "600", "700"})
+            self.assertEqual(candidates["500"]["match_id"], 900)
+            self.assertEqual(candidates["600"]["match_id"], 8001)
+            self.assertEqual(candidates["700"]["match_id"], 8002)
+            self.assertEqual(result["source_counts"], {"linked_locators": 6})
+            self.assertEqual(result["replay_coverage"]["scanned"], 2)
+            self.assertEqual(result["replay_coverage"]["limit"], 2)
+            self.assertTrue(result["replay_coverage"]["may_be_truncated"])
+
+        with self.subTest(contract="wire results omit unrelated payloads"):
+            self.assertEqual(len(batches), 5)
+            transmitted = json_util.dumps(batches)
+            self.assertFalse(marker in transmitted, "Mongo returned unrelated raw payload fields")
+            self.assertLess(len(transmitted), 25000)
+        with self.subTest(contract="candidate manifest omits unrelated raw fields"):
+            self.assertFalse(marker in json_util.dumps(result["records"]), "candidate manifest retained unrelated raw payload fields")
+
+        issued = {command["find"]: command for command in commands}
+        rank_projection = {"members." + name: 1 for name in (
+            "global_id", "global_role_id", "server", "name", "zone", "role_id", "game_role_id", "match_id",
+        )}
+        rank_projection["_id"] = 0
+        replay_projection = {"match_id": 1, "data.replay.code": 1, "_id": 0}
+        for prefix in ("data.replay.data.players.", "data.replay.data."):
+            for name in ("global_role_id", "role_id", "role_name", "server", "zone"):
+                replay_projection[prefix + name] = 1
+        with self.subTest(contract="ranking find projection contains only locator fields"):
+            self.assertEqual(issued["jjc_ranking_stat_details"]["projection"], rank_projection)
+        with self.subTest(contract="replay find projection preserves both existing payload shapes"):
+            self.assertEqual(issued["jjc_match_detail"]["projection"], replay_projection)
+            self.assertEqual(issued["jjc_match_detail"]["filter"], {"data.replay": {"$exists": True}})
+            self.assertEqual(issued["jjc_match_detail"]["limit"], 2)

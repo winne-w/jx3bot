@@ -243,14 +243,21 @@ async def inventory(db, *, batch_size=500, replay_scan_limit=0):
     for collection in ("role_jjc_cache", "role_identities_history"):
         async for doc in db[collection].find({}, fields).batch_size(batch_size):
             observe(doc, gid=doc.get("global_id"), sk=doc.get("global_role_id"))
-    async for doc in db.jjc_ranking_stat_details.find({}, {"members": 1}).batch_size(100):
+    async for doc in db.jjc_ranking_stat_details.find({}, {"_id": 0, **{
+        "members." + key: 1 for key in ("global_id", "global_role_id", "server", "name",
+                                      "zone", "role_id", "game_role_id", "match_id")
+    }}).batch_size(100):
         for member in doc.get("members") or []:
             if isinstance(member, dict):
                 observe(member, gid=member.get("global_id"), sk=member.get("global_role_id"))
     replay_scanned = 0
     if replay_scan_limit:
         cursor = db.jjc_match_detail.find({"data.replay": {"$exists": True}},
-                                        {"match_id": 1, "data.replay": 1}).batch_size(100).limit(replay_scan_limit)
+                                        {"_id": 0, "match_id": 1, "data.replay.code": 1, **{
+                                            prefix + key: 1
+                                            for prefix in ("data.replay.data.players.", "data.replay.data.")
+                                            for key in ("global_role_id", "role_id", "role_name", "server", "zone")
+                                        }}).batch_size(100).limit(replay_scan_limit)
         async for doc in cursor:
             replay_scanned += 1
             replay = (doc.get("data") or {}).get("replay") or {}
