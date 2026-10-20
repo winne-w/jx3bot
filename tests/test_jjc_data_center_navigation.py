@@ -30,6 +30,13 @@ class _PageParser(HTMLParser):
 
 
 class JjcDataCenterNavigationTest(unittest.TestCase):
+    def test_home_and_ranking_entry_remain_identical(self):
+        self.assertEqual(
+            (ROOT / "public/jjc-ranking-stats.html").read_text(encoding="utf-8"),
+            (ROOT / "public/index.html").read_text(encoding="utf-8"),
+            "排名页面改动必须同步到首页 index.html",
+        )
+
     def _load(self, filename):
         path = ROOT / "public" / filename
         self.assertTrue(path.exists(), "missing page: %s" % path)
@@ -96,14 +103,16 @@ class JjcDataCenterNavigationTest(unittest.TestCase):
         self.assertRegex(header_rule.group(1), r"flex-direction\s*:\s*column")
 
     def test_pages_share_the_visual_shell_contract(self):
+        shared_source = (ROOT / "public/jjc-site.css").read_text(encoding="utf-8")
+        self.assertRegex(shared_source, r"\.page\s*\{[^}]*max-width\s*:\s*1920px")
         shell_rules = {}
         for filename in PAGES:
             source, _, _ = self._load(filename)
-            self.assertRegex(source, r"\.page\s*\{[^}]*max-width\s*:\s*1280px", filename)
+            self.assertNotRegex(source, r"\.page(?:\.[\w-]+)?\s*\{[^}]*max-width", filename)
             self.assertRegex(source, r'class=["\'][^"\']*\bpage-title-region\b[^"\']*["\']', filename)
             self.assertRegex(source, r"@media\s*\(max-width:\s*(?:700|760|720)px\)[\s\S]*?\.site-header\s*\{[^}]*flex-direction\s*:\s*column", filename)
             shell_rules[filename] = {
-                selector: re.sub(r"\s+", " ", re.search(r"%s\s*\{([^}]*)\}" % re.escape(selector), source).group(1)).strip()
+                selector: re.sub(r"\s+", " ", re.search(r"%s\s*\{([^}]*)\}" % re.escape(selector), shared_source if selector == ".page" else source).group(1)).strip()
                 for selector in SHELL_RULES
             }
 

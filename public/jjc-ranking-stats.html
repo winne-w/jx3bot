@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>竞技场心法排名统计</title>
+    <title>JJC 数据中心 · 心法排名统计</title>
     <style>
         :root {
             --bg: #f7fafd;
@@ -31,13 +31,6 @@
                 linear-gradient(140deg, var(--bg), #ffffff);
             min-height: 100vh;
             padding: 36px 24px 60px;
-        }
-
-        .page {
-            width: 100%;
-            max-width: 1280px;
-            margin: 0 auto;
-            position: relative;
         }
 
         .site-header {
@@ -322,7 +315,7 @@
             margin-top: 28px;
             display: grid;
             gap: 24px;
-            grid-template-columns: repeat(1, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
         }
 
         .range-card {
@@ -1334,24 +1327,6 @@
         .talent-chip:hover::after {
             opacity: 1;
             transform: translate(0, -10px);
-        }
-
-        @media (min-width: 760px) {
-            .grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-        }
-
-        @media (min-width: 1120px) {
-            .grid {
-                grid-template-columns: repeat(3, minmax(0, 1fr));
-            }
-        }
-
-        @media (min-width: 1460px) {
-            .grid {
-                grid-template-columns: repeat(4, minmax(0, 1fr));
-            }
         }
 
         .muted {

@@ -135,6 +135,7 @@ python -m py_compile <相关 service/storage 文件>
 
 ## 文档更新规则
 
+- `public/index.html` 与 `public/jjc-ranking-stats.html` 是同一个排名页面的两个入口，内容须保持一致；修改任一入口后同步另一个，并运行 `python -m unittest tests.test_jjc_data_center_navigation`。四个 JJC 页面统一由 `public/jjc-site.css` 控制内容最大宽度（1920px）与页面边距，不在单页覆盖 `.page` 宽度。
 - 改动启动方式、端口、环境变量时，同时更新 `README.md`、`README-Docker.md`、`docs/references/runbook.md`。
 - 改动模块边界、目录职责时，同时更新 `project-architecture.md` 和 `docs/exec-plans/active/refactor-plan.md`。
 - 改动 API 路由时，同时更新 `README.md` 中的接口说明。
