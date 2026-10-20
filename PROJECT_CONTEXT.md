@@ -151,6 +151,14 @@ python -m py_compile <相关 service/storage 文件>
 
 ## 常用验证
 
+### JJC 最新对局受控刷新
+
+`openspec/changes/jjc-safe-live-refresh/` 记录最新摘要方案及预算桶回退决定。最新摘要由独立 worker 拉取，页面仍读 Mongo，不推进完整历史水位或写统计事实。推栏调用恢复为 `src/utils/tuilan_request.py` 的直连实现，不使用共享预算桶、并发许可、小时/日配额或共享暂停。签名密钥和设备 ID 沿用已提交版本默认值，可通过环境变量覆盖；票据可在 `runtime_config.json` 中配置。`JJC_LIVE_REFRESH_ENABLED` 默认 0，启用前须配置有效凭据与 `JJC_LIVE_SOURCE_SECRET`。
+
+前端刷新提交 `POST /api/jjc/ranking-stats/synced-role-refresh`，随后最多轮询本地列表 10 次。最新摘要仍保留任务槽位、角色冷却和来源限频；原有详情与角色查询恢复直连行为。
+
+验证：`.venv/bin/python -m unittest tests.test_tuilan_request tests.test_jjc_live_refresh`；独立 Mongo 测试需显式 `JJC_TEST_MONGO_URI`，禁止指向生产库。
+
 - 本地启动: `python bot.py`
 - 插件快速检查: `nb plugin list --json`
 - 手工脚本: `python test_tuilan_match_history.py`

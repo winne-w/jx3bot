@@ -41,6 +41,8 @@ docker compose up --build -d
   - `PORT=5288`
   - 可选 `JJC_SYNC_WORKER_COUNT=1`，让 bot 启动后内置 1 个 JJC 同步 worker；默认 `0` 不启动
   - 可选 `JJC_SYNC_DISPATCHER_ENABLED=1`，启用 bot 内置自动补队列 dispatcher；默认 `1`
+  - 推栏请求沿用直连实现，无共享预算桶；签名密钥和设备 ID 有兼容默认值，可通过环境变量覆盖，`TICKET` 通过 `runtime_config.json` 配置
+  - `JJC_LIVE_REFRESH_ENABLED=1` 才开启最新对局轻量刷新，并必须配置 `JJC_LIVE_SOURCE_SECRET`
 - 端口映射:
   - `5288:5288`
   - `8000:8000`

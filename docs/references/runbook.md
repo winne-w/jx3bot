@@ -1,5 +1,14 @@
 # 运行与回归手册
 
+
+## JJC 最新对局刷新
+
+上线前确认有效签名密钥、设备 ID、`TICKET` 与 `JJC_LIVE_SOURCE_SECRET`，再设置 `JJC_LIVE_REFRESH_ENABLED=1`。推栏请求不再使用共享预算桶。
+
+灰度观察请求失败、队列拒绝和成功检查年龄。异常先设置 `JJC_LIVE_REFRESH_ENABLED=0`；鉴权失败时更新有效票据。独立 Mongo 测试使用 `JJC_TEST_MONGO_URI`，禁止使用生产连接串。
+
+离线回归覆盖已知角色提交、关闭开关读取旧摘要、后页失败保留和启动降级；前端需检查刷新与加载更多同时操作、切换角色后的迟到响应和十次轮询上限。可复现脚本与分组测试命令见 `openspec/changes/jjc-safe-live-refresh/test-plan.md`；所有浏览器接口使用 fixture，不作为真实官方响应验收。
+
 更新时间：2026-06-03
 
 本文面向维护者和 agent，记录当前仓库可执行的启动方式、验证命令和常见排查路径。

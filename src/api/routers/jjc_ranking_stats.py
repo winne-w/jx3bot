@@ -5,6 +5,8 @@ import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Query
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 from nonebot import logger
 
 from config import KUNGFU_META
@@ -500,7 +502,7 @@ async def get_ranking_stats_role_recent(
     global_role_id: Optional[str] = Query(None, description="推栏全局角色 ID"),
     role_id: Optional[str] = Query(None, description="推栏角色 ID"),
     zone: Optional[str] = Query(None, description="区服分区"),
-    cursor: int = Query(0, description="分页游标，0 表示第一页"),
+    cursor: int = Query(0, ge=0, le=2000, description="分页游标，0 表示第一页"),
     force_refresh: bool = Query(False, description="是否绕过缓存实时刷新第一页"),
 ) -> dict[str, Any]:
     server = server.strip()
@@ -593,6 +595,17 @@ async def get_ranking_stats_synced_role_matches(
         page=page,
         page_size=page_size,
     )
+    import config as cfg
+    result["refresh"] = {"state": "disabled", "enabled": False}
+    result["latest_matches"] = []
+    identity_id = (result.get("identity") or {}).get("identity_id")
+    if identity_id and not result.get("error"):
+        from src.services.jx3.singletons import jjc_live_refresh_service
+        try:
+            result.update(await jjc_live_refresh_service.read(identity_id))
+        except Exception:
+            enabled = bool(getattr(cfg, "JJC_LIVE_REFRESH_ENABLED", 0))
+            result["refresh"] = {"state": "storage_unavailable" if enabled else "disabled", "enabled": enabled}
     elapsed_ms = int((time.perf_counter() - started_at) * 1000)
     logger.info(
         "JJC 对局查询 API 完成: endpoint=synced-role-matches server={} name={} page={} page_size={} "
@@ -610,6 +623,29 @@ async def get_ranking_stats_synced_role_matches(
     if result.get("error"):
         return error_response(result.get("message") or "unknown_error", data=result)
     return success_response(result)
+
+
+@router.post("/ranking-stats/synced-role-refresh")
+async def post_ranking_stats_synced_role_refresh(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    import config as cfg
+    from src.services.jx3.singletons import jjc_live_refresh_service
+    from src.services.jx3.jjc_public_refresh import submit_refresh
+    server, name = payload.get("server"), payload.get("name")
+    if not isinstance(server, str) or not isinstance(name, str):
+        return JSONResponse(error_response("invalid_params"), status_code=400)
+    result, status = await submit_refresh(jjc_live_refresh_service,
+        server=server.strip(), name=name.strip(),
+        peer=request.client.host if request.client else "",
+        forwarded=request.headers.get("x-forwarded-for", ""),
+        trusted_proxies=getattr(cfg, "JJC_LIVE_TRUSTED_PROXIES", ""),
+        secret=getattr(cfg, "JJC_LIVE_SOURCE_SECRET", ""))
+    headers = {}
+    if status in (429, 503):
+        headers["Retry-After"] = str(result.get("retry_after_seconds", 60))
+    return JSONResponse(success_response(result), status_code=status, headers=headers)
 
 
 @router.post("/ranking-stats/synced-role-sync")

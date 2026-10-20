@@ -23,6 +23,8 @@ async def _startup_mongo():
     await init_mongo(MONGO_URI)
     await start_jjc_sync_workers()
     await start_jjc_sync_dispatcher()
+    from src.services.jx3.jjc_live_refresh_runtime import start_live_refresh
+    await start_live_refresh()
 
 
 @driver.on_shutdown
@@ -31,6 +33,8 @@ async def _shutdown_jjc_sync_workers():
 
     await stop_jjc_sync_dispatcher()
     await stop_jjc_sync_workers()
+    from src.services.jx3.jjc_live_refresh_runtime import stop_live_refresh
+    await stop_live_refresh()
 
 
 # Please DO NOT modify this file unless you know what you are doing!

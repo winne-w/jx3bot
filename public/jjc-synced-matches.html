@@ -1008,6 +1008,45 @@
         const syncedRoleApiBase = params.get("synced_role_api") || `${BASE_API}/synced-role`;
         const syncedMatchesApiBase = params.get("synced_matches_api") || `${BASE_API}/synced-role-matches`;
         const syncedSyncApiBase = params.get("synced_sync_api") || `${BASE_API}/synced-role-sync`;
+        const syncedRefreshApiBase = `${BASE_API}/synced-role-refresh`;
+        let latestRefresh = { state: "disabled", enabled: false };
+        let refreshGeneration = 0;
+        let refreshTimer = null;
+        let refreshInFlight = false;
+
+        function stopLatestPolling() {
+            refreshGeneration += 1;
+            refreshInFlight = false;
+            if (refreshTimer) clearTimeout(refreshTimer);
+            refreshTimer = null;
+        }
+        window.addEventListener("pagehide", stopLatestPolling);
+
+        function latestStatusText(state) {
+            const labels = { queued: "正在排队更新", running: "正在检查最新对局", cooldown: "已检查，稍后可再次刷新",
+                success: "最新对局已检查", idle: "尚未检查最新对局", disabled: "当前显示本地已同步数据",
+                queue_full: "当前更新较忙，请稍后再试", expired: "本次更新已超时，请稍后重试",
+                rate_limited: "刷新过于频繁，请稍后再试",
+                invalid_config: "战绩更新暂不可用",
+                worker_unavailable: "战绩更新暂不可用", storage_unavailable: "战绩更新暂不可用",
+                identity_unavailable: "暂时无法更新此角色", refresh_failed: "更新失败，保留已有战绩" };
+            return labels[state.state] || "战绩更新暂不可用";
+        }
+
+        function renderLatestMatches(data) {
+            latestRefresh = data.refresh || { state: "disabled", enabled: false };
+            const panel = document.getElementById("latest-match-panel");
+            const label = document.getElementById("latest-refresh-label");
+            if (label) label.textContent = latestStatusText(latestRefresh)
+                + (latestRefresh.last_checked_at ? ` · 上次检查：${formatTime(latestRefresh.last_checked_at)}` : "")
+                + (latestRefresh.coverage_limited ? " · 仅展示近期部分战绩，历史仍在补齐" : "");
+            if (panel) {
+                const matches = data.latest_matches || [];
+                panel.innerHTML = matches.length
+                    ? matches.map(match => renderMatchItem(match, currentRole.name, currentRole.server)).join("")
+                    : "<div class='modal-empty'>暂无近期基础战绩，已同步历史可在下方查看</div>";
+            }
+        }
         const roleIndicatorApiBase = params.get("role_indicator_api") || `${BASE_API}/role-indicator`;
         const matchDetailApiBase = params.get("match_detail_api") || `${BASE_API}/match-detail`;
         const serverListApiBase = params.get("server_list_api") || "/jx3bot/api/jx3/servers";
@@ -1558,6 +1597,7 @@
         }
 
         function renderMatches(data, append) {
+            if (!append) renderLatestMatches(data);
             const matches = Array.isArray(data.recent_matches) ? data.recent_matches : [];
             const player = data.player || currentRole?.player || {};
             const playerName = player.name || currentRole?.name || "未知角色";
@@ -1672,7 +1712,7 @@
                 <div class="role-header">
                     <div>
                         <h2 class="role-title">${escapeHtml(currentRole.name)} · ${escapeHtml(currentRole.server)}</h2>
-                        <div class="muted">对局需要后台异步同步；这里只展示已经同步下来且可以查看详情的 3v3 对局，列表不一定完整。可以提交更新请求后等待同步完成。</div>
+                        <div class="muted">近期战绩可按需更新，详情和历史对局由后台补齐；列表不一定完整。</div>
                     </div>
                     <button class="primary-btn" id="enqueue-sync-btn" type="button"${canEnqueue && !syncActive ? "" : " disabled"}>${canEnqueue ? renderSyncButtonText(data.sync_status) : "暂不可同步"}</button>
                 </div>
@@ -1684,7 +1724,12 @@
                     ${renderIndicatorCards(indicatorData)}
                 </div>
                 <div class="match-list-toolbar">
-                    <span class="match-list-title">可查看对局</span>
+                    <span class="match-list-title">近期战绩</span>
+                    <span class="cache-label" id="latest-refresh-label">正在读取更新状态</span>
+                </div>
+                <div id="latest-match-panel"></div>
+                <div class="match-list-toolbar">
+                    <span class="match-list-title">已同步历史</span>
                     <div class="match-list-actions">
                         <span class="cache-label" id="sync-list-label">${renderListSyncLabel(data)}</span>
                         <button class="match-refresh-btn" id="refresh-match-list-btn" type="button" title="刷新当前对局列表" aria-label="刷新当前对局列表">↻</button>
@@ -1824,6 +1869,7 @@
         }
 
         async function searchRole() {
+            stopLatestPolling();
             const server = serverInput.value.trim();
             const name = nameInput.value.trim();
             if (!name) {
@@ -1883,6 +1929,11 @@
                         }
                         renderMatches(matchesData, false);
                         setStatus("已加载对局");
+                        if (latestRefresh.enabled && !["queued", "running"].includes(latestRefresh.state)
+                            && !latestRefresh.retry_after_seconds) refreshCurrentMatches();
+                        else if (latestRefresh.enabled && ["queued", "running"].includes(latestRefresh.state)) {
+                            pollLatestMatches(refreshGeneration, token, roleSnapshot, 0);
+                        }
                     })
                     .catch(() => {
                         if (
@@ -1913,9 +1964,14 @@
         }
 
         async function loadMoreMatches() {
-            if (!currentRole || currentPagination.isLoading || !currentPagination.hasMore) {
+            if (!currentRole || refreshInFlight || currentPagination.isLoading || !currentPagination.hasMore) {
                 return;
             }
+            const generation = refreshGeneration;
+            const roleToken = searchToken;
+            const roleSnapshot = { server: currentRole.server, name: currentRole.name };
+            const isCurrentRequest = () => generation === refreshGeneration && roleToken === searchToken
+                && currentRole?.server === roleSnapshot.server && currentRole?.name === roleSnapshot.name;
             currentPagination.isLoading = true;
             const button = document.getElementById("load-more-btn");
             if (button) {
@@ -1926,12 +1982,14 @@
                 const nextPage = currentPagination.page + 1;
                 const data = await fetchJson(buildGetUrl(
                     syncedMatchesApiBase,
-                    currentRole.server,
-                    currentRole.name,
+                    roleSnapshot.server,
+                    roleSnapshot.name,
                     { page: nextPage, page_size: pageSize },
                 ));
+                if (!isCurrentRequest()) return;
                 renderMatches(data, true);
             } catch (error) {
+                if (!isCurrentRequest()) return;
                 if (button) {
                     button.textContent = "加载失败，点击重试";
                     button.disabled = false;
@@ -1941,24 +1999,35 @@
         }
 
         async function refreshCurrentMatches() {
-            if (!currentRole) {
+            if (!currentRole || refreshInFlight || currentPagination.isLoading) {
                 return;
             }
+            stopLatestPolling();
+            refreshInFlight = true;
+            const generation = refreshGeneration;
+            const roleToken = searchToken;
             const roleSnapshot = {
                 server: currentRole.server,
                 name: currentRole.name,
             };
             const button = document.getElementById("refresh-match-list-btn");
-            const listPanel = document.getElementById("match-list-panel");
             if (button) {
                 button.disabled = true;
                 button.textContent = "…";
             }
-            if (listPanel) {
-                listPanel.innerHTML = renderMatchListState({ matches_loading: true }, roleSnapshot.name, roleSnapshot.server);
-            }
-            currentPagination = { page: 1, hasMore: false, isLoading: true };
             try {
+                if (latestRefresh.enabled) {
+                    const refresh = await fetchJson(syncedRefreshApiBase, { method: "POST",
+                        headers: { "Content-Type": "application/json" }, body: JSON.stringify(roleSnapshot) });
+                    if (generation !== refreshGeneration || roleToken !== searchToken) return;
+                    latestRefresh = { ...latestRefresh, ...refresh };
+                    const label = document.getElementById("latest-refresh-label");
+                    if (label) label.textContent = latestStatusText(latestRefresh);
+                    if (["queued", "running"].includes(refresh.state)) {
+                        pollLatestMatches(generation, roleToken, roleSnapshot, 0);
+                        return;
+                    }
+                }
                 const data = await fetchJson(buildGetUrl(
                     syncedMatchesApiBase,
                     roleSnapshot.server,
@@ -1966,25 +2035,25 @@
                     { page: 1, page_size: pageSize },
                 ));
                 if (
-                    !currentRole ||
+                    generation !== refreshGeneration || roleToken !== searchToken || !currentRole ||
                     currentRole.server !== roleSnapshot.server ||
                     currentRole.name !== roleSnapshot.name
                 ) {
                     return;
                 }
                 renderMatches(data, false);
-                setStatus("已刷新当前对局列表");
+                setStatus(latestStatusText(latestRefresh));
             } catch (error) {
                 if (
-                    !currentRole ||
+                    generation !== refreshGeneration || roleToken !== searchToken || !currentRole ||
                     currentRole.server !== roleSnapshot.server ||
                     currentRole.name !== roleSnapshot.name
                 ) {
                     return;
                 }
-                renderMatchesError();
-                setStatus("刷新对局列表失败，请稍后再试", "error");
+                setStatus("更新暂不可用，已保留当前对局列表", "error");
             } finally {
+                if (generation === refreshGeneration) refreshInFlight = false;
                 if (
                     button &&
                     currentRole &&
@@ -1995,6 +2064,27 @@
                     button.textContent = "↻";
                 }
             }
+        }
+
+        function pollLatestMatches(generation, roleToken, role, attempt) {
+            if (attempt >= 10 || generation !== refreshGeneration || roleToken !== searchToken) return;
+            refreshTimer = setTimeout(async () => {
+                if (generation !== refreshGeneration || roleToken !== searchToken || document.hidden) return;
+                try {
+                    const data = await fetchJson(buildGetUrl(syncedMatchesApiBase, role.server, role.name,
+                        { page: 1, page_size: pageSize }));
+                    if (generation !== refreshGeneration || roleToken !== searchToken) return;
+                    // Preserve already-loaded historical pages during background polling.
+                    renderLatestMatches(data);
+                    if (["queued", "running"].includes(latestRefresh.state)) {
+                        if (attempt === 9) setStatus("仍在等待更新，可稍后点击刷新查看进度");
+                        else pollLatestMatches(generation, roleToken, role, attempt + 1);
+                    }
+                } catch (error) {
+                    if (generation === refreshGeneration && roleToken === searchToken)
+                        setStatus("更新暂不可用，已保留当前对局列表", "error");
+                }
+            }, 3000);
         }
 
         async function enqueueSync() {

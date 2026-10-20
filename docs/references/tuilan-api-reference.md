@@ -4,6 +4,10 @@
 
 本文记录基于 `Stream-2026-05-19 13_44_18.har` 和实测请求整理出的推栏接口形态。敏感请求头如 `token`、`Cookie`、`X-Sk`、`deviceid`、`clientkey`、`sign` 不在本文记录具体值。
 
+## 项目请求出口
+
+项目请求使用 `src/utils/tuilan_request.py` 直连。共享预算桶已回退，不再检查小时/日额度或共享并发许可。签名密钥和设备 ID 保留兼容默认值，可由环境变量覆盖；Ticket 可由 `runtime_config.json` 设置。
+
 ## 公共约定
 
 - Host: `https://m.pvp.xoyo.com`

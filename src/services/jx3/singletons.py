@@ -128,6 +128,7 @@ role_indicator_client = RoleIndicatorClient(
     tuilan_request=tuilan_request,
 )
 
+
 jjc_ranking_inspect_service = JjcRankingInspectService(
     ranking_service=jjc_ranking_service,
     kungfu_cache_repo=JjcCacheRepo(
@@ -165,4 +166,19 @@ jjc_match_data_sync_service = JjcMatchDataSyncService(
     dispatcher_idle_sleep=getattr(cfg, "JJC_SYNC_DISPATCHER_IDLE_SLEEP", 10),
     dispatcher_batch_size=getattr(cfg, "JJC_SYNC_DISPATCHER_BATCH_SIZE", 20),
     dispatcher_target_per_worker=getattr(cfg, "JJC_SYNC_DISPATCHER_TARGET_PER_WORKER", 3),
+)
+
+from src.services.jx3.jjc_live_refresh import JjcLiveRefreshService
+from src.storage.mongo_repos.jjc_live_refresh_repo import JjcLiveRefreshRepo
+
+jjc_live_refresh_service = JjcLiveRefreshService(
+    identity_repo=role_identity_repo,
+    history_client=match_history_client,
+    indicator_client=role_indicator_client,
+    season=cfg.CURRENT_SEASON,
+    season_start=parse_season_start_timestamp(cfg.CURRENT_SEASON_START),
+    names=KUNGFU_PINYIN_TO_CHINESE,
+    enabled=lambda: bool(getattr(cfg, "JJC_LIVE_REFRESH_ENABLED", 0)),
+    repo=JjcLiveRefreshRepo(capacity=getattr(cfg, "JJC_LIVE_REFRESH_CAPACITY", 100),
+                           cooldown=getattr(cfg, "JJC_LIVE_REFRESH_COOLDOWN", 120)),
 )

@@ -15,13 +15,33 @@
 
 - 数据库相关改动必须同步修改本文，包括集合、字段、索引、TTL、数据类型、迁移脚本和读写 repo 的变化。
 - 新增持久化能力优先新增或扩展 `src/storage/mongo_repos/`，不要在 `plugins`、handler、API router 中散写 `db.collection`。
-- 新增索引必须写入 `src/infra/mongo.py:_ensure_indexes()`，并在本文的集合章节记录索引名、字段和唯一性。
+- 新增索引默认写入 `src/infra/mongo.py:_ensure_indexes()`，并在本文的集合章节记录索引名、字段和唯一性。默认关闭、需要先验证跨进程配置的 JJC 受控刷新是明确例外：其五个集合由 `JjcLiveRefreshRepo.initialize()` 负责初始化，仅在独立刷新 worker 启动时执行；失败只停用新刷新能力，不阻断既有 bot/API。
 - 有历史 JSON 或文件缓存需要迁移时，迁移脚本放在 `scripts/`，脚本说明要写明源路径、目标集合和幂等键。
 - 时间字段应优先使用 Unix 秒级时间戳；若使用 Mongo `datetime` 用于 TTL，必须在字段说明中明确类型和原因。
 - **TTL 字段约束**：MongoDB TTL 索引仅对 `Date` 类型字段生效，对 `float`/`int` 类型字段创建 TTL 索引实际不会触发自动删除。新建集合的 TTL 字段必须使用 `datetime` 类型；旧集合若使用非 `Date` 字段声明了 TTL 索引，应在对应集合描述中标注"TTL 实际不生效"，并在合理时机补 `_dt` 后缀的 Date 冗余字段或由 repo 业务逻辑自行判断过期。
 - 群号、QQ 号等外部 ID 当前多数以字符串落库，新增字段应沿用对应集合已有类型，避免同一字段混用数字和字符串。
 
 ## 集合设计
+
+### JJC 受控刷新
+
+共享官方出口预算桶已回退；应用不再读写 `tuilan_request_budget`。已有集合保留为历史数据，本次不执行线上数据删除。
+
+`jjc_live_refresh_slots` 维护固定数量数字槽位；字符串 `task_key` partial unique 索引防止同角色重复任务。`jjc_live_refresh_state` 以规范身份+赛季+3v3 的 SHA256 为 `_id`，保存 generation、租约、冷却、失败与当前摘要 snapshot 指针，独立于历史同步水位。
+
+`jjc_live_match_summaries` 保存不可变摘要快照，唯一索引 `(task_key,snapshot_id,match_id)`，`expires_at_dt` 使用 Date 类型 TTL 0 默认保留 7 天。发布先写快照，再以有效 generation CAS 更新 state 指针，迟到 worker 不能覆盖当前结果。`jjc_live_workers` 保存心跳有效期，`jjc_live_source_limits` 保存服务端 HMAC 来源的 CAS 滚动窗口。
+
+刷新 repo 在 worker 启动时幂等建立上述索引；配置不一致或索引失败时功能不启动。最新摘要最多 40 条，不影响完整历史分页与统计集合。
+
+| 集合 | 索引名 | 字段与约束 |
+|---|---|---|
+| `jjc_live_refresh_slots` | `task_key_1` | `task_key` 唯一，仅包含字符串 task_key；数字 `_id` 为任务槽，`configuration` 文档保存一致性参数 |
+| `jjc_live_match_summaries` | `task_key_1_snapshot_id_1_match_id_1` | 三字段复合唯一 |
+| `jjc_live_match_summaries` | `match_id_1` | 普通索引 |
+| `jjc_live_match_summaries` | `expires_at_dt_1` | Date 类型，TTL 0；到期时间为快照发布后 7 天，读取也检查有效期 |
+| `jjc_live_source_limits` | `expires_at_dt_1` | Date 类型，TTL 0；窗口 60 秒，闲置来源在最后接收后 120 秒到期 |
+
+上述集合均有默认 `_id_` 索引。`jjc_live_refresh_state` 的冷却和活动期限、`jjc_live_workers.until` 心跳期限为 Unix 秒时间戳，由业务判断有效期，不设 TTL；任务槽位固定保留，以便跨进程复用。来源集合的 `_id` 仅保存 HMAC 散列，不记录原始 IP。
 
 ### `jjc_match_facts`
 
