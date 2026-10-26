@@ -2432,13 +2432,13 @@
             }
         }
 
-        function renderList(rangeKey, laneName, list, validCount, legendaryCountMap) {
+        function renderList(rangeKey, laneName, list, validCount, legendaryCountMap, overlayEnabled = showLegendaryOverlay) {
             const maxCount = list.reduce((maxValue, item) => Math.max(maxValue, item[1]), 1);
             return list.map(([kungfu, count]) => {
                 const percent = validCount > 0 ? (count / validCount) * 100 : 0;
                 const legendaryCount = Number((legendaryCountMap || {})[kungfu] || 0);
                 const legendaryPercent = count > 0 ? (legendaryCount / count) * 100 : 0;
-                const overlayPercent = showLegendaryOverlay ? legendaryPercent : 0;
+                const overlayPercent = overlayEnabled ? legendaryPercent : 0;
                 return `
                     <details class="detail" data-range="${rangeKey}" data-lane="${laneName}" data-kungfu="${encodeURIComponent(kungfu)}">
                         <summary>
@@ -2725,6 +2725,27 @@
             grid.innerHTML = cards.length ? cards.join("") : "<div class='range-card'>暂无统计数据</div>";
         }
 
+        async function getPeakDistributionStats(timestamp) {
+            const cacheKey = ["peak-game", timestamp, "distribution"].join("::");
+            if (rankingListCache.has(cacheKey)) {
+                return rankingListCache.get(cacheKey);
+            }
+            const results = await Promise.all(rangeConfigs.map(async (config) => {
+                const response = await fetch(
+                    buildPeakScoreUrl(timestamp, "game", config.key, { includeMatchSummary: false }),
+                    { cache: "no-store" }
+                );
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = unwrapResponse(await response.json());
+                return [config.key, data.kungfu_statistics || {}];
+            }));
+            const payload = { kungfu_statistics: Object.fromEntries(results) };
+            rankingListCache.set(cacheKey, payload);
+            return payload;
+        }
+
         async function loadPeakDistributionView() {
             if (!currentStatsTimestamp) {
                 grid.innerHTML = "<div class='range-card'>缺少统计时间</div>";
@@ -2737,21 +2758,7 @@
             }
             grid.innerHTML = "<div class='range-card'>正在加载14日最高分心法分布...</div>";
             try {
-                const results = await Promise.all(rangeConfigs.map(async (config) => {
-                    const response = await fetch(
-                        buildPeakScoreUrl(currentStatsTimestamp, "game", config.key, { includeMatchSummary: false }),
-                        { cache: "no-store" }
-                    );
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-                    const data = unwrapResponse(await response.json());
-                    return [config.key, data.kungfu_statistics || {}];
-                }));
-                const payload = {
-                    kungfu_statistics: Object.fromEntries(results),
-                };
-                rankingListCache.set(cacheKey, payload);
+                const payload = await getPeakDistributionStats(currentStatsTimestamp);
                 renderDistributionView(payload, "peak-game");
                 setStatus("14日最高分心法分布加载完成");
             } catch (error) {
@@ -3629,7 +3636,77 @@
             }
         }
 
+        function buildDistributionExportMarkup(payload, exportTab, seasonText, rankingTimeText, overlayEnabled) {
+            const stats = exportTab === "purple"
+                ? buildFilteredStats(payload.kungfu_statistics || {}, "purple")
+                : (payload.kungfu_statistics || {});
+            const ranges = rangeConfigs.filter((config) => stats[config.key]);
+            if (!ranges.length) {
+                throw new Error("暂无心法分布数据，无法导出");
+            }
+            const description = `${ranges.map((config) => config.label).join("、")} 奶妈与DPS心法分布（${seasonText}）`;
+            const rows = ranges.map((config) => {
+                const range = stats[config.key];
+                const minScore = range.healer?.min_score ?? range.dps?.min_score ?? "-";
+                const lanes = [["healer", "奶妈"], ["dps", "DPS"]].map(([key, label]) => {
+                    const lane = range[key] || {};
+                    const list = lane.list || [];
+                    return `
+                        <article class="export-lane" data-lane="${key}">
+                            <h2>${escapeHtml(config.label)} ${label}心法（${escapeHtml(minScore)}）</h2>
+                            ${list.length ? renderList(config.key, key, list, lane.valid_count || 0, lane.legendary_count_map || {}, overlayEnabled) : "<div class='muted'>暂无数据</div>"}
+                        </article>
+                    `;
+                }).join("");
+                return `<section class="export-range-row" data-range="${config.key}">${lanes}</section>`;
+            }).join("");
+            return `
+                <header class="export-image-header">
+                    <h1>竞技场心法排名统计</h1>
+                    <p>${escapeHtml(description)}</p>
+                    <p>${escapeHtml(getOuterTabLabel(exportTab))} · 榜单时间：${escapeHtml(rankingTimeText)}${overlayEnabled && exportTab !== "purple" ? " · 橙武占比覆盖已开启" : ""}</p>
+                </header>
+                <main class="export-image-grid">${rows}</main>
+                <footer class="export-image-source">数据来源：<a href="https://qike.rickchen.cn/jx3/jjc-ranking-stats.html">https://qike.rickchen.cn/jx3/jjc-ranking-stats.html</a></footer>
+            `;
+        }
+
+        function prepareDistributionExportClone(clonedDocument, clonedPage, exportMarkup) {
+            // Rebuild only the clone: no controls, input pseudo-elements or live-page mutations.
+            clonedPage.className = "export-image";
+            clonedPage.innerHTML = exportMarkup;
+            clonedPage.removeAttribute("style");
+            clonedDocument.body.style.cssText = "margin:0;padding:0;min-height:0;background:#f7fafd;";
+            const style = clonedDocument.createElement("style");
+            style.textContent = `
+                .export-image { width:1120px; margin:0; padding:28px 0 0; color:#435569; background:#f7fafd; font-family:"Microsoft YaHei","PingFang SC",sans-serif; font-size:16px; }
+                .export-image .export-image-header { display:block; margin:0 0 32px; padding:0 24px; text-align:center; background:none; border:0; border-radius:0; box-shadow:none; }
+                .export-image h1 { margin:0 0 16px; font-size:36px; line-height:1.3; letter-spacing:0; }
+                .export-image .export-image-header p { margin:6px 0 0; color:#7e8994; font-size:15px; line-height:1.6; }
+                .export-image .export-image-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:32px; }
+                .export-image .export-range-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:32px; align-items:stretch; }
+                .export-image .export-lane { min-width:0; padding:24px 20px 28px; background:#fff; border-radius:18px; }
+                .export-image .export-lane h2 { margin:0 0 22px; font-size:18px; line-height:1.4; font-weight:700; }
+                .export-image .detail { margin:0 0 12px; padding:0; }
+                .export-image .detail:last-child { margin-bottom:0; }
+                .export-image .bar-row { display:grid; grid-template-columns:68px minmax(0,1fr) 34px 54px; gap:10px; margin:0; font-size:16px; line-height:28px; }
+                .export-image .bar-kungfu { display:block; text-align:right; font-weight:400; letter-spacing:0; white-space:nowrap; color:#75869a; }
+                .export-image .bar { height:28px; border-radius:7px; background:none; }
+                .export-image .bar-fill { border-radius:7px; background:linear-gradient(90deg,#89c4f4,#ff78b1); transition:none; }
+                .export-image .bar-value { font-size:16px; text-align:left; color:#435569; }
+                .export-image .bar-percent { font-size:14px; text-align:left; color:#999; }
+                .export-image .arrow, .export-image .detail-list { display:none; }
+                .export-image .export-image-source { margin:32px 0 0; padding:12px 18px; text-align:center; color:#fff; background:#bfc3c8; border-radius:10px; font-size:14px; }
+                .export-image .export-image-source a { color:inherit; text-decoration:none; }
+            `;
+            clonedDocument.head.appendChild(style);
+            clonedPage.querySelectorAll("details[open]").forEach((detail) => detail.removeAttribute("open"));
+        }
+
+        let fullPageExportInProgress = false;
+
         async function exportFullPageImage(modeOverride) {
+            if (fullPageExportInProgress) return;
             if (typeof window.html2canvas !== "function") {
                 setStatus("图片生成库未加载，请稍后重试", "error");
                 return;
@@ -3638,41 +3715,34 @@
                 setStatus("页面节点不存在，无法导出", "error");
                 return;
             }
-            const previousTab = currentOuterTab;
             const exportTab = modeOverride || currentOuterTab;
-            if (exportTab !== currentOuterTab) {
-                currentOuterTab = exportTab;
-                renderCurrentView();
-                await new Promise((resolve) => window.requestAnimationFrame(resolve));
+            if (!currentStats || !currentStatsTimestamp) {
+                setStatus("请等待统计数据加载完成后再导出", "error");
+                return;
             }
+            const timestamp = currentStatsTimestamp;
+            const statsSnapshot = currentStats;
+            const seasonText = window.currentSeasonLabel || "赛季";
+            const rankingTimeText = window.currentRankingTimeLabel || "榜单";
+            const overlayEnabled = showLegendaryOverlay;
             const seasonLabel = (window.currentSeasonLabel || "").replace(/\s+/g, "") || "赛季";
             const rankingTimeLabel = (window.currentRankingTimeLabel || "").replace(/[^\dA-Za-z\u4e00-\u9fa5]+/g, "_") || "榜单";
             const modeSuffix = exportTab === "purple" ? "_推栏排名-紫武" : exportTab === "peak-game" ? "_14日游戏最高分排名" : "_推栏排名";
             const fileName = `竞技场心法排名统计_${seasonLabel}_${rankingTimeLabel}${modeSuffix}.png`;
-            const openDetails = Array.from(pageNode.querySelectorAll("details[open]"));
+            fullPageExportInProgress = true;
             try {
-                pageNode.classList.add("is-exporting-full");
-                openDetails.forEach((detail) => detail.removeAttribute("open"));
                 setStatus("正在生成整页图片，请稍候");
+                const payload = exportTab === "peak-game" ? await getPeakDistributionStats(timestamp) : statsSnapshot;
+                const exportMarkup = buildDistributionExportMarkup(payload, exportTab, seasonText, rankingTimeText, overlayEnabled);
                 const canvas = await window.html2canvas(pageNode, {
                     backgroundColor: "#f7fafd",
                     scale: 2,
                     useCORS: true,
                     scrollX: 0,
-                    scrollY: -window.scrollY,
-                    windowWidth: document.documentElement.scrollWidth,
-                    windowHeight: document.documentElement.scrollHeight,
-                    onclone(clonedDocument) {
-                        const toggle = clonedDocument.getElementById("legendary-toggle");
-                        if (!toggle) return;
-
-                        // Avoid html2canvas parsing a generated pseudo-element inside an input.
-                        const state = clonedDocument.createElement("span");
-                        state.textContent = toggle.checked ? "已开启" : "未开启";
-                        state.style.cssText =
-                            "display:inline-block;padding:2px 8px;border-radius:8px;" +
-                            "background:#edf1ff;color:#5b7cfa;font-size:12px;";
-                        toggle.replaceWith(state);
+                    scrollY: 0,
+                    windowWidth: 1120,
+                    onclone(clonedDocument, clonedPage) {
+                        prepareDistributionExportClone(clonedDocument, clonedPage, exportMarkup);
                     },
                 });
                 const link = document.createElement("a");
@@ -3683,12 +3753,7 @@
             } catch (error) {
                 setStatus(`生成整页图片失败：${error.message || error}`, "error");
             } finally {
-                openDetails.forEach((detail) => detail.setAttribute("open", ""));
-                pageNode.classList.remove("is-exporting-full");
-                if (previousTab !== exportTab) {
-                    currentOuterTab = previousTab;
-                    renderCurrentView();
-                }
+                fullPageExportInProgress = false;
             }
         }
 
