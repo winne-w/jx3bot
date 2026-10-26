@@ -3662,6 +3662,18 @@
                     scrollY: -window.scrollY,
                     windowWidth: document.documentElement.scrollWidth,
                     windowHeight: document.documentElement.scrollHeight,
+                    onclone(clonedDocument) {
+                        const toggle = clonedDocument.getElementById("legendary-toggle");
+                        if (!toggle) return;
+
+                        // Avoid html2canvas parsing a generated pseudo-element inside an input.
+                        const state = clonedDocument.createElement("span");
+                        state.textContent = toggle.checked ? "已开启" : "未开启";
+                        state.style.cssText =
+                            "display:inline-block;padding:2px 8px;border-radius:8px;" +
+                            "background:#edf1ff;color:#5b7cfa;font-size:12px;";
+                        toggle.replaceWith(state);
+                    },
                 });
                 const link = document.createElement("a");
                 link.download = fileName;

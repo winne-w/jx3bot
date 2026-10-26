@@ -38,6 +38,19 @@ class TestJjcRankingStatsFrontendCopy(unittest.TestCase):
         self.assertIn("currentOuterTab === \"peak-game\"", content)
         self.assertIn("buildPeakDetailsUrl(currentStatsTimestamp, \"game\", rangeKey, kungfu)", content)
 
+    def test_full_page_export_replaces_toggle_only_in_cloned_document(self) -> None:
+        content = Path("public/jjc-ranking-stats.html").read_text(encoding="utf-8")
+        export = content.split("async function exportFullPageImage(modeOverride)", 1)[1]
+        export = export.split("if (legendaryToggle)", 1)[0]
+
+        self.assertIn("onclone(clonedDocument)", export)
+        self.assertIn('clonedDocument.getElementById("legendary-toggle")', export)
+        self.assertIn("if (!toggle) return;", export)
+        self.assertIn('clonedDocument.createElement("span")', export)
+        self.assertIn('state.textContent = toggle.checked ? "已开启" : "未开启";', export)
+        self.assertIn("toggle.replaceWith(state);", export)
+        self.assertNotIn("legendaryToggle.replaceWith", export)
+
     def test_synced_matches_role_indicator_preserves_global_id_and_error_message(self) -> None:
         content = Path("public/jjc-synced-matches.html").read_text(encoding="utf-8")
 
