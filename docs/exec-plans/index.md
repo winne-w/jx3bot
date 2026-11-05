@@ -12,7 +12,7 @@
 
 ## Completed
 
-- `completed/jjc-cangsheng-season-config-plan.md`: 苍生铸世赛季配置及对局历史隔离，11-05 开赛当周为第一周；342 项测试通过
+- `completed/jjc-cangsheng-season-config-plan.md`: 苍生铸世赛季配置及对局历史隔离，11-05 开赛当周为第一周；本地 342 项通过，生产 339 项通过及 3 项既有差异已复核，已发布验收
 
 - `completed/jjc-ranking-admin-error-notification-plan.md`: JJC 排名定时任务统计失败时私聊管理员报错信息计划
 - `completed/jjc-queue-sync-window-plan.md`: JJC 队列一次性同步窗口、默认 full 与排名 7 天入队计划
