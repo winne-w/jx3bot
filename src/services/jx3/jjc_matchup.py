@@ -47,8 +47,9 @@ class JjcMatchupFilters:
 class JjcMatchupService:
     """Validate matchup queries and delegate raw lookup data to a repository."""
 
-    def __init__(self, matchup_repo: Any) -> None:
+    def __init__(self, matchup_repo: Any, *, season_start_time: int = 0) -> None:
         self._matchup_repo = matchup_repo
+        self._season_start_time = season_start_time
 
     @staticmethod
     def _require_int(request: Dict[str, Any], field: str) -> int:
@@ -280,8 +281,14 @@ class JjcMatchupService:
     async def search(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Return a validated statistics response around one raw repository page."""
         filters = self.normalize_filters(request)
-        normalized_filters = filters.to_dict()
-        raw_result = await self._matchup_repo.search_matchups(normalized_filters)
+        if filters.end_time <= self._season_start_time:
+            raw_result = {"items": [], "statistics": {
+                "match_count": 0, "bidirectional_match_count": 0,
+                "team_a_wins": 0, "team_b_wins": 0, "missing_score_match_count": 0,
+            }}
+        else:
+            filters.start_time = max(filters.start_time, self._season_start_time)
+            raw_result = await self._matchup_repo.search_matchups(filters.to_dict())
         if not isinstance(raw_result, dict):
             raise ValueError("raw matchup result is invalid")
         items = raw_result.get("items")

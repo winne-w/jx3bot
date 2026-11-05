@@ -574,7 +574,7 @@ class TestJjcMatchupsSingletonAssembly(unittest.TestCase):
         self.assertIs(module.jjc_match_fact_repo, fact_repo)
         self.assertEqual(matchup_service_constructor.calls, [{
             "args": (),
-            "kwargs": {"matchup_repo": fact_repo},
+            "kwargs": {"matchup_repo": fact_repo, "season_start_time": 0},
         }])
         self.assertEqual(fact_projector_constructor.calls, [{
             "args": (),

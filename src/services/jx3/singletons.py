@@ -45,7 +45,10 @@ jjc_sync_repo = JjcSyncRepo()
 role_identity_repo = RoleIdentityRepo()
 match_participant_repo: Any = JjcMatchParticipantRepo()
 jjc_match_fact_repo: Any = JjcMatchFactRepo()
-jjc_matchup_service = JjcMatchupService(matchup_repo=jjc_match_fact_repo)
+jjc_matchup_service = JjcMatchupService(
+    matchup_repo=jjc_match_fact_repo,
+    season_start_time=parse_season_start_timestamp(cfg.CURRENT_SEASON_START),
+)
 
 match_detail_participant_projection_service: Any = MatchDetailParticipantProjectionService(
     participant_repo=match_participant_repo,

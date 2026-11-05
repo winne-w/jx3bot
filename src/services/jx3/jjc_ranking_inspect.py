@@ -144,11 +144,44 @@ def _extract_person_id_from_indicator(raw: dict[str, Any]) -> Optional[str]:
     return _pick_str(person_info.get("person_id"), person_info.get("personId"))
 
 
+def filter_current_season_matches(raw_matches: list, *, season_start_time: int = 0) -> list:
+    """Keep only matches with evidence of occurring in the configured season."""
+    return [
+        item for item in raw_matches
+        if isinstance(item, dict) and (
+            season_start_time <= 0
+            or (_extract_match_time(item) or 0) >= season_start_time
+        )
+    ]
+
+
+def _has_previous_season_matches(raw_matches: list, season_start_time: int) -> bool:
+    return season_start_time > 0 and any(
+        0 < (_extract_match_time(item) or 0) < season_start_time
+        for item in raw_matches if isinstance(item, dict)
+    )
+
+
+def recent_matches_pagination(
+    raw_matches: list, *, cursor: int, page_size: int, season_start_time: int = 0,
+) -> dict[str, Any]:
+    """Advance by upstream rows; its descending history ends at the season boundary."""
+    has_more = len(raw_matches) >= page_size and not _has_previous_season_matches(
+        raw_matches, season_start_time,
+    )
+    return {
+        "cursor": cursor,
+        "has_more": has_more,
+        "next_cursor": cursor + len(raw_matches) if has_more else None,
+    }
+
+
 def normalize_recent_matches(
     raw_matches: list,
     *,
     kungfu_pinyin_to_chinese: dict[str, str],
     max_recent_matches: int = 20,
+    season_start_time: int = 0,
 ) -> list:
     """Convert raw match history items to the recent_matches shape used by the live path.
 
@@ -157,7 +190,7 @@ def normalize_recent_matches(
     sort descending, truncation, and missing fields gracefully.
     """
     history_3v3: list = []
-    for item in raw_matches:
+    for item in filter_current_season_matches(raw_matches, season_start_time=season_start_time):
         if not isinstance(item, dict):
             continue
         type_raw = None
@@ -598,9 +631,23 @@ class JjcRankingInspectService:
                 name,
                 ttl_seconds=self.role_recent_ttl_seconds,
             )
-            if cached:
-                data = dict(cached.get("data") or {})
-                recent_matches = data.get("recent_matches") or []
+            cached_data = (cached or {}).get("data") or {}
+            same_season = self.season_start_time <= 0 or (
+                cached_data.get("current_season") == self.current_season
+                and cached_data.get("season_start_time") == self.season_start_time
+            )
+            if cached and same_season:
+                data = copy.deepcopy(cached_data)
+                raw_matches = data.get("recent_matches") or []
+                recent_matches = filter_current_season_matches(
+                    raw_matches, season_start_time=self.season_start_time,
+                )
+                # Keep the upstream cursor for valid pages, but stop before old history.
+                if _has_previous_season_matches(raw_matches, self.season_start_time):
+                    data["pagination"] = {
+                        **(data.get("pagination") or {}),
+                        "has_more": False, "next_cursor": None,
+                    }
                 await self._hydrate_recent_matches_with_cached_details(recent_matches)
                 data["recent_matches"] = recent_matches
                 data["cache"] = {
@@ -1189,6 +1236,7 @@ class JjcRankingInspectService:
             history,
             kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
             max_recent_matches=self.max_recent_matches,
+            season_start_time=self.season_start_time,
         )
         missing_match_id_count = sum(1 for item in recent_matches if not item.get("match_id"))
         missing_avg_grade_count = sum(1 for item in recent_matches if item.get("avg_grade") is None)
@@ -1286,19 +1334,16 @@ class JjcRankingInspectService:
                 missing_match_id_samples,
             )
 
-        total_returned = len(history)
-        has_more = total_returned >= self.max_recent_matches
-        next_cursor = cursor + total_returned if has_more else None
-
         return {
+            "current_season": self.current_season,
+            "season_start_time": self.season_start_time,
             "player": {"server": server, "name": name},
             "identity": identity,
             "identity_key": identity.get("identity_key"),
-            "pagination": {
-                "cursor": cursor,
-                "has_more": has_more,
-                "next_cursor": next_cursor,
-            },
+            "pagination": recent_matches_pagination(
+                history, cursor=cursor, page_size=self.max_recent_matches,
+                season_start_time=self.season_start_time,
+            ),
             "recent_matches": recent_matches,
         }
 

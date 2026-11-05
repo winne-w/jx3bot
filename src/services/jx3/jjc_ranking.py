@@ -4,7 +4,7 @@ import asyncio
 import copy
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from nonebot import logger
@@ -229,7 +229,7 @@ class JjcRankingService:
         if isinstance(role_recent, dict):
             raw_matches = role_recent.get("raw_matches") or []
             if raw_matches:
-                from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches
+                from src.services.jx3.jjc_ranking_inspect import normalize_recent_matches, recent_matches_pagination
 
                 indicator_data = role_indicator if isinstance(role_indicator, dict) else {}
                 game_role_id = indicator_data.get("game_role_id")
@@ -268,22 +268,25 @@ class JjcRankingService:
                 }
 
                 max_recent = 20
+                season_start_time = self._coerce_season_start_time()
+                first_page = raw_matches[:max_recent]
                 recent_matches = normalize_recent_matches(
-                    raw_matches[:max_recent],
+                    first_page,
                     kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
                     max_recent_matches=max_recent,
+                    season_start_time=season_start_time,
                 )
 
-                has_more = len(raw_matches) >= max_recent
                 payload: dict[str, Any] = {
+                    "current_season": self.current_season,
+                    "season_start_time": season_start_time,
                     "player": {"server": server, "name": name},
                     "identity": identity,
                     "identity_key": identity_key,
-                    "pagination": {
-                        "cursor": 0,
-                        "has_more": has_more,
-                        "next_cursor": max_recent if has_more else None,
-                    },
+                    "pagination": recent_matches_pagination(
+                        first_page, cursor=0, page_size=max_recent,
+                        season_start_time=season_start_time,
+                    ),
                     "recent_matches": recent_matches,
                 }
 
@@ -848,7 +851,9 @@ class JjcRankingService:
 
     def _coerce_season_start_time(self) -> int:
         try:
-            return int(datetime.strptime(str(self.current_season_start), "%Y-%m-%d").timestamp())
+            return int(datetime.strptime(str(self.current_season_start), "%Y-%m-%d").replace(
+                tzinfo=timezone(timedelta(hours=8)),
+            ).timestamp())
         except (TypeError, ValueError):
             return 0
 

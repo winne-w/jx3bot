@@ -235,6 +235,8 @@ python test_tuilan_match_history.py
 - 若服务中断后状态长期存在 `syncing` 或 `detail_syncing`，再次执行 `/jjc同步开始` 或启动 worker 会先恢复过期租约；角色恢复为 `queued`，详情恢复为可重试状态
 - 已同步对局页面输入不存在于 `role_identities` 的角色时，应显示未收录身份空态；已收录但缺少 `global_id`，或详情玩家尚未回填 `global_id` 时，对局列表为空。
 - 已同步对局列表只显示 `config.CURRENT_SEASON` 对应的 `jjc_match_participants.season_id`。新赛季确定后先同步更新 `CURRENT_SEASON` 与 `CURRENT_SEASON_START`，重启 bot 使配置生效；新赛季暂无对局时列表为空，不应显示旧赛季记录。
+- 排名页角色弹窗的 `role-recent` 实时查询、缓存命中与排名预热也只展示 `CURRENT_SEASON_START` 北京时间零点及之后的记录；缺少对局时间的记录不展示。换季后无标记或赛季名称/起点不符的近期缓存自动视为未命中，不需要清空 Mongo；第一轮请求可能重新访问推栏。
+- 赛季切换回归：用仅有上赛季对局的角色打开排名弹窗及对局查询页，应显示空列表；混合历史只出现本赛季记录，到达上一赛季后不再显示加载更多。确认当天零点记录保留、零点前一秒记录隐藏。心法对阵选择跨赛季的 14 天范围时，列表、总数与胜率只统计本赛季部分；仅查询上赛季时结果为空。历史排名快照的赛季选择器继续保留。
 - 首次启用或切换赛季后，按顺序回填玩家投影；默认 dry-run 不写库，确认输出后才执行 apply：
   ```bash
   python scripts/backfill_jjc_match_participant_season.py --dry-run

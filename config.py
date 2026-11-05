@@ -156,9 +156,10 @@ JJC_LEGENDARY_WEAPON_NAMES = [
     "碧岚幽炎", "逾潮声", "静雨", "折枝花满", "昭佛光", "烬灭",
 ]
 
-# 赛季时间定义
-CURRENT_SEASON = "暗影千机"
-CURRENT_SEASON_START = "2026-04-24"
+# JJC 赛季：起始日期使用竞技场开放日，不是资料片公测日。
+# 2026-11-05 开赛，所在自然周为第 1 周，2026-11-09（周一）进入第 2 周。
+CURRENT_SEASON = "苍生铸世"
+CURRENT_SEASON_START = "2026-11-05"
 
 # 心法拼音映射及分类
 KUNGFU_META = {
