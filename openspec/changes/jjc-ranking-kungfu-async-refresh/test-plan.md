@@ -196,3 +196,5 @@ TDD先复现缺失未查询、并发client重叠、Python3.9导入时锁绑定�
 完整回归Python3.13.2与真实Python3.9.25各450项通过（主组428+独立router22），无skip；独立ranking/client审核3.9下63项、service/queue审核双版本各104项通过，无剩余阻断。原始日志及汇总/tmp/jjc-direct-final313.json、/tmp/jjc-direct-final39.json。设备信息不完整检查保留，不将旧对局缓存当本次fresh。
 
 增量发布与实际上游验证已完成，线上证据见deployment.md及cache-miss-validation.json。冷榜耗时由缺失数和上游响应决定，不再引用旧全冷零外呼性能作为整次统计承诺。
+
+2026-11-07 QQ图片文案验证：tests.test_jjc_kungfu_display与tests.test_jjc_data_center_navigation，在Python3.13.2及3.9.25各14项通过。覆盖合图新快照、空stats、旧快照空范围及实际8个拆分模板；均保留覆盖/未知，去除新鲜/待刷新/时效，装备不完整保护及网页行为回归通过。

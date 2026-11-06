@@ -229,3 +229,5 @@ summary各范围增加 `{total,fresh,stale,unknown,coverage}`，满足total=fres
 ### 发布时补齐查询索引（2026-11-06）
 
 真实生产角色库146429条，批量解析OR保留raw server/name以兼容未规范化legacy身份。该分支缺少索引会使整个OR出现COLLSCAN；本地千人库性能未体现这一规模问题。统一索引初始化补 `idx_server_name: (server:1,name:1)`，普通非unique，无TTL；不删除fallback、不拆查询或增加新匹配规则。此外 `idx_global_id` 是字符串partial索引，global_id分支复用既有 `_global_id_string_filter` 显式携带 `$eq/$type:string`，确保该分支也可选用已有索引，不新增重复global索引。真实Mongo测试必须捕获resolver实际250人OR，在完整生产索引初始化后证明winning plan无COLLSCAN；上线后用queryPlanner核对，再测只读解析/登记的实际耗时，不将此前隔离P95当生产指标。
+
+2026-11-07 QQ展示调整：合图和拆分图只输出心法覆盖率及未知人数，不输出新鲜/待刷新/时效。旧快照缺少覆盖数据时显示“心法覆盖率未记录”。快照字段、网页时效展示、缓存及刷新规则不变。

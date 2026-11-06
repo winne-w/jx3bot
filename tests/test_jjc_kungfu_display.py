@@ -1,9 +1,9 @@
 """Snapshot coverage must remain visible; missing equipment is not purple gear."""
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from jinja2 import Environment, FileSystemLoader
-from src.renderers.jx3.jjc_ranking import render_combined_ranking_image
+from src.renderers.jx3.jjc_ranking import render_combined_ranking_image, send_split_ranking_images
 
 
 class KungfuDisplayTests(unittest.IsolatedAsyncioTestCase):
@@ -20,17 +20,42 @@ class KungfuDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(context["show_legendary"])
         html = Environment(loader=FileSystemLoader("templates")).get_template(template).render(**context)
         self.assertIn("未知 2", html)
-        self.assertIn("50.0%", html)
+        self.assertIn("心法覆盖 50.0%", html)
+        self.assertNotIn("新鲜", html)
+        self.assertNotIn("待刷新", html)
+        self.assertNotIn("时效", html)
         self.assertIn("装备数据不完整", html)
 
-    async def test_legacy_snapshot_explicitly_labels_unrecorded_freshness(self):
+    async def test_legacy_snapshot_labels_unrecorded_coverage_without_freshness(self):
+        for stats in ({}, {"top_50": {}}):
+            with self.subTest(stats=stats):
+                render = AsyncMock(return_value=b"image")
+                await render_combined_ranking_image(env=None, render_template_image=render,
+                    current_season="season", stats=stats, week_info="week", show_legendary=True)
+                context = render.call_args.args[2]
+                self.assertTrue(context["show_legendary"])
+                html = Environment(loader=FileSystemLoader("templates")).get_template(render.call_args.args[1]).render(**context)
+                self.assertIn("心法覆盖率未记录", html)
+                self.assertNotIn("新鲜", html)
+                self.assertNotIn("待刷新", html)
+                self.assertNotIn("时效", html)
+
+    async def test_split_images_keep_coverage_without_freshness(self):
+        stats = {key: {"kungfu_cache": {"coverage": .5, "fresh": 1, "stale": 1, "unknown": 2}}
+                 for key in ("top_1000", "top_200", "top_100", "top_50")}
+        env = Environment(loader=FileSystemLoader("templates"))
         render = AsyncMock(return_value=b"image")
-        await render_combined_ranking_image(env=None, render_template_image=render,
-            current_season="season", stats={}, week_info="week", show_legendary=True)
-        context = render.call_args.args[2]
-        self.assertTrue(context["show_legendary"])
-        html = Environment(loader=FileSystemLoader("templates")).get_template(render.call_args.args[1]).render(**context)
-        self.assertIn("未记录时效", html)
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            await send_split_ranking_images(AsyncMock(), None, env=env,
+                render_template_image=render, current_season="season", stats=stats,
+                week_info="week", show_legendary=True)
+        self.assertEqual(render.await_count, 8)
+        for call in render.call_args_list:
+            html = env.get_template(call.args[1]).render(**call.args[2])
+            self.assertIn("心法覆盖 50.0% · 未知 2", html)
+            self.assertNotIn("新鲜", html)
+            self.assertNotIn("待刷新", html)
+            self.assertNotIn("时效", html)
 
     def test_web_pages_match_and_equipment_filter_handles_incomplete_samples(self):
         page = Path("public/jjc-ranking-stats.html").read_text()

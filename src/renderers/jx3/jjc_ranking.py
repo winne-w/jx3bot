@@ -49,9 +49,8 @@ def _calculate_legendary_percent(members: list[dict[str, Any]]) -> float:
 def _coverage_label(rank_data: dict[str, Any]) -> str:
     cache = rank_data.get("kungfu_cache")
     if not cache:
-        return "未记录时效"
+        return "心法覆盖率未记录"
     return (f"心法覆盖 {(cache.get('coverage') or 0) * 100:.1f}% · "
-            f"新鲜 {cache.get('fresh', 0)} · 待刷新 {cache.get('stale', 0)} · "
             f"未知 {cache.get('unknown', 0)}")
 
 

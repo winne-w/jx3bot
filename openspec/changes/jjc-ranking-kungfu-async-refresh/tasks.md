@@ -122,3 +122,5 @@
 冷榜统计耗时随真实缺失数增长，不再承诺冷热同速。全热路径仍批量读取且零心法外呼。快照仍冻结本次采用值，后续后台不得回写历史快照。装备完整性检查保留，不把未知装备算为紫武。
 
 2026-11-06 21点修复已发布93e9371。实际缺失角色已证client外呼，真实上游失败仍保留unknown；进程内60秒policy验证expired→直接查询/保存/本次采用→第二次零外呼成功。生产107候选通过，两开关1且配置字节不变；QQ/Mongo/完整同步正常，见deployment与cache-miss-validation。
+
+2026-11-07 QQ图片文案：现有合图测试先RED（2失败），最小修改共享coverage label及合图空数据fallback后GREEN；补齐legacy空范围及8拆分模板回归。Python3.13/3.9 display+navigation各14项通过，无skip，ranking_review只读独立复核通过。保留覆盖率和未知数，不改刷新/存储/API/网页。
