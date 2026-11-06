@@ -63,6 +63,7 @@ class JjcRankingService:
     inspect_repo: Optional[JjcInspectRepo] = None
     identity_repo: Any = None
     kungfu_refresh_repo: Any = None
+    kungfu_query_service: Any = None
     kungfu_policy: Optional[Union[KungfuPolicy, Callable[[], KungfuPolicy]]] = None
 
     def _ranking_kungfu_policy(self) -> KungfuPolicy:
@@ -109,7 +110,7 @@ class JjcRankingService:
     async def resolve_ranking_kungfus(
         self, ranking_data: Dict[str, Any], *, policy: Optional[KungfuPolicy] = None,
     ) -> Dict[str, Any]:
-        """Select a frozen local result per rank, then independently register refresh."""
+        """Read cached values; register usable results for future refresh only."""
         policy = policy if policy is not None else self._ranking_kungfu_policy()
         scope = dict(policy.scope)
         cutoff = time.time()
@@ -155,14 +156,53 @@ class JjcRankingService:
                 or getattr(cfg, "JJC_RANKING_KUNGFU_CACHE_ENABLED", 0)):
             try:
                 queue = self.kungfu_refresh_repo if self.kungfu_refresh_repo is not None else JjcKungfuRefreshRepo()
-                await queue.register([item for item in identities if item is not None],
+                await queue.register([item for item, member in zip(identities, members)
+                                      if item is not None and (member["found"] or not
+                                          getattr(cfg, "JJC_RANKING_KUNGFU_CACHE_ENABLED", 0))],
                                      dict(scope), cutoff,
                                      track_seconds=policy.track_seconds)
             except Exception as exc:
                 degraded = True
                 logger.warning("排行榜心法刷新登记失败，保留已读取结果: {}", exc)
-        return {"members": members, "refresh_degraded": degraded,
+        return {"members": members, "identities": identities, "refresh_degraded": degraded,
                 "kungfu_cache_scope": scope}
+
+    async def _query_missing_ranking_kungfu(
+        self, member: Dict[str, Any], identity: Optional[Dict[str, Any]],
+        ranking_data: Dict[str, Any], rank: int, policy: KungfuPolicy,
+    ) -> Dict[str, Any]:
+        """A cache miss is resolved in this statistics call, never deferred."""
+        try:
+            if identity is not None and self.kungfu_query_service is not None:
+                saved = await self.kungfu_query_service.query_now(identity)
+                status = policy.evaluate(saved, time.time(),
+                    valid_names=set(self.kungfu_healer_list + self.kungfu_dps_list))
+                canonical = {item["name"]: item["id"] for item in get_jjc_kungfu_catalog()}
+                if (status["freshness"] == "unknown" or
+                        canonical.get(saved["name"]) != saved["kungfu_id"]):
+                    return member
+                return {**member, "found": True, "kungfu": saved["name"],
+                        "kungfu_id": saved["kungfu_id"],
+                        "kungfu_freshness": status["freshness"], "kungfu_unknown_reason": None,
+                        "kungfu_verified_at": saved["verified_at"], "kungfu_source": saved["source"],
+                        "kungfu_selected_source": saved["source"],
+                        "kungfu_publish_version": saved["publish_version"]}
+            # No safe persistent identity: query using the ranking locator, but
+            # never publish the answer onto a conflicting same-name identity.
+            queried = await self.get_user_kungfu(member["server"], member["name"],
+                ranking_data=ranking_data, rank=rank, prefer_cache=False)
+            canonical = {item["name"]: item["id"] for item in get_jjc_kungfu_catalog()}
+            name = queried.get("kungfu")
+            if (not queried.get("found") or name not in canonical or
+                    queried.get("kungfu_selected_source") == "cached_match_detail_win_history"):
+                return member
+            return {**member, **queried, "kungfu_id": canonical[name],
+                    "kungfu_freshness": "fresh", "kungfu_unknown_reason": None,
+                    "kungfu_verified_at": time.time(), "kungfu_source": "direct_legacy",
+                    "kungfu_publish_version": None}
+        except Exception as exc:
+            logger.warning("排行榜缺失心法直接查询失败: rank={} exception_type={}", rank, type(exc).__name__)
+            return member
 
     def _api(self) -> JjcApiClient:
         return JjcApiClient(
@@ -1249,6 +1289,9 @@ class JjcRankingService:
 
                 if use_local:
                     kungfu_info = resolved["members"][i]
+                    if not kungfu_info["found"]:
+                        kungfu_info = await self._query_missing_ranking_kungfu(
+                            kungfu_info, resolved["identities"][i], ranking_data, i + 1, policy)
                 else:
                     kungfu_info = await self.get_user_kungfu(
                         server, name, ranking_data=ranking_data, rank=i + 1,

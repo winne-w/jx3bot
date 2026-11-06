@@ -56,7 +56,8 @@ class RefreshIntegrationTests(unittest.IsolatedAsyncioTestCase):
             kungfu_pinyin_to_chinese={"bingxin": "冰心诀", "yunchang": "云裳心经"},
             tuilan_request=Mock(side_effect=AssertionError("foreground queried upstream")),
             defget_get=AsyncMock(side_effect=AssertionError("foreground used fallback")),
-            identity_repo=self.roles, kungfu_refresh_repo=self.queue, kungfu_policy=self.policy)
+            identity_repo=self.roles, kungfu_refresh_repo=self.queue, kungfu_policy=self.policy,
+            kungfu_query_service=self.refresh)
         for patcher in [
             patch("src.services.jx3.jjc_ranking.time.time", side_effect=lambda: self.now),
             patch("src.services.jx3.jjc_ranking.cfg.JJC_RANKING_KUNGFU_CACHE_ENABLED", 1, create=True),
@@ -104,10 +105,11 @@ class RefreshIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_cold_refresh_hot_switch_and_persisted_snapshot_are_independent(self):
         cold = await self.ranking.get_ranking_kungfu_data(self.ranking_input())
         self.assertNotIn("error", cold)
-        self.assertEqual(cold["kungfu_statistics"]["top_50"]["kungfu_cache"]["unknown"], 1)
+        self.assertEqual(cold["kungfu_statistics"]["top_50"]["kungfu_cache"]["unknown"], 0)
         self.assertIsNotNone(await self.queue.get_by_id(self.identity["_id"]))
-        self.upstream.query.assert_not_awaited()
-        self.assertTrue(await self.refresh_once())
+        self.upstream.query.assert_awaited_once()
+        self.assertEqual((await self.roles.get_by_id(self.identity["_id"]))["jjc_kungfu"]["publish_version"], 1)
+        self.assertFalse(await self.refresh_once())
         hot = await self.ranking.get_ranking_kungfu_data(self.ranking_input())
         healer = hot["kungfu_statistics"]["top_50"]["healer"]["members"]["云裳心经"][0]
         self.assertEqual(healer["kungfu_publish_version"], 1)

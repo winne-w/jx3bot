@@ -162,6 +162,25 @@ class JjcKungfuRefreshRepo:
             sort=[("next_run_at", 1), ("_id", 1)], return_document=ReturnDocument.AFTER,
         )
 
+    async def claim_identity(
+        self, identity_id: ObjectId, scope: Dict[str, Any], now: float,
+        lease_seconds: int = 90,
+    ) -> Optional[Dict[str, Any]]:
+        """Reserve a direct query now, fencing any background attempt for this role.
+
+        Registration must precede this call. It deliberately ignores scheduling
+        and retry time: the caller performs the query before returning.
+        """
+        if not isinstance(identity_id, ObjectId) or lease_seconds <= 0:
+            raise ValueError("direct kungfu claim requires role ID and positive lease")
+        return await self._col().find_one_and_update(
+            {"_id": identity_id, "status": {"$in": ["pending", "running"]},
+             **_scope_filter(scope)},
+            {"$set": {"status": "running", "lease_token": uuid4().hex,
+                      "lease_expires_at": now + lease_seconds}, "$inc": {"generation": 1}},
+            return_document=ReturnDocument.AFTER,
+        )
+
     async def complete(
         self, task: Dict[str, Any], now: float, next_run_at: float,
         error_code: Optional[str] = None,

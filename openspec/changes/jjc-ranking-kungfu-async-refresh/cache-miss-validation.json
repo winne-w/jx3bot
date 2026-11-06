@@ -1,0 +1,59 @@
+{
+  "date": "2026-11-06",
+  "python313": {
+    "python": "Python 3.13.2",
+    "results": [
+      {
+        "group": "main",
+        "tests": 428,
+        "seconds": 10.416,
+        "exit_code": 0,
+        "log": "/tmp/jjc-kungfu-Python-3.13.2-main.log",
+        "skipped": false
+      },
+      {
+        "group": "router",
+        "tests": 22,
+        "seconds": 0.124,
+        "exit_code": 0,
+        "log": "/tmp/jjc-kungfu-Python-3.13.2-router.log",
+        "skipped": false
+      }
+    ],
+    "total": 450
+  },
+  "python39": {
+    "python": "Python 3.9.25",
+    "results": [
+      {
+        "group": "main",
+        "tests": 428,
+        "seconds": 10.475,
+        "exit_code": 0,
+        "log": "/tmp/jjc-kungfu-Python-3.9.25-main.log",
+        "skipped": false
+      },
+      {
+        "group": "router",
+        "tests": 22,
+        "seconds": 0.139,
+        "exit_code": 0,
+        "log": "/tmp/jjc-kungfu-Python-3.9.25-router.log",
+        "skipped": false
+      }
+    ],
+    "total": 450
+  },
+  "independent_reviews": {
+    "ranking_client": {
+      "python39_tests": 63,
+      "status": "passed"
+    },
+    "service_queue": {
+      "python39_tests": 104,
+      "python313_tests": 104,
+      "status": "passed"
+    }
+  },
+  "production": "pending"
+}

@@ -54,6 +54,117 @@ class RefreshServiceTests(unittest.IsolatedAsyncioTestCase):
     def completion(self):
         return self.queue.complete.await_args
 
+    async def test_concurrent_direct_calls_wait_before_reserving_a_role_lease(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        self.queue.register = AsyncMock()
+        self.queue.claim_identity = AsyncMock(return_value=copy.deepcopy(self.task))
+        async def query(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            return None
+        from unittest.mock import patch
+        with patch.object(self.service, "_execute", new=AsyncMock(side_effect=query)):
+            first = asyncio.create_task(self.service.query_now(self.identity))
+            await asyncio.wait_for(entered.wait(), 1)
+            second = asyncio.create_task(self.service.query_now(self.identity))
+            await asyncio.sleep(0.01)
+            reservations_while_first_running = self.queue.claim_identity.await_count
+            release.set()
+            await asyncio.gather(first, second)
+        self.assertEqual(reservations_while_first_running, 1)
+        self.assertEqual(self.queue.claim_identity.await_count, 2)
+
+    async def test_query_now_reserves_target_and_executes_directly_before_return(self):
+        self.queue.register = AsyncMock()
+        self.queue.claim_identity = AsyncMock(return_value=copy.deepcopy(self.task))
+        result = await self.service.query_now(self.identity)
+        self.assertEqual(result, self.identity["jjc_kungfu"])
+        self.assertEqual(result["name"], "冰心诀")
+        self.queue.register.assert_awaited_once()
+        self.queue.claim_identity.assert_awaited_once_with(
+            self.identity["_id"], self.policy.scope, self.now, lease_seconds=90)
+        self.queue.claim.assert_not_awaited()
+        self.client.query.assert_awaited_once()
+        self.queue.complete.assert_awaited_once()
+
+    async def test_query_now_failure_keeps_success_and_returns_none_with_error_code(self):
+        self.identity["jjc_kungfu"] = {"publish_version": 6, "name": "云裳心经", "verified_at": 800}
+        original = copy.deepcopy(self.identity["jjc_kungfu"])
+        self.queue.register = AsyncMock()
+        self.queue.claim_identity = AsyncMock(return_value=copy.deepcopy(self.task))
+        self.client.query.side_effect = KungfuQueryError("request_timeout")
+        self.assertIsNone(await self.service.query_now(self.identity))
+        self.assertEqual(self.identity["jjc_kungfu"], original)
+        self.assertEqual(self.completion().kwargs["error_code"], "request_timeout")
+
+    async def test_query_now_queue_failure_does_not_return_an_unpersisted_query_value(self):
+        self.queue.register = AsyncMock(side_effect=OSError("queue unavailable"))
+        self.assertIsNone(await self.service.query_now(self.identity))
+        self.client.query.assert_not_awaited()
+        self.roles.publish_jjc_kungfu_if_newer.assert_not_awaited()
+
+    async def test_query_now_cancellation_propagates_without_ack(self):
+        self.queue.register = AsyncMock()
+        self.queue.claim_identity = AsyncMock(return_value=copy.deepcopy(self.task))
+        self.client.query.side_effect = asyncio.CancelledError
+        with self.assertRaises(asyncio.CancelledError):
+            await self.service.query_now(self.identity)
+        self.queue.complete.assert_not_awaited()
+
+    async def test_query_now_reservation_lost_or_cooldown_does_not_query(self):
+        self.queue.register = AsyncMock()
+        self.queue.claim_identity = AsyncMock(return_value=None)
+        self.assertIsNone(await self.service.query_now(self.identity))
+        self.service.cooldown_until = self.now + 300
+        self.assertIsNone(await self.service.query_now(self.identity))
+        self.queue.register.assert_awaited_once()
+        self.client.query.assert_not_awaited()
+
+    async def test_query_now_rejects_changed_input_locator_before_query(self):
+        self.queue.register = AsyncMock()
+        self.queue.claim_identity = AsyncMock(return_value=copy.deepcopy(self.task))
+        stale = dict(self.identity, game_role_id="stale-id")
+        self.assertIsNone(await self.service.query_now(stale))
+        self.client.query.assert_not_awaited()
+        self.assertEqual(self.completion().kwargs["error_code"], "identity_changed")
+
+    async def test_query_now_uncertain_publication_does_not_return_unpersisted_value(self):
+        self.queue.register = AsyncMock()
+        self.queue.claim_identity = AsyncMock(return_value=copy.deepcopy(self.task))
+        self.roles.publish_jjc_kungfu_if_newer.side_effect = OSError("write failed")
+        self.assertIsNone(await self.service.query_now(self.identity))
+        self.assertNotIn("jjc_kungfu", self.identity)
+        self.assertEqual(self.completion().kwargs["error_code"], "publication_unconfirmed")
+
+    async def test_query_now_ack_exception_reads_back_saved_result_without_ack_retry(self):
+        self.queue.register = AsyncMock()
+        self.queue.claim_identity = AsyncMock(return_value=copy.deepcopy(self.task))
+        self.queue.complete.side_effect = OSError("ack response lost")
+        result = await self.service.query_now(self.identity)
+        self.assertEqual(result, self.identity["jjc_kungfu"])
+        self.assertEqual(result["publish_version"], self.task["generation"])
+        self.queue.complete.assert_awaited_once()
+
+    async def test_query_now_failed_persistence_readback_never_returns_other_version_or_scope(self):
+        self.queue.register = AsyncMock()
+        self.queue.claim_identity = AsyncMock(return_value=copy.deepcopy(self.task))
+        for saved in ({"publish_version": 8, **self.policy.scope},
+                      {"publish_version": 7, **self.policy.scope, "season_id": "other"}):
+            self.roles.get_by_id.side_effect = [OSError("initial read failed"),
+                                               {**self.identity, "jjc_kungfu": saved}]
+            self.assertIsNone(await self.service.query_now(self.identity))
+        self.client.query.assert_not_awaited()
+
+    async def test_query_now_integrity_error_never_reads_back_preexisting_same_version_as_success(self):
+        self.identity["jjc_kungfu"] = {**self.policy.scope, "publish_version": 7,
+                                       "name": "云裳心经", "verified_at": 800}
+        self.queue.register = AsyncMock()
+        self.queue.claim_identity = AsyncMock(return_value=copy.deepcopy(self.task))
+        self.assertIsNone(await self.service.query_now(self.identity))
+        self.client.query.assert_not_awaited()
+        self.roles.get_by_id.assert_awaited_once()
+        self.queue.complete.assert_not_awaited()
+
     async def test_initialize_is_lazy_and_creates_queue_indexes(self):
         factory = Mock(return_value=self.policy)
         self.service.policy = factory

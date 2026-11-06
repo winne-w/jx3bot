@@ -29,6 +29,28 @@ class TuilanKungfuClientTests(unittest.IsolatedAsyncioTestCase):
         client = TuilanKungfuClient(http_client=http, request_interval=0, **kwargs)
         return client, http
 
+    async def test_foreground_and_background_queries_share_one_serial_request_path(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        active, maximum = 0, 0
+        async def response(*args, **kwargs):
+            nonlocal active, maximum
+            active += 1
+            maximum = max(maximum, active)
+            entered.set()
+            await release.wait()
+            active -= 1
+            return indicator(global_role_id=None)
+        http = SimpleNamespace(arequest_json=AsyncMock(side_effect=response))
+        client = TuilanKungfuClient(http_client=http, request_interval=0)
+        first = asyncio.create_task(client.query(IDENTITY, SCOPE))
+        await entered.wait()
+        second = asyncio.create_task(client.query(IDENTITY, SCOPE))
+        await asyncio.sleep(0.01)
+        release.set()
+        await asyncio.gather(first, second)
+        self.assertEqual(maximum, 1)
+        self.assertEqual(http.arequest_json.await_count, 2)
+
     async def test_two_basic_requests_only_and_raw_result_for_shared_classifier(self):
         matches = [{"won": True, "kungfu": "bingxin"}]
         client, http = self.adapter([indicator(), {"code": 0, "data": matches}])
@@ -228,3 +250,26 @@ class RealAsyncTransportTests(unittest.IsolatedAsyncioTestCase):
         result = await adapter.query(IDENTITY, SCOPE)
         self.assertEqual(result["matches"], [])
         self.assertEqual(result["history_error_code"], "request_timeout")
+
+
+class ImportTimeKungfuClientTests(unittest.TestCase):
+    def test_construct_before_running_loop_then_contend_in_runtime_loop(self):
+        construction_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(construction_loop)
+        client = TuilanKungfuClient(http_client=SimpleNamespace(), request_interval=0)
+        construction_loop.close()
+        asyncio.set_event_loop(None)
+        async def exercise():
+            entered, release = asyncio.Event(), asyncio.Event()
+            async def response(*args, **kwargs):
+                entered.set()
+                await release.wait()
+                return indicator(global_role_id=None)
+            client.http_client = SimpleNamespace(arequest_json=AsyncMock(side_effect=response))
+            first = asyncio.create_task(client.query(IDENTITY, SCOPE))
+            await entered.wait()
+            second = asyncio.create_task(client.query(IDENTITY, SCOPE))
+            await asyncio.sleep(0.01)
+            release.set()
+            await asyncio.gather(first, second)
+        asyncio.run(exercise())

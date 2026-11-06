@@ -42,12 +42,19 @@ class TuilanKungfuClient:
         self.http_client = http_client if http_client is not None else HttpClient(
             timeout=request_timeout, retries=0, verify=False)
         self._last_request_started: Optional[float] = None
+        self._query_lock: Optional[asyncio.Lock] = None
 
     async def query(self, identity: Dict[str, Any], scope: Dict[str, Any]) -> Dict[str, Any]:
-        try:
-            return await asyncio.wait_for(self._query(identity, scope), self.attempt_timeout)
-        except asyncio.TimeoutError as exc:
-            raise KungfuQueryError("attempt_timeout") from exc
+        # Foreground misses and background refresh share the same request path.
+        # The attempt budget starts once this role owns it, not while waiting
+        # for another role to finish its bounded attempt.
+        if self._query_lock is None:
+            self._query_lock = asyncio.Lock()
+        async with self._query_lock:
+            try:
+                return await asyncio.wait_for(self._query(identity, scope), self.attempt_timeout)
+            except asyncio.TimeoutError as exc:
+                raise KungfuQueryError("attempt_timeout") from exc
 
     async def _request(self, url: str, params: Dict[str, Any]) -> Dict[str, Any]:
         if self._last_request_started is not None:

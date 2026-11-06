@@ -32,3 +32,13 @@
 生产角色146429条下，所有四个实际250人OR及单人planner都无COLLSCAN；千人心法解析/登记单次11441.916ms，包含身份与队列IO、不含外部拉榜或整次统计。检查点1000名榜单中918可安全定位，210已有新成功值，2条identity_mismatch按规则退避，代次违规0，其余持续预热。当前尚未达到建议95%/90%门槛，按用户启用指令完成冷启动切流并透明保留unknown；不据此承诺后续实际覆盖。
 
 30文件哈希、公网API HTTP200/业务0、Mongo健康、QQ重连、4个完整同步worker与同步恢复均核验；无自动重启/异常堆栈/插件失败/消费者退出。桌面与390px网页加载完成，JS错误0；手机表单19px横向溢出在旧生产基线同样复现（409px），本轮未扩大。备份目录含完整allowlist/原配置、阶段日志与回滚脚本，离线源码/配置恢复演练通过，未执行生产实际回滚。脱敏证据见[deployment-results.json](deployment-results.json)。
+
+## 2026-11-06 21点缓存缺失修复验证
+
+用户要求覆盖率优先：已有可用画像复用，缺失逐个直接查询，替代纯冷本地unknown约定。线上故障诊断证实21:00实际known663/1000，unknown337（missing254、identity_unresolved83）；紫武列表为空另外由equipment_incomplete保护触发，未发现快照保存错误。
+
+TDD先复现缺失未查询、并发client重叠、Python3.9导入时锁绑定错误、旧对局兜底假fresh、ack失败丢当前成功结果、合法前台接管误杀后台、版本损坏读回假成功、等待执行位置提前消耗租约。修复复用query_now/_execute、定向原子版本预留以及懒创建的service/client执行锁，无新增数据库字段或worker。
+
+完整回归Python3.13.2与真实Python3.9.25各450项通过（主组428+独立router22），无skip；独立ranking/client审核3.9下63项、service/queue审核双版本各104项通过，无剩余阻断。原始日志及汇总/tmp/jjc-direct-final313.json、/tmp/jjc-direct-final39.json。设备信息不完整检查保留，不将旧对局缓存当本次fresh。
+
+增量发布与实际上游验证尚待完成，线上证据追加deployment.md。冷榜耗时由缺失数和上游响应决定，不再引用旧全冷零外呼性能作为整次统计承诺。

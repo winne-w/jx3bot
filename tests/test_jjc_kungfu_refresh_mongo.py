@@ -6,6 +6,8 @@ import multiprocessing
 import unittest
 from urllib.parse import urlsplit
 from uuid import uuid4
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from bson import ObjectId
 from bson.int64 import Int64
@@ -275,6 +277,102 @@ class TestRefreshQueueMongo(unittest.IsolatedAsyncioTestCase):
                 {"$set": {"jjc_kungfu": {"publish_version": previous}}})
             self.assertTrue(await self.identities.publish_jjc_kungfu_if_newer(
                 self.identity["_id"], locator, 7, {"publish_version": 7}))
+
+    async def test_direct_claim_ignores_backoff_and_fences_existing_holder(self):
+        await self.register()
+        old = await self.claim()
+        direct = await self.repo.claim_identity(self.identity["_id"], SCOPE, now=1001)
+        self.assertEqual(direct["generation"], old["generation"] + 1)
+        self.assertNotEqual(direct["lease_token"], old["lease_token"])
+        self.assertTrue(await self.publish(direct))
+        self.assertFalse(await self.publish(old))
+        self.assertFalse(await self.repo.complete(old, now=1002, next_run_at=9999))
+        self.assertTrue(await self.repo.complete(direct, now=1002, next_run_at=9999, error_code="request_timeout"))
+        retried = await self.repo.claim_identity(self.identity["_id"], SCOPE, now=1003)
+        self.assertEqual(retried["generation"], direct["generation"] + 1)
+        self.assertEqual(retried["status"], "running")
+        self.assertIsNone(await self.repo.claim_identity(ObjectId(), SCOPE, now=1003))
+        self.assertIsNone(await self.repo.claim_identity(self.identity["_id"], {**SCOPE, "season_id": "other"}, now=1003))
+
+    async def test_direct_query_persists_success_then_failed_attempt_retains_it(self):
+        from src.infra.tuilan_kungfu_client import KungfuQueryError
+        from src.services.jx3.jjc_kungfu_policy import KungfuPolicy
+        from src.services.jx3.jjc_kungfu_refresh import JjcKungfuRefreshService
+        from tests.test_jjc_kungfu_classifier import indicator, metric, wins
+
+        client = SimpleNamespace(attempt_timeout=25, query=AsyncMock(return_value={
+            "indicator_data": indicator(metric("yunchang", 100)),
+            "matches": wins(*(["bingxin"] * 10)), "requested_at": 1000.0}))
+        service = JjcKungfuRefreshService(self.identities, self.repo, client,
+            KungfuPolicy(SCOPE), {"bingxin": "冰心诀", "yunchang": "云裳心经"}, clock=lambda: 1000.0)
+        saved = await service.query_now(self.identity)
+        self.assertEqual((saved["name"], saved["publish_version"]), ("冰心诀", 1))
+        stored = await self.identities.get_by_id(self.identity["_id"])
+        self.assertEqual(stored["jjc_kungfu"], saved)
+        self.assertEqual(stored["updated_at"], self.identity["updated_at"])
+        self.assertEqual((await self.row())["status"], "pending")
+        # The future normal refresh time must not defer this explicit call.
+        client.query.side_effect = KungfuQueryError("request_timeout")
+        self.assertIsNone(await service.query_now(stored))
+        self.assertEqual((await self.identities.get_by_id(self.identity["_id"]))["jjc_kungfu"], saved)
+        self.assertEqual((await self.row())["last_error_code"], "request_timeout")
+        self.assertEqual((await self.row())["generation"], 2)
+        self.assertEqual(client.query.await_count, 2)
+
+    async def test_direct_query_returns_durable_result_when_ack_fails_without_retry(self):
+        from src.services.jx3.jjc_kungfu_policy import KungfuPolicy
+        from src.services.jx3.jjc_kungfu_refresh import JjcKungfuRefreshService
+        from tests.test_jjc_kungfu_classifier import indicator, metric
+
+        client = SimpleNamespace(attempt_timeout=25, query=AsyncMock(return_value={
+            "indicator_data": indicator(metric("bingxin", 100)),
+            "matches": [], "requested_at": 1000.0}))
+        service = JjcKungfuRefreshService(self.identities, self.repo, client,
+            KungfuPolicy(SCOPE), {"bingxin": "冰心诀"}, clock=lambda: 1000.0)
+        with patch.object(JjcKungfuRefreshRepo, "complete", new_callable=AsyncMock,
+                          side_effect=OSError("ack unavailable")) as ack:
+            result = await service.query_now(self.identity)
+            ack.assert_awaited_once()
+        self.assertEqual(result["name"], "冰心诀")
+        self.assertEqual(result, (await self.identities.get_by_id(self.identity["_id"]))["jjc_kungfu"])
+        self.assertEqual((await self.row())["status"], "running")
+
+    async def test_background_read_after_direct_preemption_is_discarded_without_integrity_failure(self):
+        from src.services.jx3.jjc_kungfu_policy import KungfuPolicy
+        from src.services.jx3.jjc_kungfu_refresh import JjcKungfuRefreshService
+        from tests.test_jjc_kungfu_classifier import indicator, metric
+
+        await self.register()
+        client = SimpleNamespace(attempt_timeout=25, query=AsyncMock(return_value={
+            "indicator_data": indicator(metric("bingxin", 100)),
+            "matches": [], "requested_at": 1000.0}))
+        service = JjcKungfuRefreshService(self.identities, self.repo, client,
+            KungfuPolicy(SCOPE), {"bingxin": "冰心诀"}, clock=lambda: 1000.0)
+        reading, resume = asyncio.Event(), asyncio.Event()
+        original_read = RoleIdentityRepo.get_by_id
+        background = None
+
+        async def gated_read(repo, identity_id):
+            if asyncio.current_task() is background:
+                reading.set()
+                await resume.wait()
+            return await original_read(repo, identity_id)
+
+        with patch.object(RoleIdentityRepo, "get_by_id", new=gated_read):
+            background = asyncio.create_task(service.run_once())
+            try:
+                await asyncio.wait_for(reading.wait(), timeout=3)
+                direct_service = JjcKungfuRefreshService(self.identities, self.repo, client, KungfuPolicy(SCOPE),
+                    {"bingxin": "冰心诀"}, clock=lambda: 1000.0)
+                direct = await direct_service.query_now(self.identity)
+                self.assertEqual(direct["publish_version"], 2)
+            finally:
+                resume.set()
+            self.assertTrue(await asyncio.wait_for(background, timeout=3))
+        client.query.assert_awaited_once()
+        row = await self.row()
+        self.assertEqual((row["status"], row["generation"]), ("pending", 2))
+        self.assertEqual((await self.identities.get_by_id(self.identity["_id"]))["jjc_kungfu"], direct)
 
     async def test_scheduling_indexes_support_claim_and_recovery(self):
         await self.register()

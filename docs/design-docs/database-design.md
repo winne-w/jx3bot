@@ -1085,3 +1085,7 @@
 |---|---|---|---|
 | `scripts/backfill_jjc_role_id_from_match_replay.py` | 已同步 JJC match/replay 身份补充 | `role_identities`, `jjc_sync_role_queue`, `jjc_match_detail` | `global_id`, `identity_key`, `match_id` |
 | `scripts/migrate_jjc_sync_identity_queue.py` | 旧 JJC 同步队列迁移到 identity-id 队列，或回滚前反向同步水位 | `role_identities`, `jjc_sync_identity_queue`, `jjc_sync_role_queue` | `identity_id`, `identity_key` |
+
+### 心法缓存缺失直接查询的存储约定（2026-11-06修正）
+
+不新增集合或字段。`jjc_kungfu_refresh_queue.claim_identity` 供统计直接查询按角色_id/scope预留新的generation和token，无视next_run_at/已有running；当前调用立即执行，旧token不能确认新任务。与后台共享角色条件发布和先发布后确认协议。直接查询确认异常时可读回同generation/scope的角色成功值用于本次统计，队列保持租约恢复。冷角色不再只交后台后以unknown完成统计；已有缓存仍批量登记周期刷新。

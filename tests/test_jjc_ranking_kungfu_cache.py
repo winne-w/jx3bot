@@ -1,4 +1,4 @@
-"""R/S: ranking reads local character attributes and never waits for refresh."""
+"""Ranking uses valid cached attributes and directly queries each cache miss."""
 import copy
 from dataclasses import replace
 from types import SimpleNamespace
@@ -39,6 +39,7 @@ class RankingKungfuCacheTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.identities = SimpleNamespace(resolve_ranking_identities_batch=AsyncMock())
         self.queue = SimpleNamespace(register=AsyncMock())
+        self.direct = SimpleNamespace(query_now=AsyncMock(return_value=None))
         self.policy = KungfuPolicy(SCOPE, refresh_seconds=100, max_stale_seconds=300,
                                    track_seconds=500)
         self.service = JjcRankingService(
@@ -49,7 +50,8 @@ class RankingKungfuCacheTests(unittest.IsolatedAsyncioTestCase):
             kungfu_dps_list=["冰心诀"], kungfu_pinyin_to_chinese={"bingxin": "冰心诀"},
             tuilan_request=MagicMock(side_effect=AssertionError("no foreground kungfu request")),
             defget_get=AsyncMock(side_effect=AssertionError("no foreground fallback")),
-            identity_repo=self.identities, kungfu_refresh_repo=self.queue, kungfu_policy=self.policy)
+            identity_repo=self.identities, kungfu_refresh_repo=self.queue, kungfu_policy=self.policy,
+            kungfu_query_service=self.direct)
         patches = [
             patch("src.services.jx3.jjc_ranking.time.time", return_value=NOW),
             patch("src.services.jx3.jjc_ranking.cfg.JJC_RANKING_KUNGFU_CACHE_ENABLED", 1, create=True),
@@ -58,6 +60,7 @@ class RankingKungfuCacheTests(unittest.IsolatedAsyncioTestCase):
             patch("src.services.jx3.jjc_ranking.get_db", side_effect=AssertionError("use injected repo")),
             patch("src.services.jx3.jjc_ranking.random_sleep", new=AsyncMock(side_effect=AssertionError("no per-role sleep"))),
             patch.object(JjcRankingService, "_enqueue_ranking_member_for_sync", new=AsyncMock(return_value=True)),
+            patch.object(JjcRankingService, "get_user_kungfu", new=AsyncMock(return_value={"found": False})),
         ]
         for patcher in patches:
             patcher.start()
@@ -73,6 +76,57 @@ class RankingKungfuCacheTests(unittest.IsolatedAsyncioTestCase):
         ranking = dict({"data": [player(i) for i in range(len(docs))], "cache_time": NOW}, **extra)
         return await self.service.get_ranking_kungfu_data(ranking)
 
+    async def test_missing_roles_are_queried_in_rank_order_and_counted_in_current_statistics(self):
+        docs = [identity(0), identity(1, include_result=False), identity(2, age=301)]
+        self.direct.query_now.side_effect = [identity(1)["jjc_kungfu"], identity(2)["jjc_kungfu"]]
+        actual = await self.stats(docs)
+        self.assertNotIn("error", actual)
+        self.assertEqual([call.args[0]["_id"] for call in self.direct.query_now.await_args_list],
+                         [docs[1]["_id"], docs[2]["_id"]])
+        self.assertEqual(actual["kungfu_statistics"]["top_50"]["kungfu_cache"],
+                         {"total": 3, "fresh": 3, "stale": 0, "unknown": 0, "coverage": 1.0})
+        self.assertEqual(actual["missing_kungfu_lines"], [])
+        self.assertEqual([d["_id"] for d in self.queue.register.call_args.args[0]], [docs[0]["_id"]])
+
+    async def test_direct_query_does_not_depend_on_background_consumer_flag(self):
+        self.direct.query_now.return_value = identity(0)["jjc_kungfu"]
+        with patch("src.services.jx3.jjc_ranking.cfg.JJC_KUNGFU_REFRESH_ENABLED", 0):
+            actual = await self.stats([identity(0, include_result=False)])
+        self.direct.query_now.assert_awaited_once()
+        self.assertEqual(actual["kungfu_statistics"]["top_50"]["kungfu_cache"]["unknown"], 0)
+
+    async def test_unresolved_identity_uses_direct_legacy_query_without_publishing_to_conflicting_role(self):
+        with patch.object(JjcRankingService, "get_user_kungfu", new=AsyncMock(return_value={
+                "found": True, "kungfu": "冰心诀", "kungfu_id": 10081})) as direct:
+            actual = await self.stats([None])
+        direct.assert_awaited_once()
+        self.assertFalse(direct.call_args.kwargs["prefer_cache"])
+        self.direct.query_now.assert_not_awaited()
+        self.assertEqual(actual["kungfu_statistics"]["top_50"]["kungfu_cache"]["unknown"], 0)
+
+    async def test_direct_failure_keeps_unknown_and_does_not_abort_later_roles(self):
+        docs = [identity(i, include_result=False) for i in range(2)]
+        self.direct.query_now.side_effect = [RuntimeError("query unavailable"), identity(1)["jjc_kungfu"]]
+        actual = await self.stats(docs)
+        self.assertNotIn("error", actual)
+        self.assertEqual(self.direct.query_now.await_count, 2)
+        self.assertEqual(actual["kungfu_statistics"]["top_50"]["kungfu_cache"]["unknown"], 1)
+
+    async def test_failed_upstream_cached_match_fallback_is_not_falsely_fresh(self):
+        old = {"found": True, "kungfu": "冰心诀", "kungfu_id": 10081,
+               "kungfu_selected_source": "cached_match_detail_win_history",
+               "cached_match_detail_latest_win_time": NOW - 86400}
+        with patch.object(JjcRankingService, "get_user_kungfu", new=AsyncMock(return_value=old)):
+            actual = await self.stats([None])
+        cache = actual["kungfu_statistics"]["top_50"]["kungfu_cache"]
+        self.assertEqual(cache["fresh"], 0)
+        self.assertEqual(cache["unknown"], 1)
+
+    async def test_hot_statistics_never_call_direct_lookup(self):
+        actual = await self.stats([identity(0), identity(1, age=101)])
+        self.direct.query_now.assert_not_awaited()
+        self.assertNotIn("error", actual)
+
     async def test_thousand_hot_roles_are_resolved_in_one_batch_and_registered_without_foreground_queries(self):
         docs = [identity(i) for i in range(1000)]
         actual = await self.resolve(docs)
@@ -87,13 +141,13 @@ class RankingKungfuCacheTests(unittest.IsolatedAsyncioTestCase):
         self.service.tuilan_request.assert_not_called()
         self.service.defget_get.assert_not_awaited()
 
-    async def test_thousand_cold_roles_all_register_and_remain_unknown_without_queue_polling(self):
+    async def test_cold_cache_read_does_not_enqueue_misses_for_async_completion(self):
         docs = [identity(i, include_result=False) for i in range(1000)]
         actual = await self.resolve(docs)
         self.assertEqual(len(actual["members"]), 1000)
         self.assertTrue(all(not member["found"] and not member.get("kungfu")
                             for member in actual["members"]))
-        self.assertEqual(len(self.queue.register.call_args.args[0]), 1000)
+        self.assertEqual(self.queue.register.call_args.args[0], [])
         self.service.tuilan_request.assert_not_called()
         self.service.defget_get.assert_not_awaited()
 
@@ -105,7 +159,7 @@ class RankingKungfuCacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(actual["members"][1]["found"])
         self.assertEqual(actual["members"][1]["name"], "role-1")
         registered = self.queue.register.call_args.args[0]
-        self.assertEqual({doc["_id"] for doc in registered}, {docs[0]["_id"], docs[2]["_id"]})
+        self.assertEqual({doc["_id"] for doc in registered}, {docs[0]["_id"]})
 
     async def test_stale_is_usable_expired_and_other_scope_are_unknown(self):
         docs = [identity(0, age=101), identity(1, age=301), identity(2)]

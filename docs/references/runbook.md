@@ -411,3 +411,7 @@ curl -X POST "https://qike.rickchen.cn/jx3bot/api/jjc/ranking-stats/synced-role-
 更换赛季或算法前停止旧消费者，统一配置重启后登记迁移任务。回滚先停消费者，再关缓存开关，保留角色结果、任务generation及旧快照；不清队列、不降版本。出现 `QueueIntegrityError`（角色有值但队列丢失、版本回退、索引冲突）先停所有旧写入进程，核对备份及角色publish_version，人工恢复任务generation不低于角色版本后再开，不允许在线从零重建。
 
 离线验证：`JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/jjc_kungfu_test .venv/bin/python -m unittest tests.test_jjc_kungfu_refresh_repo tests.test_jjc_kungfu_refresh_mongo tests.test_role_identity_ranking_batch`。仅使用隔离本地Mongo测试库，其他单测使用fake，不连接生产上游。手工回归：在隔离环境登记冷榜单→确认前台无心法外呼及unknown→消费一轮→再次统计确认值/coverage→更换fixture心法并到期刷新→确认旧快照不变→停止时取消在途HTTP→租约到期后恢复。详见 `openspec/changes/jjc-ranking-kungfu-async-refresh/test-plan.md`。
+
+### 心法缓存缺失直接查询（2026-11-06修订）
+
+当前统计开关开启后，缓存命中沿用角色画像，缺失逐个等待直接查询并计入本次统计。后台关闭不阻止该查询；真实鉴权/限流冷却和数据失败仍可留下未知。直接查询先预留角色发布代次，不依赖后台轮转，队列确认异常按租约恢复。可在隔离榜单验证冷查询成功写回role_identities.jjc_kungfu，第二次查询零心法外呼；无安全身份不强行合并。旧“冷热均不外呼”验收条件已被替代。装备资料不完整时紫武列表仍隐藏，不据此判断心法全空。

@@ -1,4 +1,5 @@
 """Single-consumer orchestration with monotonic role publication then guarded ack."""
+import asyncio
 import time
 from typing import Any, Callable, Dict, Optional, Union
 
@@ -35,6 +36,7 @@ class JjcKungfuRefreshService:
         self.identity_repo, self.queue_repo, self.client = identity_repo, queue_repo, client
         self.policy, self.mapping, self.clock = policy, mapping, clock
         self.cooldown_until = 0.0
+        self._execution_lock: Optional[asyncio.Lock] = None
         self._canonical_ids = {entry["name"]: entry["id"] for entry in get_jjc_kungfu_catalog()}
 
     def _policy(self) -> KungfuPolicy:
@@ -107,30 +109,93 @@ class JjcKungfuRefreshService:
         await self._failure(task, code)
         return None
 
+    def _execution_position(self) -> asyncio.Lock:
+        # Python 3.9 binds locks to a loop at construction: create it at runtime.
+        if self._execution_lock is None:
+            self._execution_lock = asyncio.Lock()
+        return self._execution_lock
+
     async def run_once(self) -> bool:
-        if self.clock() < self.cooldown_until:
-            return False
-        policy = self._policy()
-        await self.queue_repo.recover_expired(self.clock())
-        task = await self.queue_repo.claim(policy.scope, self.clock(), lease_seconds=_LEASE_SECONDS)
-        if task is None:
-            return False
+        async with self._execution_position():
+            if self.clock() < self.cooldown_until:
+                return False
+            policy = self._policy()
+            await self.queue_repo.recover_expired(self.clock())
+            task = await self.queue_repo.claim(policy.scope, self.clock(), lease_seconds=_LEASE_SECONDS)
+            if task is None:
+                return False
+            await self._execute(task, policy)
+            return True
+
+    async def query_now(self, identity: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Query and persist this role in the current call, never wait for a worker.
+
+        Without a durable generation reservation, no safe publication is possible.
+        Database or upstream failures return unknown; cancellation still propagates.
+        """
+        async with self._execution_position():
+            identity_id = identity.get("_id")
+            if self.clock() < self.cooldown_until:
+                logger.warning("JJC direct kungfu query skipped: identity_id={} code=upstream_cooldown", identity_id)
+                return None
+            try:
+                policy = self._policy()
+                await self.queue_repo.register([identity], policy.scope, self.clock(),
+                                               track_seconds=policy.track_seconds)
+                task = await self.queue_repo.claim_identity(identity_id, policy.scope, self.clock(),
+                                                            lease_seconds=_LEASE_SECONDS)
+            except Exception as exc:
+                logger.error("JJC direct kungfu query failed: identity_id={} code=reservation_failed exception_type={}",
+                             identity_id, type(exc).__name__)
+                return None
+            if task is None:
+                logger.warning("JJC direct kungfu query failed: identity_id={} code=reservation_unavailable", identity_id)
+                return None
+            try:
+                return await self._execute(task, policy, expected_locator=_locator(identity))
+            except QueueIntegrityError:
+                logger.error("JJC direct kungfu query failed: identity_id={} code=queue_integrity_error", identity_id)
+                return None
+            except Exception as exc:
+                logger.error("JJC direct kungfu query failed: identity_id={} code=persistence_failed exception_type={}",
+                             identity_id, type(exc).__name__)
+                # Publication may have succeeded before acknowledgement failed. Use
+                # only this exact durable result, leaving task recovery to its lease.
+                try:
+                    current = await self.identity_repo.get_by_id(identity_id)
+                except Exception as read_error:
+                    logger.error("JJC direct kungfu readback failed: identity_id={} code=readback_failed exception_type={}",
+                                 identity_id, type(read_error).__name__)
+                    return None
+                saved = current.get("jjc_kungfu") if current else None
+                return saved if _same_publication(saved, task["generation"], task["scope"]) else None
+
+    async def _execute(
+        self, task: Dict[str, Any], policy: KungfuPolicy,
+        expected_locator: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         identity = await self.identity_repo.get_by_id(task["_id"])
         if identity is None:
             await self._failure(task, "identity_missing")
-            return True
+            return None
         if "jjc_kungfu" in identity:
             old = identity["jjc_kungfu"]
             if (not isinstance(old, dict) or not positive_integer(old.get("publish_version"))):
                 await self._failure(task, "invalid_publication_schema")
-                return True
+                return None
             if old["publish_version"] >= task["generation"]:
+                if not await self._still_owned(task, policy):
+                    logger.warning("JJC kungfu query discarded: identity_id={} code=execution_lost", task["_id"])
+                    return None
                 logger.error("JJC kungfu queue version regressed: identity_id={} claimed={} published={}",
                              task["_id"], task["generation"], old["publish_version"])
                 # A fresh claim must be above every preexisting publication.
                 # Retrying would silently rebuild a corrupted counter online.
                 raise QueueIntegrityError("claimed generation does not exceed role publication")
         locator = _locator(identity)
+        if expected_locator is not None and locator != expected_locator:
+            await self._failure(task, "identity_changed")
+            return None
         try:
             evidence = await self.client.query(identity, task["scope"])
         except KungfuQueryError as exc:
@@ -140,27 +205,28 @@ class JjcKungfuRefreshService:
                 self.cooldown_until = max(self.cooldown_until, self.clock() + delay)
                 logger.error("JJC kungfu upstream cooling down: code={} seconds={}", exc.code, delay)
             await self._failure(task, exc.code, delay)
-            return True
+            return None
         except Exception as exc:
             logger.warning("JJC kungfu query failed: exception_type={}", type(exc).__name__)
             await self._failure(task, "query_failed")
-            return True
+            return None
         try:
             selected = select_kungfu(evidence["indicator_data"], evidence["matches"], self.mapping)
             name = selected["kungfu"]
             requested_at = evidence["requested_at"]
         except (KeyError, TypeError, AttributeError, ValueError):
             await self._failure(task, "invalid_query_response")
-            return True
+            return None
         if name not in self._canonical_ids:
             await self._failure(task, "unknown_kungfu")
-            return True
+            return None
         verified_at = self.clock()
         if not valid_timestamp(requested_at) or requested_at > verified_at:
             await self._failure(task, "invalid_query_time")
-            return True
+            return None
         if not await self._still_owned(task, policy):
-            return True
+            logger.warning("JJC kungfu query discarded: identity_id={} code=execution_lost", task["_id"])
+            return None
         result = {**task["scope"], "name": name, "kungfu_id": self._canonical_ids[name],
                   "source": selected["kungfu_selected_source"], "requested_at": requested_at,
                   "verified_at": verified_at,
@@ -169,4 +235,4 @@ class JjcKungfuRefreshService:
         saved = await self._publish(task, locator, result)
         if saved is not None:
             await self._complete(task, saved["verified_at"] + policy.refresh_seconds)
-        return True
+        return saved

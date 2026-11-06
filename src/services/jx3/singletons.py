@@ -120,6 +120,7 @@ jjc_ranking_service = JjcRankingService(
     inspect_repo=jjc_inspect_repo,
     identity_repo=role_identity_repo,
     kungfu_refresh_repo=jjc_kungfu_refresh_repo,
+    kungfu_query_service=jjc_kungfu_refresh_service,
     kungfu_policy=policy_from_config,
 )
 
