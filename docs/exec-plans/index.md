@@ -8,7 +8,7 @@
 
 ## Active OpenSpec
 
-- `../../openspec/changes/jjc-ranking-kungfu-async-refresh/tasks.md`: 排名心法缓存优先与后台刷新；角色心法属性、独立队列和两步发布已实现；TDD回归与独立审核通过，准备发布。
+- `../../openspec/changes/jjc-ranking-kungfu-async-refresh/tasks.md`: 排名心法缓存优先与后台刷新；角色心法属性、独立队列与两步发布已实现并上线启用，TDD/独立审核通过，首轮预热及后续快照验收进行中。
 
 - `../../openspec/changes/jjc-role-identity-recovery/tasks.md`: 角色查询 ID 最小修复的 TDD 操作计划；用户已批准，子agent开发/独立review闭环中，发布与线上验收待门禁通过。唯一计划位于 change，不在 active 下另建副本。
 

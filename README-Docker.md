@@ -125,7 +125,7 @@ docker compose up --build -d
 
 时效参数：`JJC_KUNGFU_REFRESH_SECONDS=21600`、`JJC_KUNGFU_MAX_STALE_SECONDS=86400`、`JJC_KUNGFU_TRACK_SECONDS=172800`。均支持环境变量和 `runtime_config.json`，必须为正整数且max_stale>=refresh，改动后重启。关闭时不校验可选新功能时效；启用后非法参数会阻止消费者启动，统计保留兼容路径并记录告警。周期为目标，积压时页面覆盖率与fresh/stale/unknown为实际快照值，装备不完整不展示橙武/紫武统计。
 
-部署须只启用一个心法消费者；进程内启停幂等和Mongo领取不能替代跨进程全局限速。请求开始间隔至少2秒、单请求10秒、角色轮次25秒；仅indicator/history。401/403冷却至少5分钟，429按Retry-After有界冷却；任务延时持久化，进程冷却重启后不保留。上线步骤为双开关关闭发布→仅一个消费者预热→检查覆盖/积压→启用缓存统计；此次开发未执行上线。
+部署须只启用一个心法消费者；进程内启停幂等和Mongo领取不能替代跨进程全局限速。请求开始间隔至少2秒、单请求10秒、角色轮次25秒；仅indicator/history。401/403冷却至少5分钟，429按Retry-After有界冷却；任务延时持久化，进程冷却重启后不保留。上线步骤为双开关关闭发布→仅一个消费者预热→检查覆盖/积压→启用缓存统计；本次生产发布与初始预热验收见 `openspec/changes/jjc-ranking-kungfu-async-refresh/deployment.md`。
 
 更换赛季或算法前停止旧消费者，统一配置重启后登记迁移任务。回滚先停消费者，再关缓存开关，保留角色结果、任务generation及旧快照；不清队列、不降版本。出现 `QueueIntegrityError`（角色有值但队列丢失、版本回退、索引冲突）先停所有旧写入进程，核对备份及角色publish_version，人工恢复任务generation不低于角色版本后再开，不允许在线从零重建。
 

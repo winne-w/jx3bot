@@ -1,6 +1,6 @@
 {
   "date": "2026-11-06",
-  "status": "implemented_and_reviewed_not_deployed",
+  "status": "deployed_enabled_initial_warmup",
   "baseline_head": "e97c4886e2f580219f5e4612a46b077e3c190968",
   "unit_and_integration": [
     {
@@ -8,8 +8,8 @@
       "results": [
         {
           "group": "main",
-          "tests": 404,
-          "seconds": 7.32,
+          "tests": 405,
+          "seconds": 9.004,
           "exit_code": 0,
           "log": "/tmp/jjc-kungfu-Python-3.13.2-main.log",
           "skipped": false
@@ -17,21 +17,21 @@
         {
           "group": "router",
           "tests": 22,
-          "seconds": 0.121,
+          "seconds": 0.113,
           "exit_code": 0,
           "log": "/tmp/jjc-kungfu-Python-3.13.2-router.log",
           "skipped": false
         }
       ],
-      "total": 426
+      "total": 427
     },
     {
       "python": "Python 3.9.25",
       "results": [
         {
           "group": "main",
-          "tests": 404,
-          "seconds": 8.356,
+          "tests": 405,
+          "seconds": 9.838,
           "exit_code": 0,
           "log": "/tmp/jjc-kungfu-Python-3.9.25-main.log",
           "skipped": false
@@ -39,13 +39,13 @@
         {
           "group": "router",
           "tests": 22,
-          "seconds": 0.158,
+          "seconds": 0.151,
           "exit_code": 0,
           "log": "/tmp/jjc-kungfu-Python-3.9.25-router.log",
           "skipped": false
         }
       ],
-      "total": 426
+      "total": 427
     }
   ],
   "performance": {
@@ -85,7 +85,8 @@
         "p95_ms": 679.139,
         "upstream_calls": 0
       }
-    ]
+    ],
+    "measured_before_publish_index_fix": true
   },
   "review": {
     "agents": [
@@ -93,7 +94,11 @@
       "ranking_review"
     ],
     "blocking_findings_fixed": 5,
-    "remaining_blockers": 0
+    "remaining_blockers": 0,
+    "publish_query_plan_fix": {
+      "independent_tests": 55,
+      "remaining_blockers": 0
+    }
   },
   "smoke": {
     "browser": "Chromium headless",
@@ -111,11 +116,12 @@
     }
   },
   "limits": [
-    "No production deployment or calls",
-    "Mongo benchmark contains 1000 roles only",
-    "Full history sync mocked in benchmark",
-    "Real upstream availability, deployment replica count and production freshness not validated",
-    "Router tests isolated because their legacy fake nonebot module leaks into other tests"
+    "Production initial warmup still in progress; scheduled snapshot freshness/coverage not yet validated",
+    "Current 1000-role board safely resolves 918 identities; unresolved 82 stay unknown",
+    "Isolated benchmark retains original limited scope; production single resolve/register measurement is not P95",
+    "Five production baseline test differences were reproduced before changes and not counted as passing",
+    "Production rollback was not executed; allowlist/config restoration rehearsed offline",
+    "Router tests isolated because legacy fake nonebot leaks into other tests"
   ],
   "reproduce": {
     "main_modules": [
@@ -183,5 +189,14 @@
     },
     "performance_rerun": false,
     "performance_note": "Existing performance results were measured before these readability refinements; scope and exclusions unchanged."
+  },
+  "deployment": {
+    "feature_commit": "9071c9a",
+    "code_commit": "987429e",
+    "evidence": "deployment-results.json",
+    "both_flags": 1,
+    "production_python": "3.9.9",
+    "affected_regression_tests": 89,
+    "initial_warmup_complete": false
   }
 }

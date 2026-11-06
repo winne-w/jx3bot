@@ -172,3 +172,5 @@ Chromium headless实际执行页面函数检查coverage/unknown与purple不完�
 新增真实Mongo测试 `TestRankingIdentityBatchMongo.test_full_ranking_or_uses_indexes_and_preserves_raw_name_fallback`：250人实际resolver产生2243个OR分支，含只能raw名称匹配的legacy；3000背景角色。先RED为SUBPLAN/COLLSCAN；只加(server,name)索引仍RED，global_id裸等值无法使用partial string索引。复用现有类型过滤后GREEN，250 docs/1746 keys、返回250，raw与数组字符串匹配等价、顺序和非unique定义保持。补3万背景诊断证明原问题并非小集合选择偏差；独立审核55项通过。
 
 最新完整回归：Python3.13.2/3.9.25各427项通过（主组405，路由独立22），无skip；最新数组等价及显式类型断言追加运行15项各通过。该记录替代之前426项最终计数，历史执行记录保留。生产Python3.9.9候选359项及路由22项通过；另外5项既有live-refresh/其他页面差异在原生产代码复现，未作为本次通过项。生产planner四批与单人全无COLLSCAN；千人解析/登记单次11.442秒，不代表P95或整次统计耗时。原始证据见发布目录与deployment.md。
+
+发布验证最终记录：生产镜像针对索引修正再跑89项通过，无skip；主组359/路由22和它重叠，不相加。四批真实250人planner与单人均indexed，30文件/配置语义/API/Mongo/QQ/四worker通过；生产浏览器两视口JS0，既有手机19px表单溢出基线同样409px。回滚仅在私有副本演练源码和配置恢复，未停服回滚。初始210成功/918登记、82榜单身份unknown、2条identity_mismatch退避，尚不满足建议预热95%/90%；未改旧快照，按用户启用指令完成开关开启，后续覆盖观察不算已通过。
