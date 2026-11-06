@@ -25,3 +25,7 @@
 两位子agent以本轮前源码快照为基线独立只读复核，均通过，无新增阻断项。implementation_review确认两个身份helper保留同_id、ID兼容、定位补齐及心法字段保留约束，空白game_role_id正确回退role_id；46,656组旧新判定等价，独立54项身份/发布/真实Mongo/集成测试通过。条件发布AST未变，类型和版本守卫不变。ranking_review确认纯装备判断无DOM或输入副作用，覆盖提示、分布、过滤、加载/渲染双保护及导出共用；双网页内容一致，独立20项展示/导航/前端测试通过。抽象范围适当，未新增状态或调度机制。
 
 主执行者最终两Python版本各426项通过，无跳过；独立运行与主回归有重叠，不累加。
+
+## 发布阶段查询计划修复复核
+
+implementation_review独立复核通过：普通idx_server_name覆盖raw legacy分支；global_id复用已有类型helper使partial index可选，不改匹配优先级/冲突校验/顺序。只加raw索引不足，真实2243分支完整查询从COLLSCAN 3250docs/445ms变为IXSCAN 250docs/1746keys/51ms；3万背景和string-array等价亦验证。独立55项通过，无skip；两Python版本完整各427项通过，最终新增断言另跑15项各通过。生产实际四批和单人planner通过，测得单次千人解析登记11.442秒；本地P95不作为生产指标。没有拆查询、删除fallback或增加重复global索引。

@@ -166,3 +166,9 @@ Chromium headless实际执行页面函数检查coverage/unknown与purple不完�
 身份批量解析保留原行为基线，补充空白game_role_id回退role_id、补全后仍缺请求ID的拒绝分支。前端新增实际Node函数测试先因缺少equipment纯判断而RED，实现后GREEN；覆盖无DOM/输入副作用、旧快照缺flag、分布/过滤/导出一致性及覆盖提示，列表加载/渲染双入口回归保留。
 
 定向108项及身份/展示契约19项通过；最终同一完整模块集在Python3.13.2与真实3.9.25各426项通过、无跳过（主组404，独立router22）。3.13主组7.320秒、router0.121秒；3.9主组8.356秒、router0.158秒。该追加记录替代前节425项的最终计数，先前运行记录保留为历史。两位独立子agent另跑54项数据库/身份与20项前端回归，通过且无新增问题；46,656组新旧定位判断等价。性能未重测，仍以先前隔离实测及其排除范围为准。
+
+## 发布阶段实际查询计划回归
+
+新增真实Mongo测试 `TestRankingIdentityBatchMongo.test_full_ranking_or_uses_indexes_and_preserves_raw_name_fallback`：250人实际resolver产生2243个OR分支，含只能raw名称匹配的legacy；3000背景角色。先RED为SUBPLAN/COLLSCAN；只加(server,name)索引仍RED，global_id裸等值无法使用partial string索引。复用现有类型过滤后GREEN，250 docs/1746 keys、返回250，raw与数组字符串匹配等价、顺序和非unique定义保持。补3万背景诊断证明原问题并非小集合选择偏差；独立审核55项通过。
+
+最新完整回归：Python3.13.2/3.9.25各427项通过（主组405，路由独立22），无skip；最新数组等价及显式类型断言追加运行15项各通过。该记录替代之前426项最终计数，历史执行记录保留。生产Python3.9.9候选359项及路由22项通过；另外5项既有live-refresh/其他页面差异在原生产代码复现，未作为本次通过项。生产planner四批与单人全无COLLSCAN；千人解析/登记单次11.442秒，不代表P95或整次统计耗时。原始证据见发布目录与deployment.md。

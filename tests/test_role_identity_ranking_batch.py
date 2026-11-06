@@ -193,3 +193,71 @@ class TestRankingIdentityBatchMongo(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [None, None])
         self.assertEqual(await self.db.role_identities.count_documents({}), 3)
         self.assertEqual((await self.db.role_identities.find_one({"global_id": "g"}))["game_role_id"], "7")
+
+    async def test_full_ranking_or_uses_indexes_and_preserves_raw_name_fallback(self):
+        from src.infra.mongo import _ensure_indexes
+
+        await _ensure_indexes(self.db)
+        targets = [identity(name="rank-%s" % i, normalized_name="rank-%s" % i,
+                            identity_key="global_id:rank-%s" % i, global_id="rank-%s" % i,
+                            global_role_id="SK01-rank-%s" % i,
+                            game_role_id=str(i), role_id=str(i)) for i in range(249)]
+        # This existing legacy role can only be found by the raw name branch.
+        legacy = {"_id": ObjectId(), "identity_key": "name:server:legacy role",
+                  "server": "server", "name": "Legacy Role"}
+        targets.append(legacy)
+        unrelated = [identity(name="other-%s" % i, normalized_name="other-%s" % i,
+                              identity_key="global_id:other-%s" % i, global_id="other-%s" % i,
+                              global_role_id="SK01-other-%s" % i,
+                              game_role_id="other-%s" % i, role_id="other-%s" % i,
+                              padding="x" * 1024) for i in range(3000)]
+        await self.db.role_identities.insert_many(deepcopy(targets + unrelated))
+        players = [{key: doc[key] for key in
+                    ("server", "name", "zone", "game_role_id", "role_id", "global_id", "global_role_id")
+                    if key in doc} for doc in targets]
+        queries = []
+        collection = self.db.role_identities
+
+        class CapturingCollection:
+            def find(self, query):
+                queries.append(deepcopy(query))
+                return collection.find(query)
+
+        repo = RoleIdentityRepo(db=SimpleNamespace(role_identities=CapturingCollection()))
+        result = await repo.resolve_ranking_identities_batch(players)
+        self.assertEqual([doc["_id"] for doc in result], [doc["_id"] for doc in targets])
+        self.assertEqual(len(queries), 1)
+        self.assertGreater(len(queries[0]["$or"]), 2000)
+        self.assertIn({"server": "server", "name": "Legacy Role"}, queries[0]["$or"])
+        self.assertIn({"global_id": {"$eq": "rank-0", "$type": "string"}}, queries[0]["$or"])
+        plan = await self.db.command("explain", {
+            "find": "role_identities", "filter": queries[0]}, verbosity="executionStats")
+
+        def stages(node):
+            if isinstance(node, dict):
+                if "stage" in node:
+                    yield node["stage"]
+                for value in node.values():
+                    yield from stages(value)
+            elif isinstance(node, list):
+                for value in node:
+                    yield from stages(value)
+
+        winning_stages = list(stages(plan["queryPlanner"]["winningPlan"]))
+        self.assertNotIn("COLLSCAN", winning_stages)
+        self.assertIn("IXSCAN", winning_stages)
+        self.assertEqual(plan["executionStats"]["nReturned"], len(targets))
+        self.assertLess(plan["executionStats"]["totalDocsExamined"], len(targets + unrelated))
+        indexes = await collection.index_information()
+        self.assertEqual(indexes["idx_server_name"]["key"], [("server", 1), ("name", 1)])
+        self.assertFalse(indexes["idx_server_name"].get("unique", False))
+
+        # Adding the partial-index predicate preserves Mongo's string-array
+        # equality behavior; candidate validation still owns identity safety.
+        array_role = {"_id": ObjectId(), "identity_key": "global_id:array-fixture",
+                      "global_id": ["array-fixture"]}
+        await collection.insert_one(array_role)
+        bare = await collection.find({"global_id": "array-fixture"}).to_list(None)
+        typed = await collection.find({"global_id": {"$eq": "array-fixture", "$type": "string"}}).to_list(None)
+        self.assertEqual([doc["_id"] for doc in bare], [array_role["_id"]])
+        self.assertEqual([doc["_id"] for doc in typed], [array_role["_id"]])

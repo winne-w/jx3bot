@@ -319,6 +319,7 @@
 | `idx_zone_game_role_id` | `zone`, `game_role_id` | 普通复合索引；用于弱身份 fallback 与冲突审计 |
 | `idx_zone_role_id` | `zone`, `role_id` | 普通复合索引；用于兼容旧 `role_id` 字段的弱身份 fallback |
 | `idx_normalized_server_name` | `normalized_server`, `normalized_name` | 普通索引（用于按名称查询入口） |
+| `idx_server_name` | `server`, `name` | 普通非unique复合索引；支持legacy raw名称分支，使榜单批量OR各分支均可使用索引 |
 | `idx_normalized_name` | `normalized_name` | 普通索引；用于 JJC 对局查询未命中时按同名跨服和 `@` 后缀前缀匹配候选 |
 | `idx_last_seen_at` | `last_seen_at` | 普通索引 |
 

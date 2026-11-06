@@ -262,6 +262,8 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         "role_identities", [("normalized_server", 1), ("normalized_name", 1)],
         name="idx_normalized_server_name",
     )
+    # Every branch of the ranking resolver OR needs an index, including legacy raw names.
+    await _safe_index("role_identities", [("server", 1), ("name", 1)], name="idx_server_name")
     await _safe_index("role_identities", "normalized_name", name="idx_normalized_name")
     await _safe_index("role_identities", "last_seen_at", name="idx_last_seen_at")
 

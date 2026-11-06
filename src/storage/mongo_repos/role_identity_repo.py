@@ -475,7 +475,8 @@ class RoleIdentityRepo:
                     kind, *parts = token
                     if kind in ("global_id", "global_role_id"):
                         prefix = "global_id" if kind == "global_id" else "global"
-                        clauses.extend([{kind: parts[0]}, {"identity_key": f"{prefix}:{parts[0]}"}])
+                        value = _global_id_string_filter(parts[0]) if kind == "global_id" else parts[0]
+                        clauses.extend([{kind: value}, {"identity_key": f"{prefix}:{parts[0]}"}])
                     elif kind == "game":
                         zone, game_id = parts
                         clauses.extend([{"zone": zone, "game_role_id": game_id},
