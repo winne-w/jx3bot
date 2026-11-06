@@ -27,3 +27,13 @@
 正向线上验证使用临时60秒最大年龄的**仅验证进程内policy**，使原有画像走expired缓存缺失分支；未改生产配置或删除画像。rank1第一次统计真实调用client1次，角色成功值落库且当前coverage1；第二次真实读取同角色，client调用0次、coverage1；两次共8.042秒。这证明直接补查/发布/当前采用/随后复用链路，不能据单角色推断千人全冷耗时。完整结果见cache-miss-validation.json。
 
 子agent独立复评通过，修复两次review中发现的假fresh、Python3.9锁绑定、合法抢占误退出、完整性故障假成功及租约等待问题。缓存命中保持零外呼；真实身份/上游故障仍可留下未知，紫武装备完整性保护未移除。隔离Mongo随机测试库已清空，确认PID135680属于本轮27029测试实例后停止。
+
+## 2026-11-07 QQ图片文案发布
+
+已推送并发布e3dd4cc，2026-11-07 01:25:25北京时间重启加载。只更新`src/renderers/jx3/jjc_ranking.py`与`templates/竞技场心法排名统计.html`，发布前逐文件比对上一提交基线哈希，原文件备份位于生产私有发布目录`qq-coverage-e3dd4cc/backup/`；需要回滚时仅恢复此两文件并重启，配置和Mongo数据保留。runtime_config.json SHA256不变，两个功能开关保持原值。
+
+生产Python3.9候选执行合图、旧快照/空数据及8拆分模板的3个展示用例全部通过；本地Python3.13/3.9各14项通过，独立ranking_review复核通过。Chromium使用本次渲染函数生成实际模板并截图，覆盖率/未知人数及装备提示排版正常，无新鲜/待刷新/时效词。渲染样例采用上一轮真实统计计数，不代表此次重新拉榜。
+
+重启后文件哈希一致、Mongo健康及sync status/workers API均业务成功、QQ已连接、RestartCount0、Traceback0、心法消费者退出0。完整战绩同步paused=true，pause_reason为推栏战局历史http_status_403，暂停时间2026-11-07 00:42:37北京时间早于本次重启，保留既有鉴权暂停；worker_running/background_running均true。未强制恢复同步，未再次向群发送重算指令。证据为生产私有发布目录的manifest.json、candidate-tests.log、readiness.json和post-health.json。
+
+前次用户授权的群内真实重算已完成：2026-11-06 22:21:33保存快照，22:21:52在“这不能有bug吧”群回复976条有效数据。各范围有效/未知为976/24、194/6、97/3、49/1，证实缓存缺失直接补查后产生了实际统计；未知仍来自真实查询/身份校验失败。
