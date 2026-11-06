@@ -1,0 +1,187 @@
+{
+  "date": "2026-11-06",
+  "status": "implemented_and_reviewed_not_deployed",
+  "baseline_head": "e97c4886e2f580219f5e4612a46b077e3c190968",
+  "unit_and_integration": [
+    {
+      "python": "Python 3.13.2",
+      "results": [
+        {
+          "group": "main",
+          "tests": 404,
+          "seconds": 7.32,
+          "exit_code": 0,
+          "log": "/tmp/jjc-kungfu-Python-3.13.2-main.log",
+          "skipped": false
+        },
+        {
+          "group": "router",
+          "tests": 22,
+          "seconds": 0.121,
+          "exit_code": 0,
+          "log": "/tmp/jjc-kungfu-Python-3.13.2-router.log",
+          "skipped": false
+        }
+      ],
+      "total": 426
+    },
+    {
+      "python": "Python 3.9.25",
+      "results": [
+        {
+          "group": "main",
+          "tests": 404,
+          "seconds": 8.356,
+          "exit_code": 0,
+          "log": "/tmp/jjc-kungfu-Python-3.9.25-main.log",
+          "skipped": false
+        },
+        {
+          "group": "router",
+          "tests": 22,
+          "seconds": 0.158,
+          "exit_code": 0,
+          "log": "/tmp/jjc-kungfu-Python-3.9.25-router.log",
+          "skipped": false
+        }
+      ],
+      "total": 426
+    }
+  ],
+  "performance": {
+    "backend": "real isolated Mongo loopback port 27029; real identity batch and queue register",
+    "includes": "Mongo identity batch reads, real queue registration, validation, aggregation",
+    "excludes": "leaderboard fetch, full history synchronization (AsyncMock), render/send; no production scale collection background",
+    "results": [
+      {
+        "case": "hot",
+        "members": 1000,
+        "runs": 30,
+        "p50_ms": 614.05,
+        "p95_ms": 672.774,
+        "upstream_calls": 0
+      },
+      {
+        "case": "cold",
+        "members": 1000,
+        "runs": 30,
+        "p50_ms": 575.168,
+        "p95_ms": 674.041,
+        "upstream_calls": 0
+      },
+      {
+        "case": "half_missing",
+        "members": 1000,
+        "runs": 30,
+        "p50_ms": 611.98,
+        "p95_ms": 735.867,
+        "upstream_calls": 0
+      },
+      {
+        "case": "other_scope",
+        "members": 1000,
+        "runs": 30,
+        "p50_ms": 621.1,
+        "p95_ms": 679.139,
+        "upstream_calls": 0
+      }
+    ]
+  },
+  "review": {
+    "agents": [
+      "implementation_review",
+      "ranking_review"
+    ],
+    "blocking_findings_fixed": 5,
+    "remaining_blockers": 0
+  },
+  "smoke": {
+    "browser": "Chromium headless",
+    "page_errors": 0,
+    "checks": [
+      "coverage and unknown displayed",
+      "purple unchecked list blocked",
+      "QQ combined template rendered",
+      "two HTML entry points identical"
+    ],
+    "background_fixture_cycle": {
+      "roles": 10,
+      "successes": 10,
+      "due_tasks_after_cycle": 0
+    }
+  },
+  "limits": [
+    "No production deployment or calls",
+    "Mongo benchmark contains 1000 roles only",
+    "Full history sync mocked in benchmark",
+    "Real upstream availability, deployment replica count and production freshness not validated",
+    "Router tests isolated because their legacy fake nonebot module leaks into other tests"
+  ],
+  "reproduce": {
+    "main_modules": [
+      "tests.test_jjc_kungfu_policy",
+      "tests.test_jjc_kungfu_classifier",
+      "tests.test_role_identity_jjc_kungfu",
+      "tests.test_role_identity_ranking_batch",
+      "tests.test_jjc_kungfu_refresh_repo",
+      "tests.test_jjc_kungfu_refresh_mongo",
+      "tests.test_jjc_kungfu_refresh",
+      "tests.test_tuilan_kungfu_client",
+      "tests.test_jjc_kungfu_refresh_runtime",
+      "tests.test_jjc_kungfu_refresh_integration",
+      "tests.test_jjc_ranking_kungfu_cache",
+      "tests.test_jjc_kungfu_display",
+      "tests.test_jjc_ranking_history_win_kungfu",
+      "tests.test_jjc_kungfu_global_id",
+      "tests.test_jjc_kungfu_meta",
+      "tests.test_tuilan_request",
+      "tests.test_role_identity_repo",
+      "tests.test_role_identity_matching",
+      "tests.test_status_monitor_jobs_offline_statistics",
+      "tests.test_status_monitor_jobs_admin_notification",
+      "tests.test_status_monitor_jobs_config",
+      "tests.test_jjc_ranking_stats_repo",
+      "tests.test_jjc_peak_score_ranking",
+      "tests.test_jjc_ranking_explicit_tag",
+      "tests.test_jjc_ranking_command_tag",
+      "tests.test_jjc_ranking_stats_frontend",
+      "tests.test_jjc_data_center_navigation",
+      "tests.test_jjc_live_refresh",
+      "tests.test_jjc_sync_worker_runtime",
+      "tests.test_jjc_live_refresh_runtime",
+      "tests.test_jjc_ranking_identity_recovery"
+    ],
+    "separate_router_modules": [
+      "tests.test_jjc_ranking_stats_router"
+    ],
+    "test_mongo_uri": "mongodb://127.0.0.1:27029/jjc_kungfu_test",
+    "benchmark_command": "python -m tests.benchmark_jjc_ranking_kungfu_cache"
+  },
+  "checks": {
+    "openspec_strict": "passed",
+    "git_diff_check": "passed",
+    "python39_compile": "passed",
+    "mongo_unknown_write_readback_recovery": "passed"
+  },
+  "maintainability_refinement": {
+    "scope": [
+      "extract identity locator predicates",
+      "share pure equipment completeness predicate and separate DOM notice"
+    ],
+    "schema_and_publish_protocol_changed": false,
+    "targeted_tests": 108,
+    "review": {
+      "implementation_review": {
+        "tests_passed": 54,
+        "predicate_equivalence_cases": 46656,
+        "blockers": 0
+      },
+      "ranking_review": {
+        "tests_passed": 20,
+        "blockers": 0
+      }
+    },
+    "performance_rerun": false,
+    "performance_note": "Existing performance results were measured before these readability refinements; scope and exclusions unchanged."
+  }
+}

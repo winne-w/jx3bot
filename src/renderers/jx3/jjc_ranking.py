@@ -46,6 +46,20 @@ def _calculate_legendary_percent(members: list[dict[str, Any]]) -> float:
     return legendary_count / len(members) * 100
 
 
+def _coverage_label(rank_data: dict[str, Any]) -> str:
+    cache = rank_data.get("kungfu_cache")
+    if not cache:
+        return "未记录时效"
+    return (f"心法覆盖 {(cache.get('coverage') or 0) * 100:.1f}% · "
+            f"新鲜 {cache.get('fresh', 0)} · 待刷新 {cache.get('stale', 0)} · "
+            f"未知 {cache.get('unknown', 0)}")
+
+
+def _equipment_incomplete(rank_data: dict[str, Any]) -> bool:
+    return any((rank_data.get(lane) or {}).get("equipment_incomplete", False)
+               for lane in ("healer", "dps"))
+
+
 async def render_combined_ranking_image(
     *,
     env: Environment,
@@ -76,7 +90,9 @@ async def render_combined_ranking_image(
             "top_50_healer": _prepare_template_data(stats.get("top_50", {}), "healer"),
             "top_50_dps": _prepare_template_data(stats.get("top_50", {}), "dps"),
             "has_top_1000": has_top_1000,
-            "show_legendary": show_legendary,
+            "show_legendary": show_legendary and not any(_equipment_incomplete(v) for v in stats.values() if isinstance(v, dict)),
+            "coverage_labels": {k: _coverage_label(v) for k, v in stats.items() if isinstance(v, dict)},
+            "equipment_incomplete": any(_equipment_incomplete(v) for v in stats.values() if isinstance(v, dict)),
         },
         width=1120,
         height="ck",
@@ -202,7 +218,9 @@ async def send_split_ranking_images(
                     "current_season": current_season,
                     "week_info": week_info,
                     config["data_key"]: config["data"],
-                    "show_legendary": show_legendary,
+                    "show_legendary": show_legendary and not _equipment_incomplete(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
+                    "coverage_label": _coverage_label(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
+                    "equipment_incomplete": _equipment_incomplete(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
                 },
                 width=800,
                 height="ck",

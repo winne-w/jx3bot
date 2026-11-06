@@ -111,11 +111,14 @@ class HttpClient:
                         content=content,
                     )
                 if response.status_code >= 400:
-                    return {
+                    error = {
                         "error": f"http_status_{response.status_code}",
                         "status_code": response.status_code,
                         "text": response.text,
                     }
+                    if response.status_code == 429:
+                        error["retry_after"] = response.headers.get("Retry-After")
+                    return error
                 try:
                     return response.json()
                 except Exception:

@@ -245,3 +245,6 @@ python -m py_compile src/plugins/config_manager.py src/plugins/jx3bot_handlers/j
 - 优先做“让结构更清晰的小步改动”，不要为了重构而重构
 - 新代码必须服从分层，不接受“先塞进去以后再说”
 - 文档若不能指导 agent 和维护者完成真实任务，就说明文档还不够好
+
+
+JJC排名心法缓存新增边界：`jjc_kungfu_classifier.py` / `jjc_kungfu_policy.py` 承载纯选择和时效；`jjc_kungfu_refresh.py` 编排条件发布和重试；`jjc_kungfu_refresh_runtime.py` 管理单本地循环，bot挂接生命周期。`infra/tuilan_kungfu_client.py` 仅返回两类原始证据，身份与队列repo分别持久化属性/任务；`singletons.py` 只装配，策略按需校验。排名服务批量读画像并登记任务，展示消费冻结coverage/成员证据。设计与验证记录为 `openspec/changes/jjc-ranking-kungfu-async-refresh/`，无新通用队列或分布式leader层。

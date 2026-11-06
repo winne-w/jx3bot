@@ -131,6 +131,65 @@ def _candidate_role_key(doc: Dict[str, Any]) -> Tuple[str, str]:
     )
 
 
+def _ranking_ids(doc: Dict[str, Any]) -> Dict[str, set]:
+    """Keep external ID namespaces separate, including legacy key-only identities."""
+    values = {field: {str(doc[field]).strip()} if doc.get(field) is not None
+              and str(doc[field]).strip() else set()
+              for field in ("global_id", "global_role_id", "zone", "person_id")}
+    values["game_role_id"] = {str(doc[field]).strip() for field in ("game_role_id", "role_id")
+                              if doc.get(field) is not None and str(doc[field]).strip()}
+    key = str(doc.get("identity_key") or "")
+    for prefix, field in (("global_id:", "global_id"), ("global:", "global_role_id")):
+        if key.startswith(prefix) and key[len(prefix):]:
+            values[field].add(key[len(prefix):])
+    if key.startswith("game:"):
+        parts = key.split(":", 2)
+        if len(parts) == 3:
+            values["zone"].add(parts[1])
+            values["game_role_id"].add(parts[2])
+    return values
+
+
+def _ranking_tokens(doc: Dict[str, Any]) -> List[Tuple[str, ...]]:
+    ids = _ranking_ids(doc)
+    tokens = [(field, value) for field in ("global_id", "global_role_id") for value in ids[field]]
+    tokens.extend(("game", zone, game_id) for zone in ids["zone"] for game_id in ids["game_role_id"])
+    server, name = _candidate_role_key(doc)
+    if server and name:
+        tokens.append(("name", server, name))
+    return tokens
+
+
+def _ranking_compatible(player: Dict[str, Any], doc: Dict[str, Any]) -> bool:
+    incoming, existing = _ranking_ids(player), _ranking_ids(doc)
+    return all(not incoming[field] or not existing[field] or incoming[field] == existing[field]
+               for field in incoming)
+
+
+def _needs_query_locator(player: Dict[str, Any], identity: Dict[str, Any]) -> bool:
+    """Only fill query fields supplied by this ranking and missing on the role."""
+    zone = str(player.get("zone") or "").strip()
+    role_id = str(player.get("game_role_id") or "").strip() or str(player.get("role_id") or "").strip()
+    return bool(
+        (zone and not identity.get("zone"))
+        or (role_id and not (identity.get("game_role_id") or identity.get("role_id")))
+    )
+
+
+def _is_valid_enriched_identity(
+    player: Dict[str, Any], original: Dict[str, Any],
+    enriched: Optional[Dict[str, Any]],
+) -> bool:
+    """Safe upsert must preserve the role and cache, and complete known locators."""
+    return bool(
+        enriched
+        and enriched.get("_id") == original["_id"]
+        and _ranking_compatible(player, enriched)
+        and not _needs_query_locator(player, enriched)
+        and ("jjc_kungfu" not in original or "jjc_kungfu" in enriched)
+    )
+
+
 def build_identity_key(
     global_role_id: Optional[str] = None,
     zone: Optional[str] = None,
@@ -157,7 +216,7 @@ def build_identity_key(
 class RoleIdentityRepo:
     """游戏角色身份统一模型仓储。
 
-    不存心法缓存结果，只维护角色在不同来源中的身份标识及关联关系。
+    维护身份关联及当前画像；jjc_kungfu为独立时钟的主打心法成功结果。
     """
 
     db: Optional[AsyncIOMotorDatabase] = None
@@ -397,6 +456,119 @@ class RoleIdentityRepo:
         if object_id is None:
             return None
         return await self._col().find_one({"_id": object_id})
+
+    async def resolve_ranking_identities_batch(
+        self, players: List[Dict[str, Any]],
+    ) -> List[Optional[Dict[str, Any]]]:
+        """Resolve in batches; upsert only missing roles or incomplete query locators.
+
+        A conflicting or ambiguous candidate is unknown, never a name-based merge.
+        Full documents retain the native identity ID and cached kungfu result.
+        """
+        if not players:
+            return []
+        candidates: Dict[Any, Dict[str, Any]] = {}
+        for start in range(0, len(players), 250):
+            clauses = []
+            for player in players[start:start + 250]:
+                for token in _ranking_tokens(player):
+                    kind, *parts = token
+                    if kind in ("global_id", "global_role_id"):
+                        prefix = "global_id" if kind == "global_id" else "global"
+                        clauses.extend([{kind: parts[0]}, {"identity_key": f"{prefix}:{parts[0]}"}])
+                    elif kind == "game":
+                        zone, game_id = parts
+                        clauses.extend([{"zone": zone, "game_role_id": game_id},
+                                        {"zone": zone, "role_id": game_id},
+                                        {"identity_key": f"game:{zone}:{game_id}"}])
+                    else:
+                        server, name = parts
+                        clauses.extend([{"normalized_server": server, "normalized_name": name},
+                                        {"server": str(player.get("server") or "").strip(),
+                                         "name": str(player.get("name") or "").strip()}])
+            if clauses:
+                for doc in await self._col().find({"$or": clauses}).to_list(None):
+                    if isinstance(doc.get("_id"), ObjectId):
+                        candidates[doc["_id"]] = doc
+
+        by_token: Dict[Tuple[str, ...], Dict[Any, Dict[str, Any]]] = {}
+
+        def index(doc):
+            for token in _ranking_tokens(doc):
+                by_token.setdefault(token, {})[doc["_id"]] = doc
+
+        for doc in candidates.values():
+            index(doc)
+        resolved: Dict[Tuple[Any, ...], Optional[Dict[str, Any]]] = {}
+        result: List[Optional[Dict[str, Any]]] = []
+        fields = ("server", "name", "zone", "game_role_id", "role_id", "global_id", "global_role_id", "person_id")
+        for player in players:
+            values = {field: str(player.get(field) or "").strip() for field in fields}
+            signature = tuple(values[field] for field in fields)
+            if signature not in resolved:
+                found = None
+                ids = _ranking_ids(player)
+                valid = values["server"] and values["name"] and all(len(v) <= 1 for v in ids.values())
+                tokens = _ranking_tokens(player)
+                groups = [by_token[token] for token in tokens if by_token.get(token)]
+                # Token order is global ID, SK01, game ID, then name. A higher
+                # strength collision must not fall through to a weaker match.
+                if valid and groups:
+                    group = groups[0]
+                    if len(group) == 1:
+                        candidate = next(iter(group.values()))
+                        consistent_ids = all(candidate["_id"] in by_token[token]
+                                             for token in tokens
+                                             if token[0] != "name" and by_token.get(token))
+                        if consistent_ids and _ranking_compatible(player, candidate):
+                            found = candidate
+                            if _needs_query_locator(values, candidate):
+                                enriched = await self.upsert_from_ranking_with_id(
+                                    **{field: value or None for field, value in values.items()})
+                                found = enriched if _is_valid_enriched_identity(player, candidate, enriched) else None
+                                if found is not None:
+                                    index(found)
+                elif valid:
+                    candidate = await self.upsert_from_ranking_with_id(
+                        **{field: value or None for field, value in values.items()})
+                    if (candidate and isinstance(candidate.get("_id"), ObjectId)
+                            and _ranking_compatible(player, candidate)
+                            and set(tokens).intersection(_ranking_tokens(candidate))):
+                        found = candidate
+                        index(candidate)
+                resolved[signature] = found
+            result.append(resolved[signature])
+        return result
+
+    async def publish_jjc_kungfu_if_newer(
+        self, identity_id: Any, expected_locator: Dict[str, Any],
+        generation: int, result: Dict[str, Any],
+    ) -> bool:
+        """Publish one newer result without touching the identity observation clock."""
+        object_id = _coerce_object_id(identity_id)
+        if (object_id is None or not isinstance(generation, int) or isinstance(generation, bool) or generation <= 0
+                or not isinstance(result.get("publish_version"), int) or isinstance(result.get("publish_version"), bool)
+                or result["publish_version"] != generation):
+            raise ValueError("invalid role kungfu publication version")
+        query: Dict[str, Any] = {"_id": object_id}
+        for field in ("server", "name", "zone", "game_role_id", "role_id", "global_id", "global_role_id"):
+            if field not in expected_locator:
+                query[field] = {"$exists": False}
+            else:
+                query[field] = {"$eq": expected_locator[field], "$exists": True}
+        # Query $type also matches array elements. Expression $type checks the
+        # scalar value within the same atomic update, including concurrent changes.
+        query["$or"] = [
+            {"jjc_kungfu": {"$exists": False}},
+            {"$expr": {"$and": [
+                {"$eq": [{"$type": "$jjc_kungfu"}, "object"]},
+                {"$in": [{"$type": "$jjc_kungfu.publish_version"}, ["int", "long"]]},
+                {"$gt": ["$jjc_kungfu.publish_version", 0]},
+                {"$lt": ["$jjc_kungfu.publish_version", generation]},
+            ]}},
+        ]
+        updated = await self._col().update_one(query, {"$set": {"jjc_kungfu": dict(result)}})
+        return updated.matched_count == 1
 
     async def resolve_best_identity(
         self,

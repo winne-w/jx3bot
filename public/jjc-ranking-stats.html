@@ -2374,6 +2374,7 @@
                     >
                         <div class="detail-rank">#${member.rank ?? "-"}</div>
                         <div class="detail-name">
+                            <span class="muted">${escapeHtml(member.kungfu_freshness === "fresh" ? "心法新鲜" : member.kungfu_freshness === "stale" ? "心法待刷新" : member.kungfu_freshness === "unknown" ? "心法未知" : "未记录时效")}</span>
                             ${member.weapon_icon ? `<img class="detail-weapon${isLegendaryWeapon(member) ? " is-legendary" : ""}" src="${escapeHtml(member.weapon_icon)}" alt="weapon">` : ""}
                             <div>
                                 <div>${escapeHtml(member.name ?? "未知")}·${escapeHtml(member.server ?? "未知")}</div>
@@ -2461,6 +2462,18 @@
             }).join("");
         }
 
+        function hasIncompleteEquipment(...lanes) {
+            return lanes.some((lane) => Boolean(lane?.equipment_incomplete));
+        }
+
+        function renderKungfuCoverage(stats) {
+            const cache = stats.kungfu_cache;
+            if (!cache) return "未记录时效";
+            const coverage = (Number(cache.coverage || 0) * 100).toFixed(1);
+            const equipment = hasIncompleteEquipment(stats.healer, stats.dps);
+            return `心法覆盖 ${coverage}% · 新鲜 ${Number(cache.fresh || 0)} · 待刷新 ${Number(cache.stale || 0)} · 未知 ${Number(cache.unknown || 0)}${equipment ? " · 装备数据不完整，橙武/紫武统计暂不展示" : ""}`;
+        }
+
         function renderRangeCard(rangeKey, rangeLabel, stats, outerTab) {
             const healer = stats.healer || {};
             const dps = stats.dps || {};
@@ -2489,19 +2502,23 @@
                         </button>
                     </div>
                     ${showMeta ? `<div class="range-meta">赛季：${escapeHtml(seasonText)}</div>` : ""}
+                    <div class="range-meta">${escapeHtml(renderKungfuCoverage(stats))}</div>
                     <div class="lane">
                         <div class="lane-title">奶妈（${healer.valid_count ?? 0}）</div>
-                        ${healerList.length ? renderList(rangeKey, "healer", healerList, healer.valid_count || 0, healerLegendaryCountMap) : "<div class='muted'>暂无奶妈数据</div>"}
+                        ${healerList.length ? renderList(rangeKey, "healer", healerList, healer.valid_count || 0, healerLegendaryCountMap, showLegendaryOverlay && !hasIncompleteEquipment(healer)) : "<div class='muted'>暂无奶妈数据</div>"}
                     </div>
                     <div class="lane">
                         <div class="lane-title">DPS（${dps.valid_count ?? 0}）</div>
-                        ${dpsList.length ? renderList(rangeKey, "dps", dpsList, dps.valid_count || 0, dpsLegendaryCountMap) : "<div class='muted'>暂无DPS数据</div>"}
+                        ${dpsList.length ? renderList(rangeKey, "dps", dpsList, dps.valid_count || 0, dpsLegendaryCountMap, showLegendaryOverlay && !hasIncompleteEquipment(dps)) : "<div class='muted'>暂无DPS数据</div>"}
                     </div>
                 </div>
             `;
         }
 
         function buildFilteredLane(lane, mode) {
+            if (mode === "purple" && hasIncompleteEquipment(lane)) {
+                return {...lane, list: [], valid_count: 0, distribution: {}, legendary_count_map: {}};
+            }
             const sourceList = lane.list || [];
             const sourceLegendaryCountMap = lane.legendary_count_map || {};
             const listItems = [];
@@ -2767,6 +2784,11 @@
         }
 
         function renderListView(payload, outerTab, rangeKey) {
+            const range = currentStats?.kungfu_statistics?.[rangeKey];
+            if (outerTab === "purple" && hasIncompleteEquipment(range?.healer, range?.dps)) {
+                renderIncompleteEquipmentNotice();
+                return;
+            }
             const items = Array.isArray(payload.items) ? payload.items : [];
             const isPeak = isPeakTab(outerTab);
             const rangeLabel = (rangeConfigs.find((item) => item.key === rangeKey) || {}).label || rangeKey;
@@ -2835,7 +2857,16 @@
             `;
         }
 
+        function renderIncompleteEquipmentNotice() {
+            grid.innerHTML = "<div class='range-card muted'>装备数据不完整，紫武排名列表暂不展示</div>";
+        }
+
         async function loadRankingListView(outerTab, rangeKey) {
+            const range = currentStats?.kungfu_statistics?.[rangeKey];
+            if (outerTab === "purple" && hasIncompleteEquipment(range?.healer, range?.dps)) {
+                renderIncompleteEquipmentNotice();
+                return;
+            }
             if (!currentStatsTimestamp) {
                 grid.innerHTML = "<div class='range-card'>缺少统计时间</div>";
                 return;
@@ -3654,7 +3685,8 @@
                     return `
                         <article class="export-lane" data-lane="${key}">
                             <h2>${escapeHtml(config.label)} ${label}心法（${escapeHtml(minScore)}）</h2>
-                            ${list.length ? renderList(config.key, key, list, lane.valid_count || 0, lane.legendary_count_map || {}, overlayEnabled) : "<div class='muted'>暂无数据</div>"}
+                            <p>${escapeHtml(renderKungfuCoverage(range))}</p>
+                            ${list.length ? renderList(config.key, key, list, lane.valid_count || 0, lane.legendary_count_map || {}, overlayEnabled && !hasIncompleteEquipment(lane)) : "<div class='muted'>暂无数据</div>"}
                         </article>
                     `;
                 }).join("");

@@ -176,3 +176,10 @@ python -m py_compile <相关 service/storage 文件>
   ```
 
 外部接口较多，很多验证依赖在线服务。无法离线证明正确时，至少补充手工回归路径。
+
+
+### JJC 排名心法本地统计与后台画像刷新
+
+当前默认关闭的 `JJC_RANKING_KUNGFU_CACHE_ENABLED` 控制纯本地统计，`JJC_KUNGFU_REFRESH_ENABLED` 独立控制bot内单消费者。结果归 `role_identities.jjc_kungfu`，长期任务归独立 `jjc_kungfu_refresh_queue`；先条件发布角色后确认任务，租约/token/角色级generation提供至少一次恢复，不用事务/control/心跳。冷榜单保留未知，不前台查询或等待；显式历史tag沿用旧路径。scope切换先停旧消费者、统一配置重启；任务不可TTL/归零重建，发现版本完整性异常先停旧写入实例再恢复。
+
+新client只拉indicator/history，复用共享签名构造与异步HttpClient，service共享纯心法判定，singletons仅装配且按需校验配置。默认6小时刷新、24小时最大可用、48小时上榜追踪，可覆盖的三个环境变量分别为 `JJC_KUNGFU_REFRESH_SECONDS`、`JJC_KUNGFU_MAX_STALE_SECONDS`、`JJC_KUNGFU_TRACK_SECONDS`。仅一个部署实例启用消费者，Mongo原子领取不保证多实例全局请求限速。配置/回滚与测试见README、runbook及change；本地实现不代表已部署，生产时效和覆盖率待灰度核验。

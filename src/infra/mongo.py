@@ -114,6 +114,14 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
                 return  # 索引已存在，正常
             logger.warning(f"索引创建失败: collection={collection_name} index={name} error={exc}")
 
+    # This optional queue has strict index contracts. Its runtime validates them
+    # again before consuming, so a failure must not disable existing features.
+    from src.storage.mongo_repos.jjc_kungfu_refresh_repo import JjcKungfuRefreshRepo
+    try:
+        await JjcKungfuRefreshRepo(db=db).ensure_indexes()
+    except Exception:
+        logger.exception("心法刷新队列索引未就绪，新刷新功能将保持停用")
+
     # server_master_cache
     await _safe_index("server_master_cache", "key", name="idx_key", unique=True)
     await _safe_index("server_master_cache", "cached_at", name="idx_cached_at", expireAfterSeconds=604800)

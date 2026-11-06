@@ -234,7 +234,22 @@
 
 此严格 ID 覆盖前也归档旧画像到既有 `role_identities_history`，`archive_reason=role_query_ids_recovered`；归档失败零更新，归档成功但 CAS 失配不计修复。条件回滚仅还原本次 ID/观测字段及其原缺失状态，保留后续合法更新。一次性 CLI 的私有操作文件承担 before/after-image 和调用预算，不作为运行时缓存或 Mongo 恢复平台。
 
-用途：游戏角色身份统一模型。不存心法缓存结果，只维护角色在不同来源（排行榜、indicator、对局详情）中的身份标识及其关联关系。替代 `kungfu_cache` 中以 `server + name` 作为唯一键的弱身份模型。
+用途：游戏角色身份与当前画像统一模型，维护不同来源的身份关联，并通过 `jjc_kungfu` 保存当前3v3最近一次成功心法结果。替代 `kungfu_cache` 中以 `server + name` 作为唯一键的弱身份模型。
+
+代码新增画像字段与独立刷新队列（2026-11-06；尚未部署）。`jjc_kungfu` 是新统计路径的唯一成功值；旧 `role_jjc_cache` 仍供兼容查询及辅助数据使用，新路径不双写心法。字段如下，缺失表示尚无可用成功结果：
+
+| `jjc_kungfu` 子字段 | 类型 | 说明 |
+|---|---|---|
+| `name` / `kungfu_id` | string / int | 规范心法名与目录ID |
+| `season_id` / `season_start` | string / int | 当前配置赛季与北京时间开赛零点Unix秒 |
+| `pvp_type` / `algorithm_version` | int / int | 首版固定3v3及判定版本1 |
+| `source` | string | `indicator` 或 `match_history` |
+| `requested_at` / `verified_at` | float | 本轮尝试开始（含请求间隔等待）和验证完成UTC Unix秒，独立于身份时钟 |
+| `win_sample_count` | int | 最近40场中用于十胜判定的胜场样本数 |
+| `publish_version` | int | 对应队列角色级generation，正整数，跨作用域递增 |
+
+发布只 `$set jjc_kungfu`，不修改顶层 `updated_at`、画像对局水位或历史同步进度。按角色 `_id`、完整查询定位快照（区分缺失与null）及严格较旧整数版本条件更新，不upsert身份；非法存量版本拒绝覆盖。失败保留上次成功值和验证时间。统计校验作用域、版本、时间及规范心法ID，默认6小时内fresh、24小时内stale可用，超过24小时unknown。批量榜单解析每250人一批查询既有身份，冲突不按同名猜测。 兼容身份缺少榜单已提供的查询定位时，仅该候选走原安全upsert补齐，并验证同一_id、ID兼容、必要字段齐全与已有心法保留；定位判断与补全结果校验为独立纯函数，完整身份保持批量热路径。此整理不改变集合字段、索引或条件发布协议。
+
 
 读写归属：
 
@@ -1019,6 +1034,29 @@
 |---|---|---|
 | `idx_anchor_score_type_version` | `anchor_timestamp`, `score_type`, `version` | unique |
 | `idx_anchor_score_type_status` | `anchor_timestamp`, `score_type`, `status` | 普通复合索引，`anchor_timestamp` 降序 |
+
+### `jjc_kungfu_refresh_queue`
+
+读写归属：`src/storage/mongo_repos/jjc_kungfu_refresh_repo.py`；运行编排为 `src/services/jx3/jjc_kungfu_refresh.py`。每角色一个长期任务，`_id` 与 `role_identities._id` 为同一BSON ObjectId，不按赛季另建行。无TTL、不在线删除重建、不共用完整历史同步队列。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `_id` | ObjectId | 角色唯一主键 |
+| `scope` | object | season_id/season_start/pvp_type/algorithm_version |
+| `status` | string | `pending` / `running` |
+| `next_run_at` | float | 周期刷新及失败重试共用的到期时间 |
+| `generation` | int | 初始0，每次领取与scope切换递增，永不归零 |
+| `lease_token` / `lease_expires_at` | string/null / float/null | 每次随机token与90秒租约 |
+| `last_seen_in_ranking_at` / `active_until` | float | 最近上榜与48小时追踪期，重复登记只取最大值 |
+| `consecutive_failures` / `last_error_code` | int / string/null | 连续失败次数及脱敏错误码 |
+
+索引仅内建 `_id_` 与 `idx_kungfu_next_run(status,next_run_at,_id)`、`idx_kungfu_expired_lease(status,lease_expires_at)`，升序。启动校验同名索引键/选项，冲突停止本消费者，不删除索引。到期领取原子递增generation；回收只使过期running回到pending，不重置代次。追踪过期不领取，保留文档供再次上榜。
+
+成功先条件发布角色属性，再以 `_id/status/token/generation/scope/未到期租约` 确认队列，按已保存verified_at+刷新周期安排下一次。失败只确认退避 `min(60*2^(failures-1),3600)`；认证失败任务与本进程至少冷却5分钟，429遵守1秒至1小时的Retry-After。进程冷却不跨重启持久化。
+
+发布结果不确定时重读同代次同scope角色值确认；读回失败或确认异常保留running，等待租约恢复。允许过期A在B尚未发布时写入n，但B已成功n+1后A不能覆盖。scope变更先停旧消费者、更新配置重启再登记，CAS撤销旧token且递增generation，不支持新旧scope长期混跑。任务丢失但角色已有publish_version或队列代次低于角色版本时报完整性错误，停止所有旧写入实例后方可人工恢复到不低于已有版本，禁止在线归零。
+
+排名快照 `jjc_ranking_stat_summaries` 可选新增 `kungfu_cache_scope`、`refresh_degraded`，每范围 `kungfu_cache(total,fresh,stale,unknown,coverage)`；lane `equipment_incomplete` 防止未知装备被误算。明细冻结 `kungfu_verified_at/kungfu_source/kungfu_freshness/kungfu_unknown_reason/kungfu_publish_version`，未知角色单独以lane=`unknown`、kungfu=`unknown`保留原名次。后台不会改历史快照，旧快照不补造新鲜度。
 
 ## 文件型持久化与非 Mongo 数据
 

@@ -62,7 +62,7 @@ class JjcRankingExplicitTagTests(unittest.IsolatedAsyncioTestCase):
         result = await self.service.query_jjc_ranking(tag=40)
 
         self.assertEqual(result, {
-            "code": 0, "data": [{"rank": 1}], "defaultWeek": 40, "cache_time": 1234567890,
+            "code": 0, "data": [{"rank": 1}], "defaultWeek": 40, "cache_time": 1234567890, "explicit_tag": True,
         })
         self.api.get_arena_ranking.assert_called_once_with(40)
         self.api.get_arena_time_tag.assert_not_called()

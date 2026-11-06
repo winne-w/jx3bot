@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional, Tuple, Union
 
-from src.services.jx3.indicator_utils import find_3v3_indicator, find_3v3_metrics
+from src.services.jx3.jjc_kungfu_classifier import select_kungfu
 
 try:
     from nonebot import logger  # type: ignore
@@ -399,51 +398,9 @@ def get_kungfu_detail_by_role_info(
             )
         )
 
-    indicator_kungfu_pinyin = None
-    indicator_kungfu_name = None
-
-    indicator = find_3v3_indicator(data.get("indicator") or [])
-    if indicator:
-        max_win_count = -1
-        max_total_count = -1
-        best_win_metric = None
-        best_total_metric = None
-
-        for metric in find_3v3_metrics(indicator):
-            if not metric.get("items"):
-                continue
-            win_count = metric.get("win_count", 0) or 0
-            total_count = metric.get("total_count", 0) or 0
-
-            if win_count > max_win_count:
-                max_win_count = win_count
-                best_win_metric = metric
-            if total_count > max_total_count:
-                max_total_count = total_count
-                best_total_metric = metric
-
-        if best_win_metric:
-            indicator_kungfu_pinyin = best_win_metric.get("kungfu")
-            indicator_kungfu_name = kungfu_pinyin_to_chinese.get(
-                indicator_kungfu_pinyin, indicator_kungfu_pinyin
-            )
-
-            if best_total_metric:
-                total_kungfu = kungfu_pinyin_to_chinese.get(
-                    best_total_metric.get("kungfu"), best_total_metric.get("kungfu")
-                )
-                if indicator_kungfu_name != total_kungfu:
-                    logger.info(
-                        "⚠️ 胜场/场次心法不一致: role_id={} zone={} server={} "
-                        "win_count={}({}) total_count={}({})",
-                        game_role_id,
-                        zone,
-                        server,
-                        indicator_kungfu_name,
-                        max_win_count,
-                        total_kungfu,
-                        max_total_count,
-                    )
+    initial = select_kungfu(data, [], kungfu_pinyin_to_chinese)
+    indicator_kungfu_pinyin = initial["kungfu_pinyin"]
+    indicator_kungfu_name = initial["kungfu_indicator"]
 
     match_history_kungfu_pinyin = None
     match_history_kungfu_name = None
@@ -461,8 +418,8 @@ def get_kungfu_detail_by_role_info(
 
     cache_warmup: dict[str, Any] = {}
 
+    matches: list[dict[str, Any]] = []
     if global_role_id:
-        matches: list[dict[str, Any]] = []
         resp = get_match_history(
             global_role_id,
             size=40,
@@ -479,14 +436,6 @@ def get_kungfu_detail_by_role_info(
                 "raw_matches": matches,
                 "request_size": 40,
             }
-
-        match_history_checked = min(40, len(matches))
-        won_kungfus: list[str] = []
-        for match in matches[:40]:
-            if match.get("won") is True and match.get("kungfu"):
-                won_kungfus.append(match["kungfu"])
-                if len(won_kungfus) >= 10:
-                    break
 
         latest_win_match_id = _find_latest_win_match_id(matches)
         if match_detail_url:
@@ -518,35 +467,14 @@ def get_kungfu_detail_by_role_info(
             except Exception as exc:
                 logger.exception("获取战局详情失败: {}", exc)
 
-        if len(won_kungfus) >= 10:
-            sample = won_kungfus[:10]
-            match_history_win_kungfu_samples = sample
-            counts = Counter(sample)
-            first_index: dict[str, int] = {}
-            for idx, item in enumerate(sample):
-                if item not in first_index:
-                    first_index[item] = idx
-            match_history_kungfu_pinyin = max(
-                counts.items(),
-                key=lambda kv: (kv[1], -first_index.get(kv[0], 9999)),
-            )[0]
-            match_history_kungfu_name = kungfu_pinyin_to_chinese.get(
-                match_history_kungfu_pinyin, match_history_kungfu_pinyin
-            )
-
-    chosen_source = "indicator"
-    chosen_kungfu_pinyin = indicator_kungfu_pinyin
-    chosen_kungfu_name = indicator_kungfu_name
-
-    if match_history_kungfu_name and match_history_win_kungfu_samples and len(match_history_win_kungfu_samples) >= 10:
-        if not indicator_kungfu_name:
-            chosen_source = "match_history"
-            chosen_kungfu_pinyin = match_history_kungfu_pinyin
-            chosen_kungfu_name = match_history_kungfu_name
-        elif match_history_kungfu_name != indicator_kungfu_name:
-            chosen_source = "match_history"
-            chosen_kungfu_pinyin = match_history_kungfu_pinyin
-            chosen_kungfu_name = match_history_kungfu_name
+    selected = select_kungfu(data, matches, kungfu_pinyin_to_chinese)
+    chosen_source = selected["kungfu_selected_source"]
+    chosen_kungfu_pinyin = selected["kungfu_pinyin"]
+    chosen_kungfu_name = selected["kungfu"]
+    match_history_kungfu_name = selected["kungfu_match_history"]
+    match_history_kungfu_pinyin = selected["kungfu_match_history_pinyin"]
+    match_history_win_kungfu_samples = selected["match_history_win_samples"]
+    match_history_checked = selected["match_history_checked"]
 
     result = {
         "role_id": role_id,

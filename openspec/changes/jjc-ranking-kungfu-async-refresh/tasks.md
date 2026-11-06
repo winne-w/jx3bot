@@ -1,0 +1,95 @@
+## Purpose / Big Picture
+
+以TDD实现[修订设计](design.md)：心法归角色画像，独立简单队列持续更新，统计只读本地并登记，条件发布与至少一次恢复保障正确性。用户于2026-11-06确认方案并授权开发，本地实现、隔离验证与独立复核已完成；部署尚未授权，线上任务保持待办。
+
+## Progress
+
+### 0. 基线与契约
+
+- [x] 0.1 主执行者记录HEAD及已有身份恢复/离线统计改动，核验现有相关测试基线、实际渲染模板与入口；准备隔离Mongo和可控时钟，不覆盖既有修改。
+- [x] 0.2 测试子agent先建立脱敏indicator/history/榜单fixtures，固定原基础判定、身份ID匹配、响应错误结构；主执行者核对单消费者部署前提、共享请求构造边界和repo契约。此阶段不先行实现业务代码。
+
+### 1. RED → GREEN → REFACTOR：角色心法与基础规则
+
+- [x] 1.1 RED：测试子agent新增 `test_jjc_kungfu_policy.py`、`test_jjc_kungfu_classifier.py`、`test_role_identity_jjc_kungfu.py`，先覆盖test-plan的A/I组，记录因缺少需求能力导致的失败；不以环境或语法错误充当RED。
+- [x] 1.2 GREEN：主执行者在 `role_identity_repo.py` 增加批量心法读取与窄条件发布接口，新建 `src/services/jx3/jjc_kungfu_policy.py`；从kungfu.py提取共享纯判定并接回旧路径，保持十胜多数、平票、indicator回退行为，不新增严格赛季证据过滤。
+- [x] 1.3 REFACTOR：统一规范心法ID与时效返回模型，心法不更新身份顶层时间；验证身份升级/ID回滚/画像归档边界及旧判定回归，保持Python3.9兼容。
+
+### 2. RED → GREEN → REFACTOR：独立队列与两步发布
+
+- [x] 2.1 RED：测试子agent新增 `test_jjc_kungfu_refresh_repo.py`、`test_jjc_kungfu_refresh_mongo.py`，覆盖Q/F组；先以真实隔离Mongo证明重复登记、领取竞争、写角色后未确认、迟到发布与scope切换预期失败。
+- [x] 2.2 GREEN：主执行者新增 `src/storage/mongo_repos/jjc_kungfu_refresh_repo.py`，实现每角色长期任务、批量登记、原子领取、token条件确认、过期回收、scope条件切换和generation完整性检查；在 `src/infra/mongo.py` 只增加设计中的两条调度索引，不创建旧refresh_state/control集合。
+- [x] 2.3 GREEN：新增 `src/services/jx3/jjc_kungfu_refresh.py` 的发布编排：固定定位快照、先条件写角色后确认、写入结果未知时重读、已知失败保留结果、DB不可用停止本轮；所有队列收尾使用token/代次/scope/租约守卫，不引入事务或角色执行租约镜像。
+- [x] 2.4 REFACTOR：以独立连接/进程跑真实Mongo的Q/F组，验证角色级版本跨赛季不归零、任务误删不在线归零重建及确认失败可重复执行；检查领取/回收explain，提取共享条件但不扩展为通用队列平台。
+
+### 3. RED → GREEN → REFACTOR：后台查询与运行
+
+- [x] 3.1 RED：测试子agent新增 `test_tuilan_kungfu_client.py`、`test_jjc_kungfu_refresh.py`、`test_jjc_kungfu_refresh_runtime.py`，覆盖H/W组，先断言取消、退避、认证/429冷却、QQ离线与启停契约。
+- [x] 3.2 GREEN：主执行者新增薄 `src/infra/tuilan_kungfu_client.py`，复用 `HttpClient(retries=0).arequest_json()`；只将必要签名/headers/body构造提为共享小函数，保持旧同步wrapper行为。添加请求/角色总deadline、本地请求间隔，基础刷新仅indicator/history。
+- [x] 3.3 GREEN：完善刷新service，新增 `jjc_kungfu_refresh_runtime.py`，在singletons仅装配对象；bot.py挂接Mongo之后的启动/关闭，config.py增加两开关及三项时效参数；一个串行消费者和任务租约，无leader/control/heartbeat循环。
+- [x] 3.4 REFACTOR：fake clock覆盖退避/追踪期，用本地延迟HTTP验证真实取消及无后续外呼；重复启动仅一个本地循环，故障退出可见且旧token不能释放新任务；回归既有HTTP/sync/live runtime。
+
+### 4. RED → GREEN → REFACTOR：排名与冻结快照
+
+- [x] 4.1 RED：测试子agent新增 `test_jjc_ranking_kungfu_cache.py` 并补现有快照/入口/展示测试，覆盖R/S组：冷热均零前台心法外呼、无等待、缺失保留名次、历史tag不登记、已有值不被旧辅助覆盖。
+- [x] 4.2 GREEN：主执行者为RoleIdentityRepo增加严格批量榜单解析，在 `JjcRankingService` 接入批量读取、选择冻结及幂等登记，自动/default手动走相同开关；仅后台开启也可在当前榜单成功获取后预热登记。新路径不得逐人调用get_user_kungfu/random_sleep/实时兜底，不影响原完整同步水位。
+- [x] 4.3 GREEN：最小修改 `jjc_ranking_stats_repo.py` 透传与排名payload，新增覆盖率/时效；renderer、实际使用的合并/拆分模板及 `public/index.html`、`public/jjc-ranking-stats.html` 只做未知和覆盖提示，辅助不完整标注或隐藏，不做新装备分母版本。
+- [x] 4.4 REFACTOR：跑相关入口、快照、身份、网页导航和渲染回归，批量查询规模随批次数增长；验证后台变化不改旧快照、旧字段缺失不误判fresh，两网页入口一致。
+
+### 5. 验证、文档与后续上线
+
+- [x] 5.1 主执行者将数据库文档“待实施”说明更新为实际生效定义，同步PROJECT_CONTEXT、README/README-Docker、runbook中的职责、配置、单消费者约束、暂停/冷却、版本恢复和回滚；不写成已达到时效或性能。
+- [x] 5.2 在隔离环境完成所有适用回归、Python3.9兼容、真实Mongo竞争及故障窗口、1000人冷热性能和一轮后台轮转；逐项记录RED/GREEN命令、版本与结果，未执行/跳过不算通过。
+- [x] 5.3 独立子agent复核最终设计/实现/测试的衔接、发布失败窗口与首版范围，主执行者处理问题并更新review.md；不因这次设计评估就预填实现通过。
+- [ ] 5.4 仅在另行授权部署后，核对所有写入实例与配置，双开关关闭发布→单消费者预热→覆盖门槛验证→切流→回滚演练；无部署授权则保留此项，不触碰线上。
+- [ ] 5.5 真实验收后同步OpenSpec基线、归档change并更新索引；保留队列代次和快照，记录未覆盖限制。
+
+### 6. 已批准的可维护性优化（2026-11-06）
+
+- [x] 6.1 保留版本/类型/空unknown协议：在role_identity_repo.py提取缺查询定位判定及补全结果验证，沿用既有安全upsert；先跑身份批量/真实Mongo行为基线，重构后确认完整热路径仍无逐人upsert。
+- [x] 6.2 public双入口统一equipment_incomplete纯判断，分布图、紫武过滤、列表和导出共同复用；拆开判断与提示DOM写入，保留加载前/渲染前保护；补Node实际入口一致性及无副作用测试。
+- [x] 6.3 回归真实Mongo、页面导航、快照、客户端/runtime及Python3.9可达路径，独立子agent只读复核两项重构；同步design/test-plan/review/acceptance，保留部署/归档待办。
+
+## Surprises & Discoveries
+
+原计划将结果/任务同文档以换取原子提交，但用户要求心法归角色画像，三个独立评估也认可；因此需要明确至少一次与角色侧条件发布，而非保留旧MUST再引入事务。现有异步HttpClient可直接复用。身份顶层updated_at参与CAS及候选排序，心法不能改它。当前新旧scope同时写入不在首版支持范围。
+
+## Decision Log
+
+2026-11-06修订：一角色长期队列、角色级generation跨scope延续；先写角色后确认，允许重复查询；删除前台等待、control/双心跳、hash/同义unique、差异周期/防饥饿、seed平台、装备统计新版本。scope用于缓存复用，不额外增加缺上游赛季字段即未知的过滤。详细失败矩阵以design第5节为准。
+
+## Outcomes & Retrospective
+
+本地实现及独立复核完成，Python3.13.2/3.9.25各426项相关测试通过、无跳过；真实Mongo与千人性能已验证。两名独立审核者发现的5项P2全部修复并复评通过。生产部署与实际覆盖率验收未执行，保留5.4/5.5。
+
+## Context and Orientation
+
+仓库为WSL `/home/songjingjing/codes/jx3bot`，change为 `openspec/changes/jjc-ranking-kungfu-async-refresh/`。先读AGENTS/PROJECT_CONTEXT/docs/PLANS和本目录design/specs/test-plan；现有身份恢复和离线统计有无关未提交改动。首版只维护当前3v3；所有时间UTC，赛季起点从北京时间配置转换。数据库当前事实与待实施提案必须区分。
+
+## Plan of Work
+
+按四个纵向闭环推进，不先写全部测试再一次性实现：每组小行为先RED，再最小GREEN，最后重构并跑相关回归。测试子agent在固定输入输出契约后先写测试，主执行者实现和整合；测试与实现不同时写同一文件。允许classifier与repo测试准备并行，但依赖协议先定，Mongo/HTTP隔离先可用。用户批准后已分配测试、仓储和client/service子agent，主执行者负责整合。
+
+## Concrete Steps
+
+实施时从仓库根目录执行test-plan命令，先记录基线，再按A/I→Q/F→H/W→R/S运行。每次记录用例ID、真实测试方法、失败原因、RED/GREEN退出码和版本。先验证单元契约，再以真实隔离Mongo证明原子领取/条件写；不以mock代替跨集合窗口。长时间退避使用fake clock，HTTP失败用本地transport/延迟服务器，不请求生产上游。
+
+变更范围固定为上述文件和最小展示入口；不创建旧 `jjc_kungfu_refresh_state`，不新增管理平台或通用调度抽象。实际模板路径在0.1枚举并记录。repo新增方法、service编排、client适配保持层次；singletons不承载业务。
+
+## Validation and Acceptance
+
+验收标准：冷热统计心法外呼0、无前台补齐等待；所有可定位榜单角色幂等登记；未知人数守恒；角色心法写不改身份时钟；失败和确认中断不丢成功值；旧结果不覆盖新成功值；真实Mongo覆盖全部关键失败窗口；旧入口/快照/完整历史同步无新增回归。
+
+隔离1000人热路径30次P95目标<=5秒，仅心法解析与本地聚合。性能及覆盖需实测，不按任务数量判断完成；上线时至少一轮预热及实例核验，建议有效>=95%、fresh>=90%。精确用例、运行命令与未执行标记见test-plan；实际结果再填review/acceptance。计划校验仅证明文档结构，不证明业务通过。
+
+## Implementation Log
+
+2026-11-06：用户批准开发及实现后独立子agent复核。基线HEAD `e97c4886e2f580219f5e4612a46b077e3c190968`，既有未提交改动保留，基线diff保存于本机临时目录。基础回归156项通过（原判定/身份/HTTP/快照/离线统计），日志 `/tmp/jjc-kungfu-baseline-tests.log`。开发按文件分工：测试子agent先行A/I组；队列子agent先行Q/F与repo；client子agent先行H/W与适配器/runtime；主执行者负责基础实现、发布编排、排名/展示和整合。
+
+2026-11-06整合：展示新增3项RED→GREEN，联合网页导航/前端18项通过；真实Mongo端到端4项通过（冷→热→云裳转冰心→快照冻结、超时退避、取消回收、发布后确认前退出），并验证不改身份时钟/完整历史水位。端到端发现personInfo接口不一致，新增有效RED后修复规范化。独立实现review开始；发现队列代次基础损坏时消费者应停止而非在线追代，修复验证中。Python3.9.25隔离依赖环境已建立于本机临时目录，等待完整相关验证。
+
+2026-11-06最终验证：Python3.13.2与Python3.9.25各425项通过（主组403+独立进程router22），均无跳过；router测试的存量nonebot模块stub会污染同进程runtime测试，因此按模块边界隔离执行，未改无关测试。新增十角色隔离后台轮转10/10成功，到期积压0；真实BSON Int64代次经claim/发布/读取可用。Node实际执行紫武列表分支与Chromium页面/QQ合图视觉检查通过，JS错误0。真实Mongo千人×30次：热P95 672.774ms、冷674.041ms、半缺735.867ms、异scope679.139ms，上游调用均0；排除拉榜/完整历史同步/渲染发送，测试库仅1000角色。复现benchmark已纳入tests/benchmark_jjc_ranking_kungfu_cache.py。完整记录见test-plan/review/acceptance及validation-results.json。review两位独立agent只读通过，5项P2（代次损坏、弱身份补定位、数组schema、unknown残留、紫武列表）已闭环；删除未用参数并统一Int64整数口径，未加事务/control/心跳。未提交、部署或归档。
+
+2026-11-06追加：用户确认可维护性优化方案并授权继续。范围只含弱身份补全小函数和前端装备完整性纯判断，保留现有代次损坏停止、Mongo原子类型约束、空unknown覆盖及双入口防护；不新增隔离状态/自动修代次/快照版本系统。当前源码快照存本机/tmp/jjc-kungfu-followup-before.json供独立复核。
+
+2026-11-06可维护性优化完成：身份定位补全提取两个纯helper，两个网页入口统一装备完整性纯判断并拆开DOM提示。新增Node行为测试先RED（缺少纯判断能力）后GREEN；已有身份测试补充空白ID回退和补全不完整场景。定向108项通过，完整Python3.13.2/3.9.25各426项（主组404+独立router22）通过、无跳过。implementation_review独立54项真实Mongo/身份测试通过，并比较46,656组定位判定全部等价；ranking_review独立20项页面测试通过，均无新增问题。未改变数据库结构、发布协议或功能开关；未重新测性能，沿用前次实测并保留其适用范围。

@@ -25,12 +25,16 @@ async def _startup_mongo():
     await start_jjc_sync_dispatcher()
     from src.services.jx3.jjc_live_refresh_runtime import start_live_refresh
     await start_live_refresh()
+    from src.services.jx3.jjc_kungfu_refresh_runtime import start_kungfu_refresh
+    await start_kungfu_refresh()
 
 
 @driver.on_shutdown
 async def _shutdown_jjc_sync_workers():
     from src.services.jx3.jjc_sync_worker_runtime import stop_jjc_sync_dispatcher, stop_jjc_sync_workers
 
+    from src.services.jx3.jjc_kungfu_refresh_runtime import stop_kungfu_refresh
+    await stop_kungfu_refresh()
     await stop_jjc_sync_dispatcher()
     await stop_jjc_sync_workers()
     from src.services.jx3.jjc_live_refresh_runtime import stop_live_refresh

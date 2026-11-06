@@ -94,6 +94,9 @@ class JjcRankingStatsRepo:
             "schema_version": 1,
             "updated_at": now,
         }
+        for key in ("kungfu_cache_scope", "refresh_degraded"):
+            if key in payload:
+                doc[key] = payload[key]
         try:
             db = self.db if self.db is not None else _get_db()
             await db.jjc_ranking_stat_summaries.update_one(

@@ -5,7 +5,7 @@ import copy
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from nonebot import logger
 import config as cfg
@@ -17,6 +17,10 @@ from src.services.jx3.weapon_quality import extract_member_weapon_name, extract_
 from src.infra.mongo import get_db
 from src.services.jx3.jjc_api_client import JjcApiClient
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
+from src.services.jx3.jjc_kungfu_policy import KungfuPolicy, make_scope
+from src.services.jx3.jjc_kungfu_meta import get_jjc_kungfu_catalog
+from src.storage.mongo_repos.role_identity_repo import RoleIdentityRepo
+from src.storage.mongo_repos.jjc_kungfu_refresh_repo import JjcKungfuRefreshRepo
 from src.services.jx3.tuilan_rate_limit import fixed_sleep, random_sleep
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
 from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo
@@ -57,6 +61,108 @@ class JjcRankingService:
     match_detail_participant_projection_service: Any = None
     match_detail_persistence_service: Any = None
     inspect_repo: Optional[JjcInspectRepo] = None
+    identity_repo: Any = None
+    kungfu_refresh_repo: Any = None
+    kungfu_policy: Optional[Union[KungfuPolicy, Callable[[], KungfuPolicy]]] = None
+
+    def _ranking_kungfu_policy(self) -> KungfuPolicy:
+        if self.kungfu_policy is not None:
+            return self.kungfu_policy() if callable(self.kungfu_policy) else self.kungfu_policy
+        return KungfuPolicy(
+            make_scope(str(self.current_season), self._coerce_season_start_time()),
+            refresh_seconds=getattr(cfg, "JJC_KUNGFU_REFRESH_SECONDS", 21600),
+            max_stale_seconds=getattr(cfg, "JJC_KUNGFU_MAX_STALE_SECONDS", 86400),
+            track_seconds=getattr(cfg, "JJC_KUNGFU_TRACK_SECONDS", 172800),
+        )
+
+    @staticmethod
+    def _ranking_identity_inputs(players: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        identities = []
+        for player in players:
+            person = player.get("personInfo") or {}
+            server = person.get("server", "")
+            name = person.get("roleName", "")
+            if name and str(name).endswith("·" + str(server)):
+                name = name.rsplit("·", 1)[0]
+            identities.append({
+                "server": server, "name": name, "zone": person.get("zone"),
+                "game_role_id": person.get("gameRoleId"),
+                "role_id": person.get("roleId") or person.get("gameRoleId"),
+                "global_role_id": person.get("globalRoleId"),
+                "global_id": person.get("globalId"), "person_id": person.get("personId"),
+            })
+        return identities
+
+    async def _prewarm_ranking_kungfus(self, ranking_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Successful default boards feed refresh even when statistics are not requested."""
+        if not getattr(cfg, "JJC_KUNGFU_REFRESH_ENABLED", 0):
+            return ranking_data
+        try:
+            resolved = await self.resolve_ranking_kungfus(ranking_data)
+            degraded = resolved["refresh_degraded"]
+        except Exception as exc:
+            degraded = True
+            logger.warning("排行榜心法预热登记失败，保留已获取榜单: {}", exc)
+        # Metadata belongs to this request, never mutate the shared ranking cache.
+        return {**ranking_data, "refresh_degraded": degraded}
+
+    async def resolve_ranking_kungfus(
+        self, ranking_data: Dict[str, Any], *, policy: Optional[KungfuPolicy] = None,
+    ) -> Dict[str, Any]:
+        """Select a frozen local result per rank, then independently register refresh."""
+        policy = policy if policy is not None else self._ranking_kungfu_policy()
+        scope = dict(policy.scope)
+        cutoff = time.time()
+        players = ranking_data.get("data") or []
+        repo = self.identity_repo if self.identity_repo is not None else RoleIdentityRepo()
+        identities = await repo.resolve_ranking_identities_batch(self._ranking_identity_inputs(players))
+        if len(identities) != len(players):
+            raise ValueError("ranking identity batch must preserve every position")
+        valid_names = set(self.kungfu_healer_list + self.kungfu_dps_list)
+        canonical_ids = {item["name"]: item["id"] for item in get_jjc_kungfu_catalog()}
+        members = []
+        for player, identity in zip(players, identities):
+            person = player.get("personInfo") or {}
+            server = person.get("server", "未知")
+            name = person.get("roleName", "未知")
+            if name and str(name).endswith("·" + str(server)):
+                name = name.rsplit("·", 1)[0]
+            result = copy.deepcopy(identity.get("jjc_kungfu")) if identity else None
+            status = policy.evaluate(result, cutoff, valid_names=valid_names)
+            if status["freshness"] != "unknown" and canonical_ids.get(result["name"]) != result["kungfu_id"]:
+                status = {"freshness": "unknown", "reason": "unknown_kungfu"}
+            found = status["freshness"] != "unknown"
+            member = {
+                "server": server, "name": name, "found": found,
+                "kungfu": result["name"] if found else None,
+                "kungfu_id": result["kungfu_id"] if found else None,
+                "game_role_id": person.get("gameRoleId"),
+                "role_id": (identity or {}).get("role_id") or person.get("gameRoleId"),
+                "zone": person.get("zone"),
+                "global_role_id": (identity or {}).get("global_role_id") or person.get("globalRoleId"),
+                "global_id": (identity or {}).get("global_id"),
+                "kungfu_freshness": status["freshness"],
+                "kungfu_unknown_reason": status["reason"] if identity else "identity_unresolved",
+                "kungfu_verified_at": result.get("verified_at") if isinstance(result, dict) else None,
+                "kungfu_source": result.get("source") if isinstance(result, dict) else None,
+                "kungfu_publish_version": result.get("publish_version") if isinstance(result, dict) else None,
+                "kungfu_selected_source": result.get("source") if found else None,
+                "weapon_checked": False, "teammates_checked": False,
+            }
+            members.append(member)
+        degraded = bool(ranking_data.get("refresh_degraded"))
+        if (getattr(cfg, "JJC_KUNGFU_REFRESH_ENABLED", 0)
+                or getattr(cfg, "JJC_RANKING_KUNGFU_CACHE_ENABLED", 0)):
+            try:
+                queue = self.kungfu_refresh_repo if self.kungfu_refresh_repo is not None else JjcKungfuRefreshRepo()
+                await queue.register([item for item in identities if item is not None],
+                                     dict(scope), cutoff,
+                                     track_seconds=policy.track_seconds)
+            except Exception as exc:
+                degraded = True
+                logger.warning("排行榜心法刷新登记失败，保留已读取结果: {}", exc)
+        return {"members": members, "refresh_degraded": degraded,
+                "kungfu_cache_scope": scope}
 
     def _api(self) -> JjcApiClient:
         return JjcApiClient(
@@ -480,7 +586,7 @@ class JjcRankingService:
         if not explicit_tag:
             cached = await self._cache().load_ranking_cache()
             if cached:
-                return cached
+                return await self._prewarm_ranking_kungfus(cached)
 
         try:
             if explicit_tag:
@@ -529,12 +635,16 @@ class JjcRankingService:
                     "message": f"获取竞技场排行榜失败: {ranking_result.get('msg', '未知错误')}",
                 }
 
+            if explicit_tag:
+                ranking_result["explicit_tag"] = True
             ranking_result["defaultWeek"] = default_week
             ranking_result["cache_time"] = time.time()
 
             if not explicit_tag:
                 await self._cache().save_ranking_cache(ranking_result)
 
+            if not explicit_tag:
+                return await self._prewarm_ranking_kungfus(ranking_result)
             return ranking_result
         except Exception as exc:
             logger.exception(f"查询竞技场排行榜失败: {exc}")
@@ -652,6 +762,9 @@ class JjcRankingService:
                 "week_info": week_info,
                 "kungfu_statistics": stats,
             }
+            for key in ("kungfu_cache_scope", "refresh_degraded"):
+                if payload is not None and key in payload:
+                    stats_payload[key] = copy.deepcopy(payload[key])
             summary_payload = self._build_summary_payload(stats_payload)
             detail_payloads = self._build_detail_payloads(stats)
             mongo_task = self._save_ranking_stats_to_mongo(
@@ -683,7 +796,7 @@ class JjcRankingService:
             summary_range: dict[str, Any] = {
                 key: value
                 for key, value in range_stats.items()
-                if key not in {"healer", "dps"}
+                if key not in {"healer", "dps", "unknown_members"}
             }
             for lane_name in ("healer", "dps"):
                 lane = range_stats.get(lane_name) or {}
@@ -720,6 +833,9 @@ class JjcRankingService:
         for range_key, range_stats in (stats or {}).items():
             if not isinstance(range_stats, dict):
                 continue
+            # Same-anchor recomputes (including rollback) must clear old unknown rows.
+            detail_payloads.append({"range": range_key, "lane": "unknown", "kungfu": "unknown",
+                                    "members": copy.deepcopy(range_stats.get("unknown_members") or [])})
             for lane_name in ("healer", "dps"):
                 lane = range_stats.get(lane_name) or {}
                 members_map = lane.get("members") or {}
@@ -1089,6 +1205,26 @@ class JjcRankingService:
             if not data_list:
                 return {"error": True, "message": "排行榜数据为空"}
 
+            historical = ranking_data.get("explicit_tag") is True
+            use_local = bool(getattr(cfg, "JJC_RANKING_KUNGFU_CACHE_ENABLED", 0)) and not historical
+            refresh_enabled = bool(getattr(cfg, "JJC_KUNGFU_REFRESH_ENABLED", 0)) and not historical
+            resolved = None
+            if use_local or refresh_enabled:
+                try:
+                    # Invalid configuration closes only the new feature, retaining the old path.
+                    policy = self._ranking_kungfu_policy()
+                except ValueError as exc:
+                    logger.warning("排行榜心法配置无效，关闭新路径: {}", exc)
+                    use_local = refresh_enabled = False
+                if use_local:
+                    resolved = await self.resolve_ranking_kungfus(ranking_data, policy=policy)
+                elif refresh_enabled:
+                    try:
+                        resolved = await self.resolve_ranking_kungfus(ranking_data, policy=policy)
+                    except Exception as exc:
+                        logger.warning("排行榜心法预热登记失败，保留旧统计流程: {}", exc)
+                        resolved = {"refresh_degraded": True}
+
             kungfu_results: list[dict[str, Any]] = []
             ranking_kungfu_lines: list[str] = []
             missing_kungfu_lines: list[str] = []
@@ -1111,13 +1247,13 @@ class JjcRankingService:
                     if len(parts) == 2 and parts[1] == str(server):
                         name = parts[0]
 
-                kungfu_info = await self.get_user_kungfu(
-                    server,
-                    name,
-                    ranking_data=ranking_data,
-                    rank=i + 1,
-                    prefer_cache=use_cached_kungfu,
-                )
+                if use_local:
+                    kungfu_info = resolved["members"][i]
+                else:
+                    kungfu_info = await self.get_user_kungfu(
+                        server, name, ranking_data=ranking_data, rank=i + 1,
+                        prefer_cache=use_cached_kungfu,
+                    )
                 indicator_kungfu = kungfu_info.get("kungfu_indicator")
                 match_history_kungfu = kungfu_info.get("kungfu_match_history")
                 if (
@@ -1172,6 +1308,10 @@ class JjcRankingService:
                     "cached_match_detail_latest_win_time": kungfu_info.get("cached_match_detail_latest_win_time"),
                     "cached_match_detail_win_samples": kungfu_info.get("cached_match_detail_win_samples"),
                 }
+                if use_local:
+                    for field in ("kungfu_verified_at", "kungfu_source", "kungfu_freshness",
+                                  "kungfu_unknown_reason", "kungfu_publish_version"):
+                        ranking_member[field] = kungfu_info.get(field)
                 kungfu_results.append(ranking_member)
                 if self._should_enqueue_ranking_member_immediately(
                     member=ranking_member,
@@ -1256,6 +1396,11 @@ class JjcRankingService:
                                     "weapon_icon": player_item.get("weapon_icon"),
                                     "weapon_quality": player_item.get("weapon_quality"),
                                     "weapon_name": player_item.get("weapon_name"),
+                                    **({field: player_item.get(field) for field in (
+                                        "kungfu_verified_at", "kungfu_source", "kungfu_freshness",
+                                        "kungfu_unknown_reason", "kungfu_publish_version",
+                                        "weapon_checked", "teammates_checked",
+                                    )} if use_local else {}),
                                 }
                             )
                         elif kungfu in dps_kungfu:
@@ -1279,6 +1424,11 @@ class JjcRankingService:
                                     "weapon_icon": player_item.get("weapon_icon"),
                                     "weapon_quality": player_item.get("weapon_quality"),
                                     "weapon_name": player_item.get("weapon_name"),
+                                    **({field: player_item.get(field) for field in (
+                                        "kungfu_verified_at", "kungfu_source", "kungfu_freshness",
+                                        "kungfu_unknown_reason", "kungfu_publish_version",
+                                        "weapon_checked", "teammates_checked",
+                                    )} if use_local else {}),
                                 }
                             )
                         else:
@@ -1328,9 +1478,22 @@ class JjcRankingService:
                     for detail in invalid_details:
                         logger.info(f"invalid: {detail}")
 
+                actual_count = len(player_data[:max_rank])
+                cache_metadata = {}
+                if use_local:
+                    counts = {key: sum(item.get("kungfu_freshness") == key for item in player_data[:max_rank])
+                              for key in ("fresh", "stale", "unknown")}
+                    cache_metadata = {
+                        "kungfu_cache": dict(counts, total=actual_count,
+                            coverage=(counts["fresh"] + counts["stale"]) / actual_count if actual_count else None),
+                        "unknown_members": [dict(item, rank=index + 1) for index, item in
+                                            enumerate(player_data[:max_rank]) if not item.get("found")],
+                    }
                 return {
-                    "total_players": max_rank,
+                    **cache_metadata,
+                    "total_players": actual_count if use_local else max_rank,
                     "healer": {
+                        **({"equipment_incomplete": True} if use_local else {}),
                         "valid_count": healer_valid_count,
                         "distribution": dict(sorted_healer),
                         "list": sorted_healer,
@@ -1338,6 +1501,7 @@ class JjcRankingService:
                         "members": healer_members,
                     },
                     "dps": {
+                        **({"equipment_incomplete": True} if use_local else {}),
                         "valid_count": dps_valid_count,
                         "distribution": dict(sorted_dps),
                         "list": sorted_dps,
@@ -1347,7 +1511,7 @@ class JjcRankingService:
                     "total_valid_count": healer_valid_count + dps_valid_count,
                     "invalid_count": invalid_count,
                     "invalid_details": invalid_details,
-                    "unclassified_count": max_rank - (healer_valid_count + dps_valid_count + invalid_count),
+                    "unclassified_count": (actual_count if use_local else max_rank) - (healer_valid_count + dps_valid_count + invalid_count),
                 }
 
             logger.info("正在统计kungfu分布")
@@ -1364,6 +1528,13 @@ class JjcRankingService:
                 "ranking_kungfu_lines": ranking_kungfu_lines,
                 "missing_kungfu_lines": missing_kungfu_lines,
             }
+
+            if "refresh_degraded" in ranking_data:
+                result["refresh_degraded"] = bool(ranking_data["refresh_degraded"])
+            if resolved is not None:
+                result["refresh_degraded"] = resolved["refresh_degraded"]
+                if use_local:
+                    result["kungfu_cache_scope"] = copy.deepcopy(resolved["kungfu_cache_scope"])
 
             logger.info("=" * 80)
             logger.info("KUNGFU统计结果 (奶妈/DPS分类)")

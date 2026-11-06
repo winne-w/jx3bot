@@ -83,6 +83,20 @@ match_detail_persistence_service = MatchDetailPersistenceService(
     fact_projector=match_detail_fact_projection_service,
 )
 
+from src.infra.tuilan_kungfu_client import TuilanKungfuClient
+from src.services.jx3.jjc_kungfu_policy import policy_from_config
+from src.services.jx3.jjc_kungfu_refresh import JjcKungfuRefreshService
+from src.storage.mongo_repos.jjc_kungfu_refresh_repo import JjcKungfuRefreshRepo
+
+jjc_kungfu_refresh_repo = JjcKungfuRefreshRepo()
+jjc_kungfu_refresh_service = JjcKungfuRefreshService(
+    identity_repo=role_identity_repo,
+    queue_repo=jjc_kungfu_refresh_repo,
+    client=TuilanKungfuClient(),
+    policy=policy_from_config,
+    mapping=KUNGFU_PINYIN_TO_CHINESE,
+)
+
 jjc_ranking_service = JjcRankingService(
     token=cfg.TOKEN,
     ticket=cfg.TICKET,
@@ -104,6 +118,9 @@ jjc_ranking_service = JjcRankingService(
     match_detail_participant_projection_service=match_detail_participant_projection_service,
     match_detail_persistence_service=match_detail_persistence_service,
     inspect_repo=jjc_inspect_repo,
+    identity_repo=role_identity_repo,
+    kungfu_refresh_repo=jjc_kungfu_refresh_repo,
+    kungfu_policy=policy_from_config,
 )
 
 match_detail_client = MatchDetailClient(
