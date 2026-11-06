@@ -121,7 +121,7 @@ docker compose up --build -d
 
 ### 排名心法缓存与后台刷新
 
-新增功能默认关闭，未自动部署。`JJC_RANKING_KUNGFU_CACHE_ENABLED=1` 使当前默认榜单仅批量读取 `role_identities.jjc_kungfu`，冷热均不在前台查询心法或等待补齐；缺失保留名次并显示未知。显式 `tag=` 查询保持原路径，不登记为当前榜单。`JJC_KUNGFU_REFRESH_ENABLED=1` 独立启动 bot 内的串行消费者，也允许先保持统计开关关闭进行预热。Mongo初始化后启动、关闭时取消，不依赖QQ登录；不改变完整历史同步水位。
+功能默认关闭。`JJC_RANKING_KUNGFU_CACHE_ENABLED=1` 使当前默认榜单优先批量读取 `role_identities.jjc_kungfu`；命中直接复用，缺失或不可用时按排名逐个等待直接查询，成功写回画像并计入本轮，真实失败才保留未知。显式 `tag=` 查询保持原路径，不登记为当前榜单。`JJC_KUNGFU_REFRESH_ENABLED=1` 独立启动 bot 内的串行消费者，也允许先保持统计开关关闭进行预热。Mongo初始化后启动、关闭时取消，不依赖QQ登录；不改变完整历史同步水位。
 
 时效参数：`JJC_KUNGFU_REFRESH_SECONDS=21600`、`JJC_KUNGFU_MAX_STALE_SECONDS=86400`、`JJC_KUNGFU_TRACK_SECONDS=172800`。均支持环境变量和 `runtime_config.json`，必须为正整数且max_stale>=refresh，改动后重启。关闭时不校验可选新功能时效；启用后非法参数会阻止消费者启动，统计保留兼容路径并记录告警。周期为目标，积压时页面覆盖率与fresh/stale/unknown为实际快照值，装备不完整不展示橙武/紫武统计。
 
@@ -129,4 +129,4 @@ docker compose up --build -d
 
 更换赛季或算法前停止旧消费者，统一配置重启后登记迁移任务。回滚先停消费者，再关缓存开关，保留角色结果、任务generation及旧快照；不清队列、不降版本。出现 `QueueIntegrityError`（角色有值但队列丢失、版本回退、索引冲突）先停所有旧写入进程，核对备份及角色publish_version，人工恢复任务generation不低于角色版本后再开，不允许在线从零重建。
 
-离线验证：`JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/jjc_kungfu_test .venv/bin/python -m unittest tests.test_jjc_kungfu_refresh_repo tests.test_jjc_kungfu_refresh_mongo tests.test_role_identity_ranking_batch`。仅使用隔离本地Mongo测试库，其他单测使用fake，不连接生产上游。手工回归：在隔离环境登记冷榜单→确认前台无心法外呼及unknown→消费一轮→再次统计确认值/coverage→更换fixture心法并到期刷新→确认旧快照不变→停止时取消在途HTTP→租约到期后恢复。详见 `openspec/changes/jjc-ranking-kungfu-async-refresh/test-plan.md`。
+离线验证：`JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/jjc_kungfu_test .venv/bin/python -m unittest tests.test_jjc_kungfu_refresh_repo tests.test_jjc_kungfu_refresh_mongo tests.test_role_identity_ranking_batch`。仅使用隔离本地Mongo测试库，其他单测使用fake，不连接生产上游。手工回归：在隔离环境统计冷榜单→确认逐个直接查询、画像落库及本轮coverage→再次统计确认缓存复用且零心法外呼→更换fixture心法并到期刷新→确认旧快照不变→停止时取消在途HTTP→租约到期后恢复。详见 `openspec/changes/jjc-ranking-kungfu-async-refresh/test-plan.md`。

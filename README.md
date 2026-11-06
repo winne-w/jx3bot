@@ -166,7 +166,7 @@ python test_tuilan_match_history.py
 
 ### 排名心法缓存与后台刷新
 
-新增功能默认关闭，未自动部署。`JJC_RANKING_KUNGFU_CACHE_ENABLED=1` 使当前默认榜单优先批量读取 `role_identities.jjc_kungfu`；命中直接复用，缺失或不可用时按排名逐个等待直接查询，成功写回画像并计入本轮，真实失败才保留未知。显式 `tag=` 查询保持原路径，不登记为当前榜单。`JJC_KUNGFU_REFRESH_ENABLED=1` 独立启动 bot 内的串行消费者，也允许先保持统计开关关闭进行预热。Mongo初始化后启动、关闭时取消，不依赖QQ登录；不改变完整历史同步水位。
+功能默认关闭。`JJC_RANKING_KUNGFU_CACHE_ENABLED=1` 使当前默认榜单优先批量读取 `role_identities.jjc_kungfu`；命中直接复用，缺失或不可用时按排名逐个等待直接查询，成功写回画像并计入本轮，真实失败才保留未知。显式 `tag=` 查询保持原路径，不登记为当前榜单。`JJC_KUNGFU_REFRESH_ENABLED=1` 独立启动 bot 内的串行消费者，也允许先保持统计开关关闭进行预热。Mongo初始化后启动、关闭时取消，不依赖QQ登录；不改变完整历史同步水位。
 
 时效参数：`JJC_KUNGFU_REFRESH_SECONDS=21600`、`JJC_KUNGFU_MAX_STALE_SECONDS=86400`、`JJC_KUNGFU_TRACK_SECONDS=172800`。均支持环境变量和 `runtime_config.json`，必须为正整数且max_stale>=refresh，改动后重启。关闭时不校验可选新功能时效；启用后非法参数会阻止消费者启动，统计保留兼容路径并记录告警。周期为目标，积压时页面覆盖率与fresh/stale/unknown为实际快照值，装备不完整不展示橙武/紫武统计。
 
