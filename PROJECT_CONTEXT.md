@@ -192,6 +192,6 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 
 每次实际排名统计为范围内有效角色发起独立同步请求，包含心法未知成员；同轮即时与保存补偿共用运行标识，复用榜单 cache_time 的下一轮仍可重新排队。冷却/完成/失败立即 queued，已排队移动至最新排名批次队首；不因 priority>=1 跳过。禁用角色仍跳过，syncing 仅持久化最新待请求，在有效租约释放或过期恢复时合并补排一次，不抢占当前执行。全局暂停仍生效，查询保存快照不入队。
 
-主/兼容队列增加四个调度字段与 idx_status_ranking_front；最新排名批次、原始名次优先于普通 priority/FIFO，列表/位置/领取一致。同步仍从最新页查最近14天并按当前赛季截断、复用已有详情。实现记录：openspec/changes/jjc-ranking-force-sync-front；本次仅本地实现与隔离验证，未发布生产。需统一更新 bot/独立 worker，停旧消费者后升级；不能混用新生产者与旧 worker。回滚先物化 pending 为普通 queued，详见 runbook。
+主/兼容队列增加四个调度字段与 idx_status_ranking_front；最新排名批次、原始名次优先于普通 priority/FIFO，列表/位置/领取一致。同步仍从最新页查最近14天并按当前赛季截断、复用已有详情。实现记录：openspec/changes/archive/2026-11-07-jjc-ranking-force-sync-front；2026-11-07 已按用户授权提交并发布；生产候选382项通过，QQ/API/双队列索引及4个内部worker验收通过；单角色冷却重新插队由真实worker完成。详见该change的deployment.md。需统一更新 bot/独立 worker，停旧消费者后升级；不能混用新生产者与旧 worker。回滚先物化 pending 为普通 queued，详见 runbook。
 
 验证：`.venv/bin/python -m unittest tests.test_jjc_ranking_force_sync tests.test_jjc_sync_worker_queue tests.test_jjc_match_data_sync tests.test_jjc_ranking_stats_repo tests.test_jjc_ranking_command_tag`。真实 Mongo：`JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/ .venv/bin/python -m unittest tests.test_jjc_ranking_force_sync_mongo`，仅允许该显式本地隔离端口与随机测试库。

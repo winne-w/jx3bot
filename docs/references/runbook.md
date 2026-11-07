@@ -418,10 +418,12 @@ curl -X POST "https://qike.rickchen.cn/jx3bot/api/jjc/ranking-stats/synced-role-
 
 ## 排名统计成员重新从队首同步
 
-本地实现见 `openspec/changes/jjc-ranking-force-sync-front/`，当前尚未部署。只有实际执行排名统计会触发；查看已保存网页不会触发。每轮有效角色（包括心法未知）在 cooldown/exhausted/failed/pending 时立即入队，queued 时更新到队首，syncing 时等待本轮释放后合并补排。最新排名批次先于普通高 priority 任务，不抢占正在执行的 worker，不绕过全局暂停或 disabled。查询历史仍使用最近14天及赛季边界，复用已有详情。
+实现与发布记录见 `openspec/changes/archive/2026-11-07-jjc-ranking-force-sync-front/`，2026-11-07 已发布验收。只有实际执行排名统计会触发；查看已保存网页不会触发。每轮有效角色（包括心法未知）在 cooldown/exhausted/failed/pending 时立即入队，queued 时更新到队首，syncing 时等待本轮释放后合并补排。最新排名批次先于普通高 priority 任务，不抢占正在执行的 worker，不绕过全局暂停或 disabled。查询历史仍使用最近14天及赛季边界，复用已有详情。
 
-离线回归：`.venv/bin/python -m unittest tests.test_jjc_ranking_force_sync tests.test_jjc_sync_worker_queue tests.test_jjc_match_data_sync tests.test_jjc_ranking_stats_repo tests.test_jjc_ranking_command_tag tests.test_status_monitor_jobs_offline_statistics`。真实并发验证须显式 `JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/` 运行 `tests.test_jjc_ranking_force_sync_mongo`；测试仅删除自己创建的随机 `jjc_sync_front_test_` 库，不得指向生产。
+离线回归：`.venv/bin/python -m unittest tests.test_jjc_ranking_force_sync tests.test_jjc_sync_worker_queue tests.test_jjc_match_data_sync tests.test_jjc_ranking_stats_repo tests.test_jjc_ranking_command_tag`。真实并发验证须显式 `JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/` 运行 `tests.test_jjc_ranking_force_sync_mongo`；测试仅删除自己创建的随机 `jjc_sync_front_test_` 库，不得指向生产。
 
-后续授权发布时：先停止所有 bot 及独立同步 worker（含统计生产者），统一代码与配置，初始化两队列新增 `idx_status_ranking_front`，确认排序定义与 database-design.md 一致，再恢复进程。两轮实际统计观察同 cache_time 的不同 queue_batch_id；验证冷却/失败立即 queued、最新批次排位、syncing 当前租约不变、释放后只补排一次；全局暂停时确认没有上游调用。页面筛选 queued 后应与 worker 领取顺序一致。
+后续再次升级时：先停止所有 bot 及独立同步 worker（含统计生产者），统一代码与配置，初始化两队列新增 `idx_status_ranking_front`，确认排序定义与 database-design.md 一致，再恢复进程。两轮实际统计观察同 cache_time 的不同 queue_batch_id；验证冷却/失败立即 queued、最新批次排位、syncing 当前租约不变、释放后只补排一次；全局暂停时确认没有上游调用。页面筛选 queued 后应与 worker 领取顺序一致。
 
-回滚准备须在停止所有相关进程后执行：逐条读取队列，有 ranking_pending 的记录将其待执行窗口/赛季/source/batch 等字段合并到当前记录，置 queued，清 next_sync_after 和租约；将 queue_front_order、queue_front_rank、ranking_pending 统一清为 null，保留 ranking_request_order、比赛、水位及失败审计。先核对 pending 数与转换成功数一致、剩余 pending 为零，再切回旧版本恢复进程。没有 pending 的运行中任务沿用既有租约过期恢复。保留新增索引，不删除身份、队列、对局或旧索引。该转换尚未在生产执行；需在隔离副本验证每条记录后再发布/回滚。
+回滚准备须在停止所有相关进程后执行：逐条读取队列，有 ranking_pending 的记录将其待执行窗口/赛季/source/batch 等字段合并到当前记录，置 queued，清 next_sync_after 和租约；将 queue_front_order、queue_front_rank、ranking_pending 统一清为 null，保留 ranking_request_order、比赛、水位及失败审计。先核对 pending 数与转换成功数一致、剩余 pending 为零，再切回旧版本恢复进程。没有 pending 的运行中任务沿用既有租约过期恢复。保留新增索引，不删除身份、队列、对局或旧索引。该转换已在隔离真实Mongo两队列演练通过，未执行生产回滚。
+
+本次私有发布目录为 `/mnt/sata6-1/jx3bot-releases/ranking-front-20261107-e1ee55ef4405/`。回滚须停止全部bot、独立worker、dispatcher、统计生产者和其他队列写者；临时容器只执行转换器，使用核对过的同镜像、网络、原环境及只读原配置，工作目录/PYTHONPATH为/app，核对目标Mongo配置指纹。preimage使用canonical Extended JSON逐条flush/fsync，写入宿主持久化可写挂载，限制权限并使用唯一新文件名。disabled不复活，保留较高人工priority。两队列pending/front残留为零、转换数与备份条数一致、退出码为0后才恢复旧allowlist源码并启动；异常/CAS失配保持停止，保留部分备份，重试换新文件名。脚本、日志、转换计数和哈希保留；就绪/API/QQ/worker检查后，仅撤销本次暂停，保留期间其他原因的暂停。详见归档change的deployment.md。

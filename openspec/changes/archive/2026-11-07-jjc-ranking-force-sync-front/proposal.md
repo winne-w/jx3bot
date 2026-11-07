@@ -16,4 +16,4 @@
 
 ## Approval
 
-用户已确认方案并要求按 TDD 细化实现；本次按 tasks.md 推进，完成后由子 agent 独立审阅。生产部署仍需后续授权。
+用户已确认方案并要求按 TDD 细化实现；本次按 tasks.md 推进，完成后由子 agent 独立审阅。用户随后已明确授权 commit 与发布；已完成，见 deployment.md。

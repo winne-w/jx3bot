@@ -4,7 +4,7 @@
 
 ## Purpose / Big Picture
 
-用户已于 2026-11-07 确认 design.md，要求按 TDD 细化并实现，完成后调用子 agent 审阅方案、计划及实现。本次将该指令作为按已确认方案推进 TDD 的执行授权；不包含生产部署。
+用户已于 2026-11-07 确认 design.md，要求按 TDD 细化并实现，完成后调用子 agent 审阅方案、计划及实现。本次将该指令作为按已确认方案推进 TDD 的执行授权；用户随后明确授权开发、测试、review、commit 与生产发布，均已执行。
 
 每轮统计对有效成员重新请求最近 14 天对局同步；新批次位于所有未领取任务之前，运行中任务在释放后合并重排。
 
@@ -18,7 +18,10 @@
 - [x] 真实隔离 Mongo 并发/排序测试与相关回归。
 - [x] 同步数据库、项目上下文、运行手册及规格。
 - [x] 完成后调用子 agent 独立评审；修复发现并复测。
-- [x] 写验收结果，保持未部署状态。
+- [x] 写本地验收结果。
+- [x] 选择性提交、独立快照验证与生产基线候选验证。
+- [x] 完成生产发布、线上冒烟与原暂停状态恢复。
+- [x] 更新规格基线、归档 change 与提交发布记录。
 
 ## Surprises & Discoveries
 
@@ -38,7 +41,7 @@ ranking 请求以 status 和“ranking_request_order 为空或小于本请求”
 
 ## Outcomes & Retrospective
 
-已完成两轮核心 Red/Green，并补充入口及人工优先级竞态 Red/Green。Python 3.13.2 与 Python 3.9.25 各 388 项回归通过，独立评审后各补 3 项定向用例通过，累计 391 项，其中 9 项真实隔离 Mongo；三路初评及两路复评通过，两个 P3 已闭环。不触碰现有身份恢复、离线任务、武器白名单等无关改动。
+已完成两轮核心 Red/Green，并补充入口及人工优先级竞态 Red/Green。Python 3.13.2 与 Python 3.9.25 各 388 项回归通过，独立评审后各补 3 项定向用例通过，累计 391 项，其中 9 项真实隔离 Mongo；三路初评及两路复评通过，两个 P3 已闭环。不触碰现有身份恢复、离线任务、武器白名单等无关改动。独立提交快照与生产候选均验证通过，生产382项通过；5文件发布、QQ/API/索引及4worker验收通过，单角色队首请求由真实worker完成。详见deployment.md。
 
 ## Context and Orientation
 
@@ -68,10 +71,10 @@ src/storage/mongo_repos/jjc_sync_repo.py 负责 identity 主队列及 legacy fal
 
 ## Validation and Acceptance
 
-test-plan.md 的状态、幂等、排序和竞态用例全部通过。必须有真实隔离 Mongo 证据，不以 fake 代替 Mongo 原子性证明。当前环境不能验证生产吞吐和真实上游时延，最终验收明确未部署。
+test-plan.md 的状态、幂等、排序和竞态用例全部通过。必须有真实隔离 Mongo 证据，不以 fake 代替 Mongo 原子性证明。当前环境不能验证生产吞吐和真实上游时延，生产有界冒烟与启动验收通过，吞吐和真实千人统计耗时不作已验证承诺。
 
-部署步骤供后续授权执行：暂停消费者并停旧 bot/worker，发布同版及新增索引，启动后用两轮统计观察排序和重排。回滚先停消费者，将 ranking_pending 物化为普通 queued 任务，清 front/pending 后回退代码；保留 request_order 审计及已有数据，不删队列、身份或比赛。
+已授权并完成的部署步骤：暂停消费者并停旧 bot/worker，发布同版及新增索引，启动后用两轮统计观察排序和重排。回滚先停消费者，将 ranking_pending 物化为普通 queued 任务，清 front/pending 后回退代码；保留 request_order 审计及已有数据，不删队列、身份或比赛。
 
 实际 Python 3.9 命令使用已有隔离环境 `/tmp/jjc-kungfu-python39/bin/python`；首次误选空环境的导入失败不算业务测试失败，改用已具备依赖的环境后同一回归集通过。
 
-复评新增用例：test_request_retries_if_worker_claims_between_read_and_update、test_new_request_competes_with_worker_claim、test_new_client_and_repo_restore_persisted_pending_after_consumer_restart。两版本各补测3项通过，生产代码未变，未重复整跑已通过的388项。消费者重建验证为新client/repo级别，不宣称OS完整进程或上游集成。测试用Mongo已关闭，日志保留；本地验收完成，change保留待提交/发布。
+复评新增用例：test_request_retries_if_worker_claims_between_read_and_update、test_new_request_competes_with_worker_claim、test_new_client_and_repo_restore_persisted_pending_after_consumer_restart。两版本各补测3项通过，生产代码未变，未重复整跑已通过的388项。消费者重建验证为新client/repo级别，不宣称OS完整进程或上游集成。测试用Mongo已关闭，日志保留；本地验收完成，实现已提交并发布，change归档，完整证据见deployment.md。

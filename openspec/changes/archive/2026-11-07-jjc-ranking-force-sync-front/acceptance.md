@@ -1,6 +1,6 @@
-# 本地实现验证记录
+# 实现、测试与发布验收记录
 
-日期：2026-11-07。业务方案已确认，按用户要求执行 TDD。生产未部署；三路子 agent 独立初评与两路定向复评已完成，本次范围 PASS。
+日期：2026-11-07。业务方案已确认，按用户要求执行 TDD。已完成生产发布与验收（见 deployment.md）；三路子 agent 独立初评与两路定向复评已完成，本次范围 PASS。
 
 Red：核心 8 个行为用例在新增请求接口、队首排序及重排行为上失败；统计 unknown/同轮上下文 2 项失败；QQ 与定时入口上下文 2 项失败；人工优先级并发保持 2 项失败。相关 Green 均已通过。
 
@@ -33,3 +33,7 @@ JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/ .venv/bin/python -m unittest tests
 从选择性暂存树导出独立快照（不含其他任务未提交文件）：Python 3.13 372 项通过；Python 3.9 381 项通过（含 9 项真实隔离 Mongo）。日志 `/tmp/jjc-front-clean-snapshot.log`、`/tmp/jjc-front-clean-snapshot39.log`。
 
 生产私有回滚转换脚本已在 loopback:27029 随机测试库演练两队列 pending 物化、最新参数、更高人工 priority、审计/水位保留、disabled 不复活、普通在途租约保持及重复执行；全部通过。该转换尚未在生产执行。
+
+## 生产验收
+
+实现提交e1ee55e已推送并发布，生产候选382项通过，启动/API/QQ/新索引/4worker及实际角色重新同步验证通过。完整对照测试、上线观察与回滚证据见 [deployment.md](deployment.md)。
