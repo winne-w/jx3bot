@@ -4,6 +4,8 @@
 
 ## Active
 
+- `active/jjc-cangsheng-legendary-weapons-plan.md`: 新 50 级大橙武白名单追加与无小橙武兼容验证
+
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Active OpenSpec

@@ -153,6 +153,10 @@ python -m py_compile <相关 service/storage 文件>
 
 ### JJC 当前赛季
 
+JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名称命中 `config.JJC_LEGENDARY_WEAPON_NAMES` 判断。白名单保留旧等级 28 个名称，并追加苍生铸世新 50 级 33 个名称；无需小橙武排除配置。无名称或未知名称不算大橙武。两个排名页面的 `LEGENDARY_WEAPON_NAMES` 与后端配置同步，名称变更需同时更新三个位置。新生成的统计使用新配置，已保存的 `legendary_count_map` 不自动重算；部署后重启后端以载入配置。
+
+验证：`.venv/bin/python -m unittest tests.test_jjc_weapon_quality tests.test_jjc_data_center_navigation tests.test_jjc_ranking_stats_frontend tests.test_jjc_kungfu_display`。武器测试实际运行 Node 校验前后端全部名称及空值判断，覆盖 summary、图片占比和紫武筛选。
+
 当前 `config.py` 使用“苍生铸世”赛季，`CURRENT_SEASON_START="2026-11-05"` 为竞技场开放日期（北京时间零点边界），用于排名周次、同步窗口、角色对局查询、参与者投影和最新对局刷新。周次沿用周一换周规则：2026-11-02 至 11-08 所在周为第 1 周，11-09 起为第 2 周。资料片于 10-29 公测，不使用该日期计算竞技场周次。修改配置后须重启 bot 与独立 worker；前端赛季名称和周次从统计快照读取，新赛季快照生成后自动展示。
 
 对局历史仅展示当前赛季：排名角色近期查询（含缓存及预热）按开赛时间过滤，无时间记录不展示；近期缓存的赛季名称及起点必须与当前配置一致。上游时间倒序历史进入旧赛季后停止分页。心法对阵查询在仓储统计前截断跨赛季区间，已同步列表按赛季名称和比赛时间双重过滤。旧赛季原始数据和历史排名快照仍保留，无需清库。
