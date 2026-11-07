@@ -153,7 +153,7 @@ python -m py_compile <相关 service/storage 文件>
 
 ### JJC 当前赛季
 
-JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名称命中 `config.JJC_LEGENDARY_WEAPON_NAMES` 判断。白名单保留旧等级 28 个名称，并追加苍生铸世新 50 级 33 个名称；无需小橙武排除配置。无名称或未知名称不算大橙武。两个排名页面的 `LEGENDARY_WEAPON_NAMES` 与后端配置同步，名称变更需同时更新三个位置。新生成的统计使用新配置，已保存的 `legendary_count_map` 不自动重算；部署后重启后端以载入配置。
+JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名称命中 `config.JJC_LEGENDARY_WEAPON_NAMES` 判断。白名单保留旧等级 28 个名称，并追加苍生铸世新 50 级 33 个名称；无需小橙武排除配置。无名称或未知名称不算大橙武。两个排名页面的 `LEGENDARY_WEAPON_NAMES` 与后端配置同步，名称变更需同时更新三个位置。新生成的统计使用新配置，已保存的 `legendary_count_map` 不自动重算；部署后重启后端以载入配置。2026-11-07 已发布生产白名单和两个排名页面并重启验收，4 个内部 worker 已恢复同步；发布记录见 `docs/exec-plans/completed/jjc-cangsheng-legendary-weapons-plan.md`。
 
 验证：`.venv/bin/python -m unittest tests.test_jjc_weapon_quality tests.test_jjc_data_center_navigation tests.test_jjc_ranking_stats_frontend tests.test_jjc_kungfu_display`。武器测试实际运行 Node 校验前后端全部名称及空值判断，覆盖 summary、图片占比和紫武筛选。
 

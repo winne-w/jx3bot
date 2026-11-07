@@ -4,8 +4,6 @@
 
 ## Active
 
-- `active/jjc-cangsheng-legendary-weapons-plan.md`: 新 50 级大橙武白名单追加与无小橙武兼容验证
-
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Active OpenSpec
@@ -15,6 +13,8 @@
 - `../../openspec/changes/jjc-role-identity-recovery/tasks.md`: 角色查询 ID 最小修复的 TDD 操作计划；用户已批准，子agent开发/独立review闭环中，发布与线上验收待门禁通过。唯一计划位于 change，不在 active 下另建副本。
 
 ## Completed
+
+- `completed/jjc-cangsheng-legendary-weapons-plan.md`: 新 50 级 33 个大橙武名称追加、空值兼容验证及生产发布验收
 
 - `completed/jjc-cangsheng-season-config-plan.md`: 苍生铸世赛季配置及对局历史隔离，11-05 开赛当周为第一周；本地 342 项通过，生产 339 项通过及 3 项既有差异已复核，已发布验收
 
