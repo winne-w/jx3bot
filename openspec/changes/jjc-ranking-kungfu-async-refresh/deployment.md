@@ -37,3 +37,11 @@
 重启后文件哈希一致、Mongo健康及sync status/workers API均业务成功、QQ已连接、RestartCount0、Traceback0、心法消费者退出0。完整战绩同步paused=true，pause_reason为推栏战局历史http_status_403，暂停时间2026-11-07 00:42:37北京时间早于本次重启，保留既有鉴权暂停；worker_running/background_running均true。未强制恢复同步，未再次向群发送重算指令。证据为生产私有发布目录的manifest.json、candidate-tests.log、readiness.json和post-health.json。
 
 前次用户授权的群内真实重算已完成：2026-11-06 22:21:33保存快照，22:21:52在“这不能有bug吧”群回复976条有效数据。各范围有效/未知为976/24、194/6、97/3、49/1，证实缓存缺失直接补查后产生了实际统计；未知仍来自真实查询/身份校验失败。
+
+## 2026-11-07 网页与随机等待发布
+
+已提交、推送并发布a553485，2026-11-07 09:42:46北京时间重启。只增量更新`src/infra/tuilan_kungfu_client.py`、`public/index.html`与`public/jjc-ranking-stats.html`三个运行文件；上线前逐文件确认生产基线，备份和manifest保存在生产私有发布目录`kungfu-web-random-a553485/`。候选使用生产Python3.9.9执行client与展示23项全部通过，本地双Python各65项通过，独立子agent定向40项通过。需要回滚时仅恢复backup中这三文件并重启，保留配置与数据库。
+
+重启后运行文件哈希一致，runtime_config.json字节不变，Mongo连接/API及QQ恢复，RestartCount0、Traceback0、心法消费者退出0。生产实际实例化client的request_delay为(1,3)，每个HTTP请求前随机异步等待，包含首次和跨角色；空队列2秒等待保留。完整同步403暂停的reason/updated_at/paused与发布前完全一致，没有强制恢复；worker/background均运行。
+
+公网两个入口HTTP200且SHA256与候选完全一致。Chromium读取实际快照，摘要显示覆盖97.6%/97.0%/97.0%/98.0%及未知24/6/3/1，无新鲜/待刷新/时效；实际部署的renderDetailContent和buildDistributionExportMarkup也执行通过，覆盖率和装备提示保留，JavaScript错误0。未发送群消息、未触发拉榜、未修改历史快照。证据留candidate-tests.log/readiness.json/post-health.json/before-sync.json。GitHub初始SSH连接失败，随后使用公开DNS解析地址且保留严格主机密钥校验后推送成功。
