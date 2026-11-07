@@ -755,7 +755,7 @@ async def push_daily_jjc_ranking():
                 ranking_result=ranking_result,
                 stats=stats,
                 week_info=week_info,
-                payload=ranking_data if any(key in ranking_data for key in ("kungfu_cache_scope", "refresh_degraded")) else payload,
+                payload=ranking_data if any(key in ranking_data for key in ("kungfu_cache_scope", "refresh_degraded", "_sync_request")) else payload,
             )
 
             summary_text = (

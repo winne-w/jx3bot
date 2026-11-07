@@ -15,7 +15,7 @@ class AsyncMemoryCursor:
     def _sort_value(doc: Dict[str, Any], field: str, direction: int) -> Any:
         value = doc.get(field)
         if value is None:
-            return float("-inf") if direction < 0 else float("inf")
+            return float("-inf")
         return value
 
     def sort(self, key_or_list: Any, direction: Optional[int] = None) -> "AsyncMemoryCursor":
@@ -26,7 +26,7 @@ class AsyncMemoryCursor:
 
         for field, sort_direction in reversed(sort_spec):
             self._docs.sort(
-                key=lambda doc: self._sort_value(doc, field, sort_direction),
+                key=lambda doc: (doc.get(field) is not None, doc.get(field) if doc.get(field) is not None else 0),
                 reverse=sort_direction < 0,
             )
         return self
@@ -61,7 +61,7 @@ class MemoryCollection:
         if operator == "$ne":
             return value != expected
         if operator == "$gt":
-            return value is not None and isinstance(value, (int, float)) and value > expected
+            return value is not None and value > expected
         if operator == "$lte":
             return value is not None and value <= expected
         if operator == "$lt":
@@ -415,7 +415,7 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queued["queue_sync_until_time"], 1770000000)
         self.assertEqual(queued["season_id"], "赛季")
 
-    async def test_enqueue_ranking_member_skips_existing_priority_at_least_one(self) -> None:
+    async def test_enqueue_ranking_member_preserves_high_priority_and_requeues(self) -> None:
         db = MemoryDb(roles=[
             {
                 "identity_key": "global:SK01-A",
@@ -442,11 +442,11 @@ class TestJjcSyncWorkerQueue(unittest.IsolatedAsyncioTestCase):
             batch_id="ranking_stats:2",
         )
 
-        self.assertIsNone(queued)
+        self.assertIsNotNone(queued)
         doc = db.jjc_sync_role_queue.docs[0]
-        self.assertEqual(doc["status"], "cooldown")
+        self.assertEqual(doc["status"], "queued")
         self.assertEqual(doc["priority"], 100)
-        self.assertNotIn("priority_updated_by", doc)
+        self.assertEqual(doc["priority_updated_by"], "ranking_stats")
 
     async def test_enqueue_ranking_member_raises_existing_zero_priority_to_one(self) -> None:
         db = MemoryDb(roles=[

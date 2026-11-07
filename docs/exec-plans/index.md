@@ -8,6 +8,7 @@
 
 ## Active OpenSpec
 
+- `../../openspec/changes/jjc-ranking-force-sync-front/tasks.md`: 每轮排名统计成员重新入队并从队首优先同步；TDD 本地实现完成；双版本各累计391项（含9项真实Mongo）验证通过，三路子agent初评及定向复评通过；未提交、未部署。
 - `../../openspec/changes/jjc-ranking-kungfu-async-refresh/tasks.md`: 排名心法缓存优先与后台刷新；角色心法属性、独立队列与两步发布已实现并上线启用，TDD/独立审核通过，首轮预热及后续快照验收进行中。
 
 - `../../openspec/changes/jjc-role-identity-recovery/tasks.md`: 角色查询 ID 最小修复的 TDD 操作计划；用户已批准，子agent开发/独立review闭环中，发布与线上验收待门禁通过。唯一计划位于 change，不在 active 下另建副本。

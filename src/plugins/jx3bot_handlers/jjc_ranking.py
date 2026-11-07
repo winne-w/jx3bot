@@ -93,7 +93,7 @@ def register(
                 await bot.send(event, "心法统计数据为空，无法生成统计图片")
                 return
 
-            if any(key in result for key in ("kungfu_cache_scope", "refresh_degraded")):
+            if any(key in result for key in ("kungfu_cache_scope", "refresh_degraded", "_sync_request")):
                 save_ranking_stats(ranking_result, stats, week_info, payload=result)
             else:
                 save_ranking_stats(ranking_result, stats, week_info)

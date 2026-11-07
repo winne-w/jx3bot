@@ -1315,7 +1315,8 @@ class GetRankingKungfuDataImmediateSyncQueueTests(unittest.TestCase):
         self.assertEqual(sync_instances[0].calls[0]["kwargs"]["priority"], 1)
         self.assertEqual(sync_instances[0].calls[0]["kwargs"]["source"], "ranking_stats")
         self.assertEqual(sync_instances[0].calls[0]["kwargs"]["mode"], "full")
-        self.assertEqual(sync_instances[0].calls[0]["kwargs"]["batch_id"], "ranking_stats:1777426656")
+        self.assertTrue(sync_instances[0].calls[0]["kwargs"]["batch_id"].startswith("ranking_stats:"))
+        self.assertEqual(sync_instances[0].calls[0]["kwargs"]["request_order"], result["_sync_request"]["order"])
         self.assertIsInstance(sync_instances[0].calls[0]["kwargs"]["queue_sync_until_time"], int)
 
 

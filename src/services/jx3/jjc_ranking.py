@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
+from uuid import uuid4
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
@@ -811,6 +812,7 @@ class JjcRankingService:
                 timestamp=ranking_timestamp,
                 summary_payload=summary_payload,
                 detail_payloads=detail_payloads,
+                sync_request=(payload or {}).get("_sync_request"),
             )
 
             logger.info("保存竞技场统计到 Mongo: timestamp={} details={}", ranking_timestamp, len(detail_payloads))
@@ -890,13 +892,21 @@ class JjcRankingService:
                     })
         return detail_payloads
 
+    @staticmethod
+    def _new_sync_request() -> Dict[str, Any]:
+        order = "{:020d}:{}".format(time.time_ns(), uuid4().hex)
+        return {"order": order, "batch_id": "ranking_stats:" + order,
+                "until": int(time.time()) - 14 * 86400}
+
     def _save_ranking_stats_to_mongo(
         self,
         *,
         timestamp: int,
         summary_payload: Dict[str, Any],
         detail_payloads: List[Dict[str, Any]],
+        sync_request: Optional[Dict[str, Any]] = None,
     ) -> Optional[asyncio.Task]:
+        sync_request = sync_request or self._new_sync_request()
         async def _save() -> None:
             try:
                 await JjcRankingStatsRepo().save_snapshot(
@@ -908,6 +918,7 @@ class JjcRankingService:
                 await self._enqueue_ranking_members_for_sync(
                     detail_payloads=detail_payloads,
                     timestamp=timestamp,
+                    sync_request=sync_request,
                 )
             except Exception as exc:
                 logger.warning("保存竞技场统计到 Mongo 失败: timestamp={} error={}", timestamp, exc)
@@ -924,12 +935,14 @@ class JjcRankingService:
         *,
         detail_payloads: List[Dict[str, Any]],
         timestamp: int,
+        sync_request: Optional[Dict[str, Any]] = None,
     ) -> None:
         repo = JjcSyncRepo()
         seen: set[str] = set()
         enqueued_count = 0
-        batch_id = "ranking_stats:{}".format(timestamp)
-        queue_sync_until_time = int(time.time()) - 14 * 86400
+        sync_request = sync_request or self._new_sync_request()
+        batch_id = sync_request["batch_id"]
+        queue_sync_until_time = sync_request["until"]
         for detail in detail_payloads:
             for member in detail.get("members") or []:
                 if not isinstance(member, dict):
@@ -949,6 +962,7 @@ class JjcRankingService:
                     repo=repo,
                     batch_id=batch_id,
                     queue_sync_until_time=queue_sync_until_time,
+                    request_order=sync_request["order"],
                 )
                 if queued:
                     enqueued_count += 1
@@ -966,6 +980,7 @@ class JjcRankingService:
         repo: JjcSyncRepo,
         batch_id: str,
         queue_sync_until_time: int,
+        request_order: Optional[str] = None,
     ) -> bool:
         try:
             queued = await repo.enqueue_ranking_member(
@@ -977,6 +992,8 @@ class JjcRankingService:
                 source="ranking_stats",
                 batch_id=batch_id,
                 queue_sync_until_time=queue_sync_until_time,
+                request_order=request_order,
+                rank=int(member.get("rank") or 0),
             )
             return queued is not None
         except Exception as exc:
@@ -1000,10 +1017,7 @@ class JjcRankingService:
         tracked_rank_limit = 1000 if total_players >= 1000 else 200
         if rank > tracked_rank_limit:
             return False
-        if not member.get("found") or not member.get("kungfu"):
-            return False
-        kungfu = member.get("kungfu")
-        return kungfu in self.kungfu_healer_list or kungfu in self.kungfu_dps_list
+        return True
 
     def _coerce_season_start_time(self) -> int:
         try:
@@ -1245,6 +1259,7 @@ class JjcRankingService:
             if not data_list:
                 return {"error": True, "message": "排行榜数据为空"}
 
+            sync_request = self._new_sync_request()
             historical = ranking_data.get("explicit_tag") is True
             use_local = bool(getattr(cfg, "JJC_RANKING_KUNGFU_CACHE_ENABLED", 0)) and not historical
             refresh_enabled = bool(getattr(cfg, "JJC_KUNGFU_REFRESH_ENABLED", 0)) and not historical
@@ -1271,10 +1286,9 @@ class JjcRankingService:
 
             total_players = len(data_list)
             logger.info(f"竞技场排行榜总人数: {total_players}")
-            ranking_timestamp = int(ranking_data.get("cache_time") or time.time())
             sync_repo = JjcSyncRepo()
-            sync_batch_id = "ranking_stats:{}".format(ranking_timestamp)
-            sync_until_time = int(time.time()) - 14 * 86400
+            sync_batch_id = sync_request["batch_id"]
+            sync_until_time = sync_request["until"]
 
             for i, player in enumerate(data_list):
                 person_info = player.get("personInfo", {})
@@ -1321,6 +1335,7 @@ class JjcRankingService:
                         kungfu_info.get("match_history_win_samples"),
                     )
                 ranking_member = {
+                    "rank": i + 1,
                     "server": server,
                     "name": name,
                     "score": score,
@@ -1366,6 +1381,7 @@ class JjcRankingService:
                         repo=sync_repo,
                         batch_id=sync_batch_id,
                         queue_sync_until_time=sync_until_time,
+                        request_order=sync_request["order"],
                     )
 
                 if kungfu_info.get("found") and kungfu_info.get("kungfu"):
@@ -1522,15 +1538,16 @@ class JjcRankingService:
                         logger.info(f"invalid: {detail}")
 
                 actual_count = len(player_data[:max_rank])
-                cache_metadata = {}
+                cache_metadata = {"unknown_members": [dict(item, rank=index + 1)
+                    for index, item in enumerate(player_data[:max_rank]) if not item.get("found")
+                    or item.get("kungfu") not in healer_kungfu + dps_kungfu]}
                 if use_local:
                     counts = {key: sum(item.get("kungfu_freshness") == key for item in player_data[:max_rank])
                               for key in ("fresh", "stale", "unknown")}
                     cache_metadata = {
                         "kungfu_cache": dict(counts, total=actual_count,
                             coverage=(counts["fresh"] + counts["stale"]) / actual_count if actual_count else None),
-                        "unknown_members": [dict(item, rank=index + 1) for index, item in
-                                            enumerate(player_data[:max_rank]) if not item.get("found")],
+                        "unknown_members": cache_metadata["unknown_members"],
                     }
                 return {
                     **cache_metadata,
@@ -1567,6 +1584,7 @@ class JjcRankingService:
             kungfu_stats["top_50"] = count_kungfu_by_rank(kungfu_results, 50)
 
             result: dict[str, Any] = {
+                "_sync_request": sync_request,
                 "kungfu_statistics": kungfu_stats,
                 "ranking_kungfu_lines": ranking_kungfu_lines,
                 "missing_kungfu_lines": missing_kungfu_lines,

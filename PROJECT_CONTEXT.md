@@ -187,3 +187,11 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 当前默认关闭的 `JJC_RANKING_KUNGFU_CACHE_ENABLED` 控制缓存优先统计，`JJC_KUNGFU_REFRESH_ENABLED` 独立控制bot内单消费者。结果归 `role_identities.jjc_kungfu`，长期任务归独立 `jjc_kungfu_refresh_queue`；先条件发布角色后确认任务，租约/token/角色级generation提供至少一次恢复，不用事务/control/心跳。缓存未命中按排名逐个直接查询并等待，成功写回角色且计入本轮，真实查询失败保留未知；显式历史tag沿用旧路径。scope切换先停旧消费者、统一配置重启；任务不可TTL/归零重建，发现版本完整性异常先停旧写入实例再恢复。
 
 新client只拉indicator/history，复用共享签名构造与异步HttpClient，service共享纯心法判定，singletons仅装配且按需校验配置。默认6小时刷新、24小时最大可用、48小时上榜追踪，可覆盖的三个环境变量分别为 `JJC_KUNGFU_REFRESH_SECONDS`、`JJC_KUNGFU_MAX_STALE_SECONDS`、`JJC_KUNGFU_TRACK_SECONDS`。仅一个部署实例启用消费者，Mongo原子领取不保证多实例全局请求限速。配置/回滚与测试见README、runbook及change；2026-11-06已按用户授权发布并开启生产两开关，初始预热持续进行；生产时效和覆盖率以实际快照为准，发布证据见change内deployment.md。
+
+### JJC 排名统计强制队首同步
+
+每次实际排名统计为范围内有效角色发起独立同步请求，包含心法未知成员；同轮即时与保存补偿共用运行标识，复用榜单 cache_time 的下一轮仍可重新排队。冷却/完成/失败立即 queued，已排队移动至最新排名批次队首；不因 priority>=1 跳过。禁用角色仍跳过，syncing 仅持久化最新待请求，在有效租约释放或过期恢复时合并补排一次，不抢占当前执行。全局暂停仍生效，查询保存快照不入队。
+
+主/兼容队列增加四个调度字段与 idx_status_ranking_front；最新排名批次、原始名次优先于普通 priority/FIFO，列表/位置/领取一致。同步仍从最新页查最近14天并按当前赛季截断、复用已有详情。实现记录：openspec/changes/jjc-ranking-force-sync-front；本次仅本地实现与隔离验证，未发布生产。需统一更新 bot/独立 worker，停旧消费者后升级；不能混用新生产者与旧 worker。回滚先物化 pending 为普通 queued，详见 runbook。
+
+验证：`.venv/bin/python -m unittest tests.test_jjc_ranking_force_sync tests.test_jjc_sync_worker_queue tests.test_jjc_match_data_sync tests.test_jjc_ranking_stats_repo tests.test_jjc_ranking_command_tag`。真实 Mongo：`JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/ .venv/bin/python -m unittest tests.test_jjc_ranking_force_sync_mongo`，仅允许该显式本地隔离端口与随机测试库。

@@ -295,6 +295,12 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await _safe_index("role_jjc_cache", "checked_at", name="idx_checked_at", expireAfterSeconds=604800)
 
     # jjc_sync_role_queue
+    await _safe_index(
+        "jjc_sync_role_queue",
+        [("status", 1), ("queue_front_order", -1), ("queue_front_rank", 1),
+         ("priority", -1), ("queued_at", 1), ("identity_key", 1), ("_id", 1)],
+        name="idx_status_ranking_front",
+    )
     await _safe_index("jjc_sync_role_queue", "identity_key", name="idx_identity_key", unique=True)
     await _safe_index(
         "jjc_sync_role_queue",
@@ -316,6 +322,12 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await _safe_index("jjc_sync_role_queue", "lease_expires_at", name="idx_lease_expires_at")
 
     # jjc_sync_identity_queue
+    await _safe_index(
+        "jjc_sync_identity_queue",
+        [("status", 1), ("queue_front_order", -1), ("queue_front_rank", 1),
+         ("priority", -1), ("queued_at", 1), ("identity_key", 1), ("_id", 1)],
+        name="idx_status_ranking_front",
+    )
     await _safe_index("jjc_sync_identity_queue", "identity_id", name="idx_identity_id", unique=True)
     await _safe_index("jjc_sync_identity_queue", "identity_key", name="idx_identity_key")
     await _safe_index(

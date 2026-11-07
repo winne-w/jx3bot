@@ -80,6 +80,11 @@ class JjcRankingCommandTagTests(unittest.IsolatedAsyncioTestCase):
         self.combined.assert_not_awaited()
         self.assertTrue(any("测试角色：天策" in call.args[1] for call in self.bot.send.await_args_list))
 
+    async def test_sync_request_context_is_forwarded_without_cache_feature_flags(self):
+        self.kungfu.return_value["_sync_request"] = {"order": "request", "until": 14}
+        await self.invoke("竞技排名统计")
+        self.assertEqual(self.save.call_args.kwargs.get("payload"), self.kungfu.return_value)
+
     async def test_omitted_tag_keeps_no_argument_query(self) -> None:
         await self.invoke("竞技排名统计 缓存心法")
         self.query.assert_awaited_once_with()

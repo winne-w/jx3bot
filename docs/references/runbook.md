@@ -415,3 +415,13 @@ curl -X POST "https://qike.rickchen.cn/jx3bot/api/jjc/ranking-stats/synced-role-
 ### 心法缓存缺失直接查询（2026-11-06修订）
 
 当前统计开关开启后，缓存命中沿用角色画像，缺失逐个等待直接查询并计入本次统计。后台关闭不阻止该查询；真实鉴权/限流冷却和数据失败仍可留下未知。直接查询先预留角色发布代次，不依赖后台轮转，队列确认异常按租约恢复。可在隔离榜单验证冷查询成功写回role_identities.jjc_kungfu，第二次查询零心法外呼；无安全身份不强行合并。旧“冷热均不外呼”验收条件已被替代。装备资料不完整时紫武列表仍隐藏，不据此判断心法全空。
+
+## 排名统计成员重新从队首同步
+
+本地实现见 `openspec/changes/jjc-ranking-force-sync-front/`，当前尚未部署。只有实际执行排名统计会触发；查看已保存网页不会触发。每轮有效角色（包括心法未知）在 cooldown/exhausted/failed/pending 时立即入队，queued 时更新到队首，syncing 时等待本轮释放后合并补排。最新排名批次先于普通高 priority 任务，不抢占正在执行的 worker，不绕过全局暂停或 disabled。查询历史仍使用最近14天及赛季边界，复用已有详情。
+
+离线回归：`.venv/bin/python -m unittest tests.test_jjc_ranking_force_sync tests.test_jjc_sync_worker_queue tests.test_jjc_match_data_sync tests.test_jjc_ranking_stats_repo tests.test_jjc_ranking_command_tag tests.test_status_monitor_jobs_offline_statistics`。真实并发验证须显式 `JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/` 运行 `tests.test_jjc_ranking_force_sync_mongo`；测试仅删除自己创建的随机 `jjc_sync_front_test_` 库，不得指向生产。
+
+后续授权发布时：先停止所有 bot 及独立同步 worker（含统计生产者），统一代码与配置，初始化两队列新增 `idx_status_ranking_front`，确认排序定义与 database-design.md 一致，再恢复进程。两轮实际统计观察同 cache_time 的不同 queue_batch_id；验证冷却/失败立即 queued、最新批次排位、syncing 当前租约不变、释放后只补排一次；全局暂停时确认没有上游调用。页面筛选 queued 后应与 worker 领取顺序一致。
+
+回滚准备须在停止所有相关进程后执行：逐条读取队列，有 ranking_pending 的记录将其待执行窗口/赛季/source/batch 等字段合并到当前记录，置 queued，清 next_sync_after 和租约；将 queue_front_order、queue_front_rank、ranking_pending 统一清为 null，保留 ranking_request_order、比赛、水位及失败审计。先核对 pending 数与转换成功数一致、剩余 pending 为零，再切回旧版本恢复进程。没有 pending 的运行中任务沿用既有租约过期恢复。保留新增索引，不删除身份、队列、对局或旧索引。该转换尚未在生产执行；需在隔离副本验证每条记录后再发布/回滚。

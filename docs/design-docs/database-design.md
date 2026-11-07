@@ -1089,3 +1089,20 @@
 ### 心法缓存缺失直接查询的存储约定（2026-11-06修正）
 
 不新增集合或字段。`jjc_kungfu_refresh_queue.claim_identity` 供统计直接查询按角色_id/scope预留新的generation和token，无视next_run_at/已有running；当前调用立即执行，旧token不能确认新任务。与后台共享角色条件发布和先发布后确认协议。直接查询确认异常时可读回同generation/scope的角色成功值用于本次统计，队列保持租约恢复。冷角色不再只交后台后以unknown完成统计；已有缓存仍批量登记周期刷新。
+
+### JJC 排名统计触发的队首同步（2026-11-07）
+
+`jjc_sync_identity_queue`（主路径）与 `jjc_sync_role_queue`（兼容路径）新增以下非 TTL 字段；读写仍归 `JjcSyncRepo`，不新增集合或迁移删除。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `ranking_request_order` | string/null | 本角色最后接受的排名请求；固定宽度 Unix 纳秒加随机运行 ID，同轮保留以去重，较旧请求不能覆盖 |
+| `ranking_pending` | object/null | 仅 syncing 时保存最新待重排参数；含 queue_mode/source/batch_id/until、season、priority 及 front；不改变当前执行参数 |
+| `queue_front_order` | string/null | 未消费排名批次的顺序；最新优先，普通任务缺失或为 null |
+| `queue_front_rank` | int/null | 同批次按原始榜单名次升序；普通任务缺失或为 null |
+
+两集合新增 `idx_status_ranking_front`：`status ASC, queue_front_order DESC, queue_front_rank ASC, priority DESC, queued_at ASC, identity_key ASC, _id ASC`。旧索引保留。worker 领取、队列分页的状态分组、位置计算共用上述顺序；普通记录缺新字段时继续按 priority/FIFO。Mongo 只在状态 queued 时领取，角色 next_sync_after 不阻止显式排名请求。
+
+每轮排名统计产生独立请求上下文，在 QQ/定时入口传给保存补偿；不依赖 cache_time 唯一性。同一角色非 disabled/syncing 时立即 queued，清角色冷却，保留失败审计与既有水位。syncing 只写 pending；有效租约释放 CAS 比较 request_order，有 pending 则发布本轮结果并 queued，否则按原冷却/失败规则释放并清 front。过期恢复逐文档执行同样 CAS，保留最新请求。ranking_request_order 不随成功清除，避免同轮保存补偿重复执行。
+
+回滚必须先停所有生产者和消费者，物化 pending 为普通 queued 并清 front/pending；不能仅回退旧 worker，否则 pending 无人处理。完整步骤见 runbook 与 change tasks.md。顺序使用部署主机时间，要求参与实例系统时钟同步；不提供跨主机独立时钟的全局顺序服务。
