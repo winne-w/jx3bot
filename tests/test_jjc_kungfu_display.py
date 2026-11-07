@@ -111,6 +111,7 @@ const escapeHtml = x => String(x);
             self.skipTest("Node is required for frontend behavior tests")
         page = Path("public/index.html").read_text()
         distribution = page[page.index("        function renderList("):page.index("        function buildFilteredStats(")]
+        details = page[page.index("        function renderDetailContent("):page.index("        async function ensureDetailLoaded(")]
         export = page[page.index("        function buildDistributionExportMarkup("):page.index("        function prepareDistributionExportClone(")]
         harness = """
 const assert = require('node:assert/strict');
@@ -120,6 +121,8 @@ const getOuterTabLabel = () => 'fixture';
 const escapeHtml = x => String(x);
 const showLegendaryOverlay = true;
 const grid = {innerHTML:'unchanged'};
+const currentOuterTab = 'all';
+const isLegendaryWeapon = () => false;
 """
         check = """
 const lane = Object.freeze({list:[['冰心诀',2]],valid_count:2,legendary_count_map:{'冰心诀':1},equipment_incomplete:true});
@@ -131,6 +134,8 @@ assert.equal(hasIncompleteEquipment(undefined,null,{}),false, 'legacy snapshots 
 assert.equal(hasIncompleteEquipment({equipment_incomplete:false}),false);
 assert.equal(grid.innerHTML,'unchanged','decision must not write the DOM');
 assert.match(renderKungfuCoverage(range),/装备数据不完整/);
+assert.match(renderKungfuCoverage(range),/心法覆盖 100.0% · 未知 0/);
+assert.equal(renderKungfuCoverage({}),'心法覆盖率未记录');
 const card = renderRangeCard('top_50','前50',range,'all');
 assert.match(card,/class="bar-legendary" style="width:0%"/);
 assert.deepEqual(buildFilteredLane(lane,'purple').list,[]);
@@ -139,7 +144,17 @@ assert.match(markup,/装备数据不完整/);
 assert.match(markup,/class="bar-legendary" style="width:0%"/);
 const legacy = {list:[['冰心诀',2]],valid_count:2,legendary_count_map:{'冰心诀':1}};
 assert.equal(buildFilteredLane(legacy,'purple').valid_count,1);
+for (const output of [renderKungfuCoverage(range),renderKungfuCoverage({}),card,markup]) {
+  assert.doesNotMatch(output,/新鲜|待刷新|时效/);
+}
+for (const state of ['fresh','stale','unknown',undefined]) {
+  const member = Object.freeze({rank:1,name:'测试角色',server:'测试服',kungfu_freshness:state,score:2800});
+  const detail = renderDetailContent([member]);
+  assert.match(detail,/测试角色/);
+  assert.match(detail,/2800/);
+  assert.doesNotMatch(detail,/新鲜|待刷新|时效/);
+}
 assert.equal(JSON.stringify(range),before,'rendering and filtering must not mutate snapshot input');
 """
-        result = subprocess.run([node,"-e",harness+distribution+export+check],capture_output=True,text=True)
+        result = subprocess.run([node,"-e",harness+details+distribution+export+check],capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr)

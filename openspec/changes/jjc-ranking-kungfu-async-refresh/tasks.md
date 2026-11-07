@@ -124,3 +124,9 @@
 2026-11-06 21点修复已发布93e9371。实际缺失角色已证client外呼，真实上游失败仍保留unknown；进程内60秒policy验证expired→直接查询/保存/本次采用→第二次零外呼成功。生产107候选通过，两开关1且配置字节不变；QQ/Mongo/完整同步正常，见deployment与cache-miss-validation。
 
 2026-11-07 QQ图片文案：现有合图测试先RED（2失败），最小修改共享coverage label及合图空数据fallback后GREEN；补齐legacy空范围及8拆分模板回归。Python3.13/3.9 display+navigation各14项通过，无skip，ranking_review只读独立复核通过。保留覆盖率和未知数，不改刷新/存储/API/网页。
+
+2026-11-07网页跟进计划：修改两份相同网页入口的renderKungfuCoverage与renderDetailContent，去除新鲜/待刷新/未记录时效，保留覆盖率、未知人数及装备提示；导出复用同一coverage函数。先更新现有Node行为用例验证摘要/详情/导出及legacy提示，再最小改代码。队列已有空转asyncio.sleep(2)及共享client跨请求2秒开始间隔，不重复追加等待；扩展现有假时钟测试验证两个连续角色仍限速。完成后双Python定向回归、独立子agent复核，增量发布两份静态页面并检查在线内容；不改数据库/配置/外呼策略。
+
+用户追加确认随机规则：现有排名逐角色路径random_sleep(1,3)，心法client改为每个实际HTTP请求前random.uniform(1,3)异步等待，包含首次请求/跨角色/前后台共享请求。移除固定2秒开始间隔及其monotonic记账，保留client串行锁、25秒总预算、空队列2秒轮询和401/429退避。测试以零延时范围隔离非限速用例，用确定随机序列验证实际请求前等待与取消；不引入额外限流框架。此约定替代上一段固定2秒保留计划。
+
+2026-11-07网页与随机等待完成：摘要/成员详情/导出统一隐藏时效，两个网页入口一致；client每请求前随机1～3秒，移除固定间隔状态，空队列2秒等待保持。展示行为测试先RED→GREEN，随机等待测试先RED→GREEN；Python3.13/3.9各65项通过，无skip，OpenSpec strict与diff检查通过。ranking_review独立Python3.9定向40项通过，确认取消/超时/串行及简洁性，无阻断。

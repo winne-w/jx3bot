@@ -2374,7 +2374,6 @@
                     >
                         <div class="detail-rank">#${member.rank ?? "-"}</div>
                         <div class="detail-name">
-                            <span class="muted">${escapeHtml(member.kungfu_freshness === "fresh" ? "心法新鲜" : member.kungfu_freshness === "stale" ? "心法待刷新" : member.kungfu_freshness === "unknown" ? "心法未知" : "未记录时效")}</span>
                             ${member.weapon_icon ? `<img class="detail-weapon${isLegendaryWeapon(member) ? " is-legendary" : ""}" src="${escapeHtml(member.weapon_icon)}" alt="weapon">` : ""}
                             <div>
                                 <div>${escapeHtml(member.name ?? "未知")}·${escapeHtml(member.server ?? "未知")}</div>
@@ -2468,10 +2467,10 @@
 
         function renderKungfuCoverage(stats) {
             const cache = stats.kungfu_cache;
-            if (!cache) return "未记录时效";
+            if (!cache) return "心法覆盖率未记录";
             const coverage = (Number(cache.coverage || 0) * 100).toFixed(1);
             const equipment = hasIncompleteEquipment(stats.healer, stats.dps);
-            return `心法覆盖 ${coverage}% · 新鲜 ${Number(cache.fresh || 0)} · 待刷新 ${Number(cache.stale || 0)} · 未知 ${Number(cache.unknown || 0)}${equipment ? " · 装备数据不完整，橙武/紫武统计暂不展示" : ""}`;
+            return `心法覆盖 ${coverage}% · 未知 ${Number(cache.unknown || 0)}${equipment ? " · 装备数据不完整，橙武/紫武统计暂不展示" : ""}`;
         }
 
         function renderRangeCard(rangeKey, rangeLabel, stats, outerTab) {

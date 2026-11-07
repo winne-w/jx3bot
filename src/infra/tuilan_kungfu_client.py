@@ -3,8 +3,9 @@ import asyncio
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 import math
+import random
 import time
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 from src.infra.http_client import HttpClient
 from src.utils.tuilan_request import build_tuilan_request
@@ -27,21 +28,20 @@ class TuilanKungfuClient:
 
     def __init__(
         self, *, clock: Callable[[], float] = time.time,
-        monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
-        request_interval: float = 2, request_timeout: float = 10,
+        request_delay: Tuple[float, float] = (1, 3), request_timeout: float = 10,
         attempt_timeout: float = 25, http_client: Optional[Any] = None,
     ) -> None:
-        if (not all(math.isfinite(value) for value in
-                    (request_interval, request_timeout, attempt_timeout))
-                or request_interval < 0 or request_timeout <= 0 or attempt_timeout <= 0):
+        if (len(request_delay) != 2 or not all(math.isfinite(value) for value in
+                    (*request_delay, request_timeout, attempt_timeout))
+                or not 0 <= request_delay[0] <= request_delay[1]
+                or request_timeout <= 0 or attempt_timeout <= 0):
             raise ValueError("invalid kungfu request budget")
-        self.clock, self.monotonic, self.sleep = clock, monotonic, sleep
-        self.request_interval = request_interval
+        self.clock, self.sleep = clock, sleep
+        self.request_delay = request_delay
         self.request_timeout, self.attempt_timeout = request_timeout, attempt_timeout
         self.http_client = http_client if http_client is not None else HttpClient(
             timeout=request_timeout, retries=0, verify=False)
-        self._last_request_started: Optional[float] = None
         self._query_lock: Optional[asyncio.Lock] = None
 
     async def query(self, identity: Dict[str, Any], scope: Dict[str, Any]) -> Dict[str, Any]:
@@ -57,12 +57,12 @@ class TuilanKungfuClient:
                 raise KungfuQueryError("attempt_timeout") from exc
 
     async def _request(self, url: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        if self._last_request_started is not None:
-            wait = self.request_interval - (self.monotonic() - self._last_request_started)
-            if wait > 0:
-                await self.sleep(wait)
+        # Match ranking lookups: wait a random 1–3 seconds before each request,
+        # including the first request and requests for the next queued role.
+        delay = random.uniform(*self.request_delay)
+        if delay > 0:
+            await self.sleep(delay)
         headers, body = build_tuilan_request(params)
-        self._last_request_started = self.monotonic()
         try:
             result = await asyncio.wait_for(
                 self.http_client.arequest_json(

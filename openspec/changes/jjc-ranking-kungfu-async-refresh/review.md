@@ -43,3 +43,5 @@ TDD先复现缺失未查询、并发client重叠、Python3.9导入时锁绑定�
 增量发布与实际上游验证已完成，线上证据见deployment.md及cache-miss-validation.json。冷榜耗时由缺失数和上游响应决定，不再引用旧全冷零外呼性能作为整次统计承诺。
 
 2026-11-07 QQ图片文案独立复核：ranking_review检查共享label、合图空数据fallback、8拆分模板及旧快照兼容，无遗漏或新增问题，改动范围适当；独立Python3.9 display/navigation 14项通过。仅只读检查，不访问生产。
+
+2026-11-07网页及随机sleep独立审核：ranking_review检查两网页入口摘要/详情/导出、client共享锁内每次HTTP前随机等待、首请求及跨角色、取消和总超时语义；删除monotonic记账使代码更直接，可注入零等待仅供隔离测试，无新增状态或过度设计。独立Python3.9展示/navigation/client/runtime40项通过，无阻断；不修改文件、不访问生产。

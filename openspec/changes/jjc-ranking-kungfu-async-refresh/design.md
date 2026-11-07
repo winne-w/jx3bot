@@ -169,7 +169,7 @@ scope切换采用停止旧消费者→更新配置并重启→启动登记/消�
 
 新增薄 `src/infra/tuilan_kungfu_client.py`，复用 `HttpClient(retries=0).arequest_json()`；仅把原wrapper中必要签名/headers/body构造提成共享小函数，保留旧同步wrapper超时/重试行为。不新建HTTP传输框架。每角色最多indicator+history(size=40)，不拉回放、详情、defget，不从不完整本地历史投影补判定。没有可用history时按既有规则允许有效indicator回退，错误类别保留用于告警/退避。
 
-外层asyncio总deadline覆盖全部await，不以httpx分阶段timeout或取消to_thread冒充总取消。调用开始间隔用消费者本地monotonic时钟，不在Mongo保存next_request_at。请求结束/取消后才能处理下一角色。
+外层asyncio总deadline覆盖全部await，不以httpx分阶段timeout或取消to_thread冒充总取消。每次实际请求前按排行榜心法查询相同的random.uniform(1,3)规则异步等待，包含首次/跨角色/前后台查询；等待位于共享client串行锁内并计入角色总deadline，不再维护固定开始间隔或monotonic记账，不在Mongo保存next_request_at。请求结束/取消后才能处理下一角色。
 
 ### 8. 单消费者与配置
 
@@ -182,7 +182,7 @@ runtime随Mongo/bot启停，与QQ是否在线无关，复用现有本地任务�
 | `JJC_KUNGFU_REFRESH_SECONDS` | 21600 | 统一6小时刷新 |
 | `JJC_KUNGFU_MAX_STALE_SECONDS` | 86400 | 最大可用年龄24小时 |
 | `JJC_KUNGFU_TRACK_SECONDS` | 172800 | 最近上榜后追踪48小时 |
-| 策略常量，可注入测试 | 请求10秒、角色总25秒、租约90秒、请求间隔2秒 | 角色deadline覆盖间隔和本轮查询；不把所有常量暴露配置 |
+| 策略常量，可注入测试 | 请求10秒、角色总25秒、租约90秒、请求前随机等待1～3秒 | 角色deadline覆盖间隔和本轮查询；不把所有常量暴露配置 |
 
 校验正值、M>=T、角色预算小于租约并留收尾余量；非法配置关闭新功能并告警。消费者异常退出必须留下日志，启动/停止幂等，退出取消请求，不误释放别人的token。
 
@@ -192,7 +192,7 @@ runtime随Mongo/bot启停，与QQ是否在线无关，复用现有本地任务�
 
 summary各范围增加 `{total,fresh,stale,unknown,coverage}`，满足total=fresh+stale+unknown，coverage=(fresh+stale)/total；空范围coverage=null，避免除零。成员最小新增 `kungfu_verified_at, kungfu_source, kungfu_freshness, kungfu_unknown_reason, kungfu_publish_version`，并保存scope/算法上下文。选择完成后仅用内存值生成快照，后台不改历史。
 
-装备/队友从已有缓存批量读取，独立检验身份及与心法的关系，不反向覆盖jjc_kungfu。不能确认装备时保留unchecked/unknown；若旧展示无法区分，隐藏该范围的相关比例或标“资料不完整”，不输出误导0%。不引入aux_stats_version=2或重算有效装备分母。两个网页入口与实际QQ图片模板只做必要未知/覆盖提示，旧快照缺时间显示“未记录时效”。
+装备/队友从已有缓存批量读取，独立检验身份及与心法的关系，不反向覆盖jjc_kungfu。不能确认装备时保留unchecked/unknown；若旧展示无法区分，隐藏该范围的相关比例或标“资料不完整”，不输出误导0%。不引入aux_stats_version=2或重算有效装备分母。两个网页入口（含角色明细、导出）与实际QQ图片均不显示新鲜度，只做必要未知/覆盖提示，旧快照缺覆盖数据时显示“心法覆盖率未记录”；底层时效字段和缓存有效性判断保留。
 
 开关关闭保留旧入口和use_cached_kungfu参数行为；显式历史tag走原流程，不登记当前活跃队列。自动与默认手动入口一致。只开后台预热时，也须从已有榜单成功获取位置登记，不依赖新统计开关；历史路径不向新属性双写。
 
@@ -231,3 +231,5 @@ summary各范围增加 `{total,fresh,stale,unknown,coverage}`，满足total=fres
 真实生产角色库146429条，批量解析OR保留raw server/name以兼容未规范化legacy身份。该分支缺少索引会使整个OR出现COLLSCAN；本地千人库性能未体现这一规模问题。统一索引初始化补 `idx_server_name: (server:1,name:1)`，普通非unique，无TTL；不删除fallback、不拆查询或增加新匹配规则。此外 `idx_global_id` 是字符串partial索引，global_id分支复用既有 `_global_id_string_filter` 显式携带 `$eq/$type:string`，确保该分支也可选用已有索引，不新增重复global索引。真实Mongo测试必须捕获resolver实际250人OR，在完整生产索引初始化后证明winning plan无COLLSCAN；上线后用queryPlanner核对，再测只读解析/登记的实际耗时，不将此前隔离P95当生产指标。
 
 2026-11-07 QQ展示调整：合图和拆分图只输出心法覆盖率及未知人数，不输出新鲜/待刷新/时效。旧快照缺少覆盖数据时显示“心法覆盖率未记录”。快照字段、网页时效展示、缓存及刷新规则不变。
+
+2026-11-07追加要求覆盖上一条QQ展示调整中的网页保持约定：网页摘要、成员详情和导出也去掉心法新鲜度；底层快照/API仍保留fresh/stale用于业务判断。请求等待改为与原排名路径相同的每次请求前随机1～3秒，空队列2秒轮询不变。

@@ -26,7 +26,7 @@ def indicator(**info):
 class TuilanKungfuClientTests(unittest.IsolatedAsyncioTestCase):
     def adapter(self, responses, **kwargs):
         http = SimpleNamespace(arequest_json=AsyncMock(side_effect=responses))
-        client = TuilanKungfuClient(http_client=http, request_interval=0, **kwargs)
+        client = TuilanKungfuClient(http_client=http, request_delay=(0, 0), **kwargs)
         return client, http
 
     async def test_foreground_and_background_queries_share_one_serial_request_path(self):
@@ -41,7 +41,7 @@ class TuilanKungfuClientTests(unittest.IsolatedAsyncioTestCase):
             active -= 1
             return indicator(global_role_id=None)
         http = SimpleNamespace(arequest_json=AsyncMock(side_effect=response))
-        client = TuilanKungfuClient(http_client=http, request_interval=0)
+        client = TuilanKungfuClient(http_client=http, request_delay=(0, 0))
         first = asyncio.create_task(client.query(IDENTITY, SCOPE))
         await entered.wait()
         second = asyncio.create_task(client.query(IDENTITY, SCOPE))
@@ -155,7 +155,7 @@ class TuilanKungfuClientTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 cancelled.set()
         http = SimpleNamespace(arequest_json=AsyncMock(side_effect=hangs))
-        client = TuilanKungfuClient(http_client=http, request_interval=0,
+        client = TuilanKungfuClient(http_client=http, request_delay=(0, 0),
                                    request_timeout=0.02, attempt_timeout=0.08)
         started = time.monotonic()
         with self.assertRaises(KungfuQueryError) as error:
@@ -165,13 +165,13 @@ class TuilanKungfuClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(cancelled.is_set())
         self.assertEqual(http.arequest_json.await_count, 1)
 
-    async def test_attempt_deadline_includes_interval_wait(self):
+    async def test_attempt_deadline_includes_random_wait_before_first_request(self):
         client, http = self.adapter([indicator()], attempt_timeout=0.02)
-        client.request_interval = 2
+        client.request_delay = (1, 3)
         with self.assertRaises(KungfuQueryError) as error:
             await client.query(IDENTITY, SCOPE)
         self.assertEqual(error.exception.code, "attempt_timeout")
-        self.assertEqual(http.arequest_json.await_count, 1)
+        self.assertEqual(http.arequest_json.await_count, 0)
 
     async def test_explicit_cancellation_propagates_without_followup_request(self):
         started, cancelled = asyncio.Event(), asyncio.Event()
@@ -182,7 +182,7 @@ class TuilanKungfuClientTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 cancelled.set()
         http = SimpleNamespace(arequest_json=AsyncMock(side_effect=hangs))
-        client = TuilanKungfuClient(http_client=http, request_interval=0)
+        client = TuilanKungfuClient(http_client=http, request_delay=(0, 0))
         task = asyncio.create_task(client.query(IDENTITY, SCOPE))
         await started.wait()
         task.cancel()
@@ -191,19 +191,37 @@ class TuilanKungfuClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(cancelled.is_set())
         self.assertEqual(http.arequest_json.await_count, 1)
 
-    async def test_request_start_interval_uses_injected_monotonic_clock(self):
+    async def test_random_wait_before_each_request_applies_across_roles(self):
         value, starts, waits = [0.0], [], []
         async def sleep(seconds):
             waits.append(seconds)
             value[0] += seconds
         async def request(*args, **kwargs):
             starts.append(value[0])
-            return indicator() if len(starts) == 1 else {"code": 0, "data": []}
-        client = TuilanKungfuClient(http_client=SimpleNamespace(arequest_json=request),
-                                   monotonic=lambda: value[0], sleep=sleep)
-        await client.query(IDENTITY, SCOPE)
-        self.assertEqual(starts, [0.0, 2.0])
-        self.assertEqual(waits, [2.0])
+            if args[1].endswith("/role/indicator"):
+                return indicator(role_id=json.loads(kwargs["content"])["role_id"])
+            return {"code": 0, "data": []}
+        client = TuilanKungfuClient(http_client=SimpleNamespace(arequest_json=request), sleep=sleep)
+        with patch("src.infra.tuilan_kungfu_client.random.uniform", side_effect=[1, 3, 1.5, 2.5]) as uniform:
+            await client.query(IDENTITY, SCOPE)
+            await client.query(dict(IDENTITY, game_role_id="43"), SCOPE)
+        self.assertEqual(starts, [1, 4, 5.5, 8])
+        self.assertEqual(waits, [1, 3, 1.5, 2.5])
+        self.assertEqual(uniform.call_args_list, [unittest.mock.call(1, 3)] * 4)
+
+    async def test_cancellation_during_random_wait_does_not_send_request(self):
+        waiting = asyncio.Event()
+        async def sleep(seconds):
+            waiting.set()
+            await asyncio.Event().wait()
+        http = SimpleNamespace(arequest_json=AsyncMock())
+        client = TuilanKungfuClient(http_client=http, sleep=sleep)
+        task = asyncio.create_task(client.query(IDENTITY, SCOPE))
+        await asyncio.wait_for(waiting.wait(), 1)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        http.arequest_json.assert_not_awaited()
 
 
 class RealAsyncTransportTests(unittest.IsolatedAsyncioTestCase):
@@ -221,7 +239,7 @@ class RealAsyncTransportTests(unittest.IsolatedAsyncioTestCase):
         real_client = httpx.AsyncClient
         def isolated_client(**kwargs):
             return real_client(transport=httpx.MockTransport(handle), **kwargs)
-        adapter = TuilanKungfuClient(request_interval=0, request_timeout=0.02, attempt_timeout=0.1)
+        adapter = TuilanKungfuClient(request_delay=(0, 0), request_timeout=0.02, attempt_timeout=0.1)
         with patch("src.infra.http_client.httpx.AsyncClient", side_effect=isolated_client):
             with self.assertRaises(KungfuQueryError) as error:
                 await adapter.query(IDENTITY, SCOPE)
@@ -234,7 +252,7 @@ class RealAsyncTransportTests(unittest.IsolatedAsyncioTestCase):
         real_client = httpx.AsyncClient
         def isolated_client(**kwargs):
             return real_client(transport=httpx.MockTransport(handle), **kwargs)
-        adapter = TuilanKungfuClient(request_interval=0)
+        adapter = TuilanKungfuClient(request_delay=(0, 0))
         with patch("src.infra.http_client.httpx.AsyncClient", side_effect=isolated_client):
             with self.assertRaises(KungfuQueryError) as error:
                 await adapter.query(IDENTITY, SCOPE)
@@ -246,7 +264,7 @@ class RealAsyncTransportTests(unittest.IsolatedAsyncioTestCase):
             if url.endswith("/role/indicator"):
                 return indicator()
             raise asyncio.TimeoutError
-        adapter = TuilanKungfuClient(http_client=SimpleNamespace(arequest_json=request), request_interval=0)
+        adapter = TuilanKungfuClient(http_client=SimpleNamespace(arequest_json=request), request_delay=(0, 0))
         result = await adapter.query(IDENTITY, SCOPE)
         self.assertEqual(result["matches"], [])
         self.assertEqual(result["history_error_code"], "request_timeout")
@@ -256,7 +274,7 @@ class ImportTimeKungfuClientTests(unittest.TestCase):
     def test_construct_before_running_loop_then_contend_in_runtime_loop(self):
         construction_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(construction_loop)
-        client = TuilanKungfuClient(http_client=SimpleNamespace(), request_interval=0)
+        client = TuilanKungfuClient(http_client=SimpleNamespace(), request_delay=(0, 0))
         construction_loop.close()
         asyncio.set_event_loop(None)
         async def exercise():

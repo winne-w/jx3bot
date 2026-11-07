@@ -50,7 +50,7 @@ policy/classifier使用纯fixture与fake clock；repo单元验证契约，真实
 | H01 | 薄client与旧wrapper共享签名/headers/body，旧wrapper默认超时/重试不变 | test_tuilan_kungfu_client.py |
 | H02 | 每角色最多indicator/history两请求，无回放/详情/defget/不完整本地投影兜底 | 同上 |
 | H03 | 请求10秒、角色25秒总deadline含所有await/间隔；慢流不绕过预算，取消后不继续下一请求 | 同上 |
-| H04 | retries=0不叠加底层重试；本地请求间隔>=2秒，不写全局next_request_at | 同上及runtime |
+| H04 | retries=0不叠加底层重试；每次实际请求前随机等待1～3秒（含首次及跨角色），等待可取消且包含在角色预算内；不写全局next_request_at | 同上及runtime |
 | H05 | 认证冷却/告警与429有界Retry-After可区分；不宣称进程冷却跨重启持久化 | 同上及service |
 | W01 | QQ未登录/离线仍能启动消费；重复本地启动只一个循环，停止幂等 | test_jjc_kungfu_refresh_runtime.py |
 | W02 | 成功、失败按统一周期/退避调度，失败不推进成功时间，不修改完整历史同步水位 | test_jjc_kungfu_refresh.py |
@@ -198,3 +198,5 @@ TDD先复现缺失未查询、并发client重叠、Python3.9导入时锁绑定�
 增量发布与实际上游验证已完成，线上证据见deployment.md及cache-miss-validation.json。冷榜耗时由缺失数和上游响应决定，不再引用旧全冷零外呼性能作为整次统计承诺。
 
 2026-11-07 QQ图片文案验证：tests.test_jjc_kungfu_display与tests.test_jjc_data_center_navigation，在Python3.13.2及3.9.25各14项通过。覆盖合图新快照、空stats、旧快照空范围及实际8个拆分模板；均保留覆盖/未知，去除新鲜/待刷新/时效，装备不完整保护及网页行为回归通过。
+
+2026-11-07执行展示/navigation/ranking_stats_frontend/matchups_frontend/client/runtime共65项，Python3.13.2及3.9.25分别全部通过、无skip。Node执行摘要/详情/导出与legacy分支，无时效文案；随机序列[1,3,1.5,2.5]验证两角色四次请求开始时刻[1,4,5.5,8]，等待中取消0请求，首次等待超出总预算0请求。空队列/异常2秒非忙循环既有测试通过。
