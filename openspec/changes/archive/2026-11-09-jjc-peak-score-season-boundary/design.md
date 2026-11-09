@@ -132,4 +132,4 @@ API 未命中统一用上述 service 和范围规则执行只读即时聚合，�
 
 实施时联动更新 `PROJECT_CONTEXT.md`、`docs/design-docs/database-design.md`、`docs/references/runbook.md`、README API 说明及 `openspec/specs/jjc-ranking/spec.md`，记录新范围、缓存有效性、重建与回滚路径。
 
-仓库方案目录：`openspec/changes/jjc-peak-score-season-boundary/`。当前仅产出 proposal/design，按 `docs/PLANS.md` 在方案确认后补充执行计划、规格 delta 和测试计划，再进入实现。
+本方案经用户确认后已完成执行计划、规格 delta、实现、测试、发布和验收。代码提交后归档至 `openspec/changes/archive/2026-11-09-jjc-peak-score-season-boundary/`，实际结果见 tasks.md 与 acceptance.md。

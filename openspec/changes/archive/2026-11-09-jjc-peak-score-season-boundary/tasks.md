@@ -22,7 +22,7 @@
 沿用现有唯一键和 version=1，新增 aggregation_scope/season_id/season_start_time 及实际窗口校验。聚合前按 match_time 截断，不依赖存量 season_id 全量回填。历史缺少边界的结果仅保留原已存视图，不猜测重算。
 
 ## Outcomes & Retrospective
-2026-11-09 11:05:23 已发布并完成线上恢复。8 个锚点两分数共 16 份结果重建/verify 通过，公网四范围及心法详情一致，开赛前来源为 0；旧赛季抽样文档哈希不变。153 项本地相关测试通过，生产 90 项通过/1 项 Node 跳过，另 1 项无关存量样式断言已原环境复现并记录。六文件哈希和原配置验证通过，4 worker 在线且本次暂停已恢复；Git 改动尚未提交，暂留 active。见 acceptance.md。
+2026-11-09 11:05:23 已发布并完成线上恢复。8 个锚点两分数共 16 份结果重建/verify 通过，公网四范围及心法详情一致，开赛前来源为 0；旧赛季抽样文档哈希不变。153 项本地相关测试通过，生产 90 项通过/1 项 Node 跳过，另 1 项无关存量样式断言已原环境复现并记录。六文件哈希和原配置验证通过，4 worker 在线且本次暂停已恢复；修复已提交为 `e8a02dc`，规格已同步并归档本 change。见 acceptance.md。
 
 ## Context and Orientation
 核心在 src/services/jx3/jjc_peak_score_ranking.py、src/storage/mongo_repos/jjc_peak_score_ranking_repo.py、src/api/routers/jjc_ranking_stats.py。聚合 repo 已支持时间窗口，保持单一查询条件控制排序/计数。public/index.html 与 public/jjc-ranking-stats.html 必须一致。
