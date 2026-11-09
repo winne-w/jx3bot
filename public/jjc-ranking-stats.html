@@ -1748,6 +1748,8 @@
         const roleIndicatorCache = new Map();
         const matchDetailCache = new Map();
         const rankingListCache = new Map();
+        const PEAK_SCOPE_CACHE_KEY = "season_bounded_v1";
+        const peakScopeByTimestamp = new Map();
 
         let currentPagination = {
             hasMore: false,
@@ -2205,7 +2207,7 @@
         }
 
         function buildDetailsCacheKey(source, timestamp, rangeKey, lane, kungfu) {
-            return [source, timestamp, rangeKey, lane, kungfu].join("::");
+            return [source, source === "peak-game" ? PEAK_SCOPE_CACHE_KEY : "ranking", timestamp, rangeKey, lane, kungfu].join("::");
         }
 
         function setSeasonHistoryLoading() {
@@ -2589,11 +2591,16 @@
             return labelMap[tab] || tab;
         }
 
-        function getRankingScopeText(tab) {
+        function getRankingScopeText(tab, peakPayload = null) {
             if (tab === "purple") {
                 return "统计口径：基于当前排名快照中的推栏竞技场排名数据，剔除被判定为橙武/紫武影响口径的角色后，按心法统计分布并展示排名列表。";
             }
             if (tab === "peak-game") {
+                const scope = peakPayload || peakScopeByTimestamp.get(String(currentStatsTimestamp));
+                if (scope?.aggregation_scope === PEAK_SCOPE_CACHE_KEY) {
+                    const windowText = `实际窗口：${formatTime(scope.window_start)} 至 ${formatTime(scope.window_end)}。`;
+                    return `统计口径：以所选排名快照时间为锚点，回溯前 14 天本地已收录的 3v3 对局，最多至所选赛季开赛时间；不足 14 天按实际天数统计。按角色在对局中的游戏内分数取个人最高分排名。${windowText}可能因对局同步缺失导致数据不完整。`;
+                }
                 return "统计口径：以当前排名快照时间为锚点，回溯前 14 天本地已收录的 3v3 对局，按角色在对局中的游戏内分数取个人最高分排名；可能因对局同步缺失导致数据不完整。";
             }
             return "统计口径：基于当前排名快照中的推栏竞技场排名数据，按推栏当前分数统计全部角色的心法分布和排名列表。";
@@ -2739,6 +2746,9 @@
         }
 
         function renderDistributionView(statsPayload, outerTab) {
+            if (isPeakTab(outerTab)) {
+                syncScopeInlineText();
+            }
             const stats = outerTab === "purple"
                 ? buildFilteredStats(statsPayload.kungfu_statistics || {}, "purple")
                 : (statsPayload.kungfu_statistics || {});
@@ -2749,7 +2759,7 @@
         }
 
         async function getPeakDistributionStats(timestamp) {
-            const cacheKey = ["peak-game", timestamp, "distribution"].join("::");
+            const cacheKey = ["peak-game", PEAK_SCOPE_CACHE_KEY, timestamp, "distribution"].join("::");
             if (rankingListCache.has(cacheKey)) {
                 return rankingListCache.get(cacheKey);
             }
@@ -2762,9 +2772,16 @@
                     throw new Error(`HTTP ${response.status}`);
                 }
                 const data = unwrapResponse(await response.json());
-                return [config.key, data.kungfu_statistics || {}];
+                return [config.key, data];
             }));
-            const payload = { kungfu_statistics: Object.fromEntries(results) };
+            const firstResult = results[0]?.[1] || {};
+            const payload = {
+                aggregation_scope: firstResult.aggregation_scope,
+                window_start: firstResult.window_start,
+                window_end: firstResult.window_end,
+                kungfu_statistics: Object.fromEntries(results.map(([key, data]) => [key, data.kungfu_statistics || {}])),
+            };
+            peakScopeByTimestamp.set(String(timestamp), payload);
             rankingListCache.set(cacheKey, payload);
             return payload;
         }
@@ -2774,7 +2791,7 @@
                 grid.innerHTML = "<div class='range-card'>缺少统计时间</div>";
                 return;
             }
-            const cacheKey = ["peak-game", currentStatsTimestamp, "distribution"].join("::");
+            const cacheKey = ["peak-game", PEAK_SCOPE_CACHE_KEY, currentStatsTimestamp, "distribution"].join("::");
             if (rankingListCache.has(cacheKey)) {
                 renderDistributionView(rankingListCache.get(cacheKey), "peak-game");
                 return;
@@ -2790,6 +2807,10 @@
         }
 
         function renderListView(payload, outerTab, rangeKey) {
+            if (isPeakTab(outerTab)) {
+                peakScopeByTimestamp.set(String(payload.anchor_timestamp ?? currentStatsTimestamp), payload);
+                syncScopeInlineText();
+            }
             const range = currentStats?.kungfu_statistics?.[rangeKey];
             if (outerTab === "purple" && hasIncompleteEquipment(range?.healer, range?.dps)) {
                 renderIncompleteEquipmentNotice();
@@ -2881,7 +2902,7 @@
             const url = sourceConfig.api === "flat-members"
                 ? buildFlatMembersUrl(currentStatsTimestamp, rangeKey)
                 : buildPeakScoreUrl(currentStatsTimestamp, sourceConfig.scoreType, rangeKey);
-            const cacheKey = [outerTab, currentStatsTimestamp, rangeKey].join("::");
+            const cacheKey = [outerTab, isPeakTab(outerTab) ? PEAK_SCOPE_CACHE_KEY : "ranking", currentStatsTimestamp, rangeKey].join("::");
             if (rankingListCache.has(cacheKey)) {
                 renderListView(rankingListCache.get(cacheKey), outerTab, rangeKey);
                 return;
@@ -3703,6 +3724,7 @@
                     <h1>竞技场心法排名统计</h1>
                     <p>${escapeHtml(description)}</p>
                     <p>${escapeHtml(getOuterTabLabel(exportTab))} · 榜单时间：${escapeHtml(rankingTimeText)}${overlayEnabled && exportTab !== "purple" ? " · 橙武占比覆盖已开启" : ""}</p>
+                    ${isPeakTab(exportTab) ? `<p>${escapeHtml(getRankingScopeText(exportTab, payload))}</p>` : ""}
                 </header>
                 <main class="export-image-grid">${rows}</main>
                 <footer class="export-image-source">数据来源：<a href="https://qike.rickchen.cn/jx3/jjc-ranking-stats.html">https://qike.rickchen.cn/jx3/jjc-ranking-stats.html</a></footer>

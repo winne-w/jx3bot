@@ -1,3 +1,6 @@
+import json
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -37,6 +40,49 @@ class TestJjcRankingStatsFrontendCopy(unittest.TestCase):
         self.assertIn("function buildPeakDetailsUrl(timestamp, scoreType, rangeKey, kungfu)", content)
         self.assertIn("currentOuterTab === \"peak-game\"", content)
         self.assertIn("buildPeakDetailsUrl(currentStatsTimestamp, \"game\", rangeKey, kungfu)", content)
+
+    def test_peak_scope_copy_preserves_legacy_and_displays_actual_season_window(self) -> None:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node is required to verify frontend scope behavior")
+        content = Path("public/jjc-ranking-stats.html").read_text(encoding="utf-8")
+        function = "function getRankingScopeText(" + content.split("function getRankingScopeText(", 1)[1].split("function syncScopeInlineText(", 1)[0]
+        source = """
+const PEAK_SCOPE_CACHE_KEY = "season_bounded_v1";
+const peakScopeByTimestamp = new Map();
+let currentStatsTimestamp = "123";
+function formatTime(value) { return `time:${value}`; }
+""" + function + """
+const bounded = { aggregation_scope: PEAK_SCOPE_CACHE_KEY, window_start: 100, window_end: 123 };
+peakScopeByTimestamp.set("123", bounded);
+const mapped = getRankingScopeText("peak-game");
+const legacy = getRankingScopeText("peak-game", {});
+const exported = getRankingScopeText("peak-game", bounded);
+currentStatsTimestamp = "older";
+const otherSnapshot = getRankingScopeText("peak-game");
+console.log(JSON.stringify({mapped, legacy, exported, otherSnapshot}));
+"""
+        result = subprocess.run([node, "-e", source], check=True, text=True, capture_output=True)
+        texts = json.loads(result.stdout)
+        self.assertIn("最多至所选赛季开赛时间", texts["mapped"])
+        self.assertIn("不足 14 天按实际天数统计", texts["mapped"])
+        self.assertIn("实际窗口：time:100 至 time:123", texts["mapped"])
+        self.assertEqual(texts["mapped"], texts["exported"])
+        self.assertNotIn("所选赛季开赛时间", texts["legacy"])
+        self.assertNotIn("实际窗口", texts["legacy"])
+        self.assertEqual(texts["legacy"], texts["otherSnapshot"])
+
+    def test_peak_distribution_and_cache_keys_keep_the_scope_metadata(self) -> None:
+        content = Path("public/jjc-ranking-stats.html").read_text(encoding="utf-8")
+        self.assertIn('const PEAK_SCOPE_CACHE_KEY = "season_bounded_v1";', content)
+        self.assertIn('["peak-game", PEAK_SCOPE_CACHE_KEY, timestamp, "distribution"]', content)
+        self.assertIn('["peak-game", PEAK_SCOPE_CACHE_KEY, currentStatsTimestamp, "distribution"]', content)
+        self.assertIn('source === "peak-game" ? PEAK_SCOPE_CACHE_KEY', content)
+        self.assertIn('isPeakTab(outerTab) ? PEAK_SCOPE_CACHE_KEY', content)
+        self.assertIn('aggregation_scope: firstResult.aggregation_scope', content)
+        self.assertIn('window_start: firstResult.window_start', content)
+        self.assertIn('window_end: firstResult.window_end', content)
+        self.assertIn('getRankingScopeText(exportTab, payload)', content)
 
     def test_full_page_export_rebuilds_only_the_clone(self) -> None:
         content = Path("public/jjc-ranking-stats.html").read_text(encoding="utf-8")

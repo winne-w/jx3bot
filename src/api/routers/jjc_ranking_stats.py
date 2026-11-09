@@ -12,6 +12,7 @@ from nonebot import logger
 from config import KUNGFU_META
 from src.api.response import error_response, success_response
 from src.services.jx3.singletons import jjc_ranking_inspect_service
+from src.services.jx3.jjc_peak_score_ranking import JjcPeakScoreRankingService
 from src.storage.mongo_repos.jjc_peak_score_ranking_repo import JjcPeakScoreRankingRepo
 from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
@@ -72,12 +73,19 @@ async def _load_peak_score_doc(
     limit = _RANGE_LIMITS.get(range_key)
     if limit is None:
         return None
-    return await JjcPeakScoreRankingRepo().load_result(
-        anchor_timestamp=int(timestamp),
-        score_type=score_type,
-        version=version,
-        items_limit=limit,
-    )
+    try:
+        return await JjcPeakScoreRankingService(
+            ranking_stats_repo=JjcRankingStatsRepo(),
+            participant_repo=JjcMatchParticipantRepo(),
+            peak_repo=JjcPeakScoreRankingRepo(suppress_errors=False),
+        ).load_for_anchor(
+            anchor_timestamp=int(timestamp), score_type=score_type,
+            version=version, max_items=limit,
+        )
+    except Exception as exc:
+        logger.warning("JJC peak-score season read failed: anchor={} score_type={} error={}",
+                       timestamp, score_type, type(exc).__name__)
+        return None
 
 
 @router.get("/ranking-stats")
@@ -305,71 +313,12 @@ async def get_jjc_peak_score_ranking(
             )
     )
     load_started_at = time.perf_counter()
-    doc = None
-    load_timed_out = False
-    try:
-        doc = await asyncio.wait_for(
-            JjcPeakScoreRankingRepo().load_result(
-                anchor_timestamp=int(timestamp),
-                score_type=score_type,
-                version=version,
-                items_limit=limit,
-                max_time_ms=1500,
-            ),
-            timeout=2.0,
-        )
-    except asyncio.TimeoutError:
-        load_timed_out = True
+    doc = await _load_peak_score_doc(
+        timestamp=timestamp, score_type=score_type, range_key=range_key, version=version,
+    )
     load_elapsed_ms = int((time.perf_counter() - load_started_at) * 1000)
-    if not doc:
-        logger.info(
-            "JJC peak-score cache miss, fallback aggregate: timestamp={} score_type={} range={} version={} load_elapsed_ms={} load_timed_out={}".format(
-                timestamp,
-                score_type,
-                range_key,
-                version,
-                load_elapsed_ms,
-                load_timed_out,
-            )
-        )
-        fallback_started_at = time.perf_counter()
-        window_end = int(timestamp)
-        window_start = window_end - 14 * 86400
-        aggregate = await JjcMatchParticipantRepo().aggregate_peak_scores(
-            window_start=window_start,
-            window_end=window_end,
-            score_type=score_type,
-            max_items=limit,
-            include_source_counts=False,
-        )
-        fallback_elapsed_ms = int((time.perf_counter() - fallback_started_at) * 1000)
-        doc = {
-            "anchor_timestamp": window_end,
-            "window_start": window_start,
-            "window_end": window_end,
-            "score_type": score_type,
-            "window_days": 14,
-            "version": version,
-            "status": "done",
-            "items": aggregate.get("items") or [],
-            "item_count": int(aggregate.get("item_count") or 0),
-            "source_match_count": int(aggregate.get("source_match_count") or 0),
-            "source_participant_count": int(aggregate.get("source_participant_count") or 0),
-            "fallback_aggregate": True,
-            "fallback_elapsed_ms": fallback_elapsed_ms,
-        }
-    if doc.get("status") != "done":
-        logger.info(
-            "JJC peak-score request miss: timestamp={} score_type={} range={} version={} load_elapsed_ms={} found={}".format(
-                timestamp,
-                score_type,
-                range_key,
-                version,
-                load_elapsed_ms,
-                bool(doc),
-            )
-        )
-        return error_response("not_found", data=doc or {})
+    if not doc or doc.get("status") != "done":
+        return error_response("not_found")
 
     items = doc.get("items") or []
     if not isinstance(items, list):

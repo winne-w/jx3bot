@@ -248,6 +248,9 @@ python test_tuilan_match_history.py
 - JJC 14 天历史最高分排名每天 09:00 独立生成，读取最近两个 `jjc_ranking_stat_summaries.timestamp` 作为锚点，从 `jjc_match_participants` 中统计各锚点往前 14 天内所有本地已同步 3v3 对局参与者；统计对象不是排行榜成员，因此可以覆盖洗车后掉出榜单但历史对局已同步的玩家。
 - 最高分统计使用 `jjc_match_participants.match_time` 作为对局发生时间；该字段来自推栏接口返回的 `match_time/start_time`，不要用 `cached_at/detail_saved_at/updated_at` 排查统计窗口。
 - 最高分结果写入 `jjc_peak_score_rankings`，同一 `anchor_timestamp + score_type + version` 幂等唯一。`score_type=tuilan` 使用推栏分数 `mmr`，`score_type=game` 使用游戏分数 `total_score`，缺失时兜底 `score`；每条排名项记录最高分对应的 `match_id` 和 `match_time`。
+- 赛季隔离口径：最高分实际起点为 `max(anchor_timestamp-14天, 快照所属赛季开赛时间)`。定时和即时聚合、分布与详情统一使用该窗口；不得通过删除旧 items 代替从原始参与者重新排名。新结果必须有 `aggregation_scope=season_bounded_v1`、`season_id` 和 `season_start_time`，当前赛季旧 done 结果缺少元数据时失效。历史 legacy 结果继续可读，未知历史边界不重新聚合。
+- 定向重建：先备份本赛季最高分文档和待部署源码；运行 `python scripts/rebuild_jjc_peak_score_rankings.py --mode dry-run --season 苍生铸世` 查看两类分数的旧/新人数、开赛前来源及成员变化，确认窗口后用 `--mode apply` 重建，再用 `--mode verify` 检查每项时间、连续排名、角色唯一性和元数据。可重复传入 `--anchor <timestamp>` 先处理最新/结算锚点。默认模式只读，dry-run/verify 不初始化索引，不改原始对局、参与者、队列或历史赛季；任一失败退出非零。正式执行前重枚举赛季锚点，完成后再枚举以补齐期间新增项。
+- 发布应更新最高分 service、repo、router 和两个排名 HTML 入口，重启 bot 使旧统计进程退出。不要用本地配置覆盖生产；候选先在生产 Python 3.9 下验证。异常恢复源码/静态页并重启，正确的新结果优先保留，仅确认数据写坏时才按备份恢复目标文档；回退旧代码会再次暴露跨季问题。
 - 新增投影字段上线后，历史对局可通过参与者投影回填脚本补齐分数字段：
   ```bash
   # dry-run，小批量观察

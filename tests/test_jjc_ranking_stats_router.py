@@ -123,7 +123,7 @@ def _install_router_import_stubs() -> None:
     sys.modules["fastapi"] = fastapi_mod
 
     nonebot_mod = types.ModuleType("nonebot")
-    nonebot_mod.logger = types.SimpleNamespace(info=lambda *args, **kwargs: None)
+    nonebot_mod.logger = types.SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None)
     sys.modules["nonebot"] = nonebot_mod
 
     api_response_mod = types.ModuleType("src.api.response")
@@ -385,7 +385,8 @@ class TestPeakScoreRoutes(unittest.IsolatedAsyncioTestCase):
                 "server": "梦江南",
             }],
         })
-        module.JjcPeakScoreRankingRepo = lambda: peak_repo
+        module.JjcPeakScoreRankingRepo = lambda **kwargs: peak_repo
+        module.JjcRankingStatsRepo = lambda: _FakeRepo(summary={"current_season": "historical"})
 
         response = await module.get_jjc_peak_score_ranking(
             timestamp="123",
@@ -442,7 +443,8 @@ class TestPeakScoreRoutes(unittest.IsolatedAsyncioTestCase):
                 },
             ],
         })
-        module.JjcPeakScoreRankingRepo = lambda: peak_repo
+        module.JjcPeakScoreRankingRepo = lambda **kwargs: peak_repo
+        module.JjcRankingStatsRepo = lambda: _FakeRepo(summary={"current_season": "historical"})
 
         response = await module.get_jjc_peak_score_details(
             timestamp="123",
@@ -465,12 +467,14 @@ class TestPeakScoreRoutes(unittest.IsolatedAsyncioTestCase):
             "score_type": "game",
             "version": 1,
             "items_limit": 1000,
+            "max_time_ms": 1500,
         }])
 
     async def test_peak_score_details_returns_not_found_when_repo_misses(self) -> None:
         module = _load_router_module()
         peak_repo = _FakePeakRepo(None)
-        module.JjcPeakScoreRankingRepo = lambda: peak_repo
+        module.JjcPeakScoreRankingRepo = lambda **kwargs: peak_repo
+        module.JjcRankingStatsRepo = lambda: _FakeRepo(summary={"current_season": "historical"})
 
         response = await module.get_jjc_peak_score_details(
             timestamp="123",

@@ -22,7 +22,7 @@ JX3Bot 是一个基于 NoneBot2 的剑网 3 QQ 机器人，运行在 OneBot V11 
   - `GET /api/jjc/ranking-stats?action=read&timestamp=<时间戳>`
   - `GET /api/jjc/ranking-stats/details?timestamp=<时间戳>&range=<范围>&lane=<healer|dps>&kungfu=<心法>`
   - `GET /api/jjc/ranking-stats/flat-members?timestamp=<时间戳>&range=<top_1000|top_200|top_100|top_50>`：按原始名次返回当前推栏排名列表，不按心法分组
-  - `GET /api/jjc/ranking-stats/peak-score?timestamp=<时间戳>&score_type=<tuilan|game>&range=<top_1000|top_200|top_100|top_50>`：读取 14 天历史最高分排名
+  - `GET /api/jjc/ranking-stats/peak-score?timestamp=<时间戳>&score_type=<tuilan|game>&range=<top_1000|top_200|top_100|top_50>`：读取 14 天历史最高分排名；当前赛季按快照所属赛季开赛时间截断，响应包含 `aggregation_scope/season_id/season_start_time/window_start/window_end`。缓存缺失时按相同窗口只读聚合；未知历史边界不猜测重算。
   - `GET /api/jjc/ranking-stats/role-recent?server=<服务器>&name=<角色>`
   - `POST /api/jjc/ranking-stats/synced-role-refresh`：提交受保护的最新对局轻量刷新；GET 列表返回 `latest_matches` 与 `refresh` 状态
   - `GET /api/jjc/ranking-stats/synced-role?server=<服务器>&name=<角色>`：查询本地已收录角色身份和同步状态；`server` 为空时按角色名返回本地候选

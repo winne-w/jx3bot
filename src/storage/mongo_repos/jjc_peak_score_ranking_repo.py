@@ -60,6 +60,9 @@ class JjcPeakScoreRankingRepo:
             projection = {
                 "_id": 0,
                 "anchor_timestamp": 1,
+                "aggregation_scope": 1,
+                "season_id": 1,
+                "season_start_time": 1,
                 "window_start": 1,
                 "window_end": 1,
                 "score_type": 1,
@@ -220,6 +223,9 @@ class JjcPeakScoreRankingRepo:
                 ),
                 exc,
             )
+            # Publishing a result is never best-effort: callers must not report a
+            # successful generation when Mongo rejected the write.
+            raise
 
     async def mark_failed(
         self,

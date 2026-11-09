@@ -161,6 +161,8 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 
 对局历史仅展示当前赛季：排名角色近期查询（含缓存及预热）按开赛时间过滤，无时间记录不展示；近期缓存的赛季名称及起点必须与当前配置一致。上游时间倒序历史进入旧赛季后停止分页。心法对阵查询在仓储统计前截断跨赛季区间，已同步列表按赛季名称和比赛时间双重过滤。旧赛季原始数据和历史排名快照仍保留，无需清库。
 
+14 日最高分使用快照所属赛季：`window_start=max(anchor-14天,season_start_time)`，先过滤参与者再按角色取最高分、排序及截取。定时任务、API 即时聚合与心法详情共用 `JjcPeakScoreRankingService`。结果沿用 version=1 和原唯一键，新增 `aggregation_scope=season_bounded_v1`、`season_id`、`season_start_time`；当前赛季缺少或不匹配元数据的 done 结果失效。生成先计算再原子发布，写失败必须传播，旧有效结果保留。历史 legacy 已存结果保留，边界未知不重算；已修正历史保存其原赛季边界供下次切季读取。`scripts/rebuild_jjc_peak_score_rankings.py --mode dry-run|apply|verify --season <当前赛季>` 定向处理全部锚点/两类分数，默认只读 dry-run，apply 前另行备份。实现与验收见 `openspec/changes/jjc-peak-score-season-boundary/`。2026-11-09 11:05 已部署，当前赛季 8 个锚点两类分数共 16 份结果完成重建和校验，公网四范围及详情验证通过；旧赛季保留，生产配置哈希未变，4 worker 在线。
+
 ### JJC 最新对局受控刷新
 
 `openspec/changes/jjc-safe-live-refresh/` 记录最新摘要方案及预算桶回退决定。最新摘要由独立 worker 拉取，页面仍读 Mongo，不推进完整历史水位或写统计事实。推栏调用恢复为 `src/utils/tuilan_request.py` 的直连实现，不使用共享预算桶、并发许可、小时/日配额或共享暂停。签名密钥和设备 ID 沿用已提交版本默认值，可通过环境变量覆盖；票据可在 `runtime_config.json` 中配置。`JJC_LIVE_REFRESH_ENABLED` 默认 0，启用前须配置有效凭据与 `JJC_LIVE_SOURCE_SECRET`。

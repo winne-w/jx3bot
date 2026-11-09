@@ -981,7 +981,7 @@
 
 ### `jjc_peak_score_rankings`
 
-用途：保存 JJC 14 天历史最高分排名结果。每天 09:00 读取最近两个排名统计快照的 `timestamp` 作为统计锚点，分别按推栏分数和游戏分数统计锚点前 14 天内本地已同步 3v3 对局参与者的最高分排名。本集合独立于心法排名快照，不以排名快照成员作为统计对象。
+用途：保存 JJC 14 天历史最高分排名结果。每天 09:00 读取最近两个排名统计快照的 `timestamp` 作为统计锚点，分别按推栏分数和游戏分数统计本地已同步 3v3 对局参与者的最高分排名。新口径窗口取锚点前 14 天与快照所属赛季的交集；已存 legacy 历史结果保留原口径。本集合独立于心法排名快照，不以排名快照成员作为统计对象。
 
 读写归属：
 
@@ -995,11 +995,14 @@
 |---|---|---|
 | `_id` | ObjectId | MongoDB 自动主键 |
 | `anchor_timestamp` | int | 统计锚点，来自 `jjc_ranking_stat_summaries.timestamp` |
-| `window_start` | int | 统计窗口起点，`anchor_timestamp - 14天` |
+| `window_start` | int | 修正口径为 `max(anchor_timestamp - 14天, season_start_time)`；legacy 历史保留原窗口 |
 | `window_end` | int | 统计窗口终点，等于 `anchor_timestamp` |
 | `score_type` | string | `tuilan` 或 `game` |
 | `window_days` | int | 当前固定为 14 |
 | `version` | int | 统计口径版本，当前为 1 |
+| `aggregation_scope` | string/null | 新结果为 `season_bounded_v1`；当前赛季缺少标记的旧结果不再复用 |
+| `season_id` | string/null | 统计锚点摘要所属赛季；legacy 历史可缺失 |
+| `season_start_time` | int/null | 所属赛季北京时间零点开赛边界，切季后仍保留供历史读取 |
 | `status` | string | `processing`、`done`、`failed` |
 | `items` | array | 排名项；当前只保存前 1000 名，页面的前 200/100/50 从该数组切片展示 |
 | `item_count` | int | 排名项数量 |
