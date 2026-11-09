@@ -1,0 +1,2019 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>竞技场心法对阵统计</title>
+    <style>
+        :root {
+            --bg: #f7fafd;
+            --ink: #2c3e50;
+            --muted: #65748b;
+            --surface: rgba(255, 255, 255, 0.92);
+            --stroke: rgba(137, 196, 244, 0.30);
+            --accent: #5b7cfa;
+            --accent-pink: #ff78b1;
+            --shadow: 0 12px 32px rgba(94, 125, 245, 0.12);
+            --danger: #d65470;
+            --success: #2fa66a;
+            --success-soft: rgba(47, 166, 106, 0.10);
+            --danger-soft: rgba(214, 84, 112, 0.10);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            min-width: 0;
+            margin: 0;
+            padding: 36px 24px 60px;
+            color: var(--ink);
+            font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+            font-size: 15px;
+            line-height: 1.5;
+            background:
+                radial-gradient(circle at 14% 6%, rgba(137, 196, 244, 0.18), transparent 38%),
+                radial-gradient(circle at 87% 0%, rgba(255, 120, 177, 0.15), transparent 36%),
+                var(--bg);
+        }
+
+        button, input, select { font: inherit; }
+
+        button, select, input { min-height: 40px; }
+
+        button {
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-radius: 10px;
+        }
+
+        button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+            outline: 3px solid rgba(91, 124, 250, 0.30);
+            outline-offset: 2px;
+        }
+
+        button:disabled { cursor: not-allowed; opacity: 0.52; }
+
+        .site-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 18px;
+            padding: 14px 18px;
+            border: 1px solid var(--stroke);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.86);
+            box-shadow: var(--shadow);
+        }
+        .site-brand { display: inline-flex; min-width: 0; flex-direction: column; gap: 2px; color: var(--ink); text-decoration: none; }
+        .site-brand strong { letter-spacing: 1px; }
+        .site-brand span { color: var(--muted); font-size: 0.78rem; }
+        .site-nav { display: flex; gap: 6px; overflow-x: auto; padding: 2px; }
+        .site-nav a { flex: 0 0 auto; padding: 8px 11px; border-radius: 10px; color: var(--muted); font-size: 0.86rem; text-decoration: none; white-space: nowrap; }
+        .site-nav a:hover, .site-nav a[aria-current="page"] { color: var(--accent); background: rgba(91, 124, 250, 0.10); }
+        .page-title-region { margin-bottom: 18px; }
+        .page-title-region h1 { margin: 0; font-size: clamp(1.6rem, 2.6vw, 2.4rem); line-height: 1.25; letter-spacing: 0.08em; }
+
+        .page-header, .panel, .match-column, .win-rate-panel {
+            border: 1px solid var(--stroke);
+            background: var(--surface);
+            box-shadow: var(--shadow);
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            align-items: end;
+            padding: 24px 28px;
+            border-radius: 24px;
+        }
+
+        h1, h2, h3, p { margin: 0; }
+        h1 { font-weight: 700; }
+        h2 { font-size: 1.05rem; }
+        .intro { margin-top: 7px; color: var(--muted); }
+        .path-note { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+
+        .page-title-region + .panel { margin-top: 0; }
+        .panel { margin-top: 18px; padding: 22px; border-radius: 18px; }
+        .panel-heading, .result-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+        .panel-heading p, .result-heading p { color: var(--muted); font-size: 0.88rem; }
+
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(12, minmax(0, 1fr));
+            gap: 16px;
+            margin-top: 18px;
+        }
+
+        .field { display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+        .field-time { grid-column: span 6; }
+        .field-score { grid-column: span 3; }
+        .field select, .field input {
+            width: 100%;
+            min-width: 0;
+            padding: 8px 10px;
+            color: var(--ink);
+            border: 1px solid var(--stroke);
+            border-radius: 10px;
+            background: #fff;
+        }
+
+        .presets { display: flex; flex-wrap: wrap; gap: 8px; }
+        .preset {
+            min-height: 36px;
+            padding: 6px 12px;
+            color: var(--muted);
+            border-color: var(--stroke);
+            background: #fff;
+        }
+        .preset.is-active { color: #fff; border-color: var(--accent); background: var(--accent); }
+
+        .teams { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 14px; align-items: stretch; margin-top: 20px; }
+        .team-editor { min-width: 0; padding: 16px; border: 1px solid var(--stroke); border-radius: 14px; background: rgba(248, 252, 255, 0.78); }
+        .team-editor h3 { font-size: 1rem; }
+        .team-editor .hint { margin-top: 3px; color: var(--muted); font-size: 0.8rem; }
+        .team-tags { display: flex; flex-wrap: wrap; gap: 7px; min-height: 38px; margin: 12px 0; }
+        .empty-team { align-self: center; color: var(--muted); font-size: 0.86rem; }
+        .kungfu-tag { display: inline-flex; align-items: center; gap: 7px; padding: 5px 7px 5px 10px; color: #34466d; border: 1px solid rgba(91, 124, 250, 0.22); border-radius: 999px; background: rgba(91, 124, 250, 0.09); font-size: 0.84rem; }
+        .kungfu-tag .kungfu-portrait { width: 24px; height: 24px; border-radius: 7px; box-shadow: none; }
+        .tag-remove { min-height: 22px; width: 22px; padding: 0; color: var(--muted); border: none; border-radius: 50%; background: transparent; line-height: 1; }
+        .tag-remove:hover { background: rgba(91, 124, 250, 0.16); }
+        .team-editor select { width: 100%; padding: 8px 10px; color: var(--ink); border: 1px solid var(--stroke); border-radius: 10px; background: #fff; }
+        .team-editor select:disabled { color: var(--muted); }
+        .kungfu-picker { position: relative; }
+        .picker-native-select { position: absolute; width: 1px !important; height: 1px; padding: 0 !important; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0 !important; }
+        .kungfu-picker-trigger { display: flex; width: 100%; min-height: 44px; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; color: var(--ink); border-color: var(--stroke); border-radius: 10px; background: #fff; text-align: left; }
+        .kungfu-picker-trigger:hover:not(:disabled), .kungfu-picker-trigger[aria-expanded="true"] { border-color: rgba(91, 124, 250, 0.48); box-shadow: 0 0 0 3px rgba(91, 124, 250, 0.08); }
+        .kungfu-picker-trigger .picker-choice { display: inline-flex; min-width: 0; align-items: center; gap: 8px; }
+        .picker-choice .kungfu-portrait { width: 28px; height: 28px; border-radius: 8px; }
+        .picker-choice-copy { display: grid; min-width: 0; gap: 1px; }
+        .picker-choice-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .picker-choice-category { color: var(--muted); font-size: 0.72rem; font-weight: 400; }
+        .kungfu-picker-menu { position: absolute; top: calc(100% + 6px); right: 0; left: 0; z-index: 40; display: grid; max-height: 300px; gap: 2px; overflow: auto; padding: 7px; border: 1px solid rgba(137, 196, 244, 0.42); border-radius: 12px; background: #fff; box-shadow: 0 16px 34px rgba(44, 62, 80, 0.18); }
+        .kungfu-picker-menu[hidden] { display: none !important; }
+        .picker-group-label { padding: 7px 8px 4px; color: var(--muted); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; }
+        .kungfu-picker-option { display: flex; min-width: 0; align-items: center; gap: 9px; padding: 7px 8px; color: var(--ink); border: 0; border-radius: 8px; background: transparent; text-align: left; }
+        .kungfu-picker-option:hover, .kungfu-picker-option:focus-visible { background: rgba(91, 124, 250, 0.09); }
+        .kungfu-picker-option .kungfu-portrait { width: 30px; height: 30px; border-radius: 8px; }
+        .picker-option-copy { display: grid; min-width: 0; gap: 1px; }
+        .picker-option-name { font-size: 0.86rem; font-weight: 700; }
+        .picker-option-category { color: var(--muted); font-size: 0.72rem; }
+
+        .swap-wrap { display: grid; place-items: center; }
+        .swap-btn { width: 46px; min-height: 46px; color: var(--accent); border-color: rgba(91, 124, 250, 0.25); border-radius: 50%; background: #fff; font-size: 1.25rem; }
+        .swap-btn:hover { color: #fff; border-color: var(--accent); background: var(--accent); }
+
+        .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+        .submit-btn { padding: 8px 18px; color: #fff; background: linear-gradient(120deg, var(--accent), #728df7); box-shadow: 0 8px 18px rgba(91, 124, 250, 0.24); }
+        .submit-btn:hover:not(:disabled) { background: linear-gradient(120deg, #496bea, var(--accent-pink)); }
+        .reset-btn { padding: 8px 14px; color: var(--muted); border-color: var(--stroke); background: #fff; }
+
+        .message { min-height: 22px; margin-top: 14px; color: var(--muted); font-size: 0.9rem; }
+        .message.error { color: var(--danger); }
+
+        .results-workspace {
+            display: grid;
+            grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.8fr);
+            gap: 18px;
+            align-items: start;
+            margin-top: 18px;
+        }
+        .match-column, .win-rate-panel { min-width: 0; padding: 22px; border-radius: 18px; }
+        .win-rate-panel { position: sticky; top: 18px; }
+        .pagination-tools { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.88rem; }
+        .pagination-tools select { min-height: 34px; padding: 4px 7px; color: var(--ink); border: 1px solid var(--stroke); border-radius: 8px; background: #fff; }
+        .result-state { padding: 30px 8px; color: var(--muted); text-align: center; }
+        .result-state.error { color: var(--danger); }
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+        .match-list { display: grid; gap: 10px; margin-top: 16px; }
+        .match-card {
+            width: 100%; min-width: 0; padding: 0; overflow: hidden; color: var(--ink);
+            border-color: rgba(137, 196, 244, 0.34); border-radius: 14px; background: #fff;
+            text-align: left; box-shadow: 0 6px 18px rgba(44, 62, 80, 0.05);
+            transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+        }
+        .match-card:hover { transform: translateY(-2px); border-color: rgba(91, 124, 250, 0.42); box-shadow: 0 14px 28px rgba(91, 124, 250, 0.13); }
+        .match-card-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 11px 14px; border-bottom: 1px solid rgba(137, 196, 244, 0.20); background: rgba(247, 250, 253, 0.72); }
+        .match-card-title, .match-meta, .match-meta-item, .match-open-label { display: flex; align-items: center; }
+        .match-card-title { gap: 8px; font-weight: 800; }
+        .match-card-number { color: var(--accent); }
+        .match-meta { flex-wrap: wrap; gap: 7px 13px; color: var(--muted); font-size: 0.78rem; }
+        .match-meta-item { gap: 5px; overflow-wrap: anywhere; }
+        .ui-icon { width: 15px; height: 15px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+        .match-card-body { padding: 14px; }
+        .match-teams { display: grid; grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr); gap: 10px; align-items: center; }
+        .source-team { min-width: 0; }
+        .source-team:last-child { text-align: right; }
+        .source-team-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 9px; }
+        .source-team:last-child .source-team-heading { justify-content: flex-end; }
+        .source-team h3 { font-size: 0.9rem; }
+        .result-tag { padding: 2px 7px; border-radius: 999px; font-size: 0.7rem; font-weight: 800; }
+        .source-team.is-winner .result-tag { color: var(--success); background: var(--success-soft); }
+        .source-team.is-loser .result-tag { color: var(--danger); background: var(--danger-soft); }
+        .kungfu-portraits { display: flex; gap: 7px; }
+        .source-team:last-child .kungfu-portraits { justify-content: flex-end; }
+        .kungfu-portrait { position: relative; width: 40px; height: 40px; flex: 0 0 auto; overflow: hidden; border: 2px solid #fff; border-radius: 11px; background: linear-gradient(145deg, #eef3ff, #fff0f7); box-shadow: 0 3px 10px rgba(44, 62, 80, 0.14); }
+        .kungfu-portrait img { width: 100%; height: 100%; object-fit: cover; }
+        .kungfu-portrait-fallback { display: grid; width: 100%; height: 100%; place-items: center; color: var(--accent); font-size: 0.78rem; font-weight: 800; }
+        .player-names { margin-top: 8px; color: var(--muted); font-size: 0.76rem; line-height: 1.55; overflow-wrap: anywhere; }
+        .versus { display: grid; width: 32px; height: 32px; place-items: center; color: var(--accent-pink); border-radius: 50%; background: rgba(255, 120, 177, 0.10); font-size: 0.72rem; font-weight: 900; }
+        .match-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding-top: 10px; color: var(--muted); border-top: 1px dashed rgba(137, 196, 244, 0.30); font-size: 0.76rem; }
+        .match-open-label { gap: 4px; color: var(--accent); font-weight: 700; white-space: nowrap; }
+        .match-open-label .ui-icon { width: 13px; height: 13px; }
+        .pager { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 18px; }
+        .pager button { min-height: 36px; padding: 5px 11px; color: var(--accent); border-color: var(--stroke); background: #fff; }
+
+        .rate-heading { display: flex; align-items: center; gap: 9px; }
+        .rate-heading-icon { display: grid; width: 34px; height: 34px; place-items: center; color: var(--accent); border-radius: 10px; background: rgba(91, 124, 250, 0.10); }
+        .rate-heading-icon .ui-icon { width: 19px; height: 19px; }
+        .rate-intro { margin: 7px 0 18px; color: var(--muted); font-size: 0.82rem; }
+        .rate-team { padding: 14px; border: 1px solid var(--stroke); border-radius: 14px; background: #fff; }
+        .rate-team + .rate-team { margin-top: 10px; }
+        .rate-team-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .rate-team-name { font-weight: 800; }
+        .rate-value { font-size: 1.35rem; font-weight: 900; letter-spacing: -0.03em; }
+        .rate-team-a .rate-value { color: var(--accent); }
+        .rate-team-b .rate-value { color: var(--accent-pink); }
+        .rate-icons { display: flex; min-height: 30px; gap: 5px; margin-top: 9px; }
+        .rate-icons .kungfu-portrait { width: 30px; height: 30px; border-radius: 8px; }
+        .rate-bar { height: 8px; margin-top: 12px; overflow: hidden; border-radius: 999px; background: #edf1f7; }
+        .rate-bar-fill { width: 0; height: 100%; border-radius: inherit; transition: width 0.45s ease; }
+        .rate-team-a .rate-bar-fill { background: linear-gradient(90deg, #5b7cfa, #7a94ff); }
+        .rate-team-b .rate-bar-fill { background: linear-gradient(90deg, #ff78b1, #ff9cc5); }
+        .rate-caption { margin-top: 7px; color: var(--muted); font-size: 0.76rem; }
+        .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+        .summary-item { min-width: 0; margin: 0; padding: 10px; border-radius: 10px; background: rgba(247, 250, 253, 0.90); }
+        .summary-item dt { color: var(--muted); font-size: 0.72rem; }
+        .summary-item dd { margin: 3px 0 0; color: var(--ink); font-size: 1rem; font-weight: 800; overflow-wrap: anywhere; }
+
+        body.modal-open { overflow: hidden; }
+        .match-detail-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: rgba(44, 62, 80, 0.48); backdrop-filter: blur(4px); }
+        .match-detail-overlay[hidden] { display: none !important; }
+        .match-detail-card { display: flex; width: min(1080px, 100%); max-height: min(90vh, 940px); min-width: 0; flex-direction: column; overflow: hidden; border: 1px solid rgba(137, 196, 244, 0.5); border-radius: 20px; background: var(--bg); box-shadow: 0 20px 50px rgba(44, 62, 80, 0.26); }
+        .match-detail-header { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 18px 20px 14px; border-bottom: 1px solid var(--stroke); background: linear-gradient(110deg, rgba(216, 241, 255, 0.9), rgba(255, 235, 245, 0.9)); }
+        .match-detail-title { margin: 0; font-size: 1.1rem; }
+        .match-detail-subtitle { min-height: 21px; margin: 4px 0 0; color: var(--muted); font-size: 0.84rem; }
+        .match-detail-close { width: 36px; min-height: 36px; flex: 0 0 auto; color: var(--accent); border-color: rgba(91, 124, 250, 0.24); background: #fff; font-size: 1.2rem; }
+        .match-detail-body { min-width: 0; overflow: auto; padding: 18px 20px 22px; }
+        .detail-state { padding: 24px 12px; color: var(--muted); text-align: center; }
+        .detail-state.error { color: var(--danger); }
+        .detail-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+        .detail-summary-card { min-width: 0; padding: 12px; border: 1px solid var(--stroke); border-radius: 12px; background: #fff; }
+        .detail-summary-card strong, .detail-summary-card span { display: block; overflow-wrap: anywhere; }
+        .detail-summary-card span { margin-top: 3px; color: var(--muted); font-size: 0.8rem; }
+        .detail-view-intro { margin-bottom: 12px; color: var(--muted); font-size: 0.82rem; }
+        .detail-team-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+        .detail-team-card { min-width: 0; padding: 14px; border: 1px solid var(--stroke); border-radius: 14px; background: #fff; }
+        .detail-team-card.is-winner { border-color: rgba(91, 124, 250, 0.5); box-shadow: inset 0 0 0 1px rgba(255, 120, 177, 0.09); }
+        .detail-team-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; font-size: 1rem; overflow-wrap: anywhere; }
+        .detail-team-result { padding: 2px 8px; color: var(--danger); border-radius: 999px; background: var(--danger-soft); font-size: 0.7rem; }
+        .detail-team-card.is-winner .detail-team-result { color: var(--success); background: var(--success-soft); }
+        .detail-player-list { display: grid; gap: 10px; }
+        .detail-player { min-width: 0; padding: 11px; border: 1px solid rgba(137, 196, 244, 0.22); border-radius: 11px; background: rgba(247, 250, 253, 0.70); }
+        .detail-player-heading { display: flex; align-items: center; gap: 9px; }
+        .detail-player-heading .kungfu-portrait { width: 34px; height: 34px; border-radius: 9px; }
+        .detail-player-name { margin: 0; font-size: 0.94rem; overflow-wrap: anywhere; }
+        .detail-player-kungfu { color: var(--muted); font-size: 0.76rem; }
+        .detail-player-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 10px 0 0; color: var(--muted); font-size: 0.76rem; }
+        .detail-player-meta span { padding: 6px 8px; border-radius: 7px; background: #fff; }
+        .detail-player-meta span { overflow-wrap: anywhere; }
+        .detail-item-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+        .detail-item-button { width: 100%; min-width: 0; min-height: 48px; padding: 7px; color: var(--ink); border-color: rgba(137, 196, 244, 0.30); border-radius: 9px; background: #fff; text-align: left; }
+        .detail-item-button:hover, .detail-item-button[aria-expanded="true"] { border-color: rgba(91, 124, 250, 0.40); background: rgba(91, 124, 250, 0.06); }
+        .detail-item-main { display: flex; min-width: 0; align-items: center; gap: 8px; }
+        .detail-item-main img { width: 32px; height: 32px; flex: 0 0 auto; object-fit: contain; border-radius: 7px; }
+        .detail-item-name { min-width: 0; font-size: 0.78rem; font-weight: 700; overflow-wrap: anywhere; }
+        .detail-item-more { margin-left: auto; color: var(--muted); font-size: 0.72rem; }
+        .detail-item-expanded { display: block; margin-top: 7px; padding-top: 7px; color: var(--muted); border-top: 1px dashed var(--stroke); font-size: 0.74rem; line-height: 1.55; overflow-wrap: anywhere; }
+        .detail-item-expanded[hidden] { display: none !important; }
+        .detail-empty { display: block; margin-top: 10px; padding: 12px; color: var(--muted); border: 1px dashed var(--stroke); border-radius: 9px; background: #fff; font-size: 0.8rem; text-align: center; }
+        .team-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        .team-card { min-width: 0; padding: 14px 16px; border: 1px solid var(--stroke); border-radius: 12px; background: rgba(255, 255, 255, 0.92); }
+        .team-card.won { border-color: rgba(47, 166, 106, 0.38); box-shadow: inset 0 0 0 1px rgba(47, 166, 106, 0.08); }
+        .team-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+        .team-title-row h4 { margin: 0; font-size: 1rem; }
+        .team-result { padding: 2px 8px; color: var(--danger); border-radius: 999px; background: var(--danger-soft); font-size: 0.7rem; }
+        .team-card.won .team-result { color: var(--success); background: var(--success-soft); }
+        .team-kungfu-icons { display: flex; gap: 5px; }
+        .team-kungfu-icon { display: block; width: 28px; height: 28px; overflow: hidden; border: 1px solid var(--stroke); border-radius: 8px; background: #fff; }
+        .team-kungfu-icon img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        .team-player-list { display: grid; gap: 10px; }
+        .team-player { min-width: 0; padding: 12px; border-radius: 9px; background: rgba(91, 124, 250, 0.05); }
+        .team-player-top, .team-player-bottom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+        .team-player-top { margin-bottom: 6px; }
+        .player-name { color: var(--ink); font-weight: 700; }
+        .player-meta { color: var(--muted); font-size: 0.78rem; }
+        .player-section { margin-top: 10px; }
+        .player-section-label { margin-bottom: 6px; color: var(--muted); font-size: 0.8rem; }
+        .icon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(36px, 36px)); gap: 8px; }
+        .icon-chip, .talent-chip-icon { position: relative; width: 36px; height: 36px; overflow: hidden; border: 1px solid var(--stroke); border-radius: 8px; background: rgba(255, 255, 255, 0.92); box-shadow: 0 4px 10px rgba(24, 33, 47, 0.08); }
+        button.icon-chip { min-height: 36px; padding: 0; cursor: pointer; }
+        .icon-chip.legendary { border: 2px solid #f5a623; }
+        .icon-chip img, .talent-chip-icon img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        .icon-chip.empty, .talent-chip.empty-chip { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.72rem; }
+        .talent-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+        .talent-chip { position: relative; display: inline-flex; flex-direction: column; align-items: center; gap: 3px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+        .talent-chip-name { max-width: 60px; overflow: hidden; color: var(--ink); font-size: 0.76rem; line-height: 1.3; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+        .talent-chip::after, .icon-chip::after { content: attr(data-desc); position: absolute; bottom: calc(100% + 3px); left: 0; z-index: 10; width: max-content; max-width: 240px; padding: 6px 10px; color: #fff; border-radius: 8px; background: rgba(30, 40, 55, 0.94); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2); font-size: 0.78rem; line-height: 1.5; opacity: 0; pointer-events: none; transform: translateY(4px); transition: opacity 0.15s ease, transform 0.15s ease; white-space: normal; }
+        .talent-chip:hover::after, .talent-chip[aria-expanded="true"]::after, .icon-chip:hover::after, .icon-chip[aria-expanded="true"]::after { opacity: 1; transform: translateY(-4px); }
+        .icon-chip[data-desc=""]::after, .talent-chip[data-desc=""]::after { display: none; }
+
+        .announcement-overlay { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 20px; background: rgba(44, 62, 80, 0.48); backdrop-filter: blur(4px); }
+        .announcement-overlay[hidden] { display: none !important; }
+        .announcement-card { width: min(620px, 100%); max-height: min(86vh, 760px); overflow: auto; padding: 20px; border: 1px solid rgba(137, 196, 244, 0.5); border-radius: 20px; background: #fff; box-shadow: 0 20px 50px rgba(44, 62, 80, 0.26); }
+        .announcement-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--stroke); }
+        .announcement-header h2 { font-size: 1.1rem; }
+        .announcement-close { width: 36px; min-height: 36px; flex: 0 0 auto; color: var(--accent); border-color: rgba(91, 124, 250, 0.24); background: #fff; font-size: 1.2rem; }
+        .announcement-content { padding-top: 16px; }
+        .announcement-loading, .announcement-empty { padding: 18px; color: var(--muted); border: 1px dashed rgba(94, 125, 245, 0.25); border-radius: 12px; background: rgba(247, 250, 253, 0.72); }
+        .announcement-item + .announcement-item { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--stroke); }
+        .announcement-item-date { color: var(--accent); font-size: 0.78rem; font-weight: 700; }
+        .announcement-item-title { margin: 4px 0; font-size: 1rem; }
+        .announcement-item-body { color: var(--muted); line-height: 1.65; white-space: pre-wrap; }
+        .announcement-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--stroke); }
+        .announcement-feedback-link { color: var(--accent); font-weight: 700; text-decoration: none; }
+        .announcement-dismiss-btn { min-height: 36px; padding: 6px 14px; color: #fff; background: var(--accent); }
+        .floating-feedback { position: fixed; right: 32px; bottom: 32px; z-index: 999; display: flex; width: 52px; height: 52px; align-items: center; justify-content: center; color: #fff; border-radius: 50%; background: var(--accent); box-shadow: 0 4px 20px rgba(24, 33, 47, 0.28); cursor: pointer; user-select: none; }
+        .floating-feedback.hidden { display: none; }
+        .floating-feedback-text { pointer-events: none; font-size: 0.82rem; font-weight: 700; }
+        .floating-feedback-close { position: absolute; top: -5px; right: -5px; width: 20px; min-height: 20px; padding: 0; color: #fff; border: none; border-radius: 50%; background: rgba(24, 33, 47, 0.68); font-size: 11px; line-height: 20px; opacity: 0; }
+        .floating-feedback:hover .floating-feedback-close, .floating-feedback:focus-within .floating-feedback-close { opacity: 1; }
+
+        @media (max-width: 980px) {
+            .results-workspace { grid-template-columns: 1fr; }
+            .win-rate-panel { position: static; }
+        }
+
+        @media (max-width: 760px) {
+            body { padding: 16px 12px 36px; }
+            .page-header, .panel, .match-column, .win-rate-panel { padding: 18px; border-radius: 16px; }
+            .site-header { align-items: stretch; flex-direction: column; gap: 10px; }
+            .page-header { align-items: start; flex-direction: column; }
+            .path-note { white-space: normal; }
+            .field-time, .field-score { grid-column: span 12; }
+            .teams { grid-template-columns: 1fr; }
+            .swap-wrap { min-height: 38px; }
+            .swap-btn { transform: rotate(90deg); }
+            .result-heading { align-items: start; flex-direction: column; }
+            .match-teams { grid-template-columns: 1fr; gap: 8px; }
+            .source-team:last-child, .source-team:last-child .source-team-heading { text-align: left; justify-content: flex-start; }
+            .source-team:last-child .kungfu-portraits { justify-content: flex-start; }
+            .versus { justify-self: start; width: auto; height: auto; padding: 3px 8px; border-radius: 999px; }
+            .pager { flex-wrap: wrap; justify-content: center; }
+            .pager button { white-space: nowrap; }
+            #page-label { order: -1; flex: 1 0 100%; text-align: center; }
+            .match-detail-overlay { padding: 10px; }
+            .match-detail-card { max-height: calc(100vh - 20px); border-radius: 16px; }
+            .match-detail-header, .match-detail-body { padding-right: 14px; padding-left: 14px; }
+            .detail-summary-grid, .detail-team-grid { grid-template-columns: 1fr; }
+            .detail-item-grid { grid-template-columns: 1fr; }
+            .announcement-overlay { padding: 10px; }
+            .announcement-card { padding: 16px; border-radius: 16px; }
+        }
+
+        @media (max-width: 700px) {
+            body { padding: 20px 14px 40px; }
+            .site-header { align-items: stretch; flex-direction: column; gap: 10px; }
+            .site-nav { margin: 0 -4px; }
+        }
+    </style>
+    <link rel="stylesheet" href="jjc-site.css">
+</head>
+<body>
+    <main class="page">
+        <header class="site-header">
+            <a class="site-brand" href="index.html"><strong>JJC 数据中心</strong><span>剑网 3 竞技场数据浏览</span></a>
+            <nav class="site-nav" aria-label="JJC 数据中心导航">
+                <a href="index.html">心法排名</a>
+                <a href="jjc-synced-matches.html">对局查询</a>
+                <a href="jjc-matchups.html" aria-current="page">心法对阵</a>
+            </nav>
+        </header>
+        <header class="page-header page-title-region">
+            <div>
+                <h1>竞技场心法对阵统计</h1>
+                <p class="intro">按双方心法组合、时间和队伍平均游戏分浏览原始对局数据。</p>
+            </div>
+            <p class="path-note">双方均可为空；空配置表示不限。</p>
+        </header>
+
+        <section class="panel" aria-labelledby="filters-title">
+            <div class="panel-heading">
+                <div>
+                    <h2 id="filters-title">查询条件</h2>
+                    <p>每侧最多选择 3 个心法；相同心法可重复选择。</p>
+                </div>
+            </div>
+
+            <div class="filter-grid">
+                <div class="field field-time">
+                    <span>快捷时间范围</span>
+                    <div id="presets" class="presets" aria-label="快捷时间范围"></div>
+                </div>
+                <label class="field field-time">自定义开始日期
+                    <input id="start-date" type="date">
+                </label>
+                <label class="field field-time">自定义结束日期
+                    <input id="end-date" type="date">
+                </label>
+                <label class="field field-score">最低队伍平均游戏分
+                    <input id="score-min" type="number" inputmode="numeric" min="0" max="1000000" placeholder="必填">
+                </label>
+                <label class="field field-score">最高队伍平均游戏分（不含）
+                    <input id="score-max" type="number" inputmode="numeric" min="0" max="1000000" placeholder="必填">
+                </label>
+            </div>
+
+            <div class="teams">
+                <section class="team-editor" aria-labelledby="team-a-title">
+                    <h3 id="team-a-title">配置 A</h3>
+                    <p class="hint">无顺序限制；重复会保留。</p>
+                    <div id="team-a-tags" class="team-tags" aria-live="polite"></div>
+                    <label class="field">添加心法
+                        <div class="kungfu-picker" data-picker-side="a">
+                            <button id="team-a-picker-trigger" class="kungfu-picker-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" disabled>
+                                <span id="team-a-picker-preview">选择心法</span><span aria-hidden="true">⌄</span>
+                            </button>
+                            <div id="team-a-picker-menu" class="kungfu-picker-menu" role="listbox" hidden></div>
+                            <select id="team-a-select" class="picker-native-select" disabled aria-hidden="true" tabindex="-1">
+                                <option value="">正在加载心法目录…</option>
+                            </select>
+                        </div>
+                    </label>
+                </section>
+                <div class="swap-wrap">
+                    <button id="swap-teams" class="swap-btn" type="button" title="交换双方配置" aria-label="交换双方配置">↔</button>
+                </div>
+                <section class="team-editor" aria-labelledby="team-b-title">
+                    <h3 id="team-b-title">配置 B</h3>
+                    <p class="hint">无顺序限制；重复会保留。</p>
+                    <div id="team-b-tags" class="team-tags" aria-live="polite"></div>
+                    <label class="field">添加心法
+                        <div class="kungfu-picker" data-picker-side="b">
+                            <button id="team-b-picker-trigger" class="kungfu-picker-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" disabled>
+                                <span id="team-b-picker-preview">选择心法</span><span aria-hidden="true">⌄</span>
+                            </button>
+                            <div id="team-b-picker-menu" class="kungfu-picker-menu" role="listbox" hidden></div>
+                            <select id="team-b-select" class="picker-native-select" disabled aria-hidden="true" tabindex="-1">
+                                <option value="">正在加载心法目录…</option>
+                            </select>
+                        </div>
+                    </label>
+                </section>
+            </div>
+
+            <div class="actions">
+                <button id="reset-filters" class="reset-btn" type="button">重置筛选</button>
+                <button id="submit-search" class="submit-btn" type="button" disabled aria-disabled="true">查询对局</button>
+            </div>
+            <p id="filter-message" class="message" role="status" aria-live="polite"></p>
+        </section>
+
+        <div class="results-workspace">
+            <section class="match-column" aria-labelledby="results-title">
+                <div class="result-heading">
+                    <div>
+                        <h2 id="results-title">对局列表</h2>
+                        <p>点击任意对局，可查看阵容、装备和奇穴。</p>
+                    </div>
+                    <label class="pagination-tools">每页
+                        <select id="page-size" disabled aria-label="每页对局数"><option value="20">20</option></select>
+                    </label>
+                </div>
+                <div id="result-state" class="result-state" role="status" aria-live="polite">请先填写合法分数范围并发起查询。</div>
+                <div id="match-list" class="match-list"></div>
+                <nav id="pager" class="pager" aria-label="对局分页" hidden>
+                    <button id="previous-page" type="button">上一页</button>
+                    <span id="page-label">第 1 页</span>
+                    <button id="next-page" type="button">下一页</button>
+                </nav>
+            </section>
+
+            <aside id="win-rate-panel" class="win-rate-panel" aria-labelledby="win-rate-title">
+                <div class="rate-heading">
+                    <span class="rate-heading-icon" aria-hidden="true">
+                        <svg class="ui-icon" viewBox="0 0 24 24"><path d="M4 19V9m8 10V5m8 14V3M2 19h20"/></svg>
+                    </span>
+                    <h2 id="win-rate-title">胜率对比</h2>
+                </div>
+                <p class="rate-intro">胜率按方向样本计算，交换配置后会同步更新。</p>
+
+                <article class="rate-team rate-team-a">
+                    <div class="rate-team-head"><span class="rate-team-name">配置 A</span><strong id="stat-team-a" class="rate-value">—</strong></div>
+                    <div id="rate-team-a-icons" class="rate-icons" aria-label="配置 A 心法"></div>
+                    <div class="rate-bar" aria-hidden="true"><div id="team-a-rate-bar" class="rate-bar-fill"></div></div>
+                    <p id="team-a-rate-caption" class="rate-caption">等待查询结果</p>
+                </article>
+                <article class="rate-team rate-team-b">
+                    <div class="rate-team-head"><span class="rate-team-name">配置 B</span><strong id="stat-team-b" class="rate-value">—</strong></div>
+                    <div id="rate-team-b-icons" class="rate-icons" aria-label="配置 B 心法"></div>
+                    <div class="rate-bar" aria-hidden="true"><div id="team-b-rate-bar" class="rate-bar-fill"></div></div>
+                    <p id="team-b-rate-caption" class="rate-caption">等待查询结果</p>
+                </article>
+
+                <div class="summary-grid" aria-label="原始统计摘要">
+                    <dl class="summary-item"><dt>唯一对局</dt><dd id="stat-match-count">—</dd></dl>
+                    <dl class="summary-item"><dt>方向样本</dt><dd id="stat-orientation-count">—</dd></dl>
+                    <dl class="summary-item"><dt>双向命中</dt><dd id="stat-bidirectional">—</dd></dl>
+                    <dl class="summary-item"><dt>缺失分数</dt><dd id="stat-missing-score">—</dd></dl>
+                </div>
+            </aside>
+        </div>
+    </main>
+
+    <div id="match-detail-modal" class="match-detail-overlay" hidden aria-hidden="true">
+        <section class="match-detail-card" role="dialog" aria-modal="true" aria-labelledby="match-detail-title" aria-describedby="match-detail-subtitle" tabindex="-1">
+            <header class="match-detail-header">
+                <div>
+                    <h2 id="match-detail-title" class="match-detail-title">对局详情</h2>
+                    <p id="match-detail-subtitle" class="match-detail-subtitle"></p>
+                </div>
+                <button id="match-detail-close" class="match-detail-close" type="button" aria-label="关闭对局详情">×</button>
+            </header>
+            <div id="match-detail-tabs" class="detail-tabs" role="tablist" aria-label="对局详情内容" hidden>
+                <button class="detail-tab" type="button" role="tab" data-detail-tab="overview" aria-selected="true" tabindex="0">
+                    <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>对局概览
+                </button>
+                <button class="detail-tab" type="button" role="tab" data-detail-tab="equipment" aria-selected="false" tabindex="-1">
+                    <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4 4 7l3 4v9h10v-9l3-4-4-3-2 3h-4L8 4Z"/></svg>装备
+                </button>
+                <button class="detail-tab" type="button" role="tab" data-detail-tab="talents" aria-selected="false" tabindex="-1">
+                    <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.1 5.1L19 10l-4.9 2.1L12 17l-2.1-4.9L5 10l4.9-1.9L12 3Z"/><path d="m18.5 16 .8 1.9 1.7.6-1.7.8-.8 1.7-.7-1.7-1.8-.8 1.8-.6.7-1.9Z"/></svg>奇穴
+                </button>
+            </div>
+            <div id="match-detail-body" class="match-detail-body" aria-live="polite"></div>
+        </section>
+    </div>
+
+    <div id="announcement-modal" class="announcement-overlay" hidden aria-hidden="true">
+        <section class="announcement-card" role="dialog" aria-modal="true" aria-labelledby="announcement-title" tabindex="-1">
+            <header class="announcement-header">
+                <div>
+                    <h2 id="announcement-title">公告 / 更新说明</h2>
+                    <p class="match-detail-subtitle">最近更新与页面说明</p>
+                </div>
+                <button id="announcement-close" class="announcement-close" type="button" aria-label="关闭公告">×</button>
+            </header>
+            <div id="announcement-modal-body" class="announcement-content" aria-live="polite"></div>
+            <footer class="announcement-footer">
+                <a href="https://github.com/winne-w/jx3bot/issues" target="_blank" rel="noopener" class="announcement-feedback-link">反馈 &amp; 交流</a>
+                <button id="announcement-dismiss-btn" class="announcement-dismiss-btn" type="button">知道了</button>
+            </footer>
+        </section>
+    </div>
+
+    <div class="floating-feedback hidden" id="floating-feedback">
+        <button class="floating-feedback-close" id="floating-feedback-close" type="button" aria-label="关闭">×</button>
+        <span class="floating-feedback-text">反馈</span>
+    </div>
+
+    <script>
+        const API_BASE = "/jx3bot/api/jjc/matchups";
+        const MATCH_DETAIL_API = "/jx3bot/api/jjc/ranking-stats/match-detail";
+        const ANNOUNCEMENT_API = "/jx3bot/api/announcements";
+        const defaultPresetDays = 7;
+        const DEFAULT_PRESET_DAYS = defaultPresetDays;
+        const FALLBACK_META = {
+            kungfus: [], time_presets: [1, 3, 7, 14], page_sizes: [20, 50, 100],
+            limits: { max_days: 14, score_min: 0, score_max: 1000000, max_team_kungfus: 3, max_page: 100000 }
+        };
+
+        const state = {
+            meta: FALLBACK_META,
+            teamA: [],
+            teamB: [],
+            timeMode: "preset",
+            selectedPreset: DEFAULT_PRESET_DAYS,
+            startTime: null,
+            endTime: null,
+            scoreMin: "",
+            scoreMax: "",
+            page: 1,
+            pageSize: 20,
+            swapped: false,
+            result: null,
+            requestSerial: 0,
+            detailRequestSerial: 0,
+            detailAbortController: null,
+            detailRestoreFocus: null,
+            timeRangeError: "",
+        };
+        const matchDetailCache = new Map();
+
+        const elements = {
+            presets: document.getElementById("presets"),
+            startDate: document.getElementById("start-date"),
+            endDate: document.getElementById("end-date"),
+            scoreMin: document.getElementById("score-min"),
+            scoreMax: document.getElementById("score-max"),
+            teamATags: document.getElementById("team-a-tags"),
+            teamBTags: document.getElementById("team-b-tags"),
+            teamASelect: document.getElementById("team-a-select"),
+            teamBSelect: document.getElementById("team-b-select"),
+            teamAPickerTrigger: document.getElementById("team-a-picker-trigger"),
+            teamBPickerTrigger: document.getElementById("team-b-picker-trigger"),
+            teamAPickerPreview: document.getElementById("team-a-picker-preview"),
+            teamBPickerPreview: document.getElementById("team-b-picker-preview"),
+            teamAPickerMenu: document.getElementById("team-a-picker-menu"),
+            teamBPickerMenu: document.getElementById("team-b-picker-menu"),
+            submit: document.getElementById("submit-search"),
+            reset: document.getElementById("reset-filters"),
+            swap: document.getElementById("swap-teams"),
+            message: document.getElementById("filter-message"),
+            pageSize: document.getElementById("page-size"),
+            resultState: document.getElementById("result-state"),
+            matchList: document.getElementById("match-list"),
+            pager: document.getElementById("pager"),
+            previous: document.getElementById("previous-page"),
+            next: document.getElementById("next-page"),
+            pageLabel: document.getElementById("page-label"),
+            matchDetailModal: document.getElementById("match-detail-modal"),
+            matchDetailCard: document.querySelector("#match-detail-modal .match-detail-card"),
+            matchDetailTitle: document.getElementById("match-detail-title"),
+            matchDetailSubtitle: document.getElementById("match-detail-subtitle"),
+            matchDetailBody: document.getElementById("match-detail-body"),
+            matchDetailClose: document.getElementById("match-detail-close"),
+            rateTeamAIcons: document.getElementById("rate-team-a-icons"),
+            rateTeamBIcons: document.getElementById("rate-team-b-icons"),
+            teamARateBar: document.getElementById("team-a-rate-bar"),
+            teamBRateBar: document.getElementById("team-b-rate-bar"),
+            teamARateCaption: document.getElementById("team-a-rate-caption"),
+            teamBRateCaption: document.getElementById("team-b-rate-caption"),
+        };
+
+        function unwrapResponse(payload) {
+            if (!payload || typeof payload !== "object" || payload.status_code !== 0) {
+                throw new Error((payload && payload.status_msg) || "请求失败");
+            }
+            return payload.data;
+        }
+
+        function clampNumber(value, lower, upper) {
+            if (value === null || value === undefined
+                || (typeof value === "string" && value.trim() === "")) return null;
+            const number = Number(value);
+            return Number.isInteger(number) && number >= lower && number <= upper ? number : null;
+        }
+
+        function readUrlState() {
+            const params = new URLSearchParams(window.location.search);
+            const startTime = clampNumber(params.get("start_time"), 1, Number.MAX_SAFE_INTEGER);
+            const endTime = clampNumber(params.get("end_time"), 1, Number.MAX_SAFE_INTEGER);
+            const scoreMin = params.get("score_min");
+            const scoreMax = params.get("score_max");
+            state.startTime = startTime;
+            state.endTime = endTime;
+            state.scoreMin = scoreMin === null ? "" : scoreMin;
+            state.scoreMax = scoreMax === null ? "" : scoreMax;
+            state.teamA = readPositiveIds(params.getAll("team_a_kungfu_ids"));
+            state.teamB = readPositiveIds(params.getAll("team_b_kungfu_ids"));
+            state.page = clampNumber(params.get("page"), 1, 100000) || 1;
+            state.pageSize = clampNumber(params.get("page_size"), 1, 100) || 20;
+            if (startTime && endTime) state.timeMode = "absolute";
+        }
+
+        function readPositiveIds(values) {
+            return values.map((value) => clampNumber(value, 1, Number.MAX_SAFE_INTEGER)).filter((value) => value !== null).slice(0, 3);
+        }
+
+        function writeUrl(filters) {
+            const params = new URLSearchParams();
+            params.set("start_time", String(filters.start_time));
+            params.set("end_time", String(filters.end_time));
+            params.set("score_min", String(filters.score_min));
+            params.set("score_max", String(filters.score_max));
+            filters.team_a_kungfu_ids.forEach((id) => params.append("team_a_kungfu_ids", String(id)));
+            filters.team_b_kungfu_ids.forEach((id) => params.append("team_b_kungfu_ids", String(id)));
+            params.set("page", String(filters.page));
+            params.set("page_size", String(filters.page_size));
+            history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+        }
+
+        function shanghaiDateToUnix(dateText, nextDay) {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText || "")) return null;
+            const parts = dateText.split("-").map(Number);
+            const dayOffset = nextDay ? 1 : 0;
+            // Asia/Shanghai 无夏令时：选择日期的 00:00:00，结束日期取次日 00:00:00（排他）。
+            const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 0, 0, 0));
+            if (date.getUTCFullYear() !== parts[0]
+                || date.getUTCMonth() !== parts[1] - 1
+                || date.getUTCDate() !== parts[2]) return null;
+            return Math.floor(Date.UTC(parts[0], parts[1] - 1, parts[2] + dayOffset, 0, 0, 0) / 1000) - 8 * 60 * 60;
+        }
+
+        function dateInputValueFromShanghai(unixTime) {
+            if (!unixTime) return "";
+            const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
+            const values = Object.fromEntries(formatter.formatToParts(new Date(unixTime * 1000)).map((part) => [part.type, part.value]));
+            return `${values.year}-${values.month}-${values.day}`;
+        }
+
+        function syncInputs() {
+            elements.scoreMin.value = state.scoreMin;
+            elements.scoreMax.value = state.scoreMax;
+            if (state.timeMode === "absolute") {
+                elements.startDate.value = dateInputValueFromShanghai(state.startTime);
+                // 上海无 DST；结束时间是次日边界，固定减 24 小时可安全回显其前一天。
+                elements.endDate.value = dateInputValueFromShanghai(state.endTime - 24 * 60 * 60);
+            } else {
+                elements.startDate.value = "";
+                elements.endDate.value = "";
+            }
+            elements.pageSize.value = String(state.pageSize);
+            updateSubmitState();
+        }
+
+        function validScores() {
+            const scoreMin = clampNumber(state.scoreMin, state.meta.limits.score_min, state.meta.limits.score_max);
+            const scoreMax = clampNumber(state.scoreMax, state.meta.limits.score_min, state.meta.limits.score_max);
+            return scoreMin !== null && scoreMax !== null && scoreMin < scoreMax;
+        }
+
+        function updateSubmitState() {
+            const enabled = validScores();
+            elements.submit.disabled = !enabled;
+            elements.submit.setAttribute("aria-disabled", String(!enabled));
+            if (!enabled) setMessage("请填写合法的最低和最高游戏分（最低值必须小于最高值）。");
+        }
+
+        function setMessage(text, isError) {
+            elements.message.textContent = text || "";
+            elements.message.classList.toggle("error", Boolean(isError));
+        }
+
+        function invalidatePendingSearch() {
+            state.requestSerial += 1;
+            return state.requestSerial;
+        }
+
+        function clearLoadingState(message) {
+            elements.resultState.textContent = message || "筛选已修改，请重新查询。";
+            elements.resultState.className = "result-state";
+            elements.matchList.replaceChildren();
+            elements.pager.hidden = true;
+        }
+
+        function markFiltersChanged() {
+            state.page = 1;
+            invalidatePendingSearch();
+            state.result = null;
+            clearLoadingState();
+        }
+
+        function renderPresets() {
+            elements.presets.replaceChildren();
+            state.meta.time_presets.forEach((days) => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "preset" + (state.timeMode === "preset" && state.selectedPreset === days ? " is-active" : "");
+                button.dataset.days = String(days);
+                button.textContent = `最近 ${days} 天`;
+                button.addEventListener("click", () => {
+                    state.timeMode = "preset";
+                    state.selectedPreset = days;
+                    state.startTime = null;
+                    state.endTime = null;
+                    elements.startDate.value = "";
+                    elements.endDate.value = "";
+                    markFiltersChanged();
+                    renderPresets();
+                });
+                elements.presets.append(button);
+            });
+        }
+
+        function kungfuById(id) { return state.meta.kungfus.find((kungfu) => kungfu.id === id); }
+
+        function createKungfuPortrait(kungfuId, kungfuName) {
+            const portrait = document.createElement("span");
+            portrait.className = "kungfu-portrait";
+            const meta = kungfuById(kungfuId) || state.meta.kungfus.find((item) => item.name === kungfuName);
+            const iconId = meta && isPositiveInteger(meta.icon_id) ? meta.icon_id
+                : (isPositiveInteger(kungfuId) ? kungfuId : null);
+            const name = detailText(kungfuName || (meta && meta.name), "未知心法");
+            portrait.title = name;
+            if (!iconId) {
+                const fallback = document.createElement("span");
+                fallback.className = "kungfu-portrait-fallback";
+                fallback.textContent = name.slice(0, 1);
+                portrait.append(fallback);
+                return portrait;
+            }
+            const image = document.createElement("img");
+            image.src = `https://img.jx3box.com/image/xf/${iconId}.png`;
+            image.alt = name;
+            image.loading = "lazy";
+            image.referrerPolicy = "no-referrer";
+            image.addEventListener("error", () => {
+                const fallback = document.createElement("span");
+                fallback.className = "kungfu-portrait-fallback";
+                fallback.textContent = name.slice(0, 1);
+                portrait.replaceChildren(fallback);
+            }, { once: true });
+            portrait.append(image);
+            return portrait;
+        }
+
+        function renderKungfuPortrait(player) {
+            return createKungfuPortrait(player && player.kungfu_id, player && player.kungfu);
+        }
+
+        function renderRateTeamIcons(container, ids) {
+            container.replaceChildren();
+            if (!ids.length) {
+                const empty = document.createElement("span");
+                empty.className = "rate-caption";
+                empty.textContent = "不限心法";
+                container.append(empty);
+                return;
+            }
+            ids.forEach((id) => {
+                const kungfu = kungfuById(id);
+                container.append(createKungfuPortrait(id, kungfu && kungfu.name));
+            });
+        }
+
+        function kungfuCategory(kungfu) {
+            return kungfu && kungfu.category === "healer" ? "奶妈" : "输出 DPS";
+        }
+
+        function renderKungfuPicker(which) {
+            const isA = which === "a";
+            const team = isA ? state.teamA : state.teamB;
+            const trigger = isA ? elements.teamAPickerTrigger : elements.teamBPickerTrigger;
+            const preview = isA ? elements.teamAPickerPreview : elements.teamBPickerPreview;
+            const menu = isA ? elements.teamAPickerMenu : elements.teamBPickerMenu;
+            const selectedId = team.length ? team[team.length - 1] : null;
+            const selected = selectedId ? kungfuById(selectedId) : null;
+            preview.replaceChildren();
+            const choice = document.createElement("span");
+            choice.className = "picker-choice";
+            if (selected) {
+                choice.append(createKungfuPortrait(selected.id, selected.name));
+                const copy = document.createElement("span");
+                copy.className = "picker-choice-copy";
+                const name = document.createElement("span");
+                name.className = "picker-choice-name";
+                name.textContent = selected.name;
+                const category = document.createElement("span");
+                category.className = "picker-choice-category";
+                category.textContent = kungfuCategory(selected);
+                copy.append(name, category);
+                choice.append(copy);
+            } else {
+                choice.textContent = "选择心法";
+            }
+            preview.append(choice);
+            trigger.disabled = !state.meta.kungfus.length || team.length >= 3;
+            if (trigger.disabled) {
+                trigger.setAttribute("aria-expanded", "false");
+                menu.hidden = true;
+            }
+            menu.replaceChildren();
+            ["dps", "healer"].forEach((categoryKey) => {
+                const categoryItems = state.meta.kungfus.filter((kungfu) => (
+                    categoryKey === "healer" ? kungfu.category === "healer" : kungfu.category !== "healer"
+                ));
+                if (!categoryItems.length) return;
+                const heading = document.createElement("div");
+                heading.className = "picker-group-label";
+                heading.textContent = categoryKey === "healer" ? "奶妈" : "输出 DPS";
+                menu.append(heading);
+                categoryItems.forEach((kungfu) => {
+                    const option = document.createElement("button");
+                    option.type = "button";
+                    option.className = "kungfu-picker-option";
+                    option.setAttribute("role", "option");
+                    option.setAttribute("data-picker-id", String(kungfu.id));
+                    option.setAttribute("data-picker-side", which);
+                    option.append(createKungfuPortrait(kungfu.id, kungfu.name));
+                    const copy = document.createElement("span");
+                    copy.className = "picker-option-copy";
+                    const name = document.createElement("span");
+                    name.className = "picker-option-name";
+                    name.textContent = kungfu.name;
+                    const category = document.createElement("span");
+                    category.className = "picker-option-category";
+                    category.textContent = kungfuCategory(kungfu);
+                    copy.append(name, category);
+                    option.append(copy);
+                    menu.append(option);
+                });
+            });
+        }
+
+        function renderTeam(which) {
+            const isA = which === "a";
+            const team = isA ? state.teamA : state.teamB;
+            const tags = isA ? elements.teamATags : elements.teamBTags;
+            const select = isA ? elements.teamASelect : elements.teamBSelect;
+            tags.replaceChildren();
+            if (!team.length) {
+                const empty = document.createElement("span");
+                empty.className = "empty-team";
+                empty.textContent = "空配置：不限该侧队伍";
+                tags.append(empty);
+            }
+            team.forEach((id, index) => {
+                const kungfu = kungfuById(id);
+                const tag = document.createElement("span");
+                tag.className = "kungfu-tag";
+                if (kungfu) tag.append(createKungfuPortrait(kungfu.id, kungfu.name));
+                const tagName = document.createElement("span");
+                tagName.textContent = kungfu ? kungfu.name : `心法 ${id}`;
+                const remove = document.createElement("button");
+                remove.type = "button";
+                remove.className = "tag-remove";
+                remove.setAttribute("aria-label", `移除 ${tagName.textContent}`);
+                remove.textContent = "×";
+                remove.addEventListener("click", () => {
+                    team.splice(index, 1);
+                    markFiltersChanged();
+                    renderTeam(which);
+                });
+                tag.append(tagName, remove);
+                tags.append(tag);
+            });
+            select.disabled = !state.meta.kungfus.length || team.length >= 3;
+            renderRateTeamIcons(isA ? elements.rateTeamAIcons : elements.rateTeamBIcons, team);
+            renderKungfuPicker(which);
+        }
+
+        function renderCatalog() {
+            [elements.teamASelect, elements.teamBSelect].forEach((select) => {
+                select.replaceChildren();
+                const emptyOption = document.createElement("option");
+                emptyOption.value = "";
+                emptyOption.textContent = "选择心法添加";
+                select.append(emptyOption);
+                ["dps", "healer"].forEach((categoryKey) => {
+                    const group = document.createElement("optgroup");
+                    group.label = categoryKey === "healer" ? "奶妈" : "输出 DPS";
+                    state.meta.kungfus.filter((kungfu) => (
+                        categoryKey === "healer" ? kungfu.category === "healer" : kungfu.category !== "healer"
+                    )).forEach((kungfu) => {
+                        const option = document.createElement("option");
+                        option.value = String(kungfu.id);
+                        option.textContent = `${categoryKey === "healer" ? "✚" : "⚔"} ${kungfu.name}`;
+                        group.append(option);
+                    });
+                    if (group.children.length) select.append(group);
+                });
+            });
+            renderTeam("a");
+            renderTeam("b");
+        }
+
+        function renderPageSizes() {
+            elements.pageSize.replaceChildren();
+            state.meta.page_sizes.forEach((pageSize) => {
+                const option = document.createElement("option");
+                option.value = String(pageSize);
+                option.textContent = String(pageSize);
+                elements.pageSize.append(option);
+            });
+            elements.pageSize.value = String(state.pageSize);
+            elements.pageSize.disabled = false;
+        }
+
+        function hasPositiveIntegerList(values) {
+            return Array.isArray(values) && values.length > 0
+                && values.every((value) => Number.isInteger(value) && value > 0);
+        }
+
+        function hasValidLimits(limits) {
+            return limits && typeof limits === "object"
+                && Number.isInteger(limits.max_days) && limits.max_days > 0
+                && Number.isInteger(limits.score_min) && Number.isInteger(limits.score_max)
+                && limits.score_min >= 0 && limits.score_min < limits.score_max
+                && Number.isInteger(limits.max_team_kungfus) && limits.max_team_kungfus > 0
+                && Number.isInteger(limits.max_page) && limits.max_page > 0;
+        }
+
+        function validateUrlStateAfterMeta() {
+            const limits = state.meta.limits;
+            const maxDuration = limits.max_days * 24 * 60 * 60;
+            state.teamA = state.teamA.slice(0, limits.max_team_kungfus);
+            state.teamB = state.teamB.slice(0, limits.max_team_kungfus);
+            state.page = clampNumber(state.page, 1, limits.max_page) || 1;
+            state.pageSize = state.meta.page_sizes.includes(state.pageSize)
+                ? state.pageSize
+                : (state.meta.page_sizes[0] || 20);
+
+            const scoresAreValid = clampNumber(state.scoreMin, limits.score_min, limits.score_max) !== null
+                && clampNumber(state.scoreMax, limits.score_min, limits.score_max) !== null
+                && Number(state.scoreMin) < Number(state.scoreMax);
+            if (!scoresAreValid) {
+                state.scoreMin = "";
+                state.scoreMax = "";
+            }
+
+            const absoluteRangeIsValid = Number.isInteger(state.startTime)
+                && Number.isInteger(state.endTime)
+                && state.startTime > 0
+                && state.endTime > state.startTime
+                && state.endTime - state.startTime <= maxDuration;
+            if (!absoluteRangeIsValid) {
+                state.timeMode = "preset";
+                state.selectedPreset = DEFAULT_PRESET_DAYS;
+                state.startTime = null;
+                state.endTime = null;
+                state.page = 1;
+            }
+        }
+
+        function addKungfu(which, value) {
+            const id = clampNumber(value, 1, Number.MAX_SAFE_INTEGER);
+            const team = which === "a" ? state.teamA : state.teamB;
+            if (id === null || team.length >= 3) return;
+            team.push(id); // 保留重复心法，不能用 Set 去重。
+            markFiltersChanged();
+            renderTeam(which);
+        }
+
+        function buildSearchPayload() {
+            const scoreMin = clampNumber(state.scoreMin, state.meta.limits.score_min, state.meta.limits.score_max);
+            const scoreMax = clampNumber(state.scoreMax, state.meta.limits.score_min, state.meta.limits.score_max);
+            if (scoreMin === null || scoreMax === null || scoreMin >= scoreMax) return null;
+            let startTime = state.startTime;
+            let endTime = state.endTime;
+            if (state.timeMode === "preset") {
+                const days = state.selectedPreset || DEFAULT_PRESET_DAYS;
+                const presetSeconds = days * 24 * 60 * 60;
+                endTime = Math.floor(Date.now() / 1000);
+                startTime = endTime - presetSeconds;
+            } else if (state.timeMode === "custom") {
+                startTime = shanghaiDateToUnix(elements.startDate.value, false);
+                endTime = shanghaiDateToUnix(elements.endDate.value, true);
+            }
+            if (!startTime || !endTime || endTime <= startTime) {
+                state.timeRangeError = "请填写有效的开始和结束时间。";
+                return null;
+            }
+            const maxDays = state.meta.limits.max_days;
+            if (endTime - startTime > maxDays * 24 * 60 * 60) {
+                state.timeRangeError = `时间范围不能超过 ${maxDays} 天。`;
+                return null;
+            }
+            state.timeRangeError = "";
+            state.startTime = startTime;
+            state.endTime = endTime;
+            return {
+                start_time: startTime,
+                end_time: endTime,
+                score_min: scoreMin,
+                score_max: scoreMax,
+                team_a_kungfu_ids: state.teamA.slice(),
+                team_b_kungfu_ids: state.teamB.slice(),
+                page: state.page,
+                page_size: state.pageSize,
+            };
+        }
+
+        function isNonNegativeInteger(value) {
+            return Number.isSafeInteger(value) && value >= 0;
+        }
+
+        function isPositiveInteger(value) {
+            return Number.isSafeInteger(value) && value > 0;
+        }
+
+        function isNullableRate(value) {
+            return value === null || (typeof value === "number" && Number.isFinite(value)
+                && value >= 0 && value <= 100);
+        }
+
+        function calculateWinRateHalfUp(wins, orientationSampleCount) {
+            // Counts have passed Number.isSafeInteger.  BigInt avoids a lossy
+            // wins * 1000 multiplication before the one-decimal half-up round.
+            const denominator = BigInt(orientationSampleCount);
+            const scaled = (BigInt(wins) * 1000n + denominator / 2n) / denominator;
+            return Number(scaled) / 10;
+        }
+
+        function isValidStatistics(statistics) {
+            if (!statistics || typeof statistics !== "object") return false;
+            const countFields = [
+                "match_count",
+                "orientation_sample_count",
+                "bidirectional_match_count",
+                "missing_score_match_count",
+            ];
+            if (!countFields.every((field) => isNonNegativeInteger(statistics[field]))) return false;
+            const allDirectionalValuesAreNull = statistics.team_a_wins === null
+                && statistics.team_b_wins === null
+                && statistics.team_a_win_rate === null
+                && statistics.team_b_win_rate === null;
+            if (allDirectionalValuesAreNull) {
+                return statistics.orientation_sample_count === 0
+                    && statistics.bidirectional_match_count === 0;
+            }
+
+            if (!isNonNegativeInteger(statistics.team_a_wins)
+                || !isNonNegativeInteger(statistics.team_b_wins)) return false;
+            if (statistics.bidirectional_match_count > statistics.match_count
+                || statistics.orientation_sample_count !== statistics.match_count + statistics.bidirectional_match_count
+                || statistics.team_a_wins + statistics.team_b_wins !== statistics.orientation_sample_count) return false;
+
+            if (statistics.orientation_sample_count === 0) {
+                return statistics.team_a_win_rate === null && statistics.team_b_win_rate === null;
+            }
+            return statistics.team_a_win_rate !== null && statistics.team_b_win_rate !== null
+                && isNullableRate(statistics.team_a_win_rate)
+                && isNullableRate(statistics.team_b_win_rate)
+                && statistics.team_a_win_rate === calculateWinRateHalfUp(
+                    statistics.team_a_wins,
+                    statistics.orientation_sample_count,
+                )
+                && statistics.team_b_win_rate === calculateWinRateHalfUp(
+                    statistics.team_b_wins,
+                    statistics.orientation_sample_count,
+                );
+        }
+
+        function displayRate(wins, rate) {
+            if (wins === null) return "无方向 / —";
+            if (!isNonNegativeInteger(wins) || !isNullableRate(rate)) return "—";
+            return `${wins} 胜 / ${rate === null ? "—" : `${rate}%`}`;
+        }
+
+        function renderStatistics(result) {
+            const stats = result && result.statistics;
+            if (!isValidStatistics(stats)) throw new Error("statistics_response_invalid");
+            document.getElementById("stat-match-count").textContent = stats.match_count;
+            document.getElementById("stat-orientation-count").textContent = stats.orientation_sample_count;
+            document.getElementById("stat-team-a").textContent = stats.team_a_win_rate === null ? "—" : `${stats.team_a_win_rate}%`;
+            document.getElementById("stat-team-b").textContent = stats.team_b_win_rate === null ? "—" : `${stats.team_b_win_rate}%`;
+            document.getElementById("stat-bidirectional").textContent = stats.bidirectional_match_count;
+            document.getElementById("stat-missing-score").textContent = stats.missing_score_match_count;
+            elements.teamARateBar.style.width = `${stats.team_a_win_rate || 0}%`;
+            elements.teamBRateBar.style.width = `${stats.team_b_win_rate || 0}%`;
+            elements.teamARateCaption.textContent = stats.team_a_wins === null
+                ? "不限双方时不计算方向胜率"
+                : `${stats.team_a_wins} 胜 · ${stats.orientation_sample_count} 个方向样本`;
+            elements.teamBRateCaption.textContent = stats.team_b_wins === null
+                ? "不限双方时不计算方向胜率"
+                : `${stats.team_b_wins} 胜 · ${stats.orientation_sample_count} 个方向样本`;
+        }
+
+        function resetStatistics() {
+            [
+                "stat-match-count",
+                "stat-orientation-count",
+                "stat-team-a",
+                "stat-team-b",
+                "stat-bidirectional",
+                "stat-missing-score",
+            ].forEach((id) => {
+                document.getElementById(id).textContent = "—";
+            });
+            elements.teamARateBar.style.width = "0%";
+            elements.teamBRateBar.style.width = "0%";
+            elements.teamARateCaption.textContent = "等待查询结果";
+            elements.teamBRateCaption.textContent = "等待查询结果";
+        }
+
+        function formatDuration(seconds) {
+            if (seconds === null || seconds === undefined) return "时长未知";
+            return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+        }
+
+        function formatScoreAverage(value) {
+            return typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—";
+        }
+
+        function describeOrientations(orientations) {
+            if (!Array.isArray(orientations) || !orientations.length) return "全量无方向";
+            const hasForward = orientations.includes("forward");
+            const hasReverse = orientations.includes("reverse");
+            if (hasForward && hasReverse) return "双向命中：配置 A 分别位于 team1 与 team2";
+            if (hasForward) return "配置 A 位于 team1";
+            if (hasReverse) return "配置 A 位于 team2";
+            return "方向标记异常";
+        }
+
+        function isRenderableMatch(item) {
+            const isPlayer = (player) => player && typeof player === "object"
+                && typeof player.role_name === "string"
+                && typeof player.server === "string"
+                && typeof player.kungfu === "string"
+                && isPositiveInteger(player.kungfu_id)
+                && Number.isInteger(player.game_score) && player.game_score >= 0 && player.game_score <= 1000000;
+            const isTeam = (team) => team && typeof team === "object"
+                && typeof team.won === "boolean"
+                && typeof team.score_avg === "number" && Number.isFinite(team.score_avg)
+                && Array.isArray(team.players) && team.players.length === 3 && team.players.every(isPlayer);
+            const orientations = item && item.matched_orientations;
+            const orientationsAreValid = Array.isArray(orientations) && (
+                orientations.length === 0
+                || (orientations.length === 1 && (orientations[0] === "forward" || orientations[0] === "reverse"))
+                || (orientations.length === 2 && orientations[0] === "forward" && orientations[1] === "reverse")
+            );
+            return item && typeof item === "object"
+                && isPositiveInteger(item.match_id) && isPositiveInteger(item.match_time)
+                && typeof item.map === "string"
+                && (item.duration === null || isNonNegativeInteger(item.duration))
+                && orientationsAreValid && isTeam(item.team1) && isTeam(item.team2);
+        }
+
+        function hasReasonableNormalizedFilters(filters) {
+            if (filters === undefined || filters === null) return true;
+            const meta = state.meta || {};
+            const limits = meta.limits;
+            const pageSizes = meta.page_sizes;
+            const isPositiveIdList = (values) => Array.isArray(values)
+                && values.length <= limits.max_team_kungfus
+                && values.every((value) => isPositiveInteger(value));
+            return typeof filters === "object" && limits && Array.isArray(pageSizes)
+                && isPositiveInteger(filters.start_time) && isPositiveInteger(filters.end_time)
+                && filters.end_time > filters.start_time
+                && filters.end_time - filters.start_time <= limits.max_days * 86400
+                && Number.isSafeInteger(filters.score_min) && Number.isSafeInteger(filters.score_max)
+                && filters.score_min >= limits.score_min && filters.score_max <= limits.score_max
+                && filters.score_min < filters.score_max
+                && isPositiveIdList(filters.team_a_kungfu_ids)
+                && isPositiveIdList(filters.team_b_kungfu_ids)
+                && isPositiveInteger(filters.page) && filters.page <= limits.max_page
+                && isPositiveInteger(filters.page_size) && pageSizes.includes(filters.page_size);
+        }
+
+        function isValidSearchResult(result) {
+            if (!result || typeof result !== "object" || !isValidStatistics(result.statistics)) return false;
+            if (!Array.isArray(result.items) || !result.items.every(isRenderableMatch)) return false;
+            if (!isPositiveInteger(result.page) || !isPositiveInteger(result.page_size)
+                || !isNonNegativeInteger(result.total) || typeof result.has_more !== "boolean") return false;
+            if (result.total !== result.statistics.match_count || result.items.length > result.page_size) return false;
+            const hasMore = result.page < Math.ceil(result.total / result.page_size);
+            if (result.has_more !== hasMore) return false;
+            return hasReasonableNormalizedFilters(result.normalized_filters);
+        }
+
+        function createUiIcon(name) {
+            const paths = {
+                time: ["M12 6v6l4 2", "M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9Z"],
+                map: ["m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z", "M9 3v15m6-12v15"],
+                arrow: ["m9 18 6-6-6-6"],
+            };
+            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.setAttribute("class", "ui-icon");
+            svg.setAttribute("viewBox", "0 0 24 24");
+            svg.setAttribute("aria-hidden", "true");
+            (paths[name] || paths.arrow).forEach((value) => {
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", value);
+                svg.append(path);
+            });
+            return svg;
+        }
+
+        function renderTeamSummary(team, label) {
+            const section = document.createElement("section");
+            section.className = "source-team " + (team.won ? "is-winner" : "is-loser");
+            const heading = document.createElement("div");
+            heading.className = "source-team-heading";
+            const title = document.createElement("h3");
+            title.textContent = `${label} · 平均 ${formatScoreAverage(team.score_avg)}`;
+            const result = document.createElement("span");
+            result.className = "result-tag";
+            result.textContent = team.won ? "胜利" : "失败";
+            heading.append(title, result);
+            const portraits = document.createElement("div");
+            portraits.className = "kungfu-portraits";
+            team.players.forEach((player) => portraits.append(renderKungfuPortrait(player)));
+            const names = document.createElement("p");
+            names.className = "player-names";
+            names.textContent = team.players.map((player) => `${player.role_name} · ${player.game_score}`).join(" / ");
+            section.append(heading, portraits, names);
+            return section;
+        }
+
+        function isPlainObject(value) {
+            return value !== null && typeof value === "object" && !Array.isArray(value);
+        }
+
+        function detailText(value, fallback) {
+            if (typeof value === "string" && value.trim()) return value.trim();
+            if (typeof value === "number" && Number.isFinite(value)) return String(value);
+            return fallback || "—";
+        }
+
+        function formatDetailTime(value) {
+            if (!isPositiveInteger(value)) return "—";
+            const milliseconds = value * 1000;
+            if (!Number.isSafeInteger(milliseconds)) return "—";
+            const date = new Date(milliseconds);
+            if (Number.isNaN(date.getTime())) return "—";
+            return date.toLocaleString("zh-CN", {
+                timeZone: "Asia/Shanghai", hour12: false,
+            });
+        }
+
+        function formatDetailDuration(value) {
+            return isNonNegativeInteger(value) ? formatDuration(value) : "—";
+        }
+
+        function safeIconUrl(value) {
+            if (typeof value !== "string" || !value.trim()) return "";
+            try {
+                const url = new URL(value, window.location.href);
+                return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
+            } catch (_) {
+                return "";
+            }
+        }
+
+        function appendIcon(container, icon, alt) {
+            const src = safeIconUrl(icon);
+            if (!src) return;
+            const image = document.createElement("img");
+            image.src = src;
+            image.loading = "lazy";
+            image.alt = detailText(alt, "图标");
+            image.referrerPolicy = "no-referrer";
+            image.addEventListener("error", () => {
+                image.remove();
+                if (!container.querySelector("img")) {
+                    const fallback = document.createElement("span");
+                    fallback.className = "detail-icon-fallback";
+                    fallback.textContent = "图标不可用";
+                    container.append(fallback);
+                }
+            }, { once: true });
+            container.append(image);
+        }
+
+        function appendDetailState(message, isError) {
+            const stateNode = document.createElement("p");
+            stateNode.className = "detail-state" + (isError ? " error" : "");
+            stateNode.textContent = message;
+            elements.matchDetailBody.replaceChildren(stateNode);
+        }
+
+        function detailNumericValue(value) {
+            if (typeof value === "number" && Number.isFinite(value)) return value;
+            if (typeof value === "string" && /^-?\d+(?:\.\d+)?$/.test(value.trim())) {
+                const number = Number(value);
+                return Number.isFinite(number) ? number : null;
+            }
+            return null;
+        }
+
+        function isValidDisplayNumber(value) {
+            return value === undefined || value === null || detailNumericValue(value) !== null;
+        }
+
+        function hasOnlyOptionalStringFields(item, fields) {
+            return isPlainObject(item) && fields.every((field) => item[field] === undefined || typeof item[field] === "string");
+        }
+
+        function isValidDetailIconEntry(item) {
+            return hasOnlyOptionalStringFields(item, ["name", "icon"]);
+        }
+
+        function isValidDetailTalentEntry(item) {
+            return hasOnlyOptionalStringFields(item, ["name", "desc", "icon"]);
+        }
+
+        function isValidOptionalDetailList(value, entryValidator) {
+            return value === undefined || (Array.isArray(value) && value.every(entryValidator));
+        }
+
+        function isValidDetailPlayer(player) {
+            return isPlainObject(player)
+                && typeof player.role_name === "string" && typeof player.person_name === "string"
+                && typeof player.server === "string" && typeof player.kungfu === "string"
+                && isValidOptionalDetailList(player.armors, isValidDetailIconEntry)
+                && isValidOptionalDetailList(player.talents, isValidDetailTalentEntry)
+                && [
+                    player.total_score,
+                    player.score,
+                    player.mmr,
+                    player.equip_score,
+                    player.equip_strength_score,
+                    player.stone_score,
+                ].every(isValidDisplayNumber);
+        }
+
+        function isValidDetailTeam(team) {
+            return isPlainObject(team) && typeof team.won === "boolean" && Array.isArray(team.players_info)
+                && team.players_info.length === 3 && team.players_info.every(isValidDetailPlayer);
+        }
+
+        function isValidMatchDetailPayload(payload) {
+            if (!isPlainObject(payload)) return false;
+            if (payload.unavailable === true) return true;
+            const detail = payload.detail;
+            return isPlainObject(detail) && isPlainObject(detail.basic_info)
+                && isValidDetailTeam(detail.team1) && isValidDetailTeam(detail.team2);
+        }
+
+        function createDetailSummaryCard(label, value) {
+            const card = document.createElement("div");
+            card.className = "detail-summary-card";
+            const content = document.createElement("strong");
+            content.textContent = value;
+            const caption = document.createElement("span");
+            caption.textContent = label;
+            card.append(content, caption);
+            return card;
+        }
+
+        function optionalDetailText(value) {
+            if (typeof value === "string" && value.trim()) return value.trim();
+            if (typeof value === "number" && Number.isFinite(value)) return String(value);
+            return "";
+        }
+
+        function detailItemDescription(item, kind) {
+            if (kind === "talent") return detailText(item.desc, "暂无奇穴说明");
+            const parts = [];
+            const position = optionalDetailText(item.pos);
+            const quality = optionalDetailText(item.quality);
+            const score = optionalDetailText(item.score);
+            if (position) parts.push(`部位 ${position}`);
+            if (quality) parts.push(`品质 ${quality}`);
+            if (score) parts.push(`装分 ${score}`);
+            return parts.length ? parts.join(" · ") : "暂无更多装备信息";
+        }
+
+        function renderIconGrid(items, emptyText) {
+            const grid = document.createElement("div");
+            grid.className = "icon-grid";
+            const validItems = Array.isArray(items) ? items.filter(isPlainObject) : [];
+            if (!validItems.length) {
+                const empty = document.createElement("span");
+                empty.className = "icon-chip empty";
+                empty.textContent = emptyText;
+                grid.append(empty);
+                return grid;
+            }
+            validItems.forEach((item) => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = `icon-chip${String(item.quality) === "5" ? " legendary" : ""}`;
+                button.setAttribute("data-detail-item", "equipment");
+                button.setAttribute("data-detail-item-type", "equipment");
+                button.setAttribute("aria-expanded", "false");
+                button.dataset.desc = `${detailText(item.name, "装备")} · ${detailItemDescription(item, "equipment")}`;
+                appendIcon(button, item.icon, item.name);
+                grid.append(button);
+            });
+            return grid;
+        }
+
+        function renderTalentGrid(talents, emptyText) {
+            const grid = document.createElement("div");
+            grid.className = "talent-grid";
+            const validItems = Array.isArray(talents) ? talents.filter(isPlainObject) : [];
+            if (!validItems.length) {
+                const empty = document.createElement("span");
+                empty.className = "talent-chip empty-chip";
+                empty.textContent = emptyText;
+                grid.append(empty);
+                return grid;
+            }
+            validItems.forEach((item) => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "talent-chip";
+                button.setAttribute("data-detail-item", "talent");
+                button.setAttribute("data-detail-item-type", "talent");
+                button.setAttribute("aria-expanded", "false");
+                button.dataset.desc = detailText(item.desc, "暂无奇穴说明");
+                const icon = document.createElement("span");
+                icon.className = "talent-chip-icon";
+                appendIcon(icon, item.icon, item.name);
+                const name = document.createElement("span");
+                name.className = "talent-chip-name";
+                name.textContent = detailText(item.name, "奇穴");
+                button.append(icon, name);
+                grid.append(button);
+            });
+            return grid;
+        }
+
+        function detailEquipmentScore(player) {
+            const scores = [player.equip_score, player.equip_strength_score, player.stone_score]
+                .map(detailNumericValue).filter((value) => value !== null);
+            if (!scores.length) return "—";
+            const total = scores.reduce((sum, value) => sum + value, 0);
+            return Number.isFinite(total) ? String(total) : "—";
+        }
+
+        function renderTeamKungfuIcons(players) {
+            const icons = document.createElement("div");
+            icons.className = "team-kungfu-icons";
+            (Array.isArray(players) ? players : []).forEach((player) => {
+                if (!isPositiveInteger(player.kungfu_id)) return;
+                const icon = document.createElement("span");
+                icon.className = "team-kungfu-icon";
+                icon.title = detailText(player.role_name || player.kungfu, "心法");
+                const image = document.createElement("img");
+                image.src = `https://img.jx3box.com/image/xf/${player.kungfu_id}.png`;
+                image.alt = detailText(player.kungfu, "心法");
+                image.loading = "lazy";
+                image.referrerPolicy = "no-referrer";
+                icon.append(image);
+                icons.append(icon);
+            });
+            return icons;
+        }
+
+        function createDetailPlayer(player) {
+            const node = document.createElement("article");
+            node.className = "team-player";
+            const heading = document.createElement("div");
+            heading.className = "team-player-top";
+            const name = document.createElement("h4");
+            name.className = "player-name";
+            name.textContent = detailText(player.role_name || player.person_name, "未知角色");
+            heading.append(name);
+            [detailText(player.server, "未知服"), detailText(player.kungfu, "未知心法")].forEach((value) => {
+                const meta = document.createElement("span");
+                meta.className = "player-meta";
+                meta.textContent = value;
+                heading.append(meta);
+            });
+            if (player.mvp === true) {
+                const mvp = document.createElement("span");
+                mvp.className = "result-tag";
+                mvp.textContent = "MVP";
+                heading.append(mvp);
+            }
+            const stats = document.createElement("div");
+            stats.className = "team-player-bottom player-meta";
+            [
+                `推栏分数：${detailText(player.mmr, "—")}`,
+                `游戏分数：${detailText(player.total_score ?? player.score, "—")}`,
+                `装分：${detailEquipmentScore(player)}`,
+                `血量：${detailText(player.max_hp, "—")}`,
+            ].forEach((text) => {
+                const item = document.createElement("span");
+                item.textContent = text;
+                stats.append(item);
+            });
+            const armorSection = document.createElement("section");
+            armorSection.className = "player-section";
+            const armorLabel = document.createElement("div");
+            armorLabel.className = "player-section-label";
+            armorLabel.textContent = "装备";
+            armorSection.append(armorLabel, renderIconGrid(player.armors || [], "无装备"));
+            const talentSection = document.createElement("section");
+            talentSection.className = "player-section";
+            const talentLabel = document.createElement("div");
+            talentLabel.className = "player-section-label";
+            talentLabel.textContent = "奇穴";
+            talentSection.append(talentLabel, renderTalentGrid(player.talents || [], "无奇穴"));
+            node.append(heading, stats, armorSection, talentSection);
+            return node;
+        }
+
+        function renderDetailTeam(team) {
+            const card = document.createElement("section");
+            card.className = `team-card${team.won ? " won" : ""}`;
+            const title = document.createElement("div");
+            title.className = "team-title-row";
+            const titleHeading = document.createElement("h4");
+            const titleText = document.createElement("span");
+            const teamName = typeof team.team_name === "string" && team.team_name.trim()
+                ? team.team_name.trim() : "队伍";
+            titleText.textContent = `${teamName} · ${team.won ? "胜利" : "失败"}`;
+            titleHeading.append(titleText);
+            title.append(titleHeading, renderTeamKungfuIcons(team.players_info));
+            const players = document.createElement("div");
+            players.className = "team-player-list";
+            team.players_info.forEach((player) => players.append(createDetailPlayer(player)));
+            card.append(title, players);
+            return card;
+        }
+
+        function renderMatchDetailModal(payload) {
+            if (!isValidMatchDetailPayload(payload)) {
+                elements.matchDetailSubtitle.textContent = "详情响应格式异常";
+                appendDetailState("详情响应格式异常，无法安全展示。", true);
+                return;
+            }
+            elements.matchDetailTitle.textContent = "对局详情";
+            if (payload.unavailable === true) {
+                elements.matchDetailSubtitle.textContent = "该对局暂无可用详情";
+                appendDetailState(`对局 #${detailText(payload.match_id, "—")} 暂无详情数据。`);
+                return;
+            }
+            const detail = payload.detail;
+            const basicInfo = detail.basic_info;
+            elements.matchDetailSubtitle.textContent = payload.cache && payload.cache.cached_at
+                ? `详情缓存于 ${formatDetailTime(payload.cache.cached_at)}`
+                : "对局详情";
+            const summary = document.createElement("div");
+            summary.className = "detail-summary-grid";
+            summary.append(
+                createDetailSummaryCard("地图", detailText(basicInfo.map, "—")),
+                createDetailSummaryCard("分段", detailText(basicInfo.grade, "—")),
+                createDetailSummaryCard("时长", formatDetailDuration(basicInfo.duration)),
+                createDetailSummaryCard("开始时间", formatDetailTime(basicInfo.start_time || detail.match_time)),
+            );
+            const teams = document.createElement("div");
+            teams.className = "team-grid";
+            teams.append(renderDetailTeam(detail.team1), renderDetailTeam(detail.team2));
+            elements.matchDetailBody.replaceChildren(summary, teams);
+        }
+
+        function buildMatchDetailUrl(matchId) {
+            if (!isPositiveInteger(matchId)) return null;
+            const url = new URL(MATCH_DETAIL_API, window.location.origin);
+            url.searchParams.set("match_id", String(matchId));
+            return url.toString();
+        }
+
+        function focusableModalElements() {
+            return Array.from(elements.matchDetailModal.querySelectorAll(
+                "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+            )).filter((node) => !node.hidden && !node.closest("[hidden]"));
+        }
+
+        function openMatchDetailModal(opener) {
+            if (elements.matchDetailModal.hidden) state.detailRestoreFocus = opener || document.activeElement;
+            elements.matchDetailModal.hidden = false;
+            elements.matchDetailModal.setAttribute("aria-hidden", "false");
+            document.body.classList.add("modal-open");
+            elements.matchDetailClose.focus();
+        }
+
+        function closeMatchDetailModal() {
+            state.detailRequestSerial += 1;
+            if (state.detailAbortController) state.detailAbortController.abort();
+            state.detailAbortController = null;
+            elements.matchDetailModal.hidden = true;
+            elements.matchDetailModal.setAttribute("aria-hidden", "true");
+            document.body.classList.remove("modal-open");
+            const opener = state.detailRestoreFocus;
+            state.detailRestoreFocus = null;
+            if (opener && typeof opener.focus === "function" && opener.isConnected) opener.focus();
+        }
+
+        async function loadMatchDetail(matchId, opener) {
+            if (!isPositiveInteger(matchId)) return;
+            const serial = state.detailRequestSerial + 1;
+            state.detailRequestSerial = serial;
+            if (state.detailAbortController) state.detailAbortController.abort();
+            state.detailAbortController = null;
+            openMatchDetailModal(opener);
+            elements.matchDetailTitle.textContent = "对局详情";
+            elements.matchDetailSubtitle.textContent = "正在加载";
+            appendDetailState("正在加载对局详情…");
+            const cacheKey = String(matchId);
+            const cached = matchDetailCache.get(cacheKey);
+            if (cached) {
+                if (serial === state.detailRequestSerial && !elements.matchDetailModal.hidden) renderMatchDetailModal(cached);
+                return;
+            }
+            const url = buildMatchDetailUrl(matchId);
+            if (!url) return;
+            const controller = new AbortController();
+            state.detailAbortController = controller;
+            try {
+                const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = unwrapResponse(await response.json());
+                if (serial !== state.detailRequestSerial || elements.matchDetailModal.hidden) return;
+                if (!isValidMatchDetailPayload(data)) {
+                    renderMatchDetailModal(data);
+                    return;
+                }
+                if (data.unavailable !== true) matchDetailCache.set(cacheKey, data);
+                renderMatchDetailModal(data);
+            } catch (error) {
+                if (serial !== state.detailRequestSerial || (error && error.name === "AbortError")) return;
+                elements.matchDetailSubtitle.textContent = "加载失败";
+                appendDetailState(`加载对局详情失败：${error && error.message ? error.message : "请稍后重试"}`, true);
+            } finally {
+                if (serial === state.detailRequestSerial) state.detailAbortController = null;
+            }
+        }
+
+        function renderPagination(result) {
+            const page = Number.isInteger(result.page) && result.page > 0 ? result.page : 1;
+            const pageSize = Number.isInteger(result.page_size) && result.page_size > 0 ? result.page_size : state.pageSize;
+            const total = Number.isInteger(result.total) && result.total >= 0 ? result.total : 0;
+            const hasMore = result.has_more === true;
+            elements.pager.hidden = false;
+            elements.pageLabel.textContent = `第 ${page} 页 · 每页 ${pageSize} 场 · 共 ${total} 场 · ${hasMore ? "仍有后续页" : "已到末页"}`;
+            elements.previous.disabled = page <= 1;
+            elements.next.disabled = !hasMore;
+        }
+
+        function appendMatchMeta(container, iconName, text) {
+            const item = document.createElement("span");
+            item.className = "match-meta-item";
+            item.append(createUiIcon(iconName));
+            const label = document.createElement("span");
+            label.textContent = text;
+            item.append(label);
+            container.append(item);
+        }
+
+        function renderMatches(result) {
+            elements.matchList.replaceChildren();
+            if (!Array.isArray(result.items)) throw new Error("match_summary_invalid");
+            const items = result.items;
+            renderPagination(result);
+            if (!items.length) {
+                elements.resultState.textContent = "没有符合当前条件的有效对局。";
+                elements.resultState.className = "result-state";
+                return;
+            }
+            if (!items.every(isRenderableMatch)) {
+                throw new Error("match_summary_invalid");
+            }
+            elements.resultState.textContent = `已加载当前页 ${items.length} 场，共 ${result.total} 场。`;
+            elements.resultState.className = "result-state sr-only";
+            items.forEach((item) => {
+                const row = document.createElement("button");
+                row.type = "button";
+                row.className = "match-card";
+                row.dataset.matchId = String(item.match_id);
+                row.setAttribute("aria-label", `查看对局 #${item.match_id} 的完整详情`);
+                const matchDate = new Date(item.match_time * 1000).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
+                const safeMap = typeof item.map === "string" && item.map.trim() ? item.map : "地图未知";
+                const directions = describeOrientations(item.matched_orientations);
+
+                const top = document.createElement("div");
+                top.className = "match-card-top";
+                const title = document.createElement("span");
+                title.className = "match-card-title";
+                const number = document.createElement("span");
+                number.className = "match-card-number";
+                number.textContent = `对局 #${item.match_id}`;
+                title.append(number);
+                const meta = document.createElement("span");
+                meta.className = "match-meta";
+                appendMatchMeta(meta, "time", matchDate);
+                appendMatchMeta(meta, "map", safeMap);
+                appendMatchMeta(meta, "time", formatDuration(item.duration));
+                top.append(title, meta);
+
+                const body = document.createElement("div");
+                body.className = "match-card-body";
+                const teams = document.createElement("div");
+                teams.className = "match-teams";
+                // 仅按源摘要渲染 team1/team2；交换查询配置绝不重排这两支队伍。
+                teams.append(renderTeamSummary(item.team1, "team1"));
+                const versus = document.createElement("span");
+                versus.className = "versus";
+                versus.textContent = "VS";
+                teams.append(versus, renderTeamSummary(item.team2, "team2"));
+                const footer = document.createElement("div");
+                footer.className = "match-card-footer";
+                const orientation = document.createElement("span");
+                orientation.textContent = directions;
+                const openLabel = document.createElement("span");
+                openLabel.className = "match-open-label";
+                openLabel.append("查看完整对局", createUiIcon("arrow"));
+                footer.append(orientation, openLabel);
+                body.append(teams, footer);
+                row.append(top, body);
+                elements.matchList.append(row);
+            });
+        }
+
+        async function requestMeta() {
+            const response = await fetch(`${API_BASE}/meta`, { method: "GET", cache: "no-store" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = unwrapResponse(await response.json());
+            const hasValidKungfus = data && Array.isArray(data.kungfus)
+                && data.kungfus.every((kungfu) => kungfu && typeof kungfu === "object"
+                    && Number.isInteger(kungfu.id) && kungfu.id > 0
+                    && typeof kungfu.name === "string" && kungfu.name.trim());
+            if (!hasValidKungfus) throw new Error("心法目录格式异常");
+            // meta 可能在用户首次查询在途时收窄合法范围，不能让该旧响应回写页面。
+            invalidatePendingSearch();
+            state.meta = {
+                kungfus: data.kungfus,
+                time_presets: hasPositiveIntegerList(data.time_presets)
+                    ? data.time_presets : FALLBACK_META.time_presets,
+                page_sizes: hasPositiveIntegerList(data.page_sizes)
+                    ? data.page_sizes : FALLBACK_META.page_sizes,
+                limits: hasValidLimits(data.limits)
+                    ? data.limits : FALLBACK_META.limits,
+            };
+        }
+
+        async function runSearch(preparedPayload) {
+            const serial = invalidatePendingSearch();
+            const payload = preparedPayload || buildSearchPayload();
+            if (!payload) {
+                const message = state.timeRangeError || "请填写有效时间范围与严格递增的分数范围。";
+                setMessage(message, true);
+                state.result = null;
+                clearLoadingState(message);
+                return;
+            }
+            setMessage("正在查询对局…");
+            elements.resultState.textContent = "正在加载…";
+            elements.resultState.className = "result-state";
+            writeUrl(payload);
+            try {
+                const response = await fetch(`${API_BASE}/search`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const result = unwrapResponse(await response.json());
+                if (serial !== state.requestSerial) return; // 较旧响应不可覆盖最新请求。
+                if (!isValidSearchResult(result)) throw new Error("search_response_invalid");
+                renderStatistics(result);
+                renderMatches(result);
+                state.result = result;
+                const normalized = result.normalized_filters || payload;
+                state.startTime = normalized.start_time;
+                state.endTime = normalized.end_time;
+                state.page = normalized.page;
+                state.pageSize = normalized.page_size;
+                state.teamA = Array.isArray(normalized.team_a_kungfu_ids) ? normalized.team_a_kungfu_ids.slice() : state.teamA;
+                state.teamB = Array.isArray(normalized.team_b_kungfu_ids) ? normalized.team_b_kungfu_ids.slice() : state.teamB;
+                syncInputs();
+                renderTeam("a");
+                renderTeam("b");
+                setMessage("查询完成。");
+            } catch (error) {
+                if (serial !== state.requestSerial) return;
+                const isFormatError = error && (error.message === "statistics_response_invalid"
+                    || error.message === "match_summary_invalid" || error.message === "search_response_invalid");
+                const errorMessage = isFormatError ? "统计响应格式异常，无法安全展示。"
+                    : `查询失败：${error.message || "请稍后重试"}`;
+                state.result = null;
+                resetStatistics();
+                setMessage(errorMessage, true);
+                elements.resultState.textContent = errorMessage;
+                elements.resultState.className = "result-state error";
+                elements.matchList.replaceChildren();
+                elements.pager.hidden = true;
+            }
+        }
+
+        function resetFilters() {
+            state.teamA = [];
+            state.teamB = [];
+            state.timeMode = "preset";
+            state.selectedPreset = DEFAULT_PRESET_DAYS;
+            state.startTime = null;
+            state.endTime = null;
+            state.scoreMin = "";
+            state.scoreMax = "";
+            state.swapped = false;
+            state.result = null;
+            markFiltersChanged();
+            syncInputs();
+            renderPresets();
+            renderTeam("a");
+            renderTeam("b");
+            elements.resultState.textContent = "请先填写合法分数范围并发起查询。";
+            elements.matchList.replaceChildren();
+            elements.pager.hidden = true;
+        }
+
+        function bindEvents() {
+            elements.scoreMin.addEventListener("input", () => { state.scoreMin = elements.scoreMin.value; markFiltersChanged(); updateSubmitState(); });
+            elements.scoreMax.addEventListener("input", () => { state.scoreMax = elements.scoreMax.value; markFiltersChanged(); updateSubmitState(); });
+            [elements.startDate, elements.endDate].forEach((input) => input.addEventListener("change", () => {
+                state.timeMode = "custom";
+                markFiltersChanged();
+                renderPresets();
+            }));
+            elements.teamASelect.addEventListener("change", () => { addKungfu("a", elements.teamASelect.value); elements.teamASelect.value = ""; });
+            elements.teamBSelect.addEventListener("change", () => { addKungfu("b", elements.teamBSelect.value); elements.teamBSelect.value = ""; });
+            [["a", elements.teamAPickerTrigger, elements.teamAPickerMenu], ["b", elements.teamBPickerTrigger, elements.teamBPickerMenu]].forEach(([which, trigger, menu]) => {
+                trigger.addEventListener("click", () => {
+                    if (trigger.disabled) return;
+                    const isOpen = trigger.getAttribute("aria-expanded") === "true";
+                    elements.teamAPickerMenu.hidden = true;
+                    elements.teamBPickerMenu.hidden = true;
+                    elements.teamAPickerTrigger.setAttribute("aria-expanded", "false");
+                    elements.teamBPickerTrigger.setAttribute("aria-expanded", "false");
+                    trigger.setAttribute("aria-expanded", String(!isOpen));
+                    menu.hidden = isOpen;
+                });
+                menu.addEventListener("click", (event) => {
+                    const option = event.target instanceof Element ? event.target.closest("[data-picker-id]") : null;
+                    if (!option) return;
+                    addKungfu(which, option.dataset.pickerId);
+                    menu.hidden = true;
+                    trigger.setAttribute("aria-expanded", "false");
+                });
+            });
+            document.addEventListener("click", (event) => {
+                if (event.target instanceof Element && event.target.closest(".kungfu-picker")) return;
+                elements.teamAPickerMenu.hidden = true;
+                elements.teamBPickerMenu.hidden = true;
+                elements.teamAPickerTrigger.setAttribute("aria-expanded", "false");
+                elements.teamBPickerTrigger.setAttribute("aria-expanded", "false");
+            });
+            elements.swap.addEventListener("click", () => {
+                [state.teamA, state.teamB] = [state.teamB, state.teamA];
+                state.swapped = !state.swapped;
+                state.page = 1;
+                renderTeam("a");
+                renderTeam("b");
+                const payload = validScores() ? buildSearchPayload() : null;
+                if (payload) runSearch(payload);
+                else markFiltersChanged();
+            });
+            elements.pageSize.addEventListener("change", () => {
+                state.pageSize = Number(elements.pageSize.value);
+                state.page = 1;
+                const payload = state.result ? buildSearchPayload() : null;
+                if (payload) runSearch(payload);
+                else markFiltersChanged();
+            });
+            elements.submit.addEventListener("click", () => runSearch());
+            elements.reset.addEventListener("click", resetFilters);
+            elements.previous.addEventListener("click", () => {
+                if (state.page <= 1) return;
+                state.page -= 1;
+                const payload = buildSearchPayload();
+                if (payload) runSearch(payload);
+                else markFiltersChanged();
+            });
+            elements.next.addEventListener("click", () => {
+                if (!state.result || !state.result.has_more) return;
+                state.page += 1;
+                const payload = buildSearchPayload();
+                if (payload) runSearch(payload);
+                else markFiltersChanged();
+            });
+            elements.matchList.addEventListener("click", (event) => {
+                const button = event.target instanceof Element ? event.target.closest("button[data-match-id]") : null;
+                if (!button || !elements.matchList.contains(button)) return;
+                const matchId = Number(button.dataset.matchId);
+                if (isPositiveInteger(matchId)) loadMatchDetail(matchId, button);
+            });
+            elements.matchDetailBody.addEventListener("click", (event) => {
+                const button = event.target instanceof Element ? event.target.closest("[data-detail-item]") : null;
+                if (!button) return;
+                const expanded = button.getAttribute("aria-expanded") === "true";
+                button.setAttribute("aria-expanded", String(!expanded));
+                const content = button.querySelector(".detail-item-expanded");
+                const more = button.querySelector(".detail-item-more");
+                if (content) content.hidden = expanded;
+                if (more) more.textContent = expanded ? "查看" : "收起";
+            });
+            elements.matchDetailClose.addEventListener("click", closeMatchDetailModal);
+            elements.matchDetailModal.addEventListener("click", (event) => {
+                if (event.target === elements.matchDetailModal) closeMatchDetailModal();
+            });
+            document.addEventListener("keydown", (event) => {
+                if (elements.matchDetailModal.hidden) return;
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeMatchDetailModal();
+                    return;
+                }
+                if (event.key !== "Tab") return;
+                const focusable = focusableModalElements();
+                if (!focusable.length) {
+                    event.preventDefault();
+                    elements.matchDetailCard.focus();
+                    return;
+                }
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (!elements.matchDetailCard.contains(document.activeElement)) {
+                    event.preventDefault();
+                    first.focus();
+                } else if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first.focus();
+                }
+            });
+        }
+
+        async function initialize() {
+            readUrlState();
+            bindEvents();
+            syncInputs();
+            renderPresets();
+            try {
+                await requestMeta();
+                validateUrlStateAfterMeta();
+                renderPresets();
+                renderCatalog();
+                renderPageSizes();
+                syncInputs();
+                if (state.startTime && state.endTime && validScores()) runSearch();
+            } catch (error) {
+                setMessage(`心法目录加载失败：${error.message || "请稍后刷新"}`, true);
+                elements.resultState.textContent = "心法目录暂不可用，无法发起查询。";
+                elements.resultState.className = "result-state error";
+            }
+        }
+
+        initialize();
+    </script>
+</body>
+</html>

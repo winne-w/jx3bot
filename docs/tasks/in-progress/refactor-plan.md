@@ -1,7 +1,7 @@
 # Task: Refactor Plan
 
 状态：进行中
-更新时间：2026-03-09
+更新时间：2026-05-23
 
 ## 目标
 
@@ -15,9 +15,9 @@
 
 ## 当前重点
 
-- `status_monitor` 链路
-- `config_manager` 链路
-- `jjc_ranking` 链路
+- 2026-05-22 执行批次：`config_manager`、`jjc_ranking`、`infra/image_fetch`、`services/jx3/kungfu` 日志收口已完成
+- `status_monitor` 链路已无当前批次命中的 `print()`，后续继续关注缓存与通知边界
+- `defget` 兼容导入面后续按独立切片收敛
 
 ## 完成标准
 

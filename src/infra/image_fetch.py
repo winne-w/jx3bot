@@ -8,6 +8,13 @@ import httpx
 
 from config import IMAGE_CACHE_DIR
 
+try:
+    from nonebot import logger  # type: ignore
+except Exception:  # pragma: no cover
+    import logging
+
+    logger = logging.getLogger(__name__)
+
 
 async def mp_image(url: str, name: str) -> Optional[bytes]:
     headers = {
@@ -24,22 +31,22 @@ async def mp_image(url: str, name: str) -> Optional[bytes]:
             async with aiofiles.open(file_path, "rb") as f:
                 return await f.read()
         except Exception as exc:
-            print(f"读取已缓存名片失败: {exc}")
+            logger.warning(f"读取已缓存名片失败: {exc}")
             return None
 
     if not url:
-        print("未找到图片URL")
+        logger.warning("未找到图片URL")
         return None
 
     async with httpx.AsyncClient(headers=headers, verify=False, timeout=30.0) as client:
         image_response = await client.get(url)
         if image_response.status_code != 200:
-            print(f"无法下载图片，状态码：{image_response.status_code}")
+            logger.warning(f"无法下载图片，状态码：{image_response.status_code}")
             return None
         image_content = image_response.content
 
     os.makedirs(IMAGE_CACHE_DIR, exist_ok=True)
     async with aiofiles.open(file_path, "wb") as f:
         await f.write(image_content)
-    print("图片已下载并保存")
+    logger.info("图片已下载并保存")
     return image_content

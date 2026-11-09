@@ -1,0 +1,114 @@
+/* Shared site shell, based on jjc-ranking-stats. Loaded after page styles. */
+:root { --bg: #f7fafd; --ink: #2c3e50; --muted: #65748b; --stroke: rgba(137,196,244,.22); --shadow: 0 12px 32px rgba(94,125,245,.12); }
+body {
+            margin: 0;
+            color: var(--ink);
+            font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+            background:
+                radial-gradient(circle at 15% 10%, rgba(137, 196, 244, 0.18), transparent 55%),
+                radial-gradient(circle at 85% 0%, rgba(255, 121, 176, 0.18), transparent 60%),
+                linear-gradient(140deg, var(--bg), #ffffff);
+            min-height: 100vh;
+            padding: 36px 24px 60px;
+        }
+.page {
+            width: 100%;
+            max-width: 1920px;
+            margin: 0 auto;
+            position: relative;
+        }
+.page::before {
+            content: "";
+            position: absolute;
+            inset: -20px;
+            background: repeating-linear-gradient(
+                130deg,
+                rgba(255, 255, 255, 0.55),
+                rgba(255, 255, 255, 0.55) 1px,
+                transparent 1px,
+                transparent 18px
+            );
+            border-radius: 32px;
+            z-index: -1;
+        }
+.site-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 18px;
+            padding: 14px 18px;
+            border: 1px solid var(--stroke);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.86);
+            box-shadow: var(--shadow);
+        }
+.site-brand {
+            display: inline-flex;
+            min-width: 0;
+            flex-direction: column;
+            gap: 2px;
+            color: var(--ink);
+            text-decoration: none;
+        }
+.site-brand strong { letter-spacing: 1px; }
+.site-brand span { color: var(--muted); font-size: 0.78rem; }
+.site-nav { display: flex; gap: 6px; overflow-x: auto; padding: 2px; }
+.site-nav a {
+            flex: 0 0 auto;
+            padding: 8px 11px;
+            border-radius: 10px;
+            color: var(--muted);
+            font-size: 0.86rem;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+/* Explicit properties prevent generic header/body rules changing the shell. */
+body { min-width: 0; font-size: 16px; line-height: normal; }
+html { overflow-y: scroll; }
+.page { min-width: 0; }
+.page > .site-header { flex-direction: column; align-items: center; }
+.site-header { font-size: 16px; line-height: normal; }
+.site-nav { max-width: 100%; margin: 0; }
+.site-nav a:hover, .site-nav a[aria-current="page"] {
+    color: var(--accent); background: rgba(91, 124, 250, .10);
+}
+
+/* The second row is the page-level introduction on every screen. */
+.page > .page-title-region {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 132px;
+    margin: 0 0 18px;
+    padding: 24px 28px;
+    border: 1px solid var(--stroke);
+    border-radius: 28px;
+    background: rgba(255, 255, 255, .90);
+    box-shadow: var(--shadow);
+}
+.page > .page-title-region h1,
+.page > .page-title-region .title {
+    margin: 0;
+    color: var(--ink);
+    font-size: clamp(1.6rem, 2.6vw, 2.4rem);
+    line-height: 1.25;
+    letter-spacing: .04em;
+}
+.page > .page-title-region .subtitle,
+.page > .page-title-region .intro,
+.page > .page-title-region .path-note {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.6;
+}
+@media (max-width: 700px) {
+    body { padding: 20px 14px 40px; }
+    .page::before { inset: -10px; }
+    .page > .site-header { align-items: stretch; gap: 10px; }
+    .site-nav { margin: 0 -4px; }
+    .page > .page-title-region { min-height: 124px; padding: 18px; border-radius: 22px; }
+}

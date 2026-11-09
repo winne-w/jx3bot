@@ -5,5 +5,6 @@
 当前文档：
 
 - `development-guide.md`: 新需求落层规则、常见改动类型、提交前最小检查
+- `database-design.md`: MongoDB 集合、字段、索引、TTL、迁移脚本和数据库变更维护规则
 
 需要新增设计文档时，优先放这里，而不是继续把长期规则塞回 `AGENTS.md`。

@@ -45,7 +45,7 @@ def calculate_xsk(data):
         logger.warning(f"tuilan_request JSON 编码错误: {e}")
         # 如果包含无法编码的字符，使用ensure_ascii=True
         json_str = json.dumps(ordered_data, separators=(',', ':'), ensure_ascii=True)
-    
+
     # 推栏签名算法：JSON字符串 + 固定后缀
     input_data = f"{json_str}@#?.#@"
 
@@ -59,17 +59,8 @@ def calculate_xsk(data):
     return signature, json_str
 
 
-def tuilan_request(url, params=None):
-    """
-    推栏API请求方法
-
-    Args:
-        url (str): 请求地址
-        params (dict, optional): 请求参数，不包含ts
-
-    Returns:
-        dict: 响应结果
-    """
+def build_tuilan_request(params=None):
+    """Share the existing signed headers/body between sync and async adapters."""
     # 构造请求数据
     data = OrderedDict()
 
@@ -84,7 +75,7 @@ def tuilan_request(url, params=None):
 
     # 计算X-Sk签名
     x_sk, raw_json = calculate_xsk(data)
-    
+
     # 构造请求头 - 推栏API标准请求头
     tuilan_cookie = getattr(cfg, "TUILAN_COOKIE", "") or ""
     tuilan_device_id = getattr(cfg, "TUILAN_DEVICE_ID", "") or "lWrrIG5QpALPiSZ7txB//A=="
@@ -110,6 +101,22 @@ def tuilan_request(url, params=None):
     }
     if tuilan_cookie:
         headers["Cookie"] = tuilan_cookie
+
+    return headers, raw_json
+
+
+def tuilan_request(url, params=None):
+    """
+    推栏API请求方法
+
+    Args:
+        url (str): 请求地址
+        params (dict, optional): 请求参数，不包含ts
+
+    Returns:
+        dict: 响应结果
+    """
+    headers, raw_json = build_tuilan_request(params)
 
     # 发送请求
     http_client = HttpClient(timeout=30.0, retries=2, backoff_seconds=0.5, verify=False)

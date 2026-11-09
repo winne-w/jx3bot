@@ -14,13 +14,10 @@ from src.services.jx3.command_context import (
     resolve_server_and_name,
 )
 from src.services.jx3.query_context import (
-    build_fuben_spec,
     build_jjc_spec_or_text,
     build_qiyu_spec,
     build_yanhua_spec,
-    build_zhuangfen_spec,
 )
-from src.utils.defget import get_image
 from src.utils.jjc_text import jjcdaxiaoxie
 from src.utils.random_text import suijitext
 from src.utils.time_format import format_minutes_seconds
@@ -115,40 +112,10 @@ def register(
     async def zhuangfen_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        try:
-            server, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
-            items = await fetch_jx3api_or_raise(
-                url=API_URLS["装备查询"],
-                server=server,
-                name=role_name,
-                token=TOKEN,
-                ticket=TICKET,
-            )
-        except CommandContextError as exc:
-            if exc.at_user:
-                await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
-            else:
-                await bot.send(event, Message(exc.message))
-            return
-
-        mpimg = await get_image(server, role_name)
-        spec = build_zhuangfen_spec(
-            data=items,
-            role_name=role_name,
-            server=server,
-            random_text=suijitext(),
-            mpimg=mpimg,
-        )
-        await render_and_send_template_image(
-            bot,
+        await bot.send(
             event,
-            env=env,
-            template_name=spec.template_name,
-            context=spec.context,
-            width=spec.width,
-            height=spec.height,
-            at_user=spec.at_user,
-            prefix=spec.prefix,
+            MessageSegment.at(event.user_id)
+            + Message("\n装备查询接口暂不可用：JX3API 当前没有可用的装备属性接口，暂时无法查询属性/装分。"),
         )
 
     @jjc_matcher.handle()
@@ -203,44 +170,8 @@ def register(
     async def fuben_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        try:
-            server, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
-            items = await fetch_jx3api_or_raise(
-                url=API_URLS["副本查询"],
-                server=server,
-                name=role_name,
-                token=TOKEN,
-                ticket=TICKET,
-            )
-        except CommandContextError as exc:
-            if exc.at_user:
-                await bot.send(event, MessageSegment.at(event.user_id) + Message(exc.message))
-            else:
-                await bot.send(event, Message(exc.message))
-            return
-
-        spec = build_fuben_spec(
-            data=items,
-            role_name=role_name,
-            server=server,
-            random_text=suijitext(),
-        )
-        if not spec:
-            await bot.send(
-                event,
-                MessageSegment.at(event.user_id)
-                + Message(f"   查询结果: {server}，{role_name}，本周还没有清本！"),
-            )
-            return
-
-        await render_and_send_template_image(
-            bot,
+        await bot.send(
             event,
-            env=env,
-            template_name=spec.template_name,
-            context=spec.context,
-            width=spec.width,
-            height=spec.height,
-            at_user=spec.at_user,
-            prefix=spec.prefix,
+            MessageSegment.at(event.user_id)
+            + Message("\n副本查询接口暂不可用：JX3API 当前没有可用的团队 CD 接口，暂时无法查询副本/秘境。"),
         )

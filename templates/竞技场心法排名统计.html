@@ -107,6 +107,10 @@
 <body>
     <div class="main-title">竞技场心法排名统计</div>
     <div class="desc">{{ scope_desc }} 奶妈与DPS心法分布（{{ current_season }}{{ week_info }} ）</div>
+    <div class="desc">
+        {% for key, label in coverage_labels.items() %}{{ key.replace('top_', '前') }}：{{ label }}{% if not loop.last %}<br>{% endif %}{% else %}心法覆盖率未记录{% endfor %}
+        {% if equipment_incomplete %}<br>装备数据不完整，橙武占比暂不展示{% endif %}
+    </div>
     <div class="charts-grid">
         {% if has_top_1000 %}
         <!-- 前1000奶妈 -->
@@ -263,5 +267,6 @@
             {% endfor %}
         </div>
     </div>
+    <div class="footer">数据来源：https://qike.rickchen.cn/jx3/jjc-ranking-stats.html</div>
 </body>
-</html> 
+</html>

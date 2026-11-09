@@ -42,6 +42,14 @@ CLOUD_MUSIC_SERVER = getattr(cfg, "STATUS_MONITOR_CLOUD_MUSIC_SERVER", "") if cf
 CLOUD_MUSIC_SERVER = CLOUD_MUSIC_SERVER or "ipv4.xohome.cn:88[https连接方式]"
 
 
+def _format_server_status(status):
+    if status == 1 or status == "1":
+        return "正常"
+    if status == 0 or status == "0":
+        return "维护"
+    return status or "未知"
+
+
 # 查魔盒奖励
 gte_cmd = on_regex(r"^\s*奖励\s*$", priority=5)
 
@@ -81,7 +89,7 @@ gte_cmd = on_regex(r"^\s*日常\s*$", priority=5)
 async def handle_daily(event: GroupMessageEvent):
     try:
         gid = str(event.group_id)
-        cfg = group_config_repo.load()
+        cfg = await group_config_repo.load()
 
         if gid not in cfg:
             await gte_cmd.finish("请先绑定服务器，如: /绑定 梦江南")
@@ -115,7 +123,7 @@ gtekf_cmd = on_regex(r"^\s*开服\s*$", priority=5)
 async def handle_kf_query(event: GroupMessageEvent):
     try:
         gid = str(event.group_id)
-        cfg = group_config_repo.load()
+        cfg = await group_config_repo.load()
 
         if gid not in cfg:
             await gtekf_cmd.send("请先绑定服务器，如: /绑定 梦江南")
@@ -131,20 +139,20 @@ async def handle_kf_query(event: GroupMessageEvent):
             await gtekf_cmd.send("未找到绑定的服务器")
             return
 
-        gte_data = await get_gte_data(url="https://www.jx3api.com/data/server/status", server=server)
+        gte_data = await get_gte_data(url="https://www.jx3api.com/server/status/check", server=server)
         if not gte_data or "data" not in gte_data:
             await gtekf_cmd.send(f"获取服务器 {server} 的开服数据失败")
             return
 
         server_data = gte_data["data"]
 
-        real_time_status = server_data.get("status", "未知")
+        real_time_status = _format_server_status(server_data.get("status"))
 
-        zone = server_data["zone"]
+        zone = server_data.get("zone", "")
         if zone.endswith("区"):
             zone = zone[:-1] + "大区"
 
-        status_history = CacheManager.load_cache("status_history", {})
+        status_history = await CacheManager.load_cache("status_history", {})
 
         if server not in status_history:
             status_history[server] = {"last_maintenance": None, "last_open": None}
@@ -191,7 +199,7 @@ kftoggle_cmd = on_command("开服推送", priority=5)
 
 @kftoggle_cmd.handle()
 async def kfhandle_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = group_config_repo.load()
+    cfg = await group_config_repo.load()
     gid = str(event.group_id)
     status = args.extract_plain_text().strip()
 
@@ -213,11 +221,11 @@ async def kfhandle_toggle(event: GroupMessageEvent, args=CommandArg()):
 
     if status == "开启":
         cfg[gid]["开服推送"] = True
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await kftoggle_cmd.finish("已开启本群开服推送功能")
     elif status == "关闭":
         cfg[gid]["开服推送"] = False
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await kftoggle_cmd.finish("已关闭本群开服推送功能")
     else:
         await kftoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
@@ -228,7 +236,7 @@ xwtoggle_cmd = on_command("新闻推送", priority=5)
 
 @xwtoggle_cmd.handle()
 async def xwhandle_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = group_config_repo.load()
+    cfg = await group_config_repo.load()
     gid = str(event.group_id)
     status = args.extract_plain_text().strip()
 
@@ -250,11 +258,11 @@ async def xwhandle_toggle(event: GroupMessageEvent, args=CommandArg()):
 
     if status == "开启":
         cfg[gid]["新闻推送"] = True
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await xwtoggle_cmd.finish("已开启本群新闻推送功能")
     elif status == "关闭":
         cfg[gid]["新闻推送"] = False
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await xwtoggle_cmd.finish("已关闭本群新闻推送功能")
     else:
         await xwtoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
@@ -265,7 +273,7 @@ xwtoggle_cmd = on_command("福利推送", priority=5)
 
 @xwtoggle_cmd.handle()
 async def welfare_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = group_config_repo.load()
+    cfg = await group_config_repo.load()
     gid = str(event.group_id)
     status = args.extract_plain_text().strip()
 
@@ -287,11 +295,11 @@ async def welfare_toggle(event: GroupMessageEvent, args=CommandArg()):
 
     if status == "开启":
         cfg[gid]["福利推送"] = True
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await xwtoggle_cmd.finish("已开启本群福利推送功能")
     elif status == "关闭":
         cfg[gid]["福利推送"] = False
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await xwtoggle_cmd.finish("已关闭本群福利推送功能")
     else:
         await xwtoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
@@ -302,7 +310,7 @@ jgtoggle_cmd = on_command("技改推送", priority=5)
 
 @jgtoggle_cmd.handle()
 async def jghandle_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = group_config_repo.load()
+    cfg = await group_config_repo.load()
     gid = str(event.group_id)
     status = args.extract_plain_text().strip()
 
@@ -324,11 +332,11 @@ async def jghandle_toggle(event: GroupMessageEvent, args=CommandArg()):
 
     if status == "开启":
         cfg[gid]["技改推送"] = True
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await jgtoggle_cmd.finish("已开启本群技改推送功能")
     elif status == "关闭":
         cfg[gid]["技改推送"] = False
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await jgtoggle_cmd.finish("已关闭本群技改推送功能")
     else:
         await jgtoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
@@ -339,7 +347,7 @@ rctoggle_cmd = on_command("日常推送", priority=5)
 
 @rctoggle_cmd.handle()
 async def rchandle_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = group_config_repo.load()
+    cfg = await group_config_repo.load()
     gid = str(event.group_id)
     status = args.extract_plain_text().strip()
 
@@ -361,11 +369,11 @@ async def rchandle_toggle(event: GroupMessageEvent, args=CommandArg()):
 
     if status == "开启":
         cfg[gid]["日常推送"] = True
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await rctoggle_cmd.finish("已开启本群日常推送功能")
     elif status == "关闭":
         cfg[gid]["日常推送"] = False
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await rctoggle_cmd.finish("已关闭本群日常推送功能")
     else:
         await rctoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
@@ -376,7 +384,7 @@ jjctoggle_cmd = on_command("竞技排名推送", priority=5)
 
 @jjctoggle_cmd.handle()
 async def jjchandle_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = group_config_repo.load()
+    cfg = await group_config_repo.load()
     gid = str(event.group_id)
     status = args.extract_plain_text().strip()
 
@@ -401,11 +409,11 @@ async def jjchandle_toggle(event: GroupMessageEvent, args=CommandArg()):
 
     if status == "开启":
         cfg[gid]["竞技排名推送"] = True
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await jjctoggle_cmd.finish("已开启本群竞技排名推送功能")
     elif status == "关闭":
         cfg[gid]["竞技排名推送"] = False
-        group_config_repo.save(cfg)
+        await group_config_repo.save(cfg)
         await jjctoggle_cmd.finish("已关闭本群竞技排名推送功能")
     else:
         await jjctoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
@@ -426,7 +434,7 @@ async def handle_bind(event: GroupMessageEvent, args=CommandArg()):
         if not server_exists:
             await bind_cmd.finish(f"服务器 {server} 不存在")
 
-    cfg = group_config_repo.load()
+    cfg = await group_config_repo.load()
     gid = str(event.group_id)
     cfg[gid] = {
         "servers": server,
@@ -437,7 +445,7 @@ async def handle_bind(event: GroupMessageEvent, args=CommandArg()):
         "日常推送": True,
         "竞技排名推送": False,
     }
-    group_config_repo.save(cfg)
+    await group_config_repo.save(cfg)
     await bind_cmd.finish(
         f"已绑定服务器: {server}\n"
         f"已默认开启：开服推送、福利推送、技改推送、新闻推送、日常推送\n"
@@ -450,7 +458,7 @@ unbind_cmd = on_command("解绑", aliases={"解除绑定"}, priority=5)
 
 @unbind_cmd.handle()
 async def handle_unbind(event: GroupMessageEvent):
-    cfg = group_config_repo.load()
+    cfg = await group_config_repo.load()
     gid = str(event.group_id)
 
     if gid not in cfg:
@@ -458,7 +466,7 @@ async def handle_unbind(event: GroupMessageEvent):
 
     server = cfg[gid].get("servers", "未知服务器")
     del cfg[gid]
-    group_config_repo.save(cfg)
+    await group_config_repo.save(cfg)
 
     await unbind_cmd.finish(f"已解除与服务器 {server} 的绑定\n所有推送功能已关闭")
 
@@ -469,7 +477,7 @@ list_cmd = on_command("查看绑定", aliases={"服务器列表"}, priority=5)
 @list_cmd.handle()
 async def handle_list(event: GroupMessageEvent):
     gid = str(event.group_id)
-    cfg = group_config_repo.load()
+    cfg = await group_config_repo.load()
 
     if gid not in cfg:
         await list_cmd.finish("本群未绑定任何服务器")

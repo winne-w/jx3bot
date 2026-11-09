@@ -38,6 +38,12 @@
   - `docs/references/`
   - `docs/tasks/`
 
+### OpenSpec 流程迁移
+
+- 中大型需求流程已迁移至 `openspec/`，以 change、规格 delta 和基线规格承载可审计变更。
+- 原 `docs/requirements/` 的历史档案迁入 OpenSpec；小修复、技术债和历史续做仍保留 `docs/exec-plans/` 兼容入口。
+- Superpowers 保留为 agent 的执行方法，项目交付文档统一写入当前 OpenSpec change。
+
 ## 当前已知遗留
 
 - 仓库里仍有部分调试式输出和历史兼容层

@@ -1,0 +1,47 @@
+# 生产发布记录
+
+2026-11-06：用户明确授权提交、发布并打开开关。发布前核验仅一个jx3bot容器，Python3.9.9、源码挂载/app，当前四个完整同步worker保留；无新增独立心法消费者。
+
+发布清单仅30个运行文件，使用生产基线加本次补丁；保留已在线的离线统计修复、config._env_float和HTTP retry_after_seconds。双网页采用仓库统一入口以保持行为一致。生产配置不进入Git，只修改本次两项开关。先备份源码和原配置，离线候选回归通过后双开关关闭发布，启动预热并验证真实成功值，再启用缓存统计。现有快照不重算、不发送测试群消息。
+
+本文件后续追加实际提交号、备份位置、启停和预热结果；当前段落仅记录执行计划。
+
+已提交并推送9071c9a。备份目录为 `/mnt/sata6-1/jx3bot-releases/kungfu-async-20261106-9071c9a/`。生产候选359项+router22项通过；初跑5项失败均有原生产基线复现，原始证据留同目录。第一次源码发布后启动/Mongo/QQ正常，无堆栈或插件失败。独立producer170秒超时后已明确终止；真实queryPlanner为SUBPLAN→COLLSCAN，确认需补raw(server,name)索引，双开关未直接同时启用。已有918任务保留，不删除重建队列。
+
+## 最终状态
+
+2026-11-06 17:35:32（北京时间）最终重启加载987429e及9071c9a，两开关均1。生产单消费者持续刷新；全同步原为未暂停，现已恢复，四worker心跳/执行正常，QQ恢复。30运行文件与发布清单一致，原配置除两开关外语义相同，API/Mongo/两网页均200/业务成功。检查点210成功画像、918任务、2项identity_mismatch退避、代次违规0；1000名中82无法安全解析身份，保持unknown。冷启动仍未达建议95%/90%覆盖门槛，按用户本次启用指令切流并如实展示，未主动生成或重写快照。
+
+修复实际批量查询：普通idx_server_name与已有global_id partial索引的显式类型过滤均必要，已按TDD与独立55项审核闭环。最终双Python各427项通过、无skip，生产镜像针对89项追加回归通过。生产实际四批+单人queryPlanner全IXSCAN，千人解析/登记单次11.442秒，不是P95或完整统计耗时。
+
+浏览器桌面/手机均数据加载完成、JS0；旧快照显示未记录时效。手机既有19px表单横向溢出基线相同，未作为本次回归通过条件。无测试群消息发送、无自动重启或消费者退出。私有备份与证据目录 `/mnt/sata6-1/jx3bot-releases/kungfu-async-20261106-9071c9a/`；rollback.py仅恢复本次allowlist与原两开关，保留队列/角色结果。离线恢复演练通过，未实际停服回滚。后续快照覆盖验收与归档待完成。
+
+## 21点故障修复发布完成
+
+2026-11-06 21:23:47（北京时间）增量发布93e9371，已推送远端；只更新5个运行文件并备份原文件。runtime_config.json字节不变，两开关仍为1；保留线上离线统计及其他既有修复。生产Python3.9.9候选107项通过，无skip；源码与备份哈希均匹配manifest。私有恢复目录`/mnt/sata6-1/jx3bot-releases/kungfu-direct-20261106-93e9371/`，rollback.py只恢复本次5文件，配置与数据库保留。未执行实际生产回滚。
+
+启动/Mongo健康通过，随后QQ连接恢复，完整同步未暂停且worker/background均运行，RestartCount0、Traceback0、心法消费者退出0。未发送测试群消息，未改写21点历史快照。
+
+真实缺失角色负向验证：榜单rank46/88/89每次均实际调用心法client，不再仅入后台；上游校验仍失败，成功值未保存、coverage保持0，不伪造成功。这一探测发生时当前可用画像894/1000，23个已解析身份仍无成功心法；另83个身份无法安全解析。实际新拉榜单同样没有尚未尝试且无错误的冷角色，因此未宣称真实冷角色成功全覆盖。
+
+正向线上验证使用临时60秒最大年龄的**仅验证进程内policy**，使原有画像走expired缓存缺失分支；未改生产配置或删除画像。rank1第一次统计真实调用client1次，角色成功值落库且当前coverage1；第二次真实读取同角色，client调用0次、coverage1；两次共8.042秒。这证明直接补查/发布/当前采用/随后复用链路，不能据单角色推断千人全冷耗时。完整结果见cache-miss-validation.json。
+
+子agent独立复评通过，修复两次review中发现的假fresh、Python3.9锁绑定、合法抢占误退出、完整性故障假成功及租约等待问题。缓存命中保持零外呼；真实身份/上游故障仍可留下未知，紫武装备完整性保护未移除。隔离Mongo随机测试库已清空，确认PID135680属于本轮27029测试实例后停止。
+
+## 2026-11-07 QQ图片文案发布
+
+已推送并发布e3dd4cc，2026-11-07 01:25:25北京时间重启加载。只更新`src/renderers/jx3/jjc_ranking.py`与`templates/竞技场心法排名统计.html`，发布前逐文件比对上一提交基线哈希，原文件备份位于生产私有发布目录`qq-coverage-e3dd4cc/backup/`；需要回滚时仅恢复此两文件并重启，配置和Mongo数据保留。runtime_config.json SHA256不变，两个功能开关保持原值。
+
+生产Python3.9候选执行合图、旧快照/空数据及8拆分模板的3个展示用例全部通过；本地Python3.13/3.9各14项通过，独立ranking_review复核通过。Chromium使用本次渲染函数生成实际模板并截图，覆盖率/未知人数及装备提示排版正常，无新鲜/待刷新/时效词。渲染样例采用上一轮真实统计计数，不代表此次重新拉榜。
+
+重启后文件哈希一致、Mongo健康及sync status/workers API均业务成功、QQ已连接、RestartCount0、Traceback0、心法消费者退出0。完整战绩同步paused=true，pause_reason为推栏战局历史http_status_403，暂停时间2026-11-07 00:42:37北京时间早于本次重启，保留既有鉴权暂停；worker_running/background_running均true。未强制恢复同步，未再次向群发送重算指令。证据为生产私有发布目录的manifest.json、candidate-tests.log、readiness.json和post-health.json。
+
+前次用户授权的群内真实重算已完成：2026-11-06 22:21:33保存快照，22:21:52在“这不能有bug吧”群回复976条有效数据。各范围有效/未知为976/24、194/6、97/3、49/1，证实缓存缺失直接补查后产生了实际统计；未知仍来自真实查询/身份校验失败。
+
+## 2026-11-07 网页与随机等待发布
+
+已提交、推送并发布a553485，2026-11-07 09:42:46北京时间重启。只增量更新`src/infra/tuilan_kungfu_client.py`、`public/index.html`与`public/jjc-ranking-stats.html`三个运行文件；上线前逐文件确认生产基线，备份和manifest保存在生产私有发布目录`kungfu-web-random-a553485/`。候选使用生产Python3.9.9执行client与展示23项全部通过，本地双Python各65项通过，独立子agent定向40项通过。需要回滚时仅恢复backup中这三文件并重启，保留配置与数据库。
+
+重启后运行文件哈希一致，runtime_config.json字节不变，Mongo连接/API及QQ恢复，RestartCount0、Traceback0、心法消费者退出0。生产实际实例化client的request_delay为(1,3)，每个HTTP请求前随机异步等待，包含首次和跨角色；空队列2秒等待保留。完整同步403暂停的reason/updated_at/paused与发布前完全一致，没有强制恢复；worker/background均运行。
+
+公网两个入口HTTP200且SHA256与候选完全一致。Chromium读取实际快照，摘要显示覆盖97.6%/97.0%/97.0%/98.0%及未知24/6/3/1，无新鲜/待刷新/时效；实际部署的renderDetailContent和buildDistributionExportMarkup也执行通过，覆盖率和装备提示保留，JavaScript错误0。未发送群消息、未触发拉榜、未修改历史快照。证据留candidate-tests.log/readiness.json/post-health.json/before-sync.json。GitHub初始SSH连接失败，随后使用公开DNS解析地址且保留严格主机密钥校验后推送成功。

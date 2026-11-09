@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+import re
 
+from typing import Any, Awaitable, Callable, Optional
+
+from nonebot import logger
 from nonebot.adapters.onebot.v11 import Bot, Event
 
 
 def register(
     zhanji_ranking_matcher: Any,
     *,
-    query_jjc_ranking: Callable[[], Awaitable[dict]],
-    calculate_season_week_info: Callable[[int, float | None], str],
-    get_ranking_kungfu_data: Callable[[dict], Awaitable[dict]],
-    save_ranking_stats: Callable[[dict, dict, str], None],
+    query_jjc_ranking: Callable[..., Awaitable[dict]],
+    calculate_season_week_info: Callable[[int, Optional[float]], str],
+    get_ranking_kungfu_data: Callable[..., Awaitable[dict]],
+    save_ranking_stats: Callable[..., Any],
     generate_split_ranking_images: Callable[[Bot, Event, dict, str, bool], Awaitable[None]],
     generate_combined_ranking_image: Callable[[Bot, Event, dict, str, bool], Awaitable[None]],
 ) -> None:
@@ -19,17 +22,31 @@ def register(
     async def zhanji_ranking_to_image(bot: Bot, event: Event) -> None:
         try:
             message_text = event.get_plaintext().strip()
+            tag_tokens = [token for token in message_text.split()[1:] if token.startswith("tag=")]
+            tag = None
+            if tag_tokens:
+                value = tag_tokens[0][4:]
+                if len(tag_tokens) != 1 or not re.fullmatch(r"[0-9]+", value) or int(value) <= 0:
+                    await bot.send(event, "tag 必须是正整数且只能指定一次，例如：竞技排名 tag=40")
+                    return
+                tag = int(value)
             message_text_lower = message_text.lower()
             is_split_mode = "拆分" in message_text
             is_debug_mode = "debug" in message_text_lower
             show_legendary = "橙武占比" in message_text
+            use_cached_kungfu = "缓存心法" in message_text.split()
 
             if is_split_mode:
-                await bot.send(event, "正在统计竞技场心法排名（拆分模式），请稍候...")
+                mode_text = "拆分模式"
+                if use_cached_kungfu:
+                    mode_text += "，优先使用缓存心法"
+                await bot.send(event, f"正在统计竞技场心法排名（{mode_text}），请稍候...")
+            elif use_cached_kungfu:
+                await bot.send(event, "正在统计竞技场心法排名（优先使用缓存心法），请稍候...")
             else:
                 await bot.send(event, "正在统计竞技场心法排名，请稍候...")
 
-            ranking_result = await query_jjc_ranking()
+            ranking_result = await query_jjc_ranking(tag=tag) if tag is not None else await query_jjc_ranking()
             if ranking_result is None:
                 await bot.send(event, "获取竞技场排行榜数据失败：返回数据为空")
                 return
@@ -56,7 +73,10 @@ def register(
                 else "第12周"
             )
 
-            result = await get_ranking_kungfu_data(ranking_data=ranking_result)
+            result = await get_ranking_kungfu_data(
+                ranking_data=ranking_result,
+                use_cached_kungfu=use_cached_kungfu,
+            )
             if result is None:
                 await bot.send(event, "获取心法分布数据失败：返回数据为空")
                 return
@@ -73,7 +93,10 @@ def register(
                 await bot.send(event, "心法统计数据为空，无法生成统计图片")
                 return
 
-            save_ranking_stats(ranking_result, stats, week_info)
+            if any(key in result for key in ("kungfu_cache_scope", "refresh_degraded", "_sync_request")):
+                save_ranking_stats(ranking_result, stats, week_info, payload=result)
+            else:
+                save_ranking_stats(ranking_result, stats, week_info)
 
             if is_split_mode:
                 await generate_split_ranking_images(bot, event, stats, week_info, show_legendary)
@@ -101,8 +124,5 @@ def register(
                     await bot.send(event, f"{chunk_header}\n{chunk_message}")
 
         except Exception as exc:
-            import traceback
-
-            error_traceback = traceback.format_exc()
-            print(f"战绩排名统计详细错误：{error_traceback}")
+            logger.exception("战绩排名统计详细错误")
             await bot.send(event, f"战绩排名统计失败：{str(exc)}")

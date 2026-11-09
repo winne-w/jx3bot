@@ -5,25 +5,39 @@
 import json
 import os
 ADMIN_QQ = [595910443]
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or str(value).strip() == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 # API认证凭证
 TOKEN = ""
 TICKET = ""
 
 # API接口地址
 API_URLS = {
-    "烟花查询": "https://www.jx3api.com/data/fireworks/records",
-    "奇遇查询": "https://www.jx3api.com/data/luck/adventure",
-    "装备查询": "https://www.jx3api.com/data/role/attribute",
-    "竞技查询": "https://www.jx3api.com/data/arena/recent",
-    "副本查询": "https://www.jx3api.com/data/role/teamCdList",
-    "名片查询": "https://www.jx3api.com/data/show/card",
-    "百战查询": "https://www.jx3api.com/data/role/monster",
-    "资历查询": "https://www.jx3api.com/data/tuilan/achievement",
+    "烟花查询": "https://www.jx3api.com/firework/records",
+    "奇遇查询": "https://www.jx3api.com/event/records",
+    "装备查询": "",
+    "竞技查询": "https://www.jx3api.com/arena/recent",
+    "副本查询": "",
+    "名片查询": "https://www.jx3api.com/card/record",
+    "百战查询": "https://www.jx3api.com/monster/records",
+    "资历查询": "https://www.jx3api.com/tuilan/achievement",
     "竞技场时间查询": "https://m.pvp.xoyo.com/3c/mine/arena/time-tag",
     "竞技场排行榜查询": "https://m.pvp.xoyo.com/3c/mine/arena/top200",
     "竞技场战局历史": "https://m.pvp.xoyo.com/3c/mine/match/history",
+    "竞技场个人战局历史": "https://m.pvp.xoyo.com/mine/match/person-history",
     "竞技场战局详情": "https://m.pvp.xoyo.com/3c/mine/match/detail",
-
+    "竞技场战局回放": "https://m.pvp.xoyo.com/3c/mine/match/replay",
+    "推栏角色指标": "https://m.pvp.xoyo.com/role/indicator",
 }
 
 # 默认服务器
@@ -55,7 +69,7 @@ REGEX_PATTERNS = {
     "名片查询": r"^名片 (?P<value1>[\S]+)$|^名片 (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "资历查询": r"^(?:资历|资历分布) (?P<value1>[\S]+)$|^(?:资历|资历分布) (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "资历选择": r"^(\d+)$",  # 用于匹配用户回复的数字序号
-    "竞技排名": r"^\s*竞技排名(?:统计)?(?:\s+拆分)?(?:\s+橙武占比)?(?:\s+(?i:debug))?\s*$",
+    "竞技排名": r"^\s*(?:竞技排名(?:统计)?|竞排名)(?:\s+(?:拆分|橙武占比|缓存心法|(?i:debug)|tag=\S*))*\s*$",
     "提醒所有人": r"^\s*提醒所有人\s+(\d{12})\s+(.+?)\s*$",
     "提醒": r"^\s*提醒\s+(\d{12})\s+(.+?)\s*$",
     "提醒列表": r"^\s*提醒列表\s*$",
@@ -83,11 +97,11 @@ STATUS_check_time = 3   # 分钟检查一次服务器状态
 NEWS_records_time = 30  # 分钟检查一次 新闻技改
 calendar_time = 9  # 每天9点推送日常
 mail = "用于qq掉线提醒 邮箱的tk"
-STATUS_check_API = "https://www.jx3api.com/data/status/check"  
+STATUS_check_API = "https://www.jx3api.com/server/status/check"
 # 新闻技改监控配置
-NEWS_API_URL = "https://www.jx3api.com/data/news/allnews?limit=3"  # 新闻API地址
-SKILL_records_URL = "https://www.jx3api.com/data/skills/records"  # 技改API地址
-calendar_URL = "https://www.jx3api.com/data/active/calendar"   #活动日常
+NEWS_API_URL = "https://www.jx3api.com/news/records?limit=3"  # 新闻API地址
+SKILL_records_URL = "https://www.jx3api.com/skill/rework"  # 技改API地址
+calendar_URL = "https://www.jx3api.com/active/calendar"   #活动日常
 jx3box_URL = "https://cms.jx3box.com/api/cms/config/banner?client=std&type=code"   #福利
 
 # status_monitor 邮件通知配置（避免在代码中硬编码）
@@ -109,15 +123,58 @@ STATUS_MONITOR_ADMIN_USERNAME = ""
 STATUS_MONITOR_ADMIN_PASSWORD = ""
 STATUS_MONITOR_CLOUD_MUSIC_SERVER = ""
 
-# 推栏（资历查询等）接口配置：签名密钥/请求头（避免在代码中硬编码）
-TUILAN_SECRET_KEY = "MaYoaMQ3zpWJFWtN9mqJqKpHrkdFwLd9DDlFWk2NnVR1mChVRI6THVe6KsCnhpoR"
-TUILAN_COOKIE = "_wsi1=b71125f3741e4eca8746f6c6761f3da931c210a9; __wsi1=b71125f3741e4eca8746f6c6761f3da931c210a9; _wsi2=4ff0e5984f8e972e07ec7b417c122691a47b8044; __wsi2=4ff0e5984f8e972e07ec7b417c122691a47b8044; _wsi3=8cc04958f51e41c511d345eddbb3e7909fce07db; __wsi3=8cc04958f51e41c511d345eddbb3e7909fce07db"
-TUILAN_DEVICE_ID = "lWrrIG5QpALPiSZ7txB//A=="
-TUILAN_USER_AGENT = "okhttp/3.12.2"
+# 推栏（资历查询等）接口配置：沿用已提交版本的密钥和设备 ID，允许环境变量覆盖
+TUILAN_SECRET_KEY = os.getenv("TUILAN_SECRET_KEY", 'MaYoaMQ3zpWJFWtN9mqJqKpHrkdFwLd9DDlFWk2NnVR1mChVRI6THVe6KsCnhpoR')
+TUILAN_COOKIE = os.getenv("TUILAN_COOKIE", "")
+TUILAN_DEVICE_ID = os.getenv("TUILAN_DEVICE_ID", 'lWrrIG5QpALPiSZ7txB//A==')
+TUILAN_USER_AGENT = os.getenv("TUILAN_USER_AGENT", "okhttp/3.12.2")
+# MongoDB 连接串
+# 示例: mongodb://用户名:密码@地址:端口/数据库名?authSource=admin
+# 可通过环境变量 MONGO_URI 或 runtime_config.json 覆盖
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://root:password@127.0.0.1:27017/jx3bot?authSource=admin")
 
-# 赛季时间定义
-CURRENT_SEASON = "暗影千机"
-CURRENT_SEASON_START = "2026-04-24"
+# Bot 内置 JJC 同步 worker 数量，0 表示关闭。
+JJC_SYNC_WORKER_COUNT = _env_int("JJC_SYNC_WORKER_COUNT", 0)
+JJC_SYNC_DISPATCHER_ENABLED = _env_int("JJC_SYNC_DISPATCHER_ENABLED", 1)
+JJC_SYNC_DISPATCHER_IDLE_SLEEP = _env_int("JJC_SYNC_DISPATCHER_IDLE_SLEEP", 10)
+JJC_SYNC_DISPATCHER_BATCH_SIZE = _env_int("JJC_SYNC_DISPATCHER_BATCH_SIZE", 20)
+JJC_SYNC_DISPATCHER_TARGET_PER_WORKER = _env_int("JJC_SYNC_DISPATCHER_TARGET_PER_WORKER", 3)
+
+# 排名心法缓存与后台刷新独立开关；部署中只启用一个后台消费者。
+JJC_RANKING_KUNGFU_CACHE_ENABLED = _env_int("JJC_RANKING_KUNGFU_CACHE_ENABLED", 0)
+JJC_KUNGFU_REFRESH_ENABLED = _env_int("JJC_KUNGFU_REFRESH_ENABLED", 0)
+JJC_KUNGFU_REFRESH_SECONDS = _env_int("JJC_KUNGFU_REFRESH_SECONDS", 21600)
+JJC_KUNGFU_MAX_STALE_SECONDS = _env_int("JJC_KUNGFU_MAX_STALE_SECONDS", 86400)
+JJC_KUNGFU_TRACK_SECONDS = _env_int("JJC_KUNGFU_TRACK_SECONDS", 172800)
+
+# 最新列表刷新默认关闭；开启前配置有效推栏凭据与来源密钥。
+JJC_LIVE_REFRESH_ENABLED = _env_int("JJC_LIVE_REFRESH_ENABLED", 0)
+JJC_ROLE_IDENTITY_RECOVERY_ENABLED = _env_int("JJC_ROLE_IDENTITY_RECOVERY_ENABLED", 0)
+JJC_LIVE_REFRESH_CAPACITY = _env_int("JJC_LIVE_REFRESH_CAPACITY", 100)
+JJC_LIVE_REFRESH_COOLDOWN = _env_int("JJC_LIVE_REFRESH_COOLDOWN", 120)
+JJC_LIVE_SOURCE_SECRET = os.getenv("JJC_LIVE_SOURCE_SECRET", "")
+JJC_LIVE_TRUSTED_PROXIES = os.getenv("JJC_LIVE_TRUSTED_PROXIES", "")
+
+# JJC 大橙武名称白名单：品质为5且名称命中才识别，无需维护小橙武名单。
+# 新50级名称来源：https://news.17173.com/content/10262026/200343877.shtml
+JJC_LEGENDARY_WEAPON_NAMES = [
+    # 保留旧等级名称，兼容历史排名。
+    "钗蝶语双", "七月嘉树", "万象金声", "幽微夜", "蜕骨", "伏魔悲音", "意真",
+    "长安", "掠炎", "金乌回首", "栖贤韵", "瀚海引", "镇恶", "仙灵", "暴龙震江",
+    "烛微刀", "碧血豪侠", "伏龙阳焰", "天下宏愿", "龙鲤", "银羽雪辉", "子不语",
+    "碧岚幽炎", "逾潮声", "静雨", "折枝花满", "昭佛光", "烬灭",
+    # 苍生铸世（新50级），2026-11-07核对，共33个名称。
+    "烂柯", "白鹭忘言", "冽心", "游光引夜", "万骨回澜", "海印三昧",
+    "赤瞳照业", "寒崖听籁", "寒锋凌日", "关山征魂", "霜塞南还", "中州北望",
+    "承瞑愿", "觉梦吟", "烛钧", "回霆", "圣火渡", "望明", "青龙映夜",
+    "边魂不寐", "孤照", "志介", "不复", "悬翎在握", "孤游万里", "绝翳曜明",
+    "葛天八阕", "鉴魄证身", "天仙子", "一隙见瀚", "穹霄待游", "龙影蔷微", "天羊盏",
+]
+
+# JJC 赛季：起始日期使用竞技场开放日，不是资料片公测日。
+# 2026-11-05 开赛，所在自然周为第 1 周，2026-11-09（周一）进入第 2 周。
+CURRENT_SEASON = "苍生铸世"
+CURRENT_SEASON_START = "2026-11-05"
 
 # 心法拼音映射及分类
 KUNGFU_META = {
@@ -154,11 +211,23 @@ KUNGFU_META = {
 # 运行时可覆盖配置（由 /修改配置 写入）
 RUNTIME_CONFIG_FILE = "runtime_config.json"
 RUNTIME_CONFIG_KEYS = {
+    "JJC_RANKING_KUNGFU_CACHE_ENABLED": int,
+    "JJC_KUNGFU_REFRESH_ENABLED": int,
+    "JJC_KUNGFU_REFRESH_SECONDS": int,
+    "JJC_KUNGFU_MAX_STALE_SECONDS": int,
+    "JJC_KUNGFU_TRACK_SECONDS": int,
+    "JJC_ROLE_IDENTITY_RECOVERY_ENABLED": int,
     "TOKEN": str,
     "TICKET": str,
     "SESSION_data": int,
     "calendar_time": int,
     "STATUS_check_time": int,
+    "MONGO_URI": str,
+    "JJC_SYNC_WORKER_COUNT": int,
+    "JJC_SYNC_DISPATCHER_ENABLED": int,
+    "JJC_SYNC_DISPATCHER_IDLE_SLEEP": int,
+    "JJC_SYNC_DISPATCHER_BATCH_SIZE": int,
+    "JJC_SYNC_DISPATCHER_TARGET_PER_WORKER": int,
 }
 
 if os.path.exists(RUNTIME_CONFIG_FILE):

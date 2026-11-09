@@ -196,3 +196,6 @@ utils 作为底层工具被各层依赖
 - `docs/exec-plans/active/refactor-plan.md` 中列出的约束，是当前做增量重构时必须继续遵守的边界
 
 如果新增模块，请优先让结构更清晰，而不是继续扩大历史入口文件和兼容层。
+
+
+JJC排名心法缓存新增边界：`jjc_kungfu_classifier.py` / `jjc_kungfu_policy.py` 承载纯选择和时效；`jjc_kungfu_refresh.py` 编排条件发布和重试；`jjc_kungfu_refresh_runtime.py` 管理单本地循环，bot挂接生命周期。`infra/tuilan_kungfu_client.py` 仅返回两类原始证据，身份与队列repo分别持久化属性/任务；`singletons.py` 只装配，策略按需校验。排名服务批量读画像并登记任务，展示消费冻结coverage/成员证据。设计与验证记录为 `openspec/changes/jjc-ranking-kungfu-async-refresh/`，无新通用队列或分布式leader层。

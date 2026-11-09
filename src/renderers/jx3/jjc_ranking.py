@@ -3,7 +3,10 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 
 from jinja2 import Environment
+from nonebot import logger
 from nonebot.adapters.onebot.v11 import Bot, Event, MessageSegment
+
+from src.services.jx3.weapon_quality import extract_member_weapon_name, is_jjc_legendary_weapon
 
 
 def _prepare_template_data(
@@ -32,8 +35,28 @@ def _prepare_template_data(
 def _calculate_legendary_percent(members: list[dict[str, Any]]) -> float:
     if not members:
         return 0.0
-    legendary_count = sum(1 for item in members if str(item.get("weapon_quality")) == "5")
+    legendary_count = sum(
+        1
+        for item in members
+        if is_jjc_legendary_weapon(
+            item.get("weapon_quality"),
+            extract_member_weapon_name(item),
+        )
+    )
     return legendary_count / len(members) * 100
+
+
+def _coverage_label(rank_data: dict[str, Any]) -> str:
+    cache = rank_data.get("kungfu_cache")
+    if not cache:
+        return "心法覆盖率未记录"
+    return (f"心法覆盖 {(cache.get('coverage') or 0) * 100:.1f}% · "
+            f"未知 {cache.get('unknown', 0)}")
+
+
+def _equipment_incomplete(rank_data: dict[str, Any]) -> bool:
+    return any((rank_data.get(lane) or {}).get("equipment_incomplete", False)
+               for lane in ("healer", "dps"))
 
 
 async def render_combined_ranking_image(
@@ -66,7 +89,9 @@ async def render_combined_ranking_image(
             "top_50_healer": _prepare_template_data(stats.get("top_50", {}), "healer"),
             "top_50_dps": _prepare_template_data(stats.get("top_50", {}), "dps"),
             "has_top_1000": has_top_1000,
-            "show_legendary": show_legendary,
+            "show_legendary": show_legendary and not any(_equipment_incomplete(v) for v in stats.values() if isinstance(v, dict)),
+            "coverage_labels": {k: _coverage_label(v) for k, v in stats.items() if isinstance(v, dict)},
+            "equipment_incomplete": any(_equipment_incomplete(v) for v in stats.values() if isinstance(v, dict)),
         },
         width=1120,
         height="ck",
@@ -192,7 +217,9 @@ async def send_split_ranking_images(
                     "current_season": current_season,
                     "week_info": week_info,
                     config["data_key"]: config["data"],
-                    "show_legendary": show_legendary,
+                    "show_legendary": show_legendary and not _equipment_incomplete(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
+                    "coverage_label": _coverage_label(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
+                    "equipment_incomplete": _equipment_incomplete(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
                 },
                 width=800,
                 height="ck",
@@ -204,7 +231,7 @@ async def send_split_ranking_images(
 
                 await asyncio.sleep(1)
         except Exception as exc:
-            print(f"生成{config['name']}图片失败: {exc}")
+            logger.exception(f"生成{config['name']}图片失败")
             await bot.send(event, f"生成{config['name']}图片失败: {str(exc)}")
 
     processed_key = "top_1000" if has_top_1000 else "top_200"

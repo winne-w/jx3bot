@@ -1,81 +1,47 @@
 from __future__ import annotations
 
-import json
-import os
 import time
 from typing import Any
 
 from nonebot import logger
 
-from src.infra.http_client import HttpClient
+from src.infra.mongo import get_db
+from src.storage.mongo_repos.server_master_repo import ServerMasterCacheRepo
 
-SERVER_MASTER_API_URL = "https://www.jx3api.com/data/server/master"
-SERVER_MASTER_CACHE_FILE = "data/cache/server_master_cache.json"
 SERVER_MASTER_CACHE_TTL = 7 * 24 * 60 * 60
-
-_cache_loaded = False
-_cache: dict[str, dict[str, Any]] = {}
 
 
 def _normalize_server_key(name: str) -> str:
     return (name or "").strip()
 
 
-def _load_cache() -> None:
-    global _cache_loaded, _cache
-    if _cache_loaded:
-        return
-
-    _cache_loaded = True
-    if not os.path.exists(SERVER_MASTER_CACHE_FILE):
-        return
-
-    try:
-        with open(SERVER_MASTER_CACHE_FILE, "r", encoding="utf-8") as file_handle:
-            data = json.load(file_handle)
-        if isinstance(data, dict):
-            _cache = data
-    except Exception as exc:
-        logger.warning("区服简称缓存读取失败: {}", exc)
-        _cache = {}
+def _repo() -> ServerMasterCacheRepo:
+    return ServerMasterCacheRepo(db=get_db(), ttl_seconds=SERVER_MASTER_CACHE_TTL)
 
 
-def _save_cache() -> None:
-    try:
-        os.makedirs(os.path.dirname(SERVER_MASTER_CACHE_FILE), exist_ok=True)
-        with open(SERVER_MASTER_CACHE_FILE, "w", encoding="utf-8") as file_handle:
-            json.dump(_cache, file_handle, ensure_ascii=False, indent=2)
-    except Exception as exc:
-        logger.warning("区服简称缓存写入失败: {}", exc)
-
-
-def _get_cached_master_name(query_name: str) -> str | None:
-    _load_cache()
+async def _get_cached_master_name(query_name: str) -> str | None:
     key = _normalize_server_key(query_name)
     if not key:
         return None
 
-    entry = _cache.get(key)
-    if not isinstance(entry, dict):
-        return None
-
-    cached_at = int(entry.get("cached_at", 0) or 0)
-    if int(time.time()) - cached_at >= SERVER_MASTER_CACHE_TTL:
-        _cache.pop(key, None)
-        _save_cache()
+    logger.info("[server_master] 查询 MongoDB 缓存: key={}", key)
+    entry = await _repo().get(key)
+    if entry is None:
+        logger.info("[server_master] 缓存未命中: key={}", key)
         return None
 
     master_name = entry.get("name")
     if isinstance(master_name, str) and master_name.strip():
+        logger.info("[server_master] 缓存命中: key={} -> master={}", key, master_name.strip())
         return master_name.strip()
     return None
 
 
-def _cache_master_result(query_name: str, result_data: dict[str, Any]) -> None:
-    _load_cache()
+async def _cache_master_result(query_name: str, result_data: dict[str, Any]) -> None:
     now = int(time.time())
     master_name = (result_data.get("name") or "").strip()
     if not master_name:
+        logger.warning("[server_master] API 返回无 name 字段，跳过缓存: result={}", result_data)
         return
 
     entry_payload = {
@@ -85,16 +51,22 @@ def _cache_master_result(query_name: str, result_data: dict[str, Any]) -> None:
         "cached_at": now,
     }
 
+    # 收集所有可映射到主服的 key：查询名、主服名、alias 列表、slave 列表
     keys = {query_name, master_name}
-    for alias in result_data.get("abbreviation", []) or []:
-        if isinstance(alias, str) and alias.strip():
-            keys.add(alias.strip())
+    for field in ("alias", "slave"):
+        for item in (result_data.get(field) or []):
+            if isinstance(item, str) and item.strip():
+                keys.add(item.strip())
 
-    for key in keys:
-        normalized_key = _normalize_server_key(key)
-        if normalized_key:
-            _cache[normalized_key] = entry_payload
-    _save_cache()
+    repo = _repo()
+    for alias_key in keys:
+        normalized = _normalize_server_key(alias_key)
+        if normalized:
+            await repo.put(normalized, entry_payload)
+    logger.info(
+        "[server_master] 写入 MongoDB: query={}, keys={}, master={}, zone={}",
+        query_name, list(keys), master_name, result_data.get("zone", ""),
+    )
 
 
 async def resolve_master_server_name(server_name: str) -> str:
@@ -103,34 +75,14 @@ async def resolve_master_server_name(server_name: str) -> str:
     解析失败时返回原始输入，不中断主流程。
     """
     query_name = _normalize_server_key(server_name)
+    logger.info("[server_master] 开始解析区服: raw={} query={}", server_name, query_name)
     if not query_name:
+        logger.warning("[server_master] 区服名为空，返回原始值")
         return server_name
 
-    cached_name = _get_cached_master_name(query_name)
+    cached_name = await _get_cached_master_name(query_name)
     if cached_name:
         return cached_name
 
-    http_client = HttpClient(timeout=15.0, retries=1, backoff_seconds=0.3, verify=False)
-    response = await http_client.arequest_json(
-        "GET",
-        SERVER_MASTER_API_URL,
-        params={"name": query_name},
-        verify=False,
-    )
-
-    if not isinstance(response, dict):
-        return server_name
-
-    if response.get("code") != 200:
-        return server_name
-
-    data = response.get("data")
-    if not isinstance(data, dict):
-        return server_name
-
-    master_name = (data.get("name") or "").strip()
-    if not master_name:
-        return server_name
-
-    _cache_master_result(query_name, data)
-    return master_name
+    logger.info("[server_master] 本地缓存未命中，JX3API 已无主服映射接口: query={}", query_name)
+    return server_name

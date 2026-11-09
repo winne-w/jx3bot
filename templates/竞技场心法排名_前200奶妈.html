@@ -99,6 +99,7 @@
 <body>
     <div class="main-title">竞技场心法排名统计</div>
     <div class="desc">前200 奶妈心法分布（{{ current_season }}{{ week_info }} ）</div>
+    <div class="desc">{{ coverage_label }}{% if equipment_incomplete %}<br>装备数据不完整，橙武占比暂不展示{% endif %}</div>
     <div class="chart-container">
         <div class="chart-title">前200 奶妈心法{% if top_200_healer and top_200_healer[0][3] is not none %} （{{ top_200_healer[0][3] }}）{% endif %}</div>
         {% set max_count = top_200_healer[0][1] if top_200_healer else 1 %}
@@ -117,5 +118,6 @@
         </div>
         {% endfor %}
     </div>
+    <div class="footer">数据来源：https://qike.rickchen.cn/jx3/jjc-ranking-stats.html</div>
 </body>
-</html> 
+</html>

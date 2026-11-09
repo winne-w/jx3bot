@@ -1,60 +1,10 @@
 # JX3Bot Agent Guide
 
-本文件只提供 agent 的最小入口。详细规则、架构和运行步骤拆分到 `docs/`，避免单文件失真。
+本文件不再承载项目事实、架构、运行方式或约束细节。处理本仓库任务时，先读取 `PROJECT_CONTEXT.md`，并以该文件作为项目相关内容的唯一事实来源。
 
-## 你在维护什么
+## 使用规则
 
-- 这是一个基于 NoneBot2 + OneBot V11 的剑网 3 QQ 机器人。
-- 入口是 `bot.py`，同时挂载消息插件和 HTTP API。
-- 当前代码已经从“单文件插件”演进为分层结构，新增功能应优先放入现有层次，而不是继续堆进 `src/plugins/jx3bot.py`。
-
-## 开始之前先读
-
-1. `README.md`
-2. `project-architecture.md`
-3. `project-roadmap.md`
-4. `project-history.md`
-5. `docs/design-docs/index.md`
-6. `docs/references/index.md`
-7. `docs/exec-plans/index.md`
-8. `docs/tasks/all-tasks.md`
-
-如果任务只涉及部署，再补读 `README-Docker.md`。
-
-## 当前真实结构
-
-- `bot.py`: NoneBot 启动入口，注册 OneBot 适配器与 HTTP 路由。
-- `src/plugins/`: 消息入口层，只做命令匹配、参数提取、调用 service、发送消息。
-- `src/plugins/jx3bot_handlers/`: 各命令 handler 注册与薄逻辑。
-- `src/services/jx3/`: 业务编排层，负责查询流程、缓存策略、仓储调用。
-- `src/infra/`: 外部系统适配层，如 HTTP、截图、jx3api 请求封装。
-- `src/renderers/`: 模板渲染、图片生成、消息输出辅助。
-- `src/storage/`: 存储适配与工厂。
-- `src/api/routers/`: 对外 HTTP API。
-- `templates/`, `mpimg/`, `data/`: 模板、缓存图片、运行数据。
-
-## 强约束
-
-- 依赖方向固定为 `plugins -> services -> infra/storage`，`utils` 只能被依赖，不能反向引用上层。
-- `services` 不得直接依赖 NoneBot 事件对象、`MessageSegment` 或发送消息。
-- `renderers` 只负责渲染，不写业务决策。
-- 新增外部调用时，优先补到 `src/infra/`，不要在 handler 或 service 中直接散写请求。
-- 涉及 `groups.json`、订阅、服务器别名缓存时，统一走 `src/storage/` 和对应 repo，不新增裸 `open(...)` 写法。
-- 秘钥、票据、Cookie、邮箱、内网地址不得硬编码进代码和文档。
-- 运行时基线是 `Python 3.9+`。新增类型注解必须兼容 Python 3.9，不要在 FastAPI/Pydantic 会解析的代码路径里使用 `str | None`、`dict[str, Any] | None` 这类 `|` 联合写法，统一改用 `typing.Optional[...]`、`typing.Union[...]`。
-
-## 文档更新规则
-
-- 改动启动方式、端口、环境变量时，同时更新 `README.md`、`README-Docker.md`、`docs/references/runbook.md`。
-- 改动模块边界、目录职责时，同时更新 `project-architecture.md` 和 `docs/exec-plans/active/refactor-plan.md`。
-- 改动 API 路由时，同时更新 `README.md` 中的接口说明。
-- 改动手工验证路径时，同时更新 `docs/references/runbook.md` 的回归清单。
-
-## 常用验证
-
-- 本地启动: `python bot.py`
-- 插件快速检查: `nb plugin list --json`
-- 手工脚本: `python test_tuilan_match_history.py`
-- 改过 FastAPI 路由、Pydantic 会解析的函数签名或新增类型注解后，至少执行一次 `python -m py_compile <相关文件>`，重点确认没有 Python 3.9 注解兼容问题。
-
-外部接口较多，很多验证依赖在线服务。无法离线证明正确时，至少补充手工回归路径。
+- 开始任何实现、重构、排查、文档更新前，先阅读 `PROJECT_CONTEXT.md`。
+- 开发流程门禁、需求目录和计划写法以 `docs/PLANS.md` 为准。
+- 涉及项目结构、依赖方向、运行命令、验证方式、文档联动、已知遗留问题时，只更新 `PROJECT_CONTEXT.md`，不要在本文件重复写项目内容。
+- 如果发现 `AGENTS.md`、`CLAUDE.md` 与 `PROJECT_CONTEXT.md` 口径不一致，以 `PROJECT_CONTEXT.md` 为准，并将入口文件修正为仅引用它。

@@ -1,0 +1,194 @@
+{
+  "deployment-final.json": {
+    "time": 1793957732.7644045,
+    "code_commit": "987429e",
+    "feature_commit": "9071c9a",
+    "cache": 1,
+    "refresh": 1,
+    "StartedAt": "2026-11-06T09:35:32.690913993Z",
+    "files_verified": 30
+  },
+  "verification-final.json": {
+    "time": 1793957954.5267916,
+    "code_commit": "987429e",
+    "flags": {
+      "JJC_RANKING_KUNGFU_CACHE_ENABLED": 1,
+      "JJC_KUNGFU_REFRESH_ENABLED": 1
+    },
+    "other_config_keys_preserved": true,
+    "files_verified": 30,
+    "public": [
+      {
+        "endpoint": "jjc/ranking-stats",
+        "http": 200,
+        "business_status": 0
+      },
+      {
+        "endpoint": "mongo/health",
+        "http": 200,
+        "business_status": 0
+      },
+      {
+        "page": "index.html",
+        "http": 200,
+        "matches_published_file": true
+      },
+      {
+        "page": "jjc-ranking-stats.html",
+        "http": 200,
+        "matches_published_file": true
+      }
+    ],
+    "full_sync_paused": false,
+    "online_full_sync_workers": 4,
+    "worker_states": [
+      "syncing",
+      "syncing",
+      "syncing",
+      "syncing"
+    ],
+    "startup_complete": true,
+    "tracebacks": 0,
+    "kungfu_runtime_failures": 0,
+    "container_restarts": 0,
+    "qq_connected": true,
+    "rollback_dry_run": {
+      "allowlist_restored": true,
+      "config_key_restore_verified": true,
+      "production_rollback_executed": false
+    }
+  },
+  "queue-final.json": {
+    "time": 1793958049.1071627,
+    "tasks": 918,
+    "successful_roles": 210,
+    "states": [
+      {
+        "_id": "running",
+        "count": 1
+      },
+      {
+        "_id": "pending",
+        "count": 917
+      }
+    ],
+    "errors": [
+      {
+        "_id": "identity_mismatch",
+        "count": 2
+      }
+    ],
+    "version_violations": 0,
+    "paused_full_sync": false
+  },
+  "candidate-validation.json": {
+    "python": "3.9.9",
+    "selected_tests": 359,
+    "passed": true,
+    "skipped": false,
+    "existing_baseline_failures": [
+      "tests.test_jjc_data_center_navigation.JjcDataCenterNavigationTest.test_pages_share_the_visual_shell_contract",
+      "tests.test_jjc_live_refresh.TestLiveRefreshExecution.test_first_page_merges_previous_summary_instead_of_discarding_it",
+      "tests.test_jjc_live_refresh_runtime.TestLiveRuntime.test_optional_worker_initialization_failure_does_not_abort_bot_startup",
+      "tests.test_jjc_live_refresh_runtime.TestLiveRuntime.test_readiness_failure_does_not_abort_bot_startup",
+      "tests.test_jjc_live_refresh_runtime.TestLiveRuntime.test_start_is_idempotent_and_stop_cancels_worker"
+    ],
+    "original_candidate_tests": 364,
+    "baseline_differential_tests": 6
+  },
+  "index-production-probe": {
+    "time": 1793957550.0048976,
+    "members": 1000,
+    "identified": 918,
+    "available": 106,
+    "resolve_and_register_ms": 11441.916,
+    "plans": [
+      {
+        "or_branches": 1250,
+        "winning_stages": [
+          "FETCH",
+          "IXSCAN",
+          "OR",
+          "SUBPLAN"
+        ]
+      },
+      {
+        "or_branches": 1247,
+        "winning_stages": [
+          "FETCH",
+          "IXSCAN",
+          "OR",
+          "SUBPLAN"
+        ]
+      },
+      {
+        "or_branches": 1250,
+        "winning_stages": [
+          "FETCH",
+          "IXSCAN",
+          "OR",
+          "SUBPLAN"
+        ]
+      },
+      {
+        "or_branches": 1250,
+        "winning_stages": [
+          "FETCH",
+          "IXSCAN",
+          "OR",
+          "SUBPLAN"
+        ]
+      }
+    ],
+    "single_role_winning_stages": [
+      "FETCH",
+      "IXSCAN",
+      "OR",
+      "SUBPLAN"
+    ],
+    "index": {
+      "key": [
+        [
+          "server",
+          1
+        ],
+        [
+          "name",
+          1
+        ]
+      ],
+      "unique": false
+    },
+    "scope": {
+      "season_id": "苍生铸世",
+      "season_start": 1793808000,
+      "pvp_type": 3,
+      "algorithm_version": 1
+    }
+  },
+  "browser": [
+    {
+      "viewport": "desktop",
+      "http": 200,
+      "page_errors": [],
+      "screenshot": "/tmp/jjc-kungfu-production-desktop.png",
+      "body_width": 1440,
+      "viewport_width": 1440,
+      "status": "数据加载完成"
+    },
+    {
+      "viewport": "mobile",
+      "http": 200,
+      "page_errors": [],
+      "screenshot": "/tmp/jjc-kungfu-production-mobile.png",
+      "body_width": 409,
+      "viewport_width": 390,
+      "status": "数据加载完成"
+    }
+  ],
+  "mobile_layout_baseline": {
+    "baseline_mobile_width": 409,
+    "viewport_width": 390,
+    "published_mobile_width": 409
+  }
+}

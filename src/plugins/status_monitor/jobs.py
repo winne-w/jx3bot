@@ -11,6 +11,7 @@ from nonebot import get_driver, logger
 from nonebot.adapters.onebot.v11 import MessageSegment
 from nonebot_plugin_apscheduler import scheduler
 
+from src.services.jx3.jjc_peak_score_ranking import JjcPeakScoreRankingService
 from src.services.jx3.singletons import jjc_ranking_service
 from src.services.jx3.singletons import group_config_repo
 from src.services.jx3.singletons import env
@@ -19,6 +20,7 @@ from src.renderers.jx3.jjc_ranking import render_combined_ranking_image
 
 from .notify import get_NapCat_data, send_email_via_163
 from .storage import CacheManager, load_id_set, save_id_set
+from src.infra.jx3api_compat import normalize_jx3api_response
 
 try:
     from config import (
@@ -48,11 +50,25 @@ previous_news_ids = set()
 previous_records_ids = set()
 previous_codes_ids = set()
 last_status_ok = True
+jjc_peak_score_ranking_service = JjcPeakScoreRankingService()
 
 
 def set_bot_initialized(value: bool) -> None:
     global BOT_INITIALIZED
     BOT_INITIALIZED = value
+
+
+async def notify_jjc_ranking_failure(bot, detail: str) -> None:
+    message = f"竞技排名定时任务统计失败：{detail}"
+    for admin_qq in getattr(cfg, "ADMIN_QQ", []):
+        try:
+            await bot.send_private_msg(user_id=int(admin_qq), message=message)
+        except Exception as exc:
+            logger.warning(
+                "status_monitor 通知竞技排名统计失败给管理员{}时出错: {}",
+                admin_qq,
+                exc,
+            )
 
 
 def log_startup() -> None:
@@ -168,7 +184,7 @@ async def get_gte_data(url, server):
             if response.status_code != 200:
                 logger.warning("status_monitor 日常API返回错误: {}", response.status_code)
                 return None
-            return response.json()
+            return normalize_jx3api_response(url, response.json())
     except Exception as e:
         logger.warning("status_monitor 请求日常API失败: {}", e)
         return None
@@ -181,7 +197,7 @@ async def get_server_status():
             if response.status_code != 200:
                 logger.warning("status_monitor 开服监测API返回错误: {}", response.status_code)
                 return None
-            return response.json()
+            return normalize_jx3api_response(STATUS_check_API, response.json())
     except Exception as e:
         logger.warning("status_monitor 开服监测请求失败: {}", e)
         return None
@@ -190,11 +206,11 @@ async def get_server_status():
 async def get_server_banben():
     try:
         async with httpx.AsyncClient(verify=False) as client:
-            response = await client.get("https://www.jx3api.com/data/news/announce")
+            response = await client.get("https://www.jx3api.com/news/announce")
             if response.status_code != 200:
                 logger.warning("status_monitor 公告API返回错误: {}", response.status_code)
                 return None
-            return response.json()
+            return normalize_jx3api_response("https://www.jx3api.com/news/announce", response.json())
     except Exception as e:
         logger.warning("status_monitor 公告请求失败: {}", e)
         return None
@@ -207,7 +223,7 @@ async def get_news_data():
             if response.status_code != 200:
                 logger.warning("status_monitor 新闻API返回错误: {}", response.status_code)
                 return None
-            return response.json()
+            return normalize_jx3api_response(NEWS_API_URL, response.json())
     except Exception as e:
         logger.warning("status_monitor 请求新闻API失败: {}", e)
         return None
@@ -220,7 +236,7 @@ async def get_records_data():
             if response.status_code != 200:
                 logger.warning("status_monitor 技改API返回错误: {}", response.status_code)
                 return None
-            return response.json()
+            return normalize_jx3api_response(SKILL_records_URL, response.json())
     except Exception as e:
         logger.warning("status_monitor 请求技改API失败: {}", e)
         return None
@@ -274,7 +290,7 @@ async def check_records():
         global previous_records_ids
         try:
             if not previous_records_ids:
-                previous_records_ids = load_id_set("records_ids")
+                previous_records_ids = await load_id_set("records_ids")
                 if not previous_records_ids:
                     logger.info("status_monitor 没有发现技改缓存或缓存为空")
                 else:
@@ -286,11 +302,11 @@ async def check_records():
                 return
 
             current_records = data["data"]
-            current_records_ids = {record["id"] for record in current_records}
+            current_records_ids = {str(record.get("id", "")) for record in current_records}
 
             if not previous_records_ids:
                 previous_records_ids = current_records_ids
-                save_id_set(previous_records_ids, "records_ids")
+                await save_id_set(previous_records_ids, "records_ids")
                 logger.info("status_monitor 首次运行，已记录{}条技改ID", len(current_records_ids))
                 return
 
@@ -298,11 +314,15 @@ async def check_records():
             if new_records_ids:
                 logger.info("status_monitor 检测到{}条新增技改", len(new_records_ids))
 
-                new_records = [record for record in current_records if record["id"] in new_records_ids]
+                new_records = [
+                    record
+                    for record in current_records
+                    if str(record.get("id", "")) in new_records_ids
+                ]
 
                 if get_driver().bots:
                     bot = list(get_driver().bots.values())[0]
-                    groups_config = group_config_repo.load()
+                    groups_config = await group_config_repo.load()
 
                     for gid, config in groups_config.items():
                         try:
@@ -328,7 +348,7 @@ async def check_records():
                             logger.warning("status_monitor 向群{}推送技改失败: {}", gid, e)
 
             previous_records_ids = current_records_ids
-            save_id_set(previous_records_ids, "records_ids")
+            await save_id_set(previous_records_ids, "records_ids")
         except Exception as e:
             logger.warning("status_monitor 检查技改出错: {}", e)
 
@@ -339,7 +359,7 @@ async def check_news():
         global previous_news_ids
         try:
             if not previous_news_ids:
-                previous_news_ids = load_id_set("news_ids")
+                previous_news_ids = await load_id_set("news_ids")
                 if not previous_news_ids:
                     logger.info("status_monitor 没有发现新闻缓存或缓存为空")
                 else:
@@ -362,7 +382,7 @@ async def check_news():
 
             if not previous_news_ids:
                 previous_news_ids = current_news_ids
-                save_id_set(previous_news_ids, "news_ids")
+                await save_id_set(previous_news_ids, "news_ids")
                 logger.info("status_monitor 首次运行，已记录{}条新闻ID", len(current_news_ids))
                 return
 
@@ -373,7 +393,7 @@ async def check_news():
 
                 if get_driver().bots:
                     bot = list(get_driver().bots.values())[0]
-                    groups_config = group_config_repo.load()
+                    groups_config = await group_config_repo.load()
 
                     for gid, config in groups_config.items():
                         try:
@@ -399,7 +419,7 @@ async def check_news():
                             logger.warning("status_monitor 向群{}推送新闻失败: {}", gid, e)
 
             previous_news_ids = current_news_ids
-            save_id_set(previous_news_ids, "news_ids")
+            await save_id_set(previous_news_ids, "news_ids")
         except Exception as e:
             logger.warning("status_monitor 检查新闻出错: {}", e)
 
@@ -412,7 +432,7 @@ async def check_event_codes():
 
         try:
             if not previous_codes_ids:
-                previous_codes_ids = load_id_set("event_codes_ids")
+                previous_codes_ids = await load_id_set("event_codes_ids")
                 if not previous_codes_ids:
                     logger.info("status_monitor 没有发现活动码缓存或缓存为空")
                 else:
@@ -428,7 +448,7 @@ async def check_event_codes():
 
             if not previous_codes_ids:
                 previous_codes_ids = current_codes_ids
-                save_id_set(previous_codes_ids, "event_codes_ids")
+                await save_id_set(previous_codes_ids, "event_codes_ids")
                 logger.info("status_monitor 首次运行，已记录{}条活动码ID", len(current_codes_ids))
                 return
 
@@ -438,7 +458,7 @@ async def check_event_codes():
                 new_codes = [code for code in current_codes if code["ID"] in new_codes_ids]
 
                 if get_driver().bots:
-                    groups_config = group_config_repo.load()
+                    groups_config = await group_config_repo.load()
                     bot = list(get_driver().bots.values())[0]
 
                     for code in new_codes:
@@ -464,7 +484,7 @@ async def check_event_codes():
 
             if current_codes_ids:
                 previous_codes_ids = current_codes_ids
-                save_id_set(previous_codes_ids, "event_codes_ids")
+                await save_id_set(previous_codes_ids, "event_codes_ids")
         except Exception as e:
             logger.warning("status_monitor 检查活动码出错: {}", e)
 
@@ -475,7 +495,7 @@ async def check_status():
     global previous_status
     try:
         if not previous_status:
-            previous_status = CacheManager.load_cache("server_status", {})
+            previous_status = await CacheManager.load_cache("server_status", {})
             if not previous_status:
                 logger.info("status_monitor 没有发现服务器状态缓存或缓存为空")
                 previous_status = {}
@@ -488,10 +508,10 @@ async def check_status():
             return
 
         current_details = {s["server"]: s for s in data.get("data", [])}
-        current = {server: info["status"] for server, info in current_details.items()}
+        current = {server: info.get("legacyStatus", info["status"]) for server, info in current_details.items()}
         current_time = int(time.time())
 
-        status_history = CacheManager.load_cache("status_history", {})
+        status_history = await CacheManager.load_cache("status_history", {})
 
         if not previous_status:
             for server, status in current.items():
@@ -507,8 +527,8 @@ async def check_status():
             logger.info("status_monitor 首次运行，已记录{}条服务器数据", len(current))
             previous_status = current
 
-            CacheManager.save_cache(previous_status, "server_status")
-            CacheManager.save_cache(status_history, "status_history")
+            await CacheManager.save_cache(previous_status, "server_status")
+            await CacheManager.save_cache(status_history, "status_history")
             return
 
         changed_servers = []
@@ -531,7 +551,7 @@ async def check_status():
 
             if get_driver().bots:
                 bot = list(get_driver().bots.values())[0]
-                groups_config = group_config_repo.load()
+                groups_config = await group_config_repo.load()
 
                 for gid, config in groups_config.items():
                     try:
@@ -553,7 +573,7 @@ async def check_status():
                         zone = server_info["zone"]
                         if zone.endswith("区"):
                             zone = zone[:-1] + "大区"
-                        status = server_info["status"]
+                        status = server_info.get("legacyStatus", server_info["status"])
 
                         server_history = status_history.get(
                             bound_server, {"last_maintenance": None, "last_open": None}
@@ -589,8 +609,8 @@ async def check_status():
                         logger.warning("status_monitor 向群{}推送服务器状态失败: {}", gid, e)
 
         previous_status = current
-        CacheManager.save_cache(previous_status, "server_status")
-        CacheManager.save_cache(status_history, "status_history")
+        await CacheManager.save_cache(previous_status, "server_status")
+        await CacheManager.save_cache(status_history, "status_history")
     except Exception as e:
         logger.warning("status_monitor 开服检查出错: {}", e)
 
@@ -602,7 +622,7 @@ async def push_daily_gte():
             if not get_driver().bots:
                 return
             bot = list(get_driver().bots.values())[0]
-            groups_config = group_config_repo.load()
+            groups_config = await group_config_repo.load()
 
             for gid, config in groups_config.items():
                 try:
@@ -625,7 +645,25 @@ async def push_daily_gte():
             logger.warning("status_monitor 推送日常出错: {}", e)
 
 
-@scheduler.scheduled_job("cron", hour=8, minute=0)
+@scheduler.scheduled_job("cron", hour=9, minute=0, max_instances=1)
+async def push_daily_jjc_peak_score_ranking():
+    if not BOT_INITIALIZED:
+        return
+    try:
+        result = await jjc_peak_score_ranking_service.run_latest_two_snapshots()
+        logger.info(
+            "status_monitor JJC 14天最高分统计完成: anchors={} generated={} skipped={} failed={}".format(
+                result.get("anchors"),
+                result.get("generated"),
+                result.get("skipped"),
+                result.get("failed"),
+            )
+        )
+    except Exception as e:
+        logger.warning("status_monitor JJC 14天最高分统计出错: {}", e)
+
+
+@scheduler.scheduled_job("cron", hour="3,21", minute=0, max_instances=2)
 async def push_daily_jjc_ranking():
     if BOT_INITIALIZED:
         try:
@@ -635,7 +673,7 @@ async def push_daily_jjc_ranking():
                 return
 
             bot = list(bots.values())[0]
-            groups_config = group_config_repo.load()
+            groups_config = await group_config_repo.load()
 
             target_groups = [
                 gid
@@ -650,20 +688,25 @@ async def push_daily_jjc_ranking():
             ranking_result = await jjc_ranking_service.query_jjc_ranking()
             if not ranking_result:
                 logger.warning("status_monitor 获取竞技场排行榜数据失败：返回为空")
+                await notify_jjc_ranking_failure(bot, "获取竞技场排行榜数据失败：返回为空")
                 return
 
             if ranking_result.get("error"):
+                detail = ranking_result.get("message", "未知错误")
                 logger.warning(
                     "status_monitor 获取竞技场排行榜数据失败：{}",
-                    ranking_result.get("message", "未知错误"),
+                    detail,
                 )
+                await notify_jjc_ranking_failure(bot, f"获取竞技场排行榜数据失败：{detail}")
                 return
 
             if ranking_result.get("code") != 0:
+                detail = ranking_result.get("code")
                 logger.warning(
                     "status_monitor 获取竞技场排行榜数据失败：API返回错误码 {}",
-                    ranking_result.get("code"),
+                    detail,
                 )
+                await notify_jjc_ranking_failure(bot, f"获取竞技场排行榜数据失败：API返回错误码 {detail}")
                 return
 
             default_week = ranking_result.get("defaultWeek")
@@ -677,18 +720,22 @@ async def push_daily_jjc_ranking():
             ranking_data = await jjc_ranking_service.get_ranking_kungfu_data(ranking_data=ranking_result)
             if not ranking_data:
                 logger.warning("status_monitor 获取心法统计数据失败：返回为空")
+                await notify_jjc_ranking_failure(bot, "获取心法统计数据失败：返回为空")
                 return
 
             if ranking_data.get("error"):
+                detail = ranking_data.get("message", "未知错误")
                 logger.warning(
                     "status_monitor 获取心法统计数据失败：{}",
-                    ranking_data.get("message", "未知错误"),
+                    detail,
                 )
+                await notify_jjc_ranking_failure(bot, f"获取心法统计数据失败：{detail}")
                 return
 
             stats = ranking_data.get("kungfu_statistics", {})
             if not stats:
                 logger.warning("status_monitor 心法统计数据为空")
+                await notify_jjc_ranking_failure(bot, "心法统计数据为空")
                 return
 
             payload = await render_combined_ranking_image(
@@ -701,17 +748,18 @@ async def push_daily_jjc_ranking():
             )
             if not payload:
                 logger.warning("status_monitor 渲染竞技场统计图失败")
+                await notify_jjc_ranking_failure(bot, "渲染竞技场统计图失败")
                 return
 
             jjc_ranking_service.save_ranking_stats(
                 ranking_result=ranking_result,
                 stats=stats,
                 week_info=week_info,
-                payload=payload,
+                payload=ranking_data if any(key in ranking_data for key in ("kungfu_cache_scope", "refresh_degraded", "_sync_request")) else payload,
             )
 
             summary_text = (
-                f"⏰ 每日08:00竞技排名推送（{week_info}）\n"
+                f"⏰ 每日03:00/21:00竞技排名推送（{week_info}）\n"
                 f"统计范围：{payload['scope_desc']}\n"
                 f"统计完成！共处理 {payload['total_valid_data']} 条有效数据（{payload['processed_label']}）"
             )
@@ -742,3 +790,4 @@ async def push_daily_jjc_ranking():
 
         except Exception as e:
             logger.warning("status_monitor 每日竞技排名推送任务出错: {}", e)
+            await notify_jjc_ranking_failure(bot, f"每日竞技排名推送任务出错：{e}")

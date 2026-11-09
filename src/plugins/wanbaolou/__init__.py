@@ -7,11 +7,7 @@ from nonebot.params import RegexGroup
 from nonebot.exception import FinishedException
 from nonebot.log import logger
 from nonebot.rule import Rule
-import json
-import os
 import time
-from pathlib import Path
-from typing import Dict, List, Any, Optional
 from nonebot.log import logger
 from nonebot.matcher import Matcher
 from jinja2 import Environment, FileSystemLoader, Template
@@ -23,6 +19,13 @@ from src.utils.random_text import suijitext
 from config import wanbaolou
 from src.utils.shared_data import SEARCH_RESULTS,user_sessions
 from .alias import setup_alias_refresh_job
+from src.storage.mongo_repos.wanbaolou_sub_repo import WanbaolouSubRepo
+
+from src.infra.mongo import get_db as _get_db
+
+
+def _repo() -> WanbaolouSubRepo:
+    return WanbaolouSubRepo(db=_get_db())
 
 
 # 导出主要功能函数，方便直接导入使用
@@ -112,42 +115,6 @@ NOTIFIED_USERS = set()  # 已通知的用户集合
 # 全局变量定义（放在代码顶部，其他全局变量旁边）
 # 全局变量定义（放在代码顶部，其他全局变量旁边）
 USER_LAST_QUERY = {}  # 用户ID -> 最近查询的外观信息
-
-# 订阅数据文件路径
-SUBSCRIPTION_FILE = "data/wanbaolou_subscriptions.json"
-# 订阅数据文件路径
-SUBSCRIPTION_FILE = "data/wanbaolou_subscriptions.json"
-
-# 确保目录存在
-def ensure_dir_exists():
-    dir_path = os.path.dirname(SUBSCRIPTION_FILE)
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-
-# 从文件加载订阅数据
-async def load_subscriptions() -> Dict[str, List[Dict[str, Any]]]:
-    """从JSON文件加载订阅数据"""
-    ensure_dir_exists()
-    try:
-        if os.path.exists(SUBSCRIPTION_FILE):
-            async with asyncio.Lock():
-                with open(SUBSCRIPTION_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-        return {}
-    except Exception as e:
-        logger.error(f"加载订阅数据失败: {e}")
-        return {}
-
-# 保存订阅数据到文件
-async def save_subscriptions(subscriptions: Dict[str, List[Dict[str, Any]]]):
-    """保存订阅数据到JSON文件"""
-    ensure_dir_exists()
-    try:
-        async with asyncio.Lock():
-            with open(SUBSCRIPTION_FILE, 'w', encoding='utf-8') as f:
-                json.dump(subscriptions, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"保存订阅数据失败: {e}")
 
 # 获取全局机器人实例
 _bot = None
@@ -575,102 +542,27 @@ async def search_appearances(bot: Bot, event: Event, keyword: str):
 # 添加价格订阅
 async def add_price_subscription(user_id: str, item_name: str, price_threshold: int,
                                  group_id: Optional[int] = None) -> bool:
-    """
-    添加价格订阅
-
-    Args:
-        user_id: 用户ID
-        item_name: 物品名称
-        price_threshold: 价格阈值
-        group_id: 群组ID（可选）
-
-    Returns:
-        bool: 是否成功添加订阅
-    """
-    try:
-        # 加载现有订阅
-        subscriptions = await load_subscriptions()
-
-        # 如果用户不存在，创建新的订阅列表
-        if user_id not in subscriptions:
-            subscriptions[user_id] = []
-
-        # 添加新的订阅
-        subscriptions[user_id].append({
-            "item_name": item_name,
-            "price_threshold": price_threshold,
-            "group_id": group_id,
-            "created_at": time.time()
-        })
-
-        # 保存到文件
-        await save_subscriptions(subscriptions)
-
-        logger.info(f"用户 {user_id} 订阅了 {item_name} 的价格提醒，阈值: {price_threshold}")
-        return True
-
-    except Exception as e:
-        logger.error(f"添加价格订阅失败: {e}")
-        return False
+    logger.info("用户 {} 订阅了 {} 的价格提醒，阈值: {}", user_id, item_name, price_threshold)
+    return await _repo().add(user_id, item_name, price_threshold, group_id)
 
 
 # 获取用户的所有订阅
 async def get_user_subscriptions(user_id: str) -> List[Dict[str, Any]]:
-    """
-    获取用户的所有订阅
-
-    Args:
-        user_id: 用户ID
-
-    Returns:
-        List[Dict]: 订阅列表
-    """
-    subscriptions = await load_subscriptions()
-    return subscriptions.get(user_id, [])
+    return await _repo().find_by_user(user_id)
 
 
 # 删除订阅
 async def remove_subscription(user_id: str, index: int) -> Optional[Dict[str, Any]]:
-    """
-    删除指定的订阅
-
-    Args:
-        user_id: 用户ID
-        index: 订阅索引（从1开始）
-
-    Returns:
-        Dict 或 None: 被删除的订阅信息，如果失败则返回None
-    """
-    try:
-        # 加载现有订阅
-        subscriptions = await load_subscriptions()
-
-        # 检查用户是否有订阅
-        if user_id not in subscriptions or not subscriptions[user_id]:
-            return None
-
-        user_subs = subscriptions[user_id]
-
-        # 检查索引是否有效
-        if index < 1 or index > len(user_subs):
-            return None
-
-        # 删除订阅
-        removed = user_subs.pop(index - 1)
-
-        # 如果用户没有订阅了，删除用户条目
-        if not user_subs:
-            del subscriptions[user_id]
-
-        # 保存到文件
-        await save_subscriptions(subscriptions)
-
-        logger.info(f"用户 {user_id} 删除了对 {removed['item_name']} 的价格订阅")
-        return removed
-
-    except Exception as e:
-        logger.error(f"删除订阅失败: {e}")
+    subs = await _repo().find_by_user(user_id)
+    if not subs or index < 1 or index > len(subs):
         return None
+    removed = subs[index - 1]
+    item_name = removed["item_name"]
+    success = await _repo().remove(user_id, item_name)
+    if success:
+        logger.info("用户 {} 删除了对 {} 的价格订阅", user_id, item_name)
+        return removed
+    return None
 
 
 # 获取所有订阅
@@ -680,42 +572,38 @@ suoyou_config_cmd = on_command("所有订阅", priority=5)
 @suoyou_config_cmd.handle()
 async def get_all_subscriptions(bot: Bot, event: Event):
     """显示所有用户的所有订阅"""
-    # 加载所有订阅数据
-    all_subscriptions = await load_subscriptions()
+    all_subs = await _repo().all()
 
-    # 格式化输出
-    if not all_subscriptions:
+    if not all_subs:
         await suoyou_config_cmd.finish("当前没有任何用户订阅")
         return
 
-    # 构建消息
+    # 按 user_id 分组
+    grouped: dict[str, list[dict]] = {}
+    for sub in all_subs:
+        uid = sub.get("user_id", "未知")
+        if uid not in grouped:
+            grouped[uid] = []
+        grouped[uid].append(sub)
+
     message = "所有用户订阅信息：\n"
-    total_subs = 0
+    total_subs = len(all_subs)
 
-    for user_id, subscriptions in all_subscriptions.items():
-        if not subscriptions:
-            continue
-
+    for user_id, subscriptions in grouped.items():
         user_info = f"用户 {user_id} 的订阅({len(subscriptions)}个):\n"
-
         for sub in subscriptions:
             item_name = sub.get("item_name", "未知物品")
             price = sub.get("price_threshold", 0)
             user_info += f"  - {item_name}: {price}元\n"
-
         message += user_info + "\n"
-        total_subs += len(subscriptions)
 
-    message += f"\n共有 {len(all_subscriptions)} 个用户，{total_subs} 个订阅"
+    message += f"\n共有 {len(grouped)} 个用户，{total_subs} 个订阅"
 
-    # 如果消息太长，可能需要分段发送或生成图片
     if len(message) > 1000:
-        # 生成图片发送
         html_content = f"<pre>{message}</pre>"
         image_bytes = await jietu(html_content, 600, "ck")
         await suoyou_config_cmd.finish(MessageSegment.image(image_bytes))
     else:
-        # 直接发送文本
         await suoyou_config_cmd.finish(message)
 
 
@@ -905,38 +793,14 @@ async def handle_cancel_subscription(bot: Bot, event: Event, matcher: Matcher,
     try:
         index = int(index_str)
 
-        # 删除订阅并获取删除的订阅信息，但不立即保存
-        subscriptions = await get_user_subscriptions(user_id)
-
-        if not subscriptions or index <= 0 or index > len(subscriptions):
+        removed = await remove_subscription(user_id, index)
+        if removed is None:
             await matcher.finish(MessageSegment.at(event.user_id) + Message("\n未找到指定的订阅或序号无效"))
             return
 
-        # 获取要删除的订阅信息
-        removed = subscriptions[index - 1]
         item_name = removed["item_name"]
+        remaining = len(await get_user_subscriptions(user_id))
 
-        # 删除指定订阅
-        subscriptions.pop(index - 1)
-
-        # 获取所有订阅数据
-        all_subscriptions = await load_subscriptions()
-
-        # 更新用户的订阅
-        if subscriptions:
-            all_subscriptions[user_id] = subscriptions
-        else:
-            # 如果用户没有订阅了，删除用户条目
-            if user_id in all_subscriptions:
-                del all_subscriptions[user_id]
-
-        # 保存更新后的数据
-        await save_subscriptions(all_subscriptions)
-
-        # 获取剩余订阅数量
-        remaining = len(subscriptions)
-
-        # 发送成功消息，包含剩余订阅数量
         if remaining > 0:
             await matcher.finish(MessageSegment.at(event.user_id) + Message(
                 f"\n已取消对【{item_name}】的价格订阅，剩余 {remaining} 个订阅"))
@@ -959,83 +823,56 @@ async def check_price_alerts():
     if not _bot:
         return
 
-    # 加载所有订阅 - 使用load_subscriptions而不是get_all_subscriptions
-    all_subscriptions = await load_subscriptions()
+    all_subs = await _repo().all()
 
-    if not all_subscriptions:
+    if not all_subs:
         logger.info("没有有效的价格订阅")
         return
 
-    logger.info(f"开始检查价格提醒 ({len(all_subscriptions)} 个用户)")
-    subscriptions_changed = False
+    logger.info("开始检查价格提醒 ({} 个订阅)", len(all_subs))
 
-    for user_id, alerts in list(all_subscriptions.items()):
-        removed_alerts = []
+    for sub in all_subs:
+        try:
+            item_name = sub["item_name"]
+            threshold = sub["price_threshold"]
+            user_id = sub["user_id"]
 
-        for i, alert in enumerate(alerts):
-            try:
-                item_name = alert["item_name"]
-                threshold = alert["price_threshold"]
+            sale_items = await api.get_item_list(
+                item_name=item_name,
+                sort_type=1,
+                status_filter=2,
+                page=1,
+                page_size=1
+            )
 
-                # 查询物品当前价格
-                sale_items = await api.get_item_list(
-                    item_name=item_name,
-                    sort_type=1,  # 价格从低到高
-                    status_filter=2,  # 在售状态
-                    page=1,
-                    page_size=1  # 只需要最低价
-                )
+            if sale_items and sale_items.get('parsed_items') and len(sale_items['parsed_items']) > 0:
+                lowest_price = sale_items['parsed_items'][0]['price']
 
-                # 检查是否有在售物品
-                if sale_items and sale_items.get('parsed_items') and len(sale_items['parsed_items']) > 0:
-                    lowest_price = sale_items['parsed_items'][0]['price']
+                if lowest_price <= threshold:
+                    message = (
+                        f"\n价格提醒：【{item_name}】\n"
+                        f"当前最低价: {lowest_price} 元\n"
+                        f"您设置的阈值: {threshold} 元\n"
+                        f"请及时查看，此条订阅已完成！"
+                    )
 
-                    # 检查价格是否低于阈值
-                    if lowest_price <= threshold:
-                        # 发送通知
-                        message = (
-                            f"\n价格提醒：【{item_name}】\n"
-                            f"当前最低价: {lowest_price} 元\n"
-                            f"您设置的阈值: {threshold} 元\n"
-                            f"请及时查看，此条订阅已完成！"
+                    if sub.get("group_id"):
+                        await _bot.send_group_msg(
+                            group_id=int(sub["group_id"]),
+                            message=f"[CQ:at,qq={user_id}] {message}"
+                        )
+                    else:
+                        await _bot.send_private_msg(
+                            user_id=int(user_id),
+                            message=message
                         )
 
-                        # 根据接收方式发送
-                        if alert.get("group_id"):
-                            await _bot.send_group_msg(
-                                group_id=alert["group_id"],
-                                message=f"[CQ:at,qq={user_id}] {message}"
-                            )
-                        else:
-                            await _bot.send_private_msg(
-                                user_id=int(user_id),
-                                message=message
-                            )
+                    await _repo().remove(user_id, item_name)
+                    logger.info("已通知用户 {} 关于 {} 的价格提醒 ({} <= {})，该提醒已删除",
+                                user_id, item_name, lowest_price, threshold)
 
-                        # 标记此提醒为已处理，需要删除
-                        removed_alerts.append(i)
-                        subscriptions_changed = True
-
-                        logger.info(
-                            f"已通知用户 {user_id} 关于 {item_name} 的价格提醒 ({lowest_price} <= {threshold})，该提醒将被删除")
-
-            except Exception as e:
-                logger.error(f"检查价格提醒时出错: {str(e)}")
-
-        # 删除已处理的提醒
-        if removed_alerts:
-            # 从后往前删除，避免索引变化问题
-            for idx in sorted(removed_alerts, reverse=True):
-                alerts.pop(idx)
-
-            # 如果用户没有订阅了，删除用户条目
-            if not alerts:
-                del all_subscriptions[user_id]
-
-    # 如果有变更，保存更新后的订阅数据
-    if subscriptions_changed:
-        await save_subscriptions(all_subscriptions)
-        logger.info("已更新订阅数据，删除已通知的提醒")
+        except Exception as e:
+            logger.error(f"检查价格提醒时出错: {str(e)}")
 
     logger.info("价格提醒检查完成")
 

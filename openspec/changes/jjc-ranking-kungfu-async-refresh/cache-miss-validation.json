@@ -1,0 +1,186 @@
+{
+  "date": "2026-11-06",
+  "python313": {
+    "python": "Python 3.13.2",
+    "results": [
+      {
+        "group": "main",
+        "tests": 428,
+        "seconds": 10.416,
+        "exit_code": 0,
+        "log": "/tmp/jjc-kungfu-Python-3.13.2-main.log",
+        "skipped": false
+      },
+      {
+        "group": "router",
+        "tests": 22,
+        "seconds": 0.124,
+        "exit_code": 0,
+        "log": "/tmp/jjc-kungfu-Python-3.13.2-router.log",
+        "skipped": false
+      }
+    ],
+    "total": 450
+  },
+  "python39": {
+    "python": "Python 3.9.25",
+    "results": [
+      {
+        "group": "main",
+        "tests": 428,
+        "seconds": 10.475,
+        "exit_code": 0,
+        "log": "/tmp/jjc-kungfu-Python-3.9.25-main.log",
+        "skipped": false
+      },
+      {
+        "group": "router",
+        "tests": 22,
+        "seconds": 0.139,
+        "exit_code": 0,
+        "log": "/tmp/jjc-kungfu-Python-3.9.25-router.log",
+        "skipped": false
+      }
+    ],
+    "total": 450
+  },
+  "independent_reviews": {
+    "ranking_client": {
+      "python39_tests": 63,
+      "status": "passed"
+    },
+    "service_queue": {
+      "python39_tests": 104,
+      "python313_tests": 104,
+      "status": "passed"
+    }
+  },
+  "production": {
+    "release_directory": "/mnt/sata6-1/jx3bot-releases/kungfu-direct-20261106-93e9371",
+    "deployment": {
+      "stage": "deployed",
+      "time": 1793971427.5064783,
+      "commit": "93e9371",
+      "files": 5,
+      "all_hashes_match": true,
+      "runtime_config_unchanged": true,
+      "started_at": "2026-11-06T13:23:47.469679282Z",
+      "rollback_ready": true
+    },
+    "candidate_tests": {
+      "stage": "candidate",
+      "files": 5,
+      "exit_code": 0,
+      "tests": 107,
+      "seconds": 1.196,
+      "skipped": false
+    },
+    "readiness": {
+      "stage": "readiness",
+      "time": 1793971479.7234645,
+      "started_at": "2026-11-06T13:23:47.469679282Z",
+      "running": true,
+      "restart_count": 0,
+      "startup_complete": true,
+      "mongo_health": true,
+      "tracebacks": 0,
+      "plugin_failures": 0,
+      "kungfu_start_failures": 0,
+      "kungfu_consumer_exits": 0,
+      "qq_connected": false
+    },
+    "smoke": {
+      "stage": "controlled-expiry-direct-query-smoke",
+      "test_policy_max_stale_seconds": 60,
+      "production_config_changed": false,
+      "time": 1793971709.3476794,
+      "flags": {
+        "cache": 1,
+        "refresh": 1
+      },
+      "board_size": 1000,
+      "available_before": 0,
+      "cold_candidates": 894,
+      "attempts": [
+        {
+          "rank_in_source": 1,
+          "first_error": false,
+          "first_upstream_calls": 1,
+          "first_coverage": 1.0,
+          "stored_success": true,
+          "second_error": false,
+          "second_upstream_calls": 0,
+          "second_coverage": 1.0,
+          "elapsed_seconds": 8.042
+        }
+      ],
+      "passed": true
+    },
+    "negative_smoke": {
+      "stage": "direct-query-smoke",
+      "time": 1793971511.1546595,
+      "flags": {
+        "cache": 1,
+        "refresh": 1
+      },
+      "board_size": 1000,
+      "available_before": 894,
+      "cold_candidates": 23,
+      "attempts": [
+        {
+          "rank_in_source": 46,
+          "first_error": false,
+          "first_upstream_calls": 1,
+          "first_coverage": 0.0,
+          "stored_success": false,
+          "second_error": false,
+          "second_upstream_calls": 1,
+          "second_coverage": 0.0,
+          "elapsed_seconds": 6.388
+        },
+        {
+          "rank_in_source": 88,
+          "first_error": false,
+          "first_upstream_calls": 1,
+          "first_coverage": 0.0,
+          "stored_success": false,
+          "second_error": false,
+          "second_upstream_calls": 1,
+          "second_coverage": 0.0,
+          "elapsed_seconds": 5.514
+        },
+        {
+          "rank_in_source": 89,
+          "first_error": false,
+          "first_upstream_calls": 1,
+          "first_coverage": 0.0,
+          "stored_success": false,
+          "second_error": false,
+          "second_upstream_calls": 1,
+          "second_coverage": 0.0,
+          "elapsed_seconds": 6.014
+        }
+      ],
+      "passed": false
+    },
+    "health": {
+      "time": 1793971792.8471086,
+      "source_hashes_match": true,
+      "backup_hashes_match": true,
+      "flags": {
+        "JJC_RANKING_KUNGFU_CACHE_ENABLED": 1,
+        "JJC_KUNGFU_REFRESH_ENABLED": 1
+      },
+      "sync": {
+        "status_code": 0,
+        "paused": false,
+        "worker_running": true,
+        "background_running": true
+      },
+      "restart_count": 0,
+      "qq_connected": true,
+      "tracebacks": 0,
+      "consumer_exits": 0
+    }
+  }
+}
