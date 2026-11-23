@@ -4,8 +4,6 @@
 
 ## Active
 
-- `active/arena-recent-response-plan.md`: QQ战绩新响应兼容修复、契约测试与精确发布。
-
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Active OpenSpec
@@ -15,6 +13,8 @@
 - `../../openspec/changes/jjc-role-identity-recovery/tasks.md`: 角色查询 ID 最小修复的 TDD 操作计划；用户已批准，子agent开发/独立review闭环中，发布与线上验收待门禁通过。唯一计划位于 change，不在 active 下另建副本。
 
 ## Completed
+
+- `completed/arena-recent-response-plan.md`: QQ战绩status/detail及token请求头适配；24项双版本测试、真实查询/图片验证与生产部署完成。
 
 - `../../openspec/changes/archive/2026-11-07-jjc-ranking-force-sync-front/tasks.md`: 每轮排名统计成员从队首重新同步；TDD、三路独立review与定向复评通过，e1ee55e已推送并发布，生产候选382项、QQ/API/索引及4worker验收通过。
 

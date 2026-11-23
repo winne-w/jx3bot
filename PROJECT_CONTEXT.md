@@ -201,4 +201,6 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 
 ### QQ 战绩 JX3API 新响应兼容（2026-11-23）
 
-`src/infra/jx3api_compat.py` 将 `/arena/recent` 的整数 `status=200` / 对象 `detail` 适配为旧命令 `code/msg/data`，业务错误使用字符串 `detail`，畸形响应失败；其他端点与旧响应保持原语义。该端点访问令牌放 `token` 请求头，server/name/ticket 仍为查询参数。官方契约 https://www.jx3api.com/#/arena/recent ，HTTP200不等于业务成功。验证：`python -m unittest tests.test_jx3api_compat tests.test_arena_recent_response`。发布及验收见 `docs/exec-plans/active/arena-recent-response-plan.md`。
+`src/infra/jx3api_compat.py` 将 `/arena/recent` 的整数 `status=200` / 对象 `detail` 适配为旧命令 `code/msg/data`，业务错误使用字符串 `detail`，畸形响应失败；其他端点与旧响应保持原语义。该端点访问令牌放 `token` 请求头，server/name/ticket 仍为查询参数。官方契约 https://www.jx3api.com/#/arena/recent ，HTTP200不等于业务成功。验证：`python -m unittest tests.test_jx3api_compat tests.test_arena_recent_response`。发布及验收见 `docs/exec-plans/completed/arena-recent-response-plan.md`。
+
+2026-11-23 20:55:39+08已部署37548e1三文件补丁，双Python各24测试及真实目标查询/图片验证通过；HTTP、QQ及4个同步worker正常。
