@@ -8,8 +8,8 @@
 - [x] 子agent测试先行及全调用点独立审计
 - [x] root统一infra适配/请求参数和旧consumer边界，子agent实现装备与在线用例
 - [x] 集成回归、双版本真实依赖、图片验证及独立review
-- [ ] commit/push并校验远端SHA
-- [ ] 原生产组合备份、逐文件补丁、同容器重启及有限真实只读验收
+- [x] commit/push并校验远端SHA，运行补丁88d779b
+- [x] 原生产组合备份、18文件逐文件补丁、同容器重启及有限真实只读验收
 
 ## Surprises & Discoveries
 13个既有JX3API端点均使用status/detail；旧资历路径移除。装备/calcd/attribute返回13件装备、列表面板和equipScore；在线返回列表，字段onlineStatus/gameLogin与appLogin独立。该目标资历返回魔盒绑定404，为真实业务限制。
@@ -36,3 +36,12 @@
 
 
 最终v4候选15端点真实有限GET/在线只读POST均验证完成；14端点业务成功，资历目标因魔盒未绑定404且提示正确。科举以李白命中成功；首次剑网3关键词未匹配返回400，保留业务失败证据。真实发现fraud URL uid被后加params覆盖，修复parse_qsl合并后返回正常记录并补回归，未误把必填错误当作空记录。装备13件/面板24项，PNG2238×5196、742679字节，SHA256 94f68f363dd8088520071a53c64171111b62abd118c0d2d683cf38fff1933db8，已人工查看完整无截断。在线目标明确游戏离线，独立appLogin=true不影响结论。
+
+
+## Production Result
+
+2026-11-23 21:24:55+08同容器重新启动，21:25:46启动完成，21:25:54 QQ连接，21:26:34最终运行守卫通过。生产为原完整组合叠加88d779b三新/十五修改文件补丁，不表示全仓运行状态等同该Git提交。18源文件hash均与私有manifest一致，配置仅允许API_URLS装备/在线/资历及REGEX装备/在线变化，AST证明其余配置未改；runtime_config/.env/compose/start脚本哈希未改，同容器同镜像restart_count=0，4个重启后fresh full worker在线，HTTP status_code0。
+
+部署后4关键端点（战绩、装备、骗子、在线）真实验收全部成功，装备13/面板24，图片与候选哈希一致，游戏离线状态正确。补充真实旧consumer验收：烟花23条与奇遇76条的模板HTML渲染通过、百战156技能可解析、名片有效头像元数据、更新命令可匹配最新版本公告。未发QQ群测试消息，未主动触发调度或推送。
+
+服务端私有目录/root/jx3bot-releases/jx3api-current-contract-20261123保存完整候选、backup、before/deployment/verification-summary、补丁和脚本。回滚仅在当前源仍等于本次候选哈希时停容器恢复15个原文件、条件删除3个新增文件，再启动并做同样守卫；未知漂移不覆盖，配置备份含真实值只保留私有目录。没有改写业务Mongo事实、队列或水位。
