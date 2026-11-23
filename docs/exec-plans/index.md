@@ -4,8 +4,6 @@
 
 ## Active
 
-- `active/equipment-icon-display-plan.md`: 装备与镶嵌物魔盒图标、缓存嵌入及文字回退。
-
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Active OpenSpec
@@ -15,6 +13,8 @@
 - `../../openspec/changes/jjc-role-identity-recovery/tasks.md`: 角色查询 ID 最小修复的 TDD 操作计划；用户已批准，子agent开发/独立review闭环中，发布与线上验收待门禁通过。唯一计划位于 change，不在 active 下另建副本。
 
 ## Completed
+
+- `completed/equipment-icon-display-plan.md`: 魔盒装备/镶嵌物图标及等级、缓存和文字回退，b8d0378+7c831f3已部署；双版本110测试和真实图验证通过。
 
 - `../../openspec/changes/archive/2026-11-23-jx3api-current-contract-and-role-queries/tasks.md`: 13接口迁移及装备/在线两能力，88d779b已部署；113本地/108生产依赖测试及真实接口/图片验收通过。
 
