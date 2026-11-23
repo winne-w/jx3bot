@@ -197,3 +197,8 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 主/兼容队列增加四个调度字段与 idx_status_ranking_front；最新排名批次、原始名次优先于普通 priority/FIFO，列表/位置/领取一致。同步仍从最新页查最近14天并按当前赛季截断、复用已有详情。实现记录：openspec/changes/archive/2026-11-07-jjc-ranking-force-sync-front；2026-11-07 已按用户授权提交并发布；生产候选382项通过，QQ/API/双队列索引及4个内部worker验收通过；单角色冷却重新插队由真实worker完成。详见该change的deployment.md。需统一更新 bot/独立 worker，停旧消费者后升级；不能混用新生产者与旧 worker。回滚先物化 pending 为普通 queued，详见 runbook。
 
 验证：`.venv/bin/python -m unittest tests.test_jjc_ranking_force_sync tests.test_jjc_sync_worker_queue tests.test_jjc_match_data_sync tests.test_jjc_ranking_stats_repo tests.test_jjc_ranking_command_tag`。真实 Mongo：`JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/ .venv/bin/python -m unittest tests.test_jjc_ranking_force_sync_mongo`，仅允许该显式本地隔离端口与随机测试库。
+
+
+### QQ 战绩 JX3API 新响应兼容（2026-11-23）
+
+`src/infra/jx3api_compat.py` 将 `/arena/recent` 的整数 `status=200` / 对象 `detail` 适配为旧命令 `code/msg/data`，业务错误使用字符串 `detail`，畸形响应失败；其他端点与旧响应保持原语义。该端点访问令牌放 `token` 请求头，server/name/ticket 仍为查询参数。官方契约 https://www.jx3api.com/#/arena/recent ，HTTP200不等于业务成功。验证：`python -m unittest tests.test_jx3api_compat tests.test_arena_recent_response`。发布及验收见 `docs/exec-plans/active/arena-recent-response-plan.md`。

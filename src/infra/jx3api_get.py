@@ -4,6 +4,7 @@ import json
 import os
 import time
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from cacheout import Cache
 
@@ -106,12 +107,16 @@ async def get(
         )
 
     params: dict[str, str] = {}
+    headers: dict[str, str] = {}
     if server:
         params["server"] = server
     if name:
         params["name"] = name
     if token:
-        params["token"] = token
+        if urlsplit(url).path.rstrip("/") == "/arena/recent":
+            headers["token"] = token
+        else:
+            params["token"] = token
     if ticket:
         params["ticket"] = ticket
     if zili:
@@ -124,7 +129,8 @@ async def get(
         return cache_data
 
     http_client = HttpClient(timeout=30.0, retries=2, backoff_seconds=0.5, verify=False)
-    data = await http_client.arequest_json("GET", url, params=params, verify=False)
+    request_options = {"headers": headers} if headers else {}
+    data = await http_client.arequest_json("GET", url, params=params, verify=False, **request_options)
     data = normalize_jx3api_response(url, data)
     if isinstance(data, dict) and not data.get("error"):
         _cache.set(cache_key, data)

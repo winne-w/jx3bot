@@ -13,6 +13,22 @@ def normalize_jx3api_response(url: str, response: dict[str, Any]) -> dict[str, A
 
     normalized = copy.deepcopy(response)
     path = urlsplit(url).path.rstrip("/")
+    if path == "/arena/recent" and "status" in normalized and not normalized.get("error"):
+        status = normalized.get("status")
+        detail = normalized.get("detail")
+        # HTTP is always 200; the documented body status determines success.
+        if type(status) is int and status == 200 and isinstance(detail, dict):
+            normalized.update(code=200, msg="success", data=detail)
+        elif type(status) is int and status != 200 and isinstance(detail, str):
+            normalized.update(
+                code=status,
+                msg=detail if detail and detail != "success" else "战绩查询失败（状态码{}）".format(status),
+                error="upstream_error",
+            )
+        else:
+            normalized.update(code=502, msg="战绩接口响应格式异常", error="invalid_response")
+        return normalized
+
     data = normalized.get("data")
 
     if path == "/firework/records" and isinstance(data, list):

@@ -135,7 +135,7 @@ def build_jjc_spec_or_text(
 ) -> tuple[RenderSpec | None, str | None]:
     payload = data["data"]
     performance = payload.get("performance", {})
-    if (
+    if not payload or (
         performance.get("2v2") == []
         and performance.get("3v3") == []
         and performance.get("5v5") == []

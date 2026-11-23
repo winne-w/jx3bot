@@ -4,6 +4,8 @@
 
 ## Active
 
+- `active/arena-recent-response-plan.md`: QQ战绩新响应兼容修复、契约测试与精确发布。
+
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Active OpenSpec
