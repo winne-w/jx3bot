@@ -4,6 +4,8 @@
 
 ## Active
 
+- `active/equipment-icon-display-plan.md`: 装备与镶嵌物魔盒图标、缓存嵌入及文字回退。
+
 - `active/refactor-plan.md`: 当前主线重构、遗留问题和优先级
 
 ## Active OpenSpec

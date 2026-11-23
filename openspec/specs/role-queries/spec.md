@@ -12,3 +12,9 @@ The bot SHALL support 在线/在线状态/角色在线 via a fresh POST JSON req
 #### Scenario: Ambiguous response
 - WHEN no unique same-server role or no explicit boolean game status is available
 - THEN the bot reports unknown instead of offline
+
+### Requirement: Equipment item icons
+Equipment screenshots SHALL display available JX3BOX item icons and short stone level labels, preserving all equipment and attributes.
+#### Scenario: Missing or unavailable icon
+- WHEN an icon ID is missing or the bounded image fetch fails validation
+- THEN its original name remains visible and the equipment query still renders

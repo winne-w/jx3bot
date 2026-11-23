@@ -211,3 +211,8 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 共享compat覆盖项目现用13端点及装备/在线两端点的status/detail契约；token走请求头，ticket仅在文档要求的请求发送。资历迁/role/achievement；新闻id/时间、奇遇nullable时间、单服开服列表及业务失败提示同步修正。装备/属性/装分命令使用/calcd/attribute，展示全部已收录装备、面板和采集时间；在线/在线状态/角色在线通过POST /role/online/status即时读取，严格身份匹配与布尔游戏状态，推栏登录不算游戏在线，异常/缺失为未知。相关服务在role_queries.py，POST适配在infra/jx3api_online.py。需求、覆盖表、测试、发布状态以openspec/changes/archive/2026-11-23-jx3api-current-contract-and-role-queries为准。
 
 2026-11-23 21:24:55+08已按原生产组合叠加88d779b的18文件补丁，21:26:34+08真实装备/在线及HTTP/QQ/4worker验收通过；资历样本受魔盒未绑定限制，旧通知2项基线断言不计本次通过。
+
+
+### 装备物品图标
+
+装备与镶嵌物使用上游iconId对应的魔盒PNG；service保留名称并附加图标模型，装备渲染专用helper将有界预取结果内嵌，避免浏览器外链加载依赖。infra限制固定源、安全ID、4并发、3秒预取、32KiB/256像素及PNG块CRC，正缓存LRU256/24h；失败回退原名称，五行石显示短等级。通用截图及其他模板不改；实现与部署见docs/exec-plans/active/equipment-icon-display-plan.md。

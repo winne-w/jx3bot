@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -22,6 +23,27 @@ def _collected_at(value: Any) -> str:
         return "未提供"
 
 
+def _icon_url(value: Any) -> str:
+    if type(value) is int:
+        icon_id = value
+    elif isinstance(value, str) and 0 < len(value) <= 8 and value.isascii() and value.isdigit():
+        icon_id = int(value)
+    else:
+        return ""
+    if not 1 <= icon_id <= 99999999:
+        return ""
+    return "https://icon.jx3box.com/icon/{}.png".format(icon_id)
+
+
+def _icon_model(value: dict[str, Any], name: str) -> dict[str, str]:
+    return {"name": name, "url": _icon_url(value.get("iconId"))}
+
+
+def _stone_label(name: str) -> str:
+    match = re.search(r"[（(]([一二三四五六七八九十壹贰叁肆伍陆柒捌玖拾0-9]{1,4}级)[）)]", name)
+    return match.group(1) if match else "五行石"
+
+
 def build_equipment_spec_or_text(
     *, data: dict[str, Any], server: str, role_name: str, random_text: str,
 ) -> tuple[Optional[RenderSpec], Optional[str]]:
@@ -40,13 +62,29 @@ def build_equipment_spec_or_text(
         attributes = row.get("itemAttrib")
         stones = row.get("mountDiamond")
         color_stone = row.get("colorDiamond")
+        name = str(row.get("itemName") or row.get("name") or "未命名装备")
         enchants = []
+        enchant_icons = []
         for key in ("minEnchant", "maxEnchant"):
             enchant = row.get(key)
             if isinstance(enchant, dict) and (enchant.get("itemName") or enchant.get("name")):
-                enchants.append(str(enchant.get("itemName") or enchant.get("name")))
+                enchant_name = str(enchant.get("itemName") or enchant.get("name"))
+                enchants.append(enchant_name)
+                enchant_icons.append(_icon_model(enchant, enchant_name))
+        stone_icons = []
+        for stone in stones if isinstance(stones, list) else []:
+            if isinstance(stone, dict):
+                stone_name = str(stone.get("itemName") or stone.get("name") or "未命名五行石")
+                stone_icon = _icon_model(stone, stone_name)
+                stone_icon["label"] = _stone_label(stone_name)
+                stone_icons.append(stone_icon)
+        color_stone_name = (
+            str(color_stone.get("itemName") or color_stone.get("name") or "")
+            if isinstance(color_stone, dict) else ""
+        )
         equipment.append({
-            "name": str(row.get("itemName") or row.get("name") or "未命名装备"),
+            "name": name,
+            "icon": _icon_model(row, name),
             "level": row.get("itemLevel", row.get("quality", "—")),
             "type": str(row.get("itemType") or row.get("itemKind") or ""),
             "source": str(row.get("itemSource") or row.get("source") or ""),
@@ -57,9 +95,11 @@ def build_equipment_spec_or_text(
                            for value in attributes if isinstance(value, dict)] if isinstance(attributes, list) else [],
             "stones": [str(value.get("itemName") or value.get("name") or "未命名五行石")
                        for value in stones if isinstance(value, dict)] if isinstance(stones, list) else [],
-            "color_stone": str(color_stone.get("itemName") or color_stone.get("name") or "")
-                           if isinstance(color_stone, dict) else "",
+            "color_stone": color_stone_name,
             "enchants": enchants,
+            "stone_icons": stone_icons,
+            "color_stone_icon": _icon_model(color_stone, color_stone_name) if color_stone_name else None,
+            "enchant_icons": enchant_icons,
         })
     panel = [{"name": str(row.get("name") or "属性"), "value": row.get("value", "—")}
              for row in raw_panel if isinstance(row, dict)] if isinstance(raw_panel, list) else []

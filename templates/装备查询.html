@@ -22,6 +22,18 @@
             vertical-align: top; }
         th { color: #607789; font-weight: normal; }
         .item { font-weight: bold; }
+        .item-heading { display: flex; align-items: center; gap: 10px; }
+        .equipment-icon { display: block; width: 40px; height: 40px; border-radius: 6px;
+            flex: 0 0 40px; }
+        .icon-details { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+        .stone-icon { position: relative; display: inline-flex; align-items: center;
+            justify-content: center; width: 36px; height: 38px; }
+        .stone-icon img, .detail-icon { display: block; width: 32px; height: 32px;
+            border-radius: 4px; }
+        .stone-grade { position: absolute; right: -3px; bottom: -3px; padding: 0 3px;
+            border-radius: 4px; background: #3c5368; color: white; font-size: 10px;
+            line-height: 15px; white-space: nowrap; }
+        .named-icon { display: inline-flex; align-items: center; gap: 5px; }
         .source, .details { color: #8193a1; font-size: 13px; margin-top: 5px;
             overflow-wrap: anywhere; line-height: 1.7; }
         .notice { color: #607789; font-size: 14px; line-height: 1.7; }
@@ -58,16 +70,46 @@
                 {% for row in equipment %}
                 <tr>
                     <td>
-                        <div class="item">{{ row.name }}</div>
+                        <div class="item-heading">
+                            {% if row.icon and row.icon.image_src %}
+                            <img class="equipment-icon" src="{{ row.icon.image_src }}" alt="{{ row.icon.name }}" title="{{ row.icon.name }}">
+                            {% endif %}
+                            <div class="item">{{ row.name }}</div>
+                        </div>
                         {% if row.source %}<div class="source">{{ row.source }}</div>{% endif %}
                         {% if row.attributes %}
                         <div class="details">条目属性：
                             {% for attr in row.attributes %}{{ attr.name }} {{ attr.value }}{% if not loop.last %} · {% endif %}{% endfor %}
                         </div>
                         {% endif %}
-                        {% if row.stones %}<div class="details">五行石：{{ row.stones|join('、') }}</div>{% endif %}
-                        {% if row.color_stone %}<div class="details">五彩石：{{ row.color_stone }}</div>{% endif %}
-                        {% if row.enchants %}<div class="details">附魔：{{ row.enchants|join('、') }}</div>{% endif %}
+                        {% if row.stone_icons %}
+                        <div class="details icon-details"><span>五行石：</span>
+                            {% for stone in row.stone_icons %}
+                            {% if stone.image_src %}
+                            <span class="stone-icon" title="{{ stone.name }}">
+                                <img src="{{ stone.image_src }}" alt="{{ stone.name }}">
+                                <span class="stone-grade">{{ stone.label }}</span>
+                            </span>
+                            {% else %}<span>{{ stone.name }}</span>{% endif %}
+                            {% endfor %}
+                        </div>
+                        {% elif row.stones %}<div class="details">五行石：{{ row.stones|join('、') }}</div>{% endif %}
+                        {% if row.color_stone_icon %}
+                        <div class="details icon-details"><span>五彩石：</span>
+                            {% if row.color_stone_icon.image_src %}
+                            <img class="detail-icon" src="{{ row.color_stone_icon.image_src }}" alt="{{ row.color_stone_icon.name }}" title="{{ row.color_stone_icon.name }}">
+                            {% else %}<span>{{ row.color_stone_icon.name }}</span>{% endif %}
+                        </div>
+                        {% elif row.color_stone %}<div class="details">五彩石：{{ row.color_stone }}</div>{% endif %}
+                        {% if row.enchant_icons %}
+                        <div class="details icon-details"><span>附魔：</span>
+                            {% for enchant in row.enchant_icons %}
+                            {% if enchant.image_src %}
+                            <span class="named-icon" title="{{ enchant.name }}"><img class="detail-icon" src="{{ enchant.image_src }}" alt="{{ enchant.name }}"></span>
+                            {% else %}<span>{{ enchant.name }}</span>{% endif %}
+                            {% endfor %}
+                        </div>
+                        {% elif row.enchants %}<div class="details">附魔：{{ row.enchants|join('、') }}</div>{% endif %}
                     </td>
                     <td>{{ row.type }}</td><td>{{ row.level }}</td>
                     <td>{{ row.strength }} / {{ row.max_strength }}</td>
