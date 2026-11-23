@@ -430,3 +430,8 @@ curl -X POST "https://qike.rickchen.cn/jx3bot/api/jjc/ranking-stats/synced-role-
 回滚准备须在停止所有相关进程后执行：逐条读取队列，有 ranking_pending 的记录将其待执行窗口/赛季/source/batch 等字段合并到当前记录，置 queued，清 next_sync_after 和租约；将 queue_front_order、queue_front_rank、ranking_pending 统一清为 null，保留 ranking_request_order、比赛、水位及失败审计。先核对 pending 数与转换成功数一致、剩余 pending 为零，再切回旧版本恢复进程。没有 pending 的运行中任务沿用既有租约过期恢复。保留新增索引，不删除身份、队列、对局或旧索引。该转换已在隔离真实Mongo两队列演练通过，未执行生产回滚。
 
 本次私有发布目录为 `/mnt/sata6-1/jx3bot-releases/ranking-front-20261107-e1ee55ef4405/`。回滚须停止全部bot、独立worker、dispatcher、统计生产者和其他队列写者；临时容器只执行转换器，使用核对过的同镜像、网络、原环境及只读原配置，工作目录/PYTHONPATH为/app，核对目标Mongo配置指纹。preimage使用canonical Extended JSON逐条flush/fsync，写入宿主持久化可写挂载，限制权限并使用唯一新文件名。disabled不复活，保留较高人工priority。两队列pending/front残留为零、转换数与备份条数一致、退出码为0后才恢复旧allowlist源码并启动；异常/CAS失配保持停止，保留部分备份，重试换新文件名。脚本、日志、转换计数和哈希保留；就绪/API/QQ/worker检查后，仅撤销本次暂停，保留期间其他原因的暂停。详见归档change的deployment.md。
+
+
+### 新版JX3API角色查询回归
+
+离线运行 `python -m unittest tests.test_jx3api_compat tests.test_arena_recent_response tests.test_jx3api_current_contract tests.test_jx3api_consumers tests.test_role_queries`，禁止单测外呼生产。手工验证已收录角色的装备/属性/装分及在线/在线状态，分别覆盖群绑定与显式服务器；装备图片须完整展示全部装备和采集时间，在线不把App登录当游戏在线。另核对奇遇未知时间、科举、名片、百战、日常、单服开服、新闻和技改的成功/失败输出。真实资历404应显示魔盒绑定要求。部署只能对核实的生产源叠加受审补丁，尤其config只合并新增API/正则，不从Git整文件覆盖。测试或诊断不主动发QQ群消息。

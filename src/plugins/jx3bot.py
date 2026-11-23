@@ -72,6 +72,7 @@ register_cache_init(
 yanhua = on_regex(cfg.REGEX_PATTERNS["烟花查询"])
 qiyu = on_regex(cfg.REGEX_PATTERNS["奇遇查询"])
 zhuangfen = on_regex(cfg.REGEX_PATTERNS["装备查询"])
+online = on_regex(cfg.REGEX_PATTERNS["在线查询"])
 jjc = on_regex(cfg.REGEX_PATTERNS["竞技查询"])
 fuben = on_regex(cfg.REGEX_PATTERNS["副本查询"])
 jiayi = on_regex(cfg.REGEX_PATTERNS["交易行查询"])
@@ -145,6 +146,7 @@ register_queries(
     yanhua_matcher=yanhua,
     qiyu_matcher=qiyu,
     zhuangfen_matcher=zhuangfen,
+    online_matcher=online,
     jjc_matcher=jjc,
     fuben_matcher=fuben,
 )

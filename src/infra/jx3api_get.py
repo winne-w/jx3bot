@@ -4,12 +4,12 @@ import json
 import os
 import time
 from typing import Any, Optional
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qsl
 
 from cacheout import Cache
 
 from src.infra.http_client import HttpClient
-from src.infra.jx3api_compat import normalize_jx3api_response
+from src.infra.jx3api_compat import normalize_jx3api_response, is_jx3api_url
 
 try:
     from nonebot import logger  # type: ignore
@@ -106,18 +106,18 @@ async def get(
             .replace(" ", "")
         )
 
-    params: dict[str, str] = {}
+    params: dict[str, Any] = dict(parse_qsl(urlsplit(url).query, keep_blank_values=True))
     headers: dict[str, str] = {}
     if server:
         params["server"] = server
     if name:
         params["name"] = name
     if token:
-        if urlsplit(url).path.rstrip("/") == "/arena/recent":
+        if is_jx3api_url(url):
             headers["token"] = token
         else:
             params["token"] = token
-    if ticket:
+    if ticket and (not is_jx3api_url(url) or urlsplit(url).path.rstrip("/") == "/arena/recent"):
         params["ticket"] = ticket
     if zili:
         params["class"] = zili

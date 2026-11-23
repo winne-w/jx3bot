@@ -175,3 +175,11 @@ python test_tuilan_match_history.py
 更换赛季或算法前停止旧消费者，统一配置重启后登记迁移任务。回滚先停消费者，再关缓存开关，保留角色结果、任务generation及旧快照；不清队列、不降版本。出现 `QueueIntegrityError`（角色有值但队列丢失、版本回退、索引冲突）先停所有旧写入进程，核对备份及角色publish_version，人工恢复任务generation不低于角色版本后再开，不允许在线从零重建。
 
 离线验证：`JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/jjc_kungfu_test .venv/bin/python -m unittest tests.test_jjc_kungfu_refresh_repo tests.test_jjc_kungfu_refresh_mongo tests.test_role_identity_ranking_batch`。仅使用隔离本地Mongo测试库，其他单测使用fake，不连接生产上游。手工回归：在隔离环境统计冷榜单→确认逐个直接查询、画像落库及本轮coverage→再次统计确认缓存复用且零心法外呼→更换fixture心法并到期刷新→确认旧快照不变→停止时取消在途HTTP→租约到期后恢复。详见 `openspec/changes/jjc-ranking-kungfu-async-refresh/test-plan.md`。
+
+
+## 角色装备与在线查询
+
+- `装备 角色名`、`属性 服务器 角色名`、`装分 角色名`：查询接口已收录装备与属性，图片显示资料采集时间。未提供服务器时使用群绑定；这不是游戏内实时装备更新。
+- `在线 角色名`、`在线状态 服务器 角色名`、`角色在线 角色名`：即时查询游戏在线状态，不复用通用查询缓存。推栏App登录不代表游戏在线，身份或状态不明确时显示未知。
+
+需有效JX3API访问令牌；装备属性接口当前需要 LV2（以后以官方文档为准），在线查询还需有效推栏ticket。资历使用新版/role/achievement，角色须先在魔盒绑定。凭据仍通过既有运行配置提供。

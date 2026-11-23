@@ -160,7 +160,7 @@ class TestArenaRecentRequest(unittest.IsolatedAsyncioTestCase):
 
     async def test_non_arena_request_keeps_token_in_query(self):
         request = AsyncMock(return_value={"code": 200, "msg": "success", "data": []})
-        url = "https://www.jx3api.com/firework/records"
+        url = "https://example.invalid/firework/records"
         with patch.object(self.module.HttpClient, "arequest_json", request):
             await self.module.get(url, server="测试服", name="测试角色", token="unit-test-token")
         kwargs = request.call_args.kwargs

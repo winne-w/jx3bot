@@ -259,7 +259,7 @@
     </svg>
 </span>
 			
-			            {{item.time | timejjc}}<br>
+			            {% if item.time %}{{item.time | timejjc}}{% else %}触发时间未知{% endif %}<br>
 			            {{item.time | time}}
 			        </div>
 			    </div>
@@ -285,7 +285,7 @@
     </svg>
 </span>
 
-                        {{item.time | timejjc}}<br>
+                        {% if item.time %}{{item.time | timejjc}}{% else %}触发时间未知{% endif %}<br>
                         {{item.time | time}}
                     </div>
                 </div>
@@ -329,7 +329,7 @@
     </svg>
 </span>
 
-			             {{item.time | timejjc}}<br>
+			             {% if item.time %}{{item.time | timejjc}}{% else %}触发时间未知{% endif %}<br>
 			             {{item.time | time}}
 			        </div>
 			    </div>
