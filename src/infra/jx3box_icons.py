@@ -13,7 +13,7 @@ import httpx
 MAX_ICON_BYTES = 32768
 MAX_ICONS = 128
 MAX_CACHE = 256
-ICON_TIMEOUT_SECONDS = 3.0
+ICON_TIMEOUT_SECONDS = 6.0
 CACHE_TTL_SECONDS = 86400
 _ALLOWED = re.compile(r"https://icon\.jx3box\.com/icon/[1-9][0-9]{0,7}\.png")
 _cache = OrderedDict()
@@ -64,7 +64,7 @@ async def fetch_icon_data_uris(urls: Iterable[str]) -> Dict[str, str]:
         return result
     semaphore = asyncio.Semaphore(4)
     async def download():
-        async with httpx.AsyncClient(timeout=2.0, follow_redirects=False,
+        async with httpx.AsyncClient(timeout=4.5, follow_redirects=False,
                                      limits=httpx.Limits(max_connections=4, max_keepalive_connections=4)) as client:
             async def load(url):
                 async with semaphore:
