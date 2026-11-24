@@ -224,3 +224,5 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 
 ### 心法别名（2026-11-24）
 装备/属性/装分的裸尾心法及心法=/kungfu=先经services/jx3/kungfu_aliases.py的纯resolver转换标准名，再走原配装查询/URL缓存。独立静态Python映射覆盖32目录心法加洗髓经共33种；支持中文简称/俗称、大小写和全角英文。tl/cy及多心法门派名提示候选，不猜测；单token或完整服务器后的角色token保留身份。来源与完整表见docs/references/kungfu-aliases.md。本轮不改JJC目录、HTTP/网页筛选及库表。
+
+心法别名f3cbacd已于2026-11-24 15:06:15+08部署，双版本170测试及真实别名/QQ/HTTP/4新worker验收通过，配置哈希不变。验收见openspec/changes/archive/2026-11-24-kungfu-alias-search。
