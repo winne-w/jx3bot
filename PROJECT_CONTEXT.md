@@ -218,3 +218,6 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 装备与镶嵌物使用上游iconId对应的魔盒PNG；service保留名称并附加图标模型，装备渲染专用helper将有界预取结果内嵌，避免浏览器外链加载依赖。infra限制固定源、安全ID、4并发、6秒预取、32KiB/256像素及PNG块CRC，正缓存LRU256/24h；失败回退原名称，五行石显示短等级。通用截图及其他模板不改；实现与部署见docs/exec-plans/completed/equipment-icon-display-plan.md。
 
 2026-11-23 21:52:17+08已部署图标R2（b8d0378功能+7c831f3冷连接预算），21:54:57+08验收通过。真实有效图标超时仍会单项文字回退，不承诺第三方源始终可用；源/配置/QQ/HTTP/4worker守卫及双版本110测试通过。
+
+### 装备移动展示与配装筛选（2026-11-24）
+装备无筛选沿用/calcd/attribute；指定完整心法及类型走/calcd/detail（format=calcd）；单项筛选先读/calcd/records的detail.equipList元数据，按唯一最新有效时间选择组合。响应身份/心法/类型不匹配、缺失或候选不明确均明确报错。类型支持PVE/PVP与四种中文类型，无历史赛季选项。760宽单列显示12核心属性、全部装备、图标/等级及采集信息，内部ASCII属性代码不展示但保留原数据。见openspec/changes/equipment-mobile-and-loadout-filters。

@@ -26,6 +26,8 @@ API_URLS = {
     "烟花查询": "https://www.jx3api.com/firework/records",
     "奇遇查询": "https://www.jx3api.com/event/records",
     "装备查询": "https://www.jx3api.com/calcd/attribute",
+    "装备详情查询": "https://www.jx3api.com/calcd/detail",
+    "装备历史查询": "https://www.jx3api.com/calcd/records",
     "在线查询": "https://www.jx3api.com/role/online/status",
     "竞技查询": "https://www.jx3api.com/arena/recent",
     "副本查询": "",
@@ -57,7 +59,7 @@ IMAGE_CACHE_DIR = "mpimg"
 REGEX_PATTERNS = {
     "烟花查询": r"^烟花 (?P<value1>[\S]+)$|^烟花 (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "奇遇查询": r"^奇遇 (?P<value1>[\S]+)$|^奇遇 (?P<server>[\S]+) (?P<value2>[\S]+)$",
-    "装备查询": r"^(?:装备|属性|装分) (?P<value1>[\S]+)$|^(?:装备|属性|装分) (?P<server>[\S]+) (?P<value2>[\S]+)$",
+    "装备查询": r"^(?:装备|属性|装分)\s+(?P<equipment_args>[^\r\n]+)$",
     "在线查询": r"^(?:在线|在线状态|角色在线) (?P<value1>[\S]+)$|^(?:在线|在线状态|角色在线) (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "竞技查询": r"^(?:战绩|竞技) (?P<value1>[\S]+)$|^(?:战绩|竞技) (?P<server>[\S]+) (?P<value2>[\S]+)$",
     "副本查询": r"^(?:副本|秘境) (?P<value1>[\S]+)$|^(?:副本|秘境) (?P<server>[\S]+) (?P<value2>[\S]+)$",

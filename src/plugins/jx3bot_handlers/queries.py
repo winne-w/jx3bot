@@ -19,6 +19,8 @@ from src.services.jx3.query_context import (
     build_yanhua_spec,
 )
 from src.services.jx3.role_queries import build_equipment_spec_or_text, query_online_status
+from src.services.jx3.equipment_query import (EquipmentCommand, EquipmentQueryError,
+    parse_equipment_command, equipment_server_names, fetch_equipment_query)
 from src.utils.jjc_text import jjcdaxiaoxie
 from src.utils.random_text import suijitext
 from src.utils.time_format import format_minutes_seconds
@@ -115,12 +117,18 @@ def register(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
         try:
-            server, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
-            items = await fetch_jx3api_or_raise(
-                url=API_URLS["装备查询"], server=server, name=role_name, token=TOKEN,
-            )
+            if len(foo) == 1:
+                command = parse_equipment_command(foo[0], server_names=equipment_server_names())
+            else:
+                command = EquipmentCommand(foo[1] if foo[0] is None else None, foo[2] if foo[0] is None else foo[0])
+            server, role_name = await resolve_server_and_name(command.identity_groups(), group_id=getattr(event, "group_id", None))
+            items = await fetch_equipment_query(server=server, name=role_name, kungfu=command.kungfu,
+                                                equip_type=command.equip_type, fetch=fetch_jx3api_or_raise)
         except CommandContextError as exc:
             await send_text(bot, event, exc.message, at_user=exc.at_user)
+            return
+        except EquipmentQueryError as exc:
+            await send_text(bot, event, str(exc), at_user=True)
             return
         spec, error_text = build_equipment_spec_or_text(
             data=items, server=server, role_name=role_name, random_text=suijitext(),

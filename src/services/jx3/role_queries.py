@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from src.infra.jx3api_online import fetch_role_online
 from src.services.jx3.query_context import RenderSpec
+from src.services.jx3.equipment_mobile import build_core_stats, compact_attribute_names, refinement_view
 
 
 _BEIJING = timezone(timedelta(hours=8))
@@ -91,6 +92,8 @@ def build_equipment_spec_or_text(
             "strength": row.get("strengthLevel", "—"),
             "max_strength": row.get("maxStrengthLevel", "—"),
             "quality": row.get("itemQuality", "—"),
+            "attribute_names": compact_attribute_names(attributes),
+            "refinement": refinement_view(row.get("strengthLevel"), row.get("maxStrengthLevel")),
             "attributes": [{"name": str(value.get("name") or "属性"), "value": value.get("value", "—")}
                            for value in attributes if isinstance(value, dict)] if isinstance(attributes, list) else [],
             "stones": [str(value.get("itemName") or value.get("name") or "未命名五行石")
@@ -101,8 +104,7 @@ def build_equipment_spec_or_text(
             "color_stone_icon": _icon_model(color_stone, color_stone_name) if color_stone_name else None,
             "enchant_icons": enchant_icons,
         })
-    panel = [{"name": str(row.get("name") or "属性"), "value": row.get("value", "—")}
-             for row in raw_panel if isinstance(row, dict)] if isinstance(raw_panel, list) else []
+    panel = [dict(row) for row in raw_panel if isinstance(row, dict)] if isinstance(raw_panel, list) else []
     if not equipment and not panel:
         return None, f"未收录 {server}，{role_name} 的装备属性，请在游戏内更新装备资料后重试"
     legacy_panel = payload.get("panelList")
@@ -110,9 +112,11 @@ def build_equipment_spec_or_text(
     if score is None and isinstance(legacy_panel, dict):
         score = legacy_panel.get("score")
     return RenderSpec(
-        template_name="装备查询.html", width=1119, height="ck",
+        template_name="装备查询.html", width=760, height="ck",
         context={"id": role_name, "qufu": server, "kungfu": str(payload.get("kungfuName") or "未提供"),
                  "score": score if score is not None else "—", "equipment": equipment, "panel": panel,
+                 "core_stats": build_core_stats(payload), "equip_type": str(payload.get("equipType") or "未提供"),
+                 "season": str(payload.get("seasonName") or "未提供"),
                  "collected_at": _collected_at(payload.get("cacheTime")), "text": random_text},
     ), None
 

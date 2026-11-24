@@ -16,6 +16,7 @@ RESPONSE_TYPES = {
     "/news/announce": (list,), "/news/records": (list,),
     "/skill/rework": (list,), "/calcd/attribute": (dict,),
     "/role/online/status": (list,),
+    "/calcd/detail": (dict,), "/calcd/records": (dict,),
 }
 _CST = timezone(timedelta(hours=8))
 

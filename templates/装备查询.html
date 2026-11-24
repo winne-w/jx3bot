@@ -2,126 +2,99 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=760">
     <title>装备属性</title>
     <style>
         * { box-sizing: border-box; }
-        body { margin: 0; padding: 28px; background: #eff6fb; color: #26394a;
-            font-family: "Microsoft YaHei", sans-serif; font-size: 16px; }
-        .header, .panel, .equipment { background: white; border-radius: 18px;
-            padding: 24px; margin-bottom: 20px; }
-        .header { border-top: 6px solid #5ca5c9; }
-        h1 { font-size: 28px; margin: 0 0 12px; }
-        h2 { font-size: 21px; margin: 0 0 18px; }
-        .meta { color: #607789; line-height: 1.8; }
-        .score { font-size: 25px; color: #267ba6; }
-        .panel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        .stat { background: #f4f8fb; padding: 12px 16px; border-radius: 9px;
-            display: flex; justify-content: space-between; gap: 10px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 14px 10px; border-bottom: 1px solid #e9eff3;
-            vertical-align: top; }
-        th { color: #607789; font-weight: normal; }
-        .item { font-weight: bold; }
-        .item-heading { display: flex; align-items: center; gap: 10px; }
-        .equipment-icon { display: block; width: 40px; height: 40px; border-radius: 6px;
-            flex: 0 0 40px; }
-        .icon-details { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-        .stone-icon { position: relative; display: inline-flex; align-items: center;
-            justify-content: center; width: 36px; height: 38px; }
-        .stone-icon img, .detail-icon { display: block; width: 32px; height: 32px;
-            border-radius: 4px; }
-        .stone-grade { position: absolute; right: -3px; bottom: -3px; padding: 0 3px;
-            border-radius: 4px; background: #3c5368; color: white; font-size: 10px;
-            line-height: 15px; white-space: nowrap; }
-        .named-icon { display: inline-flex; align-items: center; gap: 5px; }
-        .source, .details { color: #8193a1; font-size: 13px; margin-top: 5px;
-            overflow-wrap: anywhere; line-height: 1.7; }
-        .notice { color: #607789; font-size: 14px; line-height: 1.7; }
-        .footer { text-align: center; font-size: 14px; color: #607789; padding: 10px; }
+        body { width: 760px; margin: 0; padding: 18px; color: #f6eff6;
+            background: #261e2c; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+        .header { padding: 8px 6px 18px; border-bottom: 1px solid #68506a; }
+        .identity { display: flex; align-items: baseline; gap: 16px; }
+        h1 { margin: 0; font-size: 34px; line-height: 1.3; color: #fff8ec; }
+        .server { font-size: 24px; color: #c4b0c7; }
+        .loadout { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 10px; }
+        .kungfu { font-size: 28px; color: #f4cb8f; font-weight: bold; }
+        .badge { font-size: 22px; color: #e3cfdf; background: #493249; padding: 3px 9px; border-radius: 6px; }
+        .panel-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+        .stat { padding: 11px 5px 10px; text-align: center; background: #3a2b3e;
+            border: 1px solid #523a55; border-radius: 9px; }
+        .stat-name { font-size: 23px; color: #cdbbd0; line-height: 1.3; }
+        .stat-value { font-size: 34px; color: #fff5df; font-weight: bold; line-height: 1.3; margin-top: 3px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .equipment-row { display: grid; grid-template-columns: 80px minmax(0, 1fr) 160px;
+            gap: 12px; align-items: center; padding: 14px 4px; min-height: 132px;
+            border-bottom: 1px solid #59405c; }
+        .equipment-icon { display: block; width: 80px; height: 80px; border-radius: 9px;
+            border: 1px solid #b195bd; box-shadow: 0 3px 10px #160f1b; }
+        .icon-placeholder { width: 80px; height: 80px; border: 1px solid #705777; border-radius: 9px;
+            display: flex; align-items: center; justify-content: center; color: #a38ca9; font-size: 24px; }
+        .item-name { font-size: 32px; color: #edc0f0; font-weight: bold; line-height: 1.24; overflow-wrap: anywhere; }
+        .attribute-names { margin-top: 7px; font-size: 24px; line-height: 1.35; color: #e3d8c7; }
+        .source { display: block; margin-top: 5px; font-size: 22px; color: #b5a2ba;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .gear-upgrades { min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+        .refinement-stars { font-size: 20px; color: #f2cf70; line-height: 1.2; letter-spacing: 0; white-space: nowrap; }
+        .refinement-text { font-size: 21px; color: #c8b3cb; text-align: right; }
+        .icon-details { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+        .stone-icon { position: relative; display: inline-flex; width: 38px; height: 38px;
+            justify-content: center; align-items: center; }
+        .stone-icon img, .detail-icon { display: block; width: 34px; height: 34px; border-radius: 4px; }
+        .stone-grade { position: absolute; right: -2px; bottom: -4px; font-size: 18px; padding: 0 2px;
+            line-height: 19px; border-radius: 3px; color: #fff5c5; background: #4d344f; white-space: nowrap; }
+        .icon-fallback { font-size: 22px; line-height: 1.2; text-align: right; color: #cdb8cf; overflow-wrap: anywhere; }
+        .footer { padding: 18px 5px 5px; font-size: 21px; color: #bba9c0; line-height: 1.45; }
     </style>
 </head>
 <body>
 {% autoescape true %}
-    <section class="header">
-        <h1>{{ qufu }} · {{ id }}</h1>
-        <div class="score">装备分数 {{ score }}</div>
-        <div class="meta">心法 {{ kungfu }} · 已收录装备属性<br>
-            资料采集时间 {{ collected_at }}（北京时间）</div>
-        <div class="notice">展示接口已收录资料，装备与属性可能晚于游戏内变更。</div>
+    <header class="header">
+        <div class="identity"><h1>{{ id }}</h1><span class="server">{{ qufu }}</span></div>
+        <div class="loadout"><span class="kungfu">{{ kungfu }}</span><span class="badge">{{ equip_type }}</span><span class="badge">{{ season }}</span></div>
+    </header>
+    <section class="panel-grid" aria-label="核心属性">
+        {% for stat in core_stats %}
+        <div class="stat"><div class="stat-name">{{ stat.name }}</div><div class="stat-value" title="{{ stat.value }}">{{ stat.value }}</div></div>
+        {% endfor %}
     </section>
-    <section class="panel">
-        <h2>属性面板</h2>
-        {% if panel %}
-        <div class="panel-grid">
-            {% for row in panel %}
-            <div class="stat"><span>{{ row.name }}</span><strong>{{ row.value }}</strong></div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <div class="notice">接口暂未提供属性面板</div>
-        {% endif %}
+    <section class="equipment" aria-label="装备明细">
+        {% for row in equipment %}
+        <article class="equipment-row" data-equipment-row="{{ loop.index }}">
+            {% if row.icon and row.icon.image_src %}
+            <img class="equipment-icon" src="{{ row.icon.image_src }}" alt="{{ row.icon.name }}" title="{{ row.icon.name }}">
+            {% else %}<div class="icon-placeholder">装备</div>{% endif %}
+            <div class="gear-info">
+                <div class="item-name">{{ row.name }}</div>
+                {% if row.attribute_names %}<div class="attribute-names">{{ row.attribute_names|join(' · ') }}</div>{% endif %}
+                {% if row.source %}<div class="source" title="{{ row.source }}">{{ row.source }}</div>{% endif %}
+            </div>
+            <div class="gear-upgrades">
+                {% if row.refinement.stars %}<div class="refinement-stars" title="{{ row.refinement.text }}">{{ row.refinement.stars }}</div>
+                {% else %}<div class="refinement-text">{{ row.refinement.text }}</div>{% endif %}
+                {% if row.stone_icons %}
+                <div class="icon-details" aria-label="五行石">
+                    {% for stone in row.stone_icons %}
+                    {% if stone.image_src %}<span class="stone-icon" title="{{ stone.name }}"><img src="{{ stone.image_src }}" alt="{{ stone.name }}"><span class="stone-grade">{{ stone.label }}</span></span>
+                    {% else %}<span class="icon-fallback">{{ stone.name }}</span>{% endif %}
+                    {% endfor %}
+                </div>
+                {% elif row.stones %}<div class="icon-fallback">{{ row.stones|join('、') }}</div>{% endif %}
+                {% if row.color_stone_icon or row.enchant_icons %}
+                <div class="icon-details">
+                    {% if row.color_stone_icon %}
+                    {% if row.color_stone_icon.image_src %}<img class="detail-icon" src="{{ row.color_stone_icon.image_src }}" alt="{{ row.color_stone_icon.name }}" title="{{ row.color_stone_icon.name }}">
+                    {% else %}<span class="icon-fallback">{{ row.color_stone_icon.name }}</span>{% endif %}
+                    {% elif row.color_stone %}<span class="icon-fallback">{{ row.color_stone }}</span>{% endif %}
+                    {% for enchant in row.enchant_icons %}
+                    {% if enchant.image_src %}<img class="detail-icon" src="{{ enchant.image_src }}" alt="{{ enchant.name }}" title="{{ enchant.name }}">
+                    {% else %}<span class="icon-fallback">{{ enchant.name }}</span>{% endif %}
+                    {% endfor %}
+                </div>
+                {% elif row.color_stone or row.enchants %}<div class="icon-fallback">{{ row.color_stone }} {{ row.enchants|join('、') }}</div>{% endif %}
+            </div>
+        </article>
+        {% endfor %}
     </section>
-    <section class="equipment">
-        <h2>装备明细 · {{ equipment|length }} 件</h2>
-        {% if equipment %}
-        <table>
-            <thead><tr><th>装备 / 条目属性</th><th>类型</th><th>品级</th><th>精炼</th></tr></thead>
-            <tbody>
-                {% for row in equipment %}
-                <tr>
-                    <td>
-                        <div class="item-heading">
-                            {% if row.icon and row.icon.image_src %}
-                            <img class="equipment-icon" src="{{ row.icon.image_src }}" alt="{{ row.icon.name }}" title="{{ row.icon.name }}">
-                            {% endif %}
-                            <div class="item">{{ row.name }}</div>
-                        </div>
-                        {% if row.source %}<div class="source">{{ row.source }}</div>{% endif %}
-                        {% if row.attributes %}
-                        <div class="details">条目属性：
-                            {% for attr in row.attributes %}{{ attr.name }} {{ attr.value }}{% if not loop.last %} · {% endif %}{% endfor %}
-                        </div>
-                        {% endif %}
-                        {% if row.stone_icons %}
-                        <div class="details icon-details"><span>五行石：</span>
-                            {% for stone in row.stone_icons %}
-                            {% if stone.image_src %}
-                            <span class="stone-icon" title="{{ stone.name }}">
-                                <img src="{{ stone.image_src }}" alt="{{ stone.name }}">
-                                <span class="stone-grade">{{ stone.label }}</span>
-                            </span>
-                            {% else %}<span>{{ stone.name }}</span>{% endif %}
-                            {% endfor %}
-                        </div>
-                        {% elif row.stones %}<div class="details">五行石：{{ row.stones|join('、') }}</div>{% endif %}
-                        {% if row.color_stone_icon %}
-                        <div class="details icon-details"><span>五彩石：</span>
-                            {% if row.color_stone_icon.image_src %}
-                            <img class="detail-icon" src="{{ row.color_stone_icon.image_src }}" alt="{{ row.color_stone_icon.name }}" title="{{ row.color_stone_icon.name }}">
-                            {% else %}<span>{{ row.color_stone_icon.name }}</span>{% endif %}
-                        </div>
-                        {% elif row.color_stone %}<div class="details">五彩石：{{ row.color_stone }}</div>{% endif %}
-                        {% if row.enchant_icons %}
-                        <div class="details icon-details"><span>附魔：</span>
-                            {% for enchant in row.enchant_icons %}
-                            {% if enchant.image_src %}
-                            <span class="named-icon" title="{{ enchant.name }}"><img class="detail-icon" src="{{ enchant.image_src }}" alt="{{ enchant.name }}"></span>
-                            {% else %}<span>{{ enchant.name }}</span>{% endif %}
-                            {% endfor %}
-                        </div>
-                        {% elif row.enchants %}<div class="details">附魔：{{ row.enchants|join('、') }}</div>{% endif %}
-                    </td>
-                    <td>{{ row.type }}</td><td>{{ row.level }}</td>
-                    <td>{{ row.strength }} / {{ row.max_strength }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="notice">接口暂未提供装备明细</div>
-        {% endif %}
-    </section>
-    <footer class="footer">【夏鸥】bot{% if text %}<br>{{ text }}{% endif %}</footer>
+    <footer class="footer">已收录 · {{ collected_at }}（北京时间）<br>装备属性可能晚于游戏内变更 · 夏鸥 bot</footer>
 {% endautoescape %}
 </body>
 </html>
