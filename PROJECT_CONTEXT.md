@@ -226,3 +226,11 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 装备/属性/装分的裸尾心法及心法=/kungfu=先经services/jx3/kungfu_aliases.py的纯resolver转换标准名，再走原配装查询/URL缓存。独立静态Python映射覆盖32目录心法加洗髓经共33种；支持中文简称/俗称、大小写和全角英文。tl/cy及多心法门派名提示候选，不猜测；单token或完整服务器后的角色token保留身份。来源与完整表见docs/references/kungfu-aliases.md。本轮不改JJC目录、HTTP/网页筛选及库表。
 
 心法别名f3cbacd已于2026-11-24 15:06:15+08部署，双版本170测试及真实别名/QQ/HTTP/4新worker验收通过，配置哈希不变。验收见openspec/changes/archive/2026-11-24-kungfu-alias-search。
+
+### 排行榜本地最新胜场装备
+
+`JJC_RANKING_LOCAL_WIN_EQUIPMENT_ENABLED=1` 后，按稳定角色 ID 读取本地当前赛季最新一场 3v3 胜场，统一提供装备、队友、橙武统计和紫武筛选。取最新胜场后装备缺失时保留未知，不向更旧胜场回退；心法分类保留原有来源。默认值为 0，支持环境变量与私有 runtime_config.json，修改后重启。`JJC_RANKING_DISPLAY_QUERY_ENABLED` 与 `JJC_RANKING_DISPLAY_OVERLAY_ENABLED` 是既有资料查询和展示覆盖开关，各自默认 0。
+
+读服务使用专用 Mongo 连接和 singleflight，在原 1.5 秒 Mongo、2 秒 socket、8 秒构建、10 秒请求预算内完成整榜；超时或证据不一致时明确失败，不截断成员或丢弃异常证据。`JJC_EQUIPMENT_MONGO_HOST` 默认为空，仅在有明确部署需要时覆盖装备读连接的主机，凭据仍取部署配置。
+
+开启前必须完成主表派生字段回填、索引校验与全榜只读预检。字段、索引及回滚限制见 `docs/design-docs/database-design.md` 和 `docs/references/runbook.md`。方案与验证记录见 `openspec/changes/jjc-ranking-local-latest-match/`；独立提交包验证见其中 `submission.md`。

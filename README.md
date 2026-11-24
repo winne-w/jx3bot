@@ -197,3 +197,11 @@ python test_tuilan_match_history.py
 类型支持PVE/秘境挑战、PVP/竞技对抗、休闲、通用；心法使用完整名称，选项顺序不限。只指定心法或类型时，按已收录组合的有效采集时间选择最新匹配配装；无法确定唯一最新时提示补全条件，未收录明确提示。无筛选沿用属性查询；不支持指定历史赛季。带筛选且显式指定服务器时使用完整服务器名。
 
 心法筛选支持别名：`装备 桃桃白糖 bx PVE`、`装备 桃桃白糖 秀奶 PVP`、`属性 桃桃白糖 心法=NX 类型=PVP`。中文简称、俗称及英文缩写统一转成标准名；英文不区分大小写，支持全角。`tl`、`cy`或多心法门派名会提示候选，角色名单token优先按身份处理。完整33心法表与来源见[心法别名](docs/references/kungfu-aliases.md)，运行映射维护在`src/services/jx3/kungfu_aliases.py`。
+
+### 排行榜本地最新胜场装备
+
+`JJC_RANKING_LOCAL_WIN_EQUIPMENT_ENABLED=1` 后，按稳定角色 ID 读取本地当前赛季最新一场 3v3 胜场，统一提供装备、队友、橙武统计和紫武筛选。取最新胜场后装备缺失时保留未知，不向更旧胜场回退；心法分类保留原有来源。默认值为 0，支持环境变量与私有 runtime_config.json，修改后重启。`JJC_RANKING_DISPLAY_QUERY_ENABLED` 与 `JJC_RANKING_DISPLAY_OVERLAY_ENABLED` 是既有资料查询和展示覆盖开关，各自默认 0。
+
+读服务使用专用 Mongo 连接和 singleflight，在原 1.5 秒 Mongo、2 秒 socket、8 秒构建、10 秒请求预算内完成整榜；超时或证据不一致时明确失败，不截断成员或丢弃异常证据。`JJC_EQUIPMENT_MONGO_HOST` 默认为空，仅在有明确部署需要时覆盖装备读连接的主机，凭据仍取部署配置。
+
+开启前必须完成主表派生字段回填、索引校验与全榜只读预检。字段、索引及回滚限制见 `docs/design-docs/database-design.md` 和 `docs/references/runbook.md`。方案与验证记录见 `openspec/changes/jjc-ranking-local-latest-match/`；独立提交包验证见其中 `submission.md`。
