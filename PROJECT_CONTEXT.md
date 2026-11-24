@@ -221,3 +221,6 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 
 ### 装备移动展示与配装筛选（2026-11-24）
 装备无筛选沿用/calcd/attribute；指定完整心法及类型走/calcd/detail（format=calcd）；单项筛选先读/calcd/records的detail.equipList元数据，按唯一最新有效时间选择组合。响应身份/心法/类型不匹配、缺失或候选不明确均明确报错。类型支持PVE/PVP与四种中文类型，无历史赛季选项。760宽单列显示12核心属性、全部装备、图标/等级及采集信息，内部ASCII属性代码不展示但保留原数据。见openspec/changes/archive/2026-11-24-equipment-mobile-and-loadout-filters。部署代码7e0bf6c；2026-11-24 12:28:40+08启动，真实筛选/手机渲染及QQ/HTTP/4新worker验收通过。
+
+### 心法别名（2026-11-24）
+装备/属性/装分的裸尾心法及心法=/kungfu=先经services/jx3/kungfu_aliases.py的纯resolver转换标准名，再走原配装查询/URL缓存。独立静态Python映射覆盖32目录心法加洗髓经共33种；支持中文简称/俗称、大小写和全角英文。tl/cy及多心法门派名提示候选，不猜测；单token或完整服务器后的角色token保留身份。来源与完整表见docs/references/kungfu-aliases.md。本轮不改JJC目录、HTTP/网页筛选及库表。

@@ -6,12 +6,12 @@ from typing import Any, Callable, Iterable, Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import config as cfg
-from src.services.jx3.jjc_kungfu_meta import get_jjc_kungfu_catalog
+from src.services.jx3.kungfu_aliases import KungfuAliasError, resolve_kungfu_alias
 
 QUERY_TIMEOUT_SECONDS = 45.0
 _TYPE_ALIASES = {"pve": "秘境挑战", "pvp": "竞技对抗", "秘境挑战": "秘境挑战",
                  "竞技对抗": "竞技对抗", "休闲": "休闲", "通用": "通用"}
-_USAGE = "用法：装备 [服务器] 角色名 [完整心法] [PVE/PVP/休闲/通用]；也可用 心法=云裳心经 类型=PVP"
+_USAGE = "用法：装备 [服务器] 角色名 [心法或别名] [PVE/PVP/休闲/通用]；也可用 心法=奶秀 类型=PVP"
 
 
 class EquipmentQueryError(ValueError):
@@ -38,7 +38,11 @@ def parse_equipment_command(raw: str, *, server_names: Iterable[str] = ()) -> Eq
     tokens = raw.split() if isinstance(raw, str) else []
     if not tokens or len(tokens) > 8:
         raise EquipmentQueryError(_USAGE)
-    kungfus = {item["name"] for item in get_jjc_kungfu_catalog()}
+    def resolve(value):
+        try:
+            return resolve_kungfu_alias(value)
+        except KungfuAliasError as exc:
+            raise EquipmentQueryError(str(exc)) from None
     options = {}
     identity = []
 
@@ -49,8 +53,11 @@ def parse_equipment_command(raw: str, *, server_names: Iterable[str] = ()) -> Eq
             value = _TYPE_ALIASES.get(value.lower())
             if value is None:
                 raise EquipmentQueryError("配装类型仅支持 PVE/PVP/秘境挑战/竞技对抗/休闲/通用")
-        elif value not in kungfus:
-            raise EquipmentQueryError("请使用完整心法名称，例如：云裳心经、冰心诀。" + _USAGE)
+        else:
+            resolved = resolve(value)
+            if resolved is None:
+                raise EquipmentQueryError("未知心法或别名，例如可用：云裳心经、奶秀、冰心、bx。" + _USAGE)
+            value = resolved
         options[key] = value
 
     for token in tokens:
@@ -68,7 +75,7 @@ def parse_equipment_command(raw: str, *, server_names: Iterable[str] = ()) -> Eq
         value = identity[-1]
         if value.lower() in _TYPE_ALIASES:
             put("equip_type", value)
-        elif value in kungfus:
+        elif resolve(value) is not None:
             put("kungfu", value)
         else:
             break
@@ -77,7 +84,7 @@ def parse_equipment_command(raw: str, *, server_names: Iterable[str] = ()) -> Eq
         server, name = None, identity[0]
     elif len(identity) == 2:
         if options and known_servers and identity[0] not in known_servers:
-            raise EquipmentQueryError("筛选查询请使用完整服务器名称和完整心法名称。" + _USAGE)
+            raise EquipmentQueryError("筛选查询请使用完整服务器名称，以及有效心法名或别名。" + _USAGE)
         server, name = identity
     else:
         raise EquipmentQueryError(_USAGE)

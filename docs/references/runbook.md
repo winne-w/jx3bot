@@ -435,3 +435,6 @@ curl -X POST "https://qike.rickchen.cn/jx3bot/api/jjc/ranking-stats/synced-role-
 ### 新版JX3API角色查询回归
 
 离线运行 `python -m unittest tests.test_jx3api_compat tests.test_arena_recent_response tests.test_jx3api_current_contract tests.test_jx3api_consumers tests.test_role_queries`，禁止单测外呼生产。手工验证已收录角色的装备/属性/装分及在线/在线状态，分别覆盖群绑定与显式服务器；装备图片须完整展示全部装备和采集时间，在线不把App登录当游戏在线。另核对奇遇未知时间、科举、名片、百战、日常、单服开服、新闻和技改的成功/失败输出。真实资历404应显示魔盒绑定要求。部署只能对核实的生产源叠加受审补丁，尤其config只合并新增API/正则，不从Git整文件覆盖。测试或诊断不主动发QQ群消息。
+
+### 心法别名回归
+`python -m unittest tests.test_kungfu_aliases tests.test_equipment_query`：33标准名/全部维护别名、NFKC大小写、完整token、tl/cy及多心法门派歧义、角色同名保护、重复/未知选项。测试不外呼。只读服务冒烟用已收录角色，对比bx/冰心诀 PVE及奶秀/秀奶/云裳心经 PVP结果；单心法筛选仍选最新匹配。不得主动发QQ群消息。映射维护src/services/jx3/kungfu_aliases.py，来源表docs/references/kungfu-aliases.md；无需配置或数据迁移。

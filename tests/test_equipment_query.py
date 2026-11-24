@@ -72,7 +72,7 @@ class TestEquipmentCommand(unittest.TestCase):
                 self.assertEqual(("唯我独尊", role, "云裳心经"), (command.server, command.name, command.kungfu))
 
     def test_unknown_kungfu_with_valid_filter_is_not_reinterpreted_as_server_and_name(self):
-        for raw in ("桃桃白糖 云裳 PVP", "桃桃白糖 不存在心法 类型=PVP"):
+        for raw in ("桃桃白糖 不存在心法 PVP", "桃桃白糖 不存在心法 类型=PVP"):
             with self.subTest(raw=raw):
                 with self.assertRaises(self.module.EquipmentQueryError):
                     self.parse(raw)
@@ -84,7 +84,7 @@ class TestEquipmentCommand(unittest.TestCase):
     def test_duplicate_conflicting_unknown_or_incomplete_options_raise_useful_errors(self):
         for raw in ("", " ", "桃桃白糖 PVP PVP", "桃桃白糖 PVE PVP", "桃桃白糖 云裳心经 云裳心经",
                     "桃桃白糖 云裳心经 心法=云裳心经", "桃桃白糖 类型=", "桃桃白糖 心法=", "桃桃白糖 foo=bar",
-                    "桃桃白糖 类型=不存在", "桃桃白糖 心法=云裳", "桃桃白糖 不存在 未知"):
+                    "桃桃白糖 类型=不存在", "桃桃白糖 心法=不存在心法", "桃桃白糖 不存在 未知"):
             with self.subTest(raw=raw):
                 with self.assertRaises(self.module.EquipmentQueryError) as caught:
                     self.parse(raw)
@@ -165,6 +165,19 @@ class TestEquipmentQueryFlow(unittest.IsolatedAsyncioTestCase):
         self.assert_detail_call(fetch.call_args)
         self.assertEqual("苍生铸世", actual["data"]["seasonName"])
         self.assertEqual(1795270451, actual["data"]["cacheTime"])
+
+    async def test_alias_and_canonical_commands_use_identical_detail_cache_urls(self):
+        for canonical, aliases, kind in (("冰心诀", ("bx", "ＢＸ", "冰心"), "PVE"),
+                                         ("云裳心经", ("奶秀", "秀奶", "NX"), "PVP")):
+            urls = []
+            for spelling in (canonical, *aliases):
+                command = self.module.parse_equipment_command("桃桃白糖 " + spelling + " " + kind)
+                fetch = AsyncMock(return_value=detail(canonical, command.equip_type))
+                await self.query(fetch, kungfu=command.kungfu, equip_type=command.equip_type)
+                fetch.assert_awaited_once()
+                urls.append(fetch.call_args.kwargs["url"])
+                self.assertEqual(canonical, parse_qs(urlsplit(urls[-1]).query)["kungfu"][0])
+            self.assertEqual(1, len(set(urls)))
 
     async def test_partial_filter_resolves_records_then_fetches_exact_detail(self):
         fetch = AsyncMock(side_effect=[{"msg": "success", "data": {"roleName": "桃桃白糖", "equipList": copy.deepcopy(ROWS)}}, detail()])
