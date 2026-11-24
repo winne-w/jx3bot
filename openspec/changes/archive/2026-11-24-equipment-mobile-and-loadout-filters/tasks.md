@@ -8,7 +8,7 @@
 - [x] 选择规则澄清与独立测试
 - [x] 查询编排/handler/配置及移动展示实现
 - [x] 本地/生产依赖回归、真实筛选及375px阅读视觉验证
-- [ ] 独立复核、commit/push、精确部署与运行验收
+- [x] 独立复核、commit/push、精确部署与运行验收
 
 ## Surprises & Discoveries
 /detail必填kungfu+type，records含跨赛季三种组合；真实云裳PVP面板含percent，可直接正确显示24.9%会心、175%会效。首次20秒外呼超时，有限重试只读侦察成功，不算产品结果。
@@ -29,4 +29,4 @@ Python3.9+，plugins→services→infra/storage。原service/icon helper保留�
 装备名有效手机字号≥14px、核心数字≥16px（375宽），宽760；图片不截断全部13件，12代表性指标与源一致。无筛选原命令、显式server、心法/type单独与共同筛选均可解释，错误不冒充成功或当前配置；不同配装不串缓存。QQ/HTTP/4fresh worker及配置守卫通过。
 
 ## Outcomes & Retrospective
-执行中。
+已完成并部署；详见acceptance.md。

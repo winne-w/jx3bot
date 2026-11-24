@@ -8,7 +8,7 @@
 
 ## Active OpenSpec
 
-- `../../openspec/changes/equipment-mobile-and-loadout-filters/tasks.md`: 手机大字紧凑装备图片及心法/配装类型筛选。
+- `../../openspec/changes/archive/2026-11-24-equipment-mobile-and-loadout-filters/tasks.md`: 手机大字紧凑装备图片及心法/配装类型筛选。
 
 - `../../openspec/changes/jjc-ranking-kungfu-async-refresh/tasks.md`: 排名心法缓存优先与后台刷新；角色心法属性、独立队列与两步发布已实现并上线启用，TDD/独立审核通过，首轮预热及后续快照验收进行中。
 

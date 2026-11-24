@@ -18,3 +18,8 @@ Equipment screenshots SHALL display available JX3BOX item icons and short stone 
 #### Scenario: Missing or unavailable icon
 - WHEN an icon ID is missing or the bounded image fetch fails validation
 - THEN its original name remains visible and the equipment query still renders
+
+## Equipment mobile view and collected loadout filters
+装备、属性、装分支持完整心法和PVE/秘境挑战、PVP/竞技对抗、休闲、通用，含心法=/类型=。无筛选使用/calcd/attribute；两项指定使用/calcd/detail且format=calcd；单项指定先/calcd/records筛选，唯一最新有效采集时间决定组合，缺少可靠时间/并列候选要求补全，未收录明确提示。不得回退其他组合，须校验响应身份及心法类型；显示实际赛季采集时间，不提供历史赛季选择。
+
+760宽图片显示12项治疗/攻击/坦克核心指标、全部装备、精炼/镶嵌及短属性来源，名字32px、核心34px；百分比仅使用上游percent，内部ASCII代码不展示且保留原数据。375宽有效装备名>=14px、核心>=16px，无核心数值截断/行横向溢出；外部图标失败保留文本。
