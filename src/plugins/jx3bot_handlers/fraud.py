@@ -19,12 +19,15 @@ def register(
     async def handle_pianzi(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        uid = foo[0]
-        if not uid.isdigit() or len(uid) < 5:
-            await bot.send(event, MessageSegment.at(event.user_id) + Message("\n请正确输入要查询的QQ号码"))
+        uid = foo[0] if foo[0] is not None else foo[2]
+        if not (uid.isascii() and uid.isdecimal() and 6 <= len(uid) <= 10 and 100000 <= int(uid) <= 4000000000):
+            await bot.send(event, MessageSegment.at(event.user_id) + Message("\n请输入正确的角色UID（100000～4000000000）"))
             return
 
-        query = urlencode({"uid": uid})
+        params = {"uid": uid}
+        if foo[0] is None:
+            params["server"] = foo[1]
+        query = urlencode(params)
         data = await get(f"https://www.jx3api.com/fraud/detail?{query}", token=token)
         formatted_reply = format_scammer_reply(data)
         await bot.send(event, MessageSegment.at(event.user_id) + Message(f"\n{formatted_reply}"))

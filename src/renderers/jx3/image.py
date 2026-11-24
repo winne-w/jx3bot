@@ -24,6 +24,9 @@ async def render_template_image(
     width: int,
     height: int | str = "ck",
 ) -> bytes:
+    if template_name == "装备查询.html":
+        from src.renderers.jx3.equipment_icons import prepare_equipment_icons
+        context = await prepare_equipment_icons(context)
     template = env.get_template(template_name)
     html_content = template.render(**context)
     return await jietu(html_content, width, height)

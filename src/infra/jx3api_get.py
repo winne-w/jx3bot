@@ -4,11 +4,12 @@ import json
 import os
 import time
 from typing import Any, Optional
+from urllib.parse import urlsplit, parse_qsl
 
 from cacheout import Cache
 
 from src.infra.http_client import HttpClient
-from src.infra.jx3api_compat import normalize_jx3api_response
+from src.infra.jx3api_compat import normalize_jx3api_response, is_jx3api_url
 
 try:
     from nonebot import logger  # type: ignore
@@ -105,14 +106,18 @@ async def get(
             .replace(" ", "")
         )
 
-    params: dict[str, str] = {}
+    params: dict[str, Any] = dict(parse_qsl(urlsplit(url).query, keep_blank_values=True))
+    headers: dict[str, str] = {}
     if server:
         params["server"] = server
     if name:
         params["name"] = name
     if token:
-        params["token"] = token
-    if ticket:
+        if is_jx3api_url(url):
+            headers["token"] = token
+        else:
+            params["token"] = token
+    if ticket and (not is_jx3api_url(url) or urlsplit(url).path.rstrip("/") == "/arena/recent"):
         params["ticket"] = ticket
     if zili:
         params["class"] = zili
@@ -124,7 +129,8 @@ async def get(
         return cache_data
 
     http_client = HttpClient(timeout=30.0, retries=2, backoff_seconds=0.5, verify=False)
-    data = await http_client.arequest_json("GET", url, params=params, verify=False)
+    request_options = {"headers": headers} if headers else {}
+    data = await http_client.arequest_json("GET", url, params=params, verify=False, **request_options)
     data = normalize_jx3api_response(url, data)
     if isinstance(data, dict) and not data.get("error"):
         _cache.set(cache_key, data)

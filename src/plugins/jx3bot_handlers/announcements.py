@@ -23,6 +23,10 @@ def register(
     ) -> None:
         try:
             data = await jiaoyiget(NEWS_API_URL.replace("limit=3", "limit=50"))
+            if not isinstance(data, dict) or data.get("error") or data.get("code") != 200:
+                message = data.get("msg") if isinstance(data, dict) else None
+                await bot.send(event, "查询公告失败：{}".format(message or "接口暂不可用，请稍后再试"))
+                return
             records = parse_updateshuodong(data, keyword="活动")
             if not records:
                 await bot.send(event, "未找活动相关公告")
@@ -47,6 +51,10 @@ def register(
     ) -> None:
         try:
             data = await jiaoyiget("https://www.jx3api.com/news/announce?limit=5")
+            if not isinstance(data, dict) or data.get("error") or data.get("code") != 200:
+                message = data.get("msg") if isinstance(data, dict) else None
+                await bot.send(event, "查询公告失败：{}".format(message or "接口暂不可用，请稍后再试"))
+                return
             records = parse_updatesnew(data, keyword="版本")
             if not records:
                 await bot.send(event, "未找到版本更新公告")
@@ -71,6 +79,10 @@ def register(
     ) -> None:
         try:
             data = await jiaoyiget(skill_records_url)
+            if not isinstance(data, dict) or data.get("error") or data.get("code") != 200:
+                message = data.get("msg") if isinstance(data, dict) else None
+                await bot.send(event, "查询公告失败：{}".format(message or "接口暂不可用，请稍后再试"))
+                return
             records = parse_updates(data, keyword="武学")
             if not records:
                 await bot.send(event, "未找到最新的武学调整公告")

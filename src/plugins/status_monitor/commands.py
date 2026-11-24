@@ -8,6 +8,7 @@ from nonebot.exception import FinishedException
 from nonebot.params import CommandArg
 
 from src.services.jx3.singletons import group_config_repo
+from src.services.jx3.server_status import select_server_status
 
 from .jobs import (
     extract_version,
@@ -144,7 +145,10 @@ async def handle_kf_query(event: GroupMessageEvent):
             await gtekf_cmd.send(f"获取服务器 {server} 的开服数据失败")
             return
 
-        server_data = gte_data["data"]
+        server_data = select_server_status(gte_data, server)
+        if server_data is None:
+            await gtekf_cmd.send(f"未查询到服务器 {server} 的开服数据")
+            return
 
         real_time_status = _format_server_status(server_data.get("status"))
 

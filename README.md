@@ -177,6 +177,27 @@ python test_tuilan_match_history.py
 离线验证：`JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/jjc_kungfu_test .venv/bin/python -m unittest tests.test_jjc_kungfu_refresh_repo tests.test_jjc_kungfu_refresh_mongo tests.test_role_identity_ranking_batch`。仅使用隔离本地Mongo测试库，其他单测使用fake，不连接生产上游。手工回归：在隔离环境统计冷榜单→确认逐个直接查询、画像落库及本轮coverage→再次统计确认缓存复用且零心法外呼→更换fixture心法并到期刷新→确认旧快照不变→停止时取消在途HTTP→租约到期后恢复。详见 `openspec/changes/jjc-ranking-kungfu-async-refresh/test-plan.md`。
 
 
+## 角色装备与在线查询
+
+- `装备 角色名`、`属性 服务器 角色名`、`装分 角色名`：查询接口已收录装备与属性，图片显示资料采集时间。未提供服务器时使用群绑定；这不是游戏内实时装备更新。
+- `在线 角色名`、`在线状态 服务器 角色名`、`角色在线 角色名`：即时查询游戏在线状态，不复用通用查询缓存。推栏App登录不代表游戏在线，身份或状态不明确时显示未知。
+
+需有效JX3API访问令牌；装备属性接口当前需要 LV2（以后以官方文档为准），在线查询还需有效推栏ticket。资历使用新版/role/achievement，角色须先在魔盒绑定。凭据仍通过既有运行配置提供。
+
+装备图片中的物品、五行石和五彩石使用魔盒图标；五行石保留等级角标，图标缺失或下载失败时显示原名称。
+
+装备图片采用760宽单列、大字装备名和12项核心属性，保留全部装备与图标，显示实际心法、配装类型、赛季和采集时间。
+
+指定配装示例（服务器可省略，使用群绑定）：
+- `装备 唯我独尊 桃桃白糖 冰心诀 PVE`
+- `装备 桃桃白糖 云裳心经 PVP`
+- `属性 桃桃白糖 类型=休闲`
+- `装分 桃桃白糖 心法=云裳心经 类型=通用`
+
+类型支持PVE/秘境挑战、PVP/竞技对抗、休闲、通用；心法使用完整名称，选项顺序不限。只指定心法或类型时，按已收录组合的有效采集时间选择最新匹配配装；无法确定唯一最新时提示补全条件，未收录明确提示。无筛选沿用属性查询；不支持指定历史赛季。带筛选且显式指定服务器时使用完整服务器名。
+
+心法筛选支持别名：`装备 桃桃白糖 bx PVE`、`装备 桃桃白糖 秀奶 PVP`、`属性 桃桃白糖 心法=NX 类型=PVP`。中文简称、俗称及英文缩写统一转成标准名；英文不区分大小写，支持全角。`tl`、`cy`或多心法门派名会提示候选，角色名单token优先按身份处理。完整33心法表与来源见[心法别名](docs/references/kungfu-aliases.md)，运行映射维护在`src/services/jx3/kungfu_aliases.py`。
+
 ### 排行榜本地最新胜场装备
 
 `JJC_RANKING_LOCAL_WIN_EQUIPMENT_ENABLED=1` 后，按稳定角色 ID 读取本地当前赛季最新一场 3v3 胜场，统一提供装备、队友、橙武统计和紫武筛选。取最新胜场后装备缺失时保留未知，不向更旧胜场回退；心法分类保留原有来源。默认值为 0，支持环境变量与私有 runtime_config.json，修改后重启。`JJC_RANKING_DISPLAY_QUERY_ENABLED` 与 `JJC_RANKING_DISPLAY_OVERLAY_ENABLED` 是既有资料查询和展示覆盖开关，各自默认 0。

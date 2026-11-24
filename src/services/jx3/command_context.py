@@ -140,7 +140,7 @@ async def fetch_jx3api_or_raise(
     调用 infra.get 并统一处理失败；成功时返回响应 dict，否则抛出 CommandContextError。
     """
     items = await get(url=url, server=server, name=name, token=token, ticket=ticket, zili=zili)
-    if isinstance(items, dict) and items.get("msg") == "success":
+    if isinstance(items, dict) and not items.get("error") and items.get("msg") == "success":
         return items
 
     raise CommandContextError(api_error_text(items), at_user=True)

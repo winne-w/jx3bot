@@ -5,6 +5,9 @@ from typing import Any, List
 
 
 def format_scammer_reply(data: dict[str, Any]) -> str:
+    if not isinstance(data, dict) or data.get("error") or data.get("code") != 200:
+        msg = data.get("msg") if isinstance(data, dict) else None
+        return "骗子查询失败：{}".format(msg if isinstance(msg, str) and msg != "success" else "接口暂不可用，请稍后再试")
     records = _extract_records(data)
     if not records:
         return "未查询到相关骗子信息，该接口只能查剑网三相关的，别的不如百度请慎用！"

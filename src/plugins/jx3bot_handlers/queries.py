@@ -18,6 +18,9 @@ from src.services.jx3.query_context import (
     build_qiyu_spec,
     build_yanhua_spec,
 )
+from src.services.jx3.role_queries import build_equipment_spec_or_text, query_online_status
+from src.services.jx3.equipment_query import (EquipmentCommand, EquipmentQueryError,
+    parse_equipment_command, equipment_server_names, fetch_equipment_query)
 from src.utils.jjc_text import jjcdaxiaoxie
 from src.utils.random_text import suijitext
 from src.utils.time_format import format_minutes_seconds
@@ -32,6 +35,7 @@ def register(
     zhuangfen_matcher: Any,
     jjc_matcher: Any,
     fuben_matcher: Any,
+    online_matcher: Any = None,
 ) -> None:
     @yanhua_matcher.handle()
     async def yanhua_to_image(
@@ -112,10 +116,31 @@ def register(
     async def zhuangfen_to_image(
         bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
     ) -> None:
-        await bot.send(
-            event,
-            MessageSegment.at(event.user_id)
-            + Message("\n装备查询接口暂不可用：JX3API 当前没有可用的装备属性接口，暂时无法查询属性/装分。"),
+        try:
+            if len(foo) == 1:
+                command = parse_equipment_command(foo[0], server_names=equipment_server_names())
+            else:
+                command = EquipmentCommand(foo[1] if foo[0] is None else None, foo[2] if foo[0] is None else foo[0])
+            server, role_name = await resolve_server_and_name(command.identity_groups(), group_id=getattr(event, "group_id", None))
+            items = await fetch_equipment_query(server=server, name=role_name, kungfu=command.kungfu,
+                                                equip_type=command.equip_type, fetch=fetch_jx3api_or_raise)
+        except CommandContextError as exc:
+            await send_text(bot, event, exc.message, at_user=exc.at_user)
+            return
+        except EquipmentQueryError as exc:
+            await send_text(bot, event, str(exc), at_user=True)
+            return
+        spec, error_text = build_equipment_spec_or_text(
+            data=items, server=server, role_name=role_name, random_text=suijitext(),
+        )
+        if error_text:
+            await send_text(bot, event, error_text, at_user=True)
+            return
+        if spec is None:
+            return
+        await render_and_send_template_image(
+            bot, event, env=env, template_name=spec.template_name, context=spec.context,
+            width=spec.width, height=spec.height, at_user=spec.at_user, prefix=spec.prefix,
         )
 
     @jjc_matcher.handle()
@@ -175,3 +200,18 @@ def register(
             MessageSegment.at(event.user_id)
             + Message("\n副本查询接口暂不可用：JX3API 当前没有可用的团队 CD 接口，暂时无法查询副本/秘境。"),
         )
+
+    if online_matcher is not None:
+        @online_matcher.handle()
+        async def online_status(
+            bot: Bot, event: Event, foo: Annotated[tuple[Any, ...], RegexGroup()]
+        ) -> None:
+            try:
+                server, role_name = await resolve_server_and_name(foo, group_id=getattr(event, "group_id", None))
+            except CommandContextError as exc:
+                await send_text(bot, event, exc.message, at_user=exc.at_user)
+                return
+            text = await query_online_status(
+                url=API_URLS["在线查询"], server=server, name=role_name, token=TOKEN, ticket=TICKET,
+            )
+            await send_text(bot, event, text, at_user=True)

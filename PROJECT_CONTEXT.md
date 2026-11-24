@@ -199,6 +199,34 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 验证：`.venv/bin/python -m unittest tests.test_jjc_ranking_force_sync tests.test_jjc_sync_worker_queue tests.test_jjc_match_data_sync tests.test_jjc_ranking_stats_repo tests.test_jjc_ranking_command_tag`。真实 Mongo：`JJC_TEST_MONGO_URI=mongodb://127.0.0.1:27029/ .venv/bin/python -m unittest tests.test_jjc_ranking_force_sync_mongo`，仅允许该显式本地隔离端口与随机测试库。
 
 
+### QQ 战绩 JX3API 新响应兼容（2026-11-23）
+
+`src/infra/jx3api_compat.py` 将 `/arena/recent` 的整数 `status=200` / 对象 `detail` 适配为旧命令 `code/msg/data`，业务错误使用字符串 `detail`，畸形响应失败；其他端点与旧响应保持原语义。该端点访问令牌放 `token` 请求头，server/name/ticket 仍为查询参数。官方契约 https://www.jx3api.com/#/arena/recent ，HTTP200不等于业务成功。验证：`python -m unittest tests.test_jx3api_compat tests.test_arena_recent_response`。发布及验收见 `docs/exec-plans/completed/arena-recent-response-plan.md`。
+
+2026-11-23 20:55:39+08已部署37548e1三文件补丁，双Python各24测试及真实目标查询/图片验证通过；HTTP、QQ及4个同步worker正常。
+
+
+### 新版 JX3API 及角色查询统一契约（2026-11-23）
+
+共享compat覆盖项目现用13端点及装备/在线两端点的status/detail契约；token走请求头，ticket仅在文档要求的请求发送。资历迁/role/achievement；新闻id/时间、奇遇nullable时间、单服开服列表及业务失败提示同步修正。装备/属性/装分命令使用/calcd/attribute，展示全部已收录装备、面板和采集时间；在线/在线状态/角色在线通过POST /role/online/status即时读取，严格身份匹配与布尔游戏状态，推栏登录不算游戏在线，异常/缺失为未知。相关服务在role_queries.py，POST适配在infra/jx3api_online.py。需求、覆盖表、测试、发布状态以openspec/changes/archive/2026-11-23-jx3api-current-contract-and-role-queries为准。
+
+2026-11-23 21:24:55+08已按原生产组合叠加88d779b的18文件补丁，21:26:34+08真实装备/在线及HTTP/QQ/4worker验收通过；资历样本受魔盒未绑定限制，旧通知2项基线断言不计本次通过。
+
+
+### 装备物品图标
+
+装备与镶嵌物使用上游iconId对应的魔盒PNG；service保留名称并附加图标模型，装备渲染专用helper将有界预取结果内嵌，避免浏览器外链加载依赖。infra限制固定源、安全ID、4并发、6秒预取、32KiB/256像素及PNG块CRC，正缓存LRU256/24h；失败回退原名称，五行石显示短等级。通用截图及其他模板不改；实现与部署见docs/exec-plans/completed/equipment-icon-display-plan.md。
+
+2026-11-23 21:52:17+08已部署图标R2（b8d0378功能+7c831f3冷连接预算），21:54:57+08验收通过。真实有效图标超时仍会单项文字回退，不承诺第三方源始终可用；源/配置/QQ/HTTP/4worker守卫及双版本110测试通过。
+
+### 装备移动展示与配装筛选（2026-11-24）
+装备无筛选沿用/calcd/attribute；指定完整心法及类型走/calcd/detail（format=calcd）；单项筛选先读/calcd/records的detail.equipList元数据，按唯一最新有效时间选择组合。响应身份/心法/类型不匹配、缺失或候选不明确均明确报错。类型支持PVE/PVP与四种中文类型，无历史赛季选项。760宽单列显示12核心属性、全部装备、图标/等级及采集信息，内部ASCII属性代码不展示但保留原数据。见openspec/changes/archive/2026-11-24-equipment-mobile-and-loadout-filters。部署代码7e0bf6c；2026-11-24 12:28:40+08启动，真实筛选/手机渲染及QQ/HTTP/4新worker验收通过。
+
+### 心法别名（2026-11-24）
+装备/属性/装分的裸尾心法及心法=/kungfu=先经services/jx3/kungfu_aliases.py的纯resolver转换标准名，再走原配装查询/URL缓存。独立静态Python映射覆盖32目录心法加洗髓经共33种；支持中文简称/俗称、大小写和全角英文。tl/cy及多心法门派名提示候选，不猜测；单token或完整服务器后的角色token保留身份。来源与完整表见docs/references/kungfu-aliases.md。本轮不改JJC目录、HTTP/网页筛选及库表。
+
+心法别名f3cbacd已于2026-11-24 15:06:15+08部署，双版本170测试及真实别名/QQ/HTTP/4新worker验收通过，配置哈希不变。验收见openspec/changes/archive/2026-11-24-kungfu-alias-search。
+
 ### 排行榜本地最新胜场装备
 
 `JJC_RANKING_LOCAL_WIN_EQUIPMENT_ENABLED=1` 后，按稳定角色 ID 读取本地当前赛季最新一场 3v3 胜场，统一提供装备、队友、橙武统计和紫武筛选。取最新胜场后装备缺失时保留未知，不向更旧胜场回退；心法分类保留原有来源。默认值为 0，支持环境变量与私有 runtime_config.json，修改后重启。`JJC_RANKING_DISPLAY_QUERY_ENABLED` 与 `JJC_RANKING_DISPLAY_OVERLAY_ENABLED` 是既有资料查询和展示覆盖开关，各自默认 0。

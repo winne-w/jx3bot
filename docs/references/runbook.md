@@ -432,6 +432,13 @@ curl -X POST "https://qike.rickchen.cn/jx3bot/api/jjc/ranking-stats/synced-role-
 本次私有发布目录为 `/mnt/sata6-1/jx3bot-releases/ranking-front-20261107-e1ee55ef4405/`。回滚须停止全部bot、独立worker、dispatcher、统计生产者和其他队列写者；临时容器只执行转换器，使用核对过的同镜像、网络、原环境及只读原配置，工作目录/PYTHONPATH为/app，核对目标Mongo配置指纹。preimage使用canonical Extended JSON逐条flush/fsync，写入宿主持久化可写挂载，限制权限并使用唯一新文件名。disabled不复活，保留较高人工priority。两队列pending/front残留为零、转换数与备份条数一致、退出码为0后才恢复旧allowlist源码并启动；异常/CAS失配保持停止，保留部分备份，重试换新文件名。脚本、日志、转换计数和哈希保留；就绪/API/QQ/worker检查后，仅撤销本次暂停，保留期间其他原因的暂停。详见归档change的deployment.md。
 
 
+### 新版JX3API角色查询回归
+
+离线运行 `python -m unittest tests.test_jx3api_compat tests.test_arena_recent_response tests.test_jx3api_current_contract tests.test_jx3api_consumers tests.test_role_queries`，禁止单测外呼生产。手工验证已收录角色的装备/属性/装分及在线/在线状态，分别覆盖群绑定与显式服务器；装备图片须完整展示全部装备和采集时间，在线不把App登录当游戏在线。另核对奇遇未知时间、科举、名片、百战、日常、单服开服、新闻和技改的成功/失败输出。真实资历404应显示魔盒绑定要求。部署只能对核实的生产源叠加受审补丁，尤其config只合并新增API/正则，不从Git整文件覆盖。测试或诊断不主动发QQ群消息。
+
+### 心法别名回归
+`python -m unittest tests.test_kungfu_aliases tests.test_equipment_query`：33标准名/全部维护别名、NFKC大小写、完整token、tl/cy及多心法门派歧义、角色同名保护、重复/未知选项。测试不外呼。只读服务冒烟用已收录角色，对比bx/冰心诀 PVE及奶秀/秀奶/云裳心经 PVP结果；单心法筛选仍选最新匹配。不得主动发QQ群消息。映射维护src/services/jx3/kungfu_aliases.py，来源表docs/references/kungfu-aliases.md；无需配置或数据迁移。
+
 ### 排行榜本地最新胜场装备
 
 `JJC_RANKING_LOCAL_WIN_EQUIPMENT_ENABLED=1` 后，按稳定角色 ID 读取本地当前赛季最新一场 3v3 胜场，统一提供装备、队友、橙武统计和紫武筛选。取最新胜场后装备缺失时保留未知，不向更旧胜场回退；心法分类保留原有来源。默认值为 0，支持环境变量与私有 runtime_config.json，修改后重启。`JJC_RANKING_DISPLAY_QUERY_ENABLED` 与 `JJC_RANKING_DISPLAY_OVERLAY_ENABLED` 是既有资料查询和展示覆盖开关，各自默认 0。

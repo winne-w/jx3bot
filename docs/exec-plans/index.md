@@ -14,6 +14,16 @@
 
 ## Completed
 
+- `../../openspec/changes/archive/2026-11-24-kungfu-alias-search/tasks.md`: 33心法别名映射与装备命令解析。
+
+- `../../openspec/changes/archive/2026-11-24-equipment-mobile-and-loadout-filters/tasks.md`: 手机大字紧凑装备图片及心法/配装类型筛选。
+
+- `completed/equipment-icon-display-plan.md`: 魔盒装备/镶嵌物图标及等级、缓存和文字回退，b8d0378+7c831f3已部署；双版本110测试和真实图验证通过。
+
+- `../../openspec/changes/archive/2026-11-23-jx3api-current-contract-and-role-queries/tasks.md`: 13接口迁移及装备/在线两能力，88d779b已部署；113本地/108生产依赖测试及真实接口/图片验收通过。
+
+- `completed/arena-recent-response-plan.md`: QQ战绩status/detail及token请求头适配；24项双版本测试、真实查询/图片验证与生产部署完成。
+
 - `../../openspec/changes/archive/2026-11-07-jjc-ranking-force-sync-front/tasks.md`: 每轮排名统计成员从队首重新同步；TDD、三路独立review与定向复评通过，e1ee55e已推送并发布，生产候选382项、QQ/API/索引及4worker验收通过。
 
 - `completed/jjc-cangsheng-legendary-weapons-plan.md`: 新 50 级 33 个大橙武名称追加、空值兼容验证及生产发布验收

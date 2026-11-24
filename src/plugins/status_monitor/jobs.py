@@ -22,6 +22,7 @@ from src.renderers.jx3.jjc_ranking import render_combined_ranking_image
 from .notify import get_NapCat_data, send_email_via_163
 from .storage import CacheManager, load_id_set, save_id_set
 from src.infra.jx3api_compat import normalize_jx3api_response
+from src.services.jx3.server_status import server_status_items
 
 try:
     from config import (
@@ -303,7 +304,7 @@ async def check_records():
                     logger.info("status_monitor 从缓存加载了{}条技改ID", len(previous_records_ids))
 
             data = await get_records_data()
-            if not data or "data" not in data:
+            if not data or data.get("error") or "data" not in data:
                 logger.warning("status_monitor 获取技改数据失败")
                 return
 
@@ -339,7 +340,7 @@ async def check_records():
                                 record_class = "官方公告"
                                 title = record.get("title", "无标题")
                                 url = record.get("url", "")
-                                date = record.get("time", "")
+                                date = format_time(record.get("time", 0))
 
                                 message = (
                                     f"{record_class}\n"
@@ -365,14 +366,14 @@ async def check_news():
         global previous_news_ids
         try:
             if not previous_news_ids:
-                previous_news_ids = await load_id_set("news_ids")
+                previous_news_ids = {str(value) for value in await load_id_set("news_ids")}
                 if not previous_news_ids:
                     logger.info("status_monitor 没有发现新闻缓存或缓存为空")
                 else:
                     logger.info("status_monitor 从缓存加载了{}条新闻ID", len(previous_news_ids))
 
             data = await get_news_data()
-            if not data or "data" not in data:
+            if not data or data.get("error") or "data" not in data:
                 logger.warning("status_monitor 获取新闻数据失败")
                 return
 
@@ -384,7 +385,7 @@ async def check_news():
                 and "版本" not in item.get("title", "")
                 and "维护" not in item.get("title", "")
             ]
-            current_news_ids = {news["id"] for news in current_news}
+            current_news_ids = {str(news["id"]) for news in current_news}
 
             if not previous_news_ids:
                 previous_news_ids = current_news_ids
@@ -395,7 +396,7 @@ async def check_news():
             new_news_ids = current_news_ids - previous_news_ids
             if new_news_ids:
                 logger.info("status_monitor 检测到{}条新增新闻", len(new_news_ids))
-                new_news = [news for news in current_news if news["id"] in new_news_ids]
+                new_news = [news for news in current_news if str(news["id"]) in new_news_ids]
 
                 if get_driver().bots:
                     bot = list(get_driver().bots.values())[0]
@@ -509,11 +510,14 @@ async def check_status():
                 logger.info("status_monitor 从缓存加载了{}条服务器状态数据", len(previous_status))
 
         data = await get_server_status()
-        if not data:
+        if not data or data.get("error"):
             logger.warning("status_monitor 获取服务器状态失败")
             return
 
-        current_details = {s["server"]: s for s in data.get("data", [])}
+        current_details = {s["server"]: s for s in server_status_items(data)}
+        if not current_details:
+            logger.warning("status_monitor 服务器状态为空，保留已有缓存")
+            return
         current = {server: info.get("legacyStatus", info["status"]) for server, info in current_details.items()}
         current_time = int(time.time())
 
@@ -524,6 +528,8 @@ async def check_status():
                 if server not in status_history:
                     status_history[server] = {"last_maintenance": None, "last_open": None}
 
+                if current_details[server].get("time_source") == "observed":
+                    continue
                 api_time = current_details[server].get("time", current_time)
                 if status == 0:
                     status_history[server]["last_maintenance"] = api_time

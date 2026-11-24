@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Any
+
+
+def _announcement_datetime(value: Any) -> datetime:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return datetime.fromtimestamp(value, tz=timezone(timedelta(hours=8))).replace(tzinfo=None)
+    return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S")
 
 
 def format_time(time_str: str) -> str:
     try:
-        dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+        dt = _announcement_datetime(time_str)
         month = dt.month
         day = dt.day
         hour = dt.hour
@@ -36,7 +42,7 @@ def parse_updates(data: Any, keyword: str) -> list[dict[str, str]]:
             return []
 
         for item in filtered_items:
-            item["datetime"] = datetime.strptime(item["time"], "%Y-%m-%d %H:%M:%S")
+            item["datetime"] = _announcement_datetime(item["time"])
 
         filtered_items.sort(key=lambda x: x["datetime"], reverse=True)
         latest_time = filtered_items[0]["datetime"]
@@ -92,7 +98,7 @@ def parse_updateshuodong(data: Any, keyword: str) -> list[dict[str, str]]:
                     "id": str(item.get("id", item.get("token", ""))),
                     "url": item.get("url", ""),
                     "title": item.get("title", ""),
-                    "time": item.get("date", ""),
+                    "time": item.get("time", item.get("date", "")),
                 }
             )
 
@@ -143,7 +149,7 @@ def parse_updatesnew(data: Any, keyword: str) -> list[dict[str, str]]:
                     "id": str(item.get("id", item.get("token", ""))),
                     "url": item.get("url", ""),
                     "title": item.get("title", ""),
-                    "time": item.get("date", ""),
+                    "time": item.get("time", item.get("date", "")),
                 }
             )
 
