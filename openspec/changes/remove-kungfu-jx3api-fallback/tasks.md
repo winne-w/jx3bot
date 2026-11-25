@@ -1,5 +1,7 @@
 # 执行计划入口
 
+最新交付状态：用户后续已授权创建PR及正式发布，两文件已部署并通过就绪/短时观察；详情以[06-delivery.md](06-delivery.md)为准，下文保留各阶段记录。
+
 本文为 OpenSpec 任务入口，详细、持续维护的唯一执行计划见 [02-execution-plan.md](02-execution-plan.md)。用户于 2026-11-25 确认方案并要求输出执行计划，已确认执行计划；本地实现、验证及独立 review 完成，未部署。
 
 ## Purpose / Big Picture
