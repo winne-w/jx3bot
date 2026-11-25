@@ -234,3 +234,10 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 读服务使用专用 Mongo 连接和 singleflight，在原 1.5 秒 Mongo、2 秒 socket、8 秒构建、10 秒请求预算内完成整榜；超时或证据不一致时明确失败，不截断成员或丢弃异常证据。`JJC_EQUIPMENT_MONGO_HOST` 默认为空，仅在有明确部署需要时覆盖装备读连接的主机，凭据仍取部署配置。
 
 开启前必须完成主表派生字段回填、索引校验与全榜只读预检。字段、索引及回滚限制见 `docs/design-docs/database-design.md` 和 `docs/references/runbook.md`。方案与验证记录见 `openspec/changes/jjc-ranking-local-latest-match/`；独立提交包验证见其中 `submission.md`。
+
+
+### 心法查询取消 JX3API 兜底（2026-11-25，本地完成，未部署）
+
+排名兼容心法查询保留现有缓存优先选项和推栏查询。榜单失败、角色不匹配、身份缺失、心法为空或异常时直接使用既有本地当前赛季胜场推断；不再请求JX3API或解析其竞技历史作为心法来源。未找到合法结果时返回kungfu=None、found=False及kungfu_unknown_reason=kungfu_unavailable，不写空心法缓存覆盖旧值。推栏成功资料及缓存预热保留，身份有效角色不因心法未知而停止同步。普通竞技查询与区服解析继续沿用各自原有JX3API能力，旧缓存和历史快照不清理。
+
+JjcRankingService已移除专用token/ticket/jjc_query_url/defget_get注入和无独立调用的update_kungfu_cache。需求及验证见openspec/changes/remove-kungfu-jx3api-fallback/，Python3.13和3.9定向回归各372项通过；当前仅本地修改，线上尚未发布。

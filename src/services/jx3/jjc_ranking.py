@@ -7,7 +7,7 @@ from uuid import uuid4
 from weakref import WeakKeyDictionary
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from nonebot import logger
 from src.utils.jjc_query_observability import foreground_safe_logger, observed_query_stage
@@ -68,9 +68,6 @@ def _equipment_publication_lock():
 
 @dataclass(frozen=True)
 class JjcRankingService:
-    token: str
-    ticket: str
-    jjc_query_url: str
     arena_time_tag_url: str
     arena_ranking_url: str
     match_detail_url: str
@@ -82,7 +79,6 @@ class JjcRankingService:
     kungfu_dps_list: list[str]
     kungfu_pinyin_to_chinese: dict[str, str]
     tuilan_request: Callable[[str, dict[str, Any]], Any]
-    defget_get: Callable[..., Awaitable[dict[str, Any]]]
     match_replay_url: Optional[str] = None
     match_detail_projection_service: Any = None
     match_detail_participant_projection_service: Any = None
@@ -808,101 +804,6 @@ class JjcRankingService:
             logger.exception(f"查询竞技场排行榜失败: {exc}")
             return {"error": True, "message": f"查询竞技场排行榜失败: {exc}"}
 
-    async def update_kungfu_cache(self, server: str, name: str, jjc_data: dict[str, Any]) -> Dict[str, Any]:
-        logger.info(f"优先使用心法查询接口更新心法信息: server={server} name={name}")
-
-        kungfu_info = None
-        kungfu_detail: Optional[dict[str, Any]] = None
-        captured_game_role_id = None
-        captured_zone = None
-        try:
-            ranking_result = await self.query_jjc_ranking()
-            if ranking_result and not ranking_result.get("error") and ranking_result.get("code") == 0:
-                ranking_data = ranking_result.get("data", [])
-                for player in ranking_data:
-                    person_info = player.get("personInfo", {})
-                    player_server = person_info.get("server")
-                    player_name = person_info.get("roleName")
-
-                    if player_name and "·" in player_name:
-                        parts = player_name.rsplit("·", 1)
-                        if len(parts) == 2 and parts[1] == str(player_server):
-                            player_name = parts[0]
-
-                    if player_server == server and player_name == name:
-                        game_role_id = person_info.get("gameRoleId")
-                        zone = person_info.get("zone")
-                        captured_game_role_id = game_role_id
-                        captured_zone = zone
-
-                        if game_role_id and zone:
-                            logger.info(
-                                f"在排行榜中找到角色: server={server} name={name} role_id={game_role_id} zone={zone}"
-                            )
-                            kungfu_detail = await asyncio.to_thread(
-                                get_kungfu_detail_by_role_info,
-                                game_role_id,
-                                zone,
-                                server,
-                                tuilan_request=self.tuilan_request,
-                                kungfu_pinyin_to_chinese=self.kungfu_pinyin_to_chinese,
-                                match_detail_url=self.match_detail_url,
-                                match_replay_url=self.match_replay_url,
-                                role_name=name,
-                                rank=None,
-                            )
-                            kungfu_name = (kungfu_detail or {}).get("kungfu")
-                            if kungfu_name:
-                                logger.info(f"心法查询成功: server={server} name={name} kungfu={kungfu_name}")
-                                kungfu_info = kungfu_name
-                                await self._warmup_inspect_cache_from_kungfu_detail(
-                                    server=server,
-                                    name=name,
-                                    kungfu_detail=kungfu_detail,
-                                )
-                                break
-                            logger.info("心法查询失败: 未找到心法信息")
-                            await self._warmup_inspect_cache_from_kungfu_detail(
-                                server=server,
-                                name=name,
-                                kungfu_detail=kungfu_detail,
-                            )
-                            break
-
-                if not kungfu_info:
-                    logger.info(f"在排行榜中未找到匹配的角色: server={server} name={name}")
-            else:
-                logger.warning("获取排行榜数据失败，无法进行心法查询")
-        except Exception as exc:
-            logger.warning(f"心法查询过程中出错: {exc}")
-
-        if not kungfu_info:
-            logger.info("心法查询失败，从竞技场数据中提取心法信息作为备选方案")
-            history_data = jjc_data.get("data", {}).get("history", [])
-            if history_data:
-                for match in history_data:
-                    if match.get("won"):
-                        kungfu_info = match.get("kungfu")
-                        break
-
-        result: dict[str, Any] = {
-            "server": server,
-            "name": name,
-            "kungfu": kungfu_info,
-            "found": kungfu_info is not None,
-            "cache_time": time.time(),
-        }
-        if kungfu_detail:
-            result.update(kungfu_detail)
-        if captured_game_role_id and "game_role_id" not in result:
-            result["game_role_id"] = captured_game_role_id
-        if captured_zone and "zone" not in result:
-            result["zone"] = captured_zone
-        result.setdefault("weapon_checked", True)
-
-        await self._cache().save_kungfu_cache(server, name, result)
-        return result
-
     def save_ranking_stats(
         self,
         ranking_result: dict[str, Any],
@@ -1186,6 +1087,7 @@ class JjcRankingService:
         logger.info(f"优先使用心法查询接口查询心法信息: server={server} name={name}")
 
         captured_game_role_id: Optional[Any] = None
+        matched_role = False
 
         try:
             ranking_result = ranking_data
@@ -1205,6 +1107,7 @@ class JjcRankingService:
                             player_name = parts[0]
 
                     if player_server == server and player_name == name:
+                        matched_role = True
                         game_role_id = person_info.get("gameRoleId")
                         captured_game_role_id = game_role_id
                         zone = person_info.get("zone")
@@ -1241,10 +1144,10 @@ class JjcRankingService:
                                 result.setdefault("game_role_id", game_role_id)
                             if zone:
                                 result.setdefault("zone", zone)
-                            result["found"] = result.get("kungfu") is not None
+                            result["found"] = bool(kungfu_name)
 
-                            await self._cache().save_kungfu_cache(server, name, result)
                             if result["found"]:
+                                await self._cache().save_kungfu_cache(server, name, result)
                                 await self._warmup_inspect_cache_from_kungfu_detail(
                                     server=server,
                                     name=name,
@@ -1258,103 +1161,38 @@ class JjcRankingService:
                                 name=name,
                                 kungfu_detail=kungfu_detail,
                             )
-                            break
+                        else:
+                            logger.info("排行榜角色缺少查询身份: server={} name={}", server, name)
+                        break
 
-                logger.info(f"在排行榜中未找到匹配的角色: server={server} name={name}")
+                if not matched_role:
+                    logger.info(f"在排行榜中未找到匹配的角色: server={server} name={name}")
             else:
                 logger.warning("获取排行榜数据失败，无法进行心法查询")
         except Exception as exc:
             logger.warning(f"心法查询过程中出错: {exc}")
 
-        logger.info("心法查询失败，使用竞技场数据查询作为备选方案")
-        logger.info(f"正在查询竞技场数据: server={server} name={name}")
-        jjc_data = await self.defget_get(
-            url=self.jjc_query_url,
+        logger.info("推栏未取得心法，尝试本地当前赛季胜场推断: server={} name={}", server, name)
+        history_win_result = await self._get_cached_match_detail_win_kungfu(
             server=server,
             name=name,
-            token=self.token,
-            ticket=self.ticket,
+            role_id=captured_game_role_id,
         )
-
-        if jjc_data.get("error") or jjc_data.get("msg") != "success":
-            logger.warning(f"获取竞技场数据失败: {jjc_data}")
-            logger.info(
-                "defget 竞技场数据失败，尝试缓存对局详情胜场心法兜底: server={} name={} role_id={}",
-                server,
-                name,
-                captured_game_role_id,
-            )
-            history_win_result = await self._get_cached_match_detail_win_kungfu(
+        if history_win_result and history_win_result.get("found") and history_win_result.get("kungfu"):
+            return await self._save_cached_match_detail_win_kungfu_result(
                 server=server,
                 name=name,
-                role_id=captured_game_role_id,
+                history_win_result=history_win_result,
             )
-            if history_win_result and history_win_result.get("found"):
-                logger.info(
-                    "defget 失败后缓存对局详情胜场心法兜底命中: server={} name={} kungfu={} win_count={} latest_match_id={}",
-                    server,
-                    name,
-                    history_win_result.get("kungfu"),
-                    history_win_result.get("cached_match_detail_win_count"),
-                    history_win_result.get("cached_match_detail_latest_win_match_id"),
-                )
-                return await self._save_cached_match_detail_win_kungfu_result(
-                    server=server,
-                    name=name,
-                    history_win_result=history_win_result,
-                )
-            logger.info(
-                "defget 失败且缓存对局详情胜场心法兜底未命中，返回原错误: server={} name={}",
-                server,
-                name,
-            )
-            return {
-                "error": True,
-                "message": f"获取竞技场数据失败: {jjc_data.get('message', '未知错误')}",
-                "server": server,
-                "name": name,
-            }
 
-        refreshed_result = await self.update_kungfu_cache(server, name, jjc_data)
-        if refreshed_result.get("found") and refreshed_result.get("kungfu"):
-            return refreshed_result
-
-        kungfu_info = None
-        history_data = jjc_data.get("data", {}).get("history", [])
-        if history_data:
-            for match in history_data:
-                if match.get("won") is True:
-                    kungfu_info = match.get("kungfu")
-                    break
-
-        history_win_result: Optional[dict[str, Any]] = None
-        if not kungfu_info:
-            logger.info(
-                "历史胜场心法兜底: defget 历史未找到心法，尝试从缓存对局详情推断 "
-                "server={} name={}",
-                server,
-                name,
-            )
-            history_win_result = await self._get_cached_match_detail_win_kungfu(
-                server=server,
-                name=name,
-                role_id=captured_game_role_id,
-            )
-            if history_win_result and history_win_result.get("found"):
-                kungfu_info = history_win_result.get("kungfu")
-
-        result = {
+        return {
             "server": server,
             "name": name,
-            "kungfu": kungfu_info,
-            "found": kungfu_info is not None,
+            "kungfu": None,
+            "found": False,
             "cache_time": time.time(),
+            "kungfu_unknown_reason": "kungfu_unavailable",
         }
-        if history_win_result:
-            self._copy_cached_match_detail_win_kungfu_fields(result, history_win_result)
-        result.setdefault("weapon_checked", True)
-        await self._cache().save_kungfu_cache(server, name, result)
-        return result
 
     async def _load_cached_kungfu_for_ranking(self, server: str, name: str) -> Optional[dict[str, Any]]:
         cache = self._cache()

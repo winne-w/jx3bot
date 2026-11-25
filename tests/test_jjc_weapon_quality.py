@@ -13,9 +13,6 @@ from src.services.jx3.weapon_quality import extract_member_weapon_name, extract_
 
 def _build_service() -> JjcRankingService:
     return JjcRankingService(
-        token="",
-        ticket="",
-        jjc_query_url="",
         arena_time_tag_url="",
         arena_ranking_url="",
         match_detail_url="",
@@ -27,7 +24,6 @@ def _build_service() -> JjcRankingService:
         kungfu_dps_list=[],
         kungfu_pinyin_to_chinese={},
         tuilan_request=lambda url, params: {},
-        defget_get=lambda **kwargs: {},
     )
 
 

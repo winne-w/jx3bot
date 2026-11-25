@@ -1,0 +1,11 @@
+{
+  "base": "8a21a2b78076f2d7a6ac2356dbf80e0628ad809e",
+  "both_versions": {
+    "baseline_tests": 321,
+    "candidate_tests": 326,
+    "failures": 21,
+    "errors": 6,
+    "failure_ids_identical": true
+  },
+  "note": "Existing main baseline failures; original dirty integration suite had 372 pass on both versions."
+}
