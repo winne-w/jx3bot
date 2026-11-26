@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import socket
+import time
 from typing import List
 
 import config as cfg
@@ -11,6 +12,11 @@ logger = logging.getLogger(__name__)
 _TASKS: List[asyncio.Task] = []
 _DISPATCHER_TASKS: List[asyncio.Task] = []
 
+_RESTART_BACKOFF_INITIAL = 1.0
+_RESTART_BACKOFF_MAX = 60.0
+_HEALTHY_RESET_SECONDS = 60.0
+_AUTO_PAUSED_SLEEP_SECONDS = 10.0
+
 
 def _build_worker_id(index: int) -> str:
     host = socket.gethostname()
@@ -18,24 +24,80 @@ def _build_worker_id(index: int) -> str:
 
 
 async def _run_worker(worker_id: str) -> None:
-    try:
-        await jjc_match_data_sync_service.run_worker(
-            mode="full",
-            worker_id=worker_id,
-        )
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        logger.exception(f"Bot-managed JJC sync worker exited with error: worker_id={worker_id}")
+    delay = _RESTART_BACKOFF_INITIAL
+    while True:
+        started = time.monotonic()
+        try:
+            summary = await jjc_match_data_sync_service.run_worker(
+                mode="full",
+                worker_id=worker_id,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if time.monotonic() - started >= _HEALTHY_RESET_SECONDS:
+                delay = _RESTART_BACKOFF_INITIAL
+            logger.exception(
+                f"Bot-managed JJC sync worker exited with error, restarting in {delay}s: worker_id={worker_id}"
+            )
+            await asyncio.sleep(delay)
+            delay = min(_RESTART_BACKOFF_MAX, delay * 2)
+            continue
+
+        if time.monotonic() - started >= _HEALTHY_RESET_SECONDS:
+            delay = _RESTART_BACKOFF_INITIAL
+
+        if isinstance(summary, dict) and summary.get("stopped_reason") == "auto_paused":
+            await asyncio.sleep(_AUTO_PAUSED_SLEEP_SECONDS)
+            continue
+
+        if isinstance(summary, dict) and summary.get("error"):
+            logger.warning(
+                "Bot-managed JJC sync worker returned error summary, restarting in "
+                f"{delay}s: worker_id={worker_id} message={summary.get('message')}"
+            )
+            await asyncio.sleep(delay)
+            delay = min(_RESTART_BACKOFF_MAX, delay * 2)
+            continue
+
+        await asyncio.sleep(_RESTART_BACKOFF_INITIAL)
 
 
 async def _run_dispatcher() -> None:
-    try:
-        await jjc_match_data_sync_service.run_dispatcher()
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        logger.exception("Bot-managed JJC sync dispatcher exited with error")
+    delay = _RESTART_BACKOFF_INITIAL
+    while True:
+        started = time.monotonic()
+        try:
+            summary = await jjc_match_data_sync_service.run_dispatcher()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if time.monotonic() - started >= _HEALTHY_RESET_SECONDS:
+                delay = _RESTART_BACKOFF_INITIAL
+            logger.exception(
+                f"Bot-managed JJC sync dispatcher exited with error, restarting in {delay}s"
+            )
+            await asyncio.sleep(delay)
+            delay = min(_RESTART_BACKOFF_MAX, delay * 2)
+            continue
+
+        if time.monotonic() - started >= _HEALTHY_RESET_SECONDS:
+            delay = _RESTART_BACKOFF_INITIAL
+
+        if isinstance(summary, dict) and summary.get("stopped_reason") == "auto_paused":
+            await asyncio.sleep(_AUTO_PAUSED_SLEEP_SECONDS)
+            continue
+
+        if isinstance(summary, dict) and summary.get("error"):
+            logger.warning(
+                "Bot-managed JJC sync dispatcher returned error summary, restarting in "
+                f"{delay}s: message={summary.get('message')}"
+            )
+            await asyncio.sleep(delay)
+            delay = min(_RESTART_BACKOFF_MAX, delay * 2)
+            continue
+
+        await asyncio.sleep(_RESTART_BACKOFF_INITIAL)
 
 
 async def start_jjc_sync_workers() -> None:

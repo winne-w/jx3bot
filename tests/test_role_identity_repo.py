@@ -1151,6 +1151,40 @@ class TestRoleIdentityRepo(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([doc["identity_key"] for doc in result], ["global:a", "global:z"])
 
+    async def test_upgrade_identity_uses_add_to_set_for_aliases(self) -> None:
+        db = FakeDb()
+        existing = {
+            "_id": ObjectId(),
+            "identity_key": "name:梦江南:角色a",
+            "identity_level": "name",
+            "server": "梦江南",
+            "normalized_server": "梦江南",
+            "name": "角色A",
+            "normalized_name": "角色a",
+            "aliases": ["name:梦江南:角色a"],
+        }
+        upgraded = dict(
+            existing,
+            identity_key="global_id:10086",
+            identity_level="global_id",
+            global_id="10086",
+        )
+        db.role_identities.find_one.side_effect = [
+            dict(existing),
+            dict(upgraded),
+        ]
+        repo = RoleIdentityRepo(db=db)
+
+        result = await repo.upgrade_identity(
+            "name:梦江南:角色a",
+            global_id="10086",
+        )
+
+        self.assertEqual(result["identity_key"], "global_id:10086")
+        _, update = db.role_identities.update_one.call_args.args
+        self.assertNotIn("$push", update)
+        self.assertEqual(update["$addToSet"], {"aliases": "name:梦江南:角色a"})
+
 
 if __name__ == "__main__":
     unittest.main()

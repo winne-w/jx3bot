@@ -1,6 +1,6 @@
 # 数据库设计
 
-更新时间：2026-05-11
+更新时间：2026-11-26
 
 本文是当前项目数据库结构的维护文档。以后新增、删除、重命名集合或字段，调整索引、TTL、迁移脚本、存储归属时，必须同步更新本文。
 
@@ -15,10 +15,11 @@
 
 - 数据库相关改动必须同步修改本文，包括集合、字段、索引、TTL、数据类型、迁移脚本和读写 repo 的变化。
 - 新增持久化能力优先新增或扩展 `src/storage/mongo_repos/`，不要在 `plugins`、handler、API router 中散写 `db.collection`。
-- 新增索引默认写入 `src/infra/mongo.py:_ensure_indexes()`，并在本文的集合章节记录索引名、字段和唯一性。默认关闭、需要先验证跨进程配置的 JJC 受控刷新是明确例外：其五个集合由 `JjcLiveRefreshRepo.initialize()` 负责初始化，仅在独立刷新 worker 启动时执行；失败只停用新刷新能力，不阻断既有 bot/API。
+- 新增索引默认写入 `src/infra/mongo.py:_ensure_indexes()`，并在本文的集合章节记录索引名、字段和唯一性。默认关闭、需要先验证跨进程配置的 JJC 受控刷新是明确例外：其五个集合由 `JjcLiveRefreshRepo.initialize()` 负责初始化，仅在独立刷新 worker 启动时执行；失败只停用新刷新能力，不阻断既有 bot/API。本地最新胜场装备读索引（`EQUIPMENT_READ_V1_INDEXES`）由 `ensure_equipment_read_indexes(db)` / `verify_equipment_read_indexes(db)` 管理，仅当 `JJC_RANKING_LOCAL_WIN_EQUIPMENT_ENABLED == 1` 时由 `_ensure_indexes()` 自动创建。
+- **唯一索引变更保护**：`_ensure_indexes()`（`_safe_create_index`）在检测到已有同名索引的 `key`、`unique`、`expireAfterSeconds`、`partialFilterExpression` 任一与期望定义不一致时，若既有索引或期望索引任一为 `unique=True`，仅记录 `ERROR` 告警并直接跳过，**绝不自动执行 `drop_index` 或重建**，防止因存量重复数据重建失败导致唯一约束丢失；唯一索引演进必须通过受控运维或迁移脚本完成。仅新旧均为非唯一索引时才允许启动期自动 `drop_index` + `create_index` 收敛。
 - 有历史 JSON 或文件缓存需要迁移时，迁移脚本放在 `scripts/`，脚本说明要写明源路径、目标集合和幂等键。
 - 时间字段应优先使用 Unix 秒级时间戳；若使用 Mongo `datetime` 用于 TTL，必须在字段说明中明确类型和原因。
-- **TTL 字段约束**：MongoDB TTL 索引仅对 `Date` 类型字段生效，对 `float`/`int` 类型字段创建 TTL 索引实际不会触发自动删除。新建集合的 TTL 字段必须使用 `datetime` 类型；旧集合若使用非 `Date` 字段声明了 TTL 索引，应在对应集合描述中标注"TTL 实际不生效"，并在合理时机补 `_dt` 后缀的 Date 冗余字段或由 repo 业务逻辑自行判断过期。
+- **TTL 字段约束**：MongoDB TTL 索引仅对 `Date` 类型字段生效，对 `float`/`int` 类型字段创建 TTL 索引实际不会触发自动删除。新建集合的 TTL 字段必须使用 `datetime` 类型；对数字时间戳字段（如 `server_master_cache.cached_at`、`jjc_role_recent.cached_at`）不得声明无效 `expireAfterSeconds`，应保持普通索引并由 repo 业务逻辑自行判断过期，或在后续演进中补充 `_dt` 后缀的 Date 冗余字段。
 - 群号、QQ 号等外部 ID 当前多数以字符串落库，新增字段应沿用对应集合已有类型，避免同一字段混用数字和字符串。
 
 ## 集合设计
@@ -177,16 +178,16 @@
 | `name` | string | 主服名称 |
 | `zone` | string | 大区 |
 | `server_id` | string | 区服 ID |
-| `cached_at` | int | 缓存写入时间 Unix 秒（⚠ int 类型，TTL 索引不生效） |
+| `cached_at` | int | 缓存写入时间 Unix 秒（过期由 repo 业务逻辑按 `ttl_seconds` 判断，不依赖 MongoDB TTL） |
 
 索引：
 
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_key` | `key` | unique |
-| `idx_cached_at` | `cached_at` | TTL 604800 秒（⚠ int 类型，TTL 实际不生效） |
+| `idx_cached_at` | `cached_at` | 普通索引（已移除无效的数字字段 `expireAfterSeconds`） |
 
-说明：repo 内部也会按 `ttl_seconds` 主动判断过期并删除；TTL 索引因字段类型为 int 不可靠，只作兜底意图声明。若长期保留本集合，应补 `cached_at_dt`（Date 类型）用于真实 TTL。
+说明：repo 内部按 `ttl_seconds` 主动判断过期并删除，不再对 `int` 类型的 `cached_at` 声明无效 TTL 参数。若后续需要数据库自动清理，应新增 Date 类型字段（如 `expires_at_dt`）承载真实 TTL。
 
 ### `kungfu_cache` **[LEGACY — 已删除]**
 
@@ -449,7 +450,7 @@
 | `_id` | ObjectId | MongoDB 自动主键 |
 | `server` | string | 服务器名 |
 | `name` | string | 角色名 |
-| `cached_at` | float | 缓存时间 Unix 秒（⚠ float 类型，TTL 索引不生效） |
+| `cached_at` | float | 缓存时间 Unix 秒（过期由业务逻辑判断，不依赖 MongoDB TTL） |
 | `data` | object | 角色近期战绩结果 |
 | `data.current_season` | string | 生成缓存时的赛季名称，须与当前配置一致才复用 |
 | `data.season_start_time` | int | 生成缓存时的竞技场开赛边界，按北京时间零点计算，须与当前配置一致才复用 |
@@ -461,7 +462,7 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_server_name` | `server`, `name` | unique |
-| `idx_cached_at` | `cached_at` | TTL 86400 秒（⚠ float 类型，TTL 实际不生效；实际过期判断由业务逻辑完成） |
+| `idx_cached_at` | `cached_at` | 普通索引（已移除无效的数字字段 `expireAfterSeconds`；实际过期判断由业务逻辑完成） |
 
 ### `jjc_role_indicator`
 
@@ -688,9 +689,9 @@
 | `_id` | ObjectId | MongoDB 自动主键 |
 | `snapshot_hash` | string | 规范化 `talents` 数组后的 SHA-256 内容 hash，业务唯一 |
 | `talents` | array | 完整奇穴数组，不裁剪字段 |
-| `created_at` | datetime | 首次写入时间 |
-| `last_seen_at` | datetime | 最近一次被对局引用的时间 |
-| `schema_version` | int | schema 版本，初始为 1 |
+| `created_at` | datetime | 首次写入时间（仅在 `$setOnInsert` 写入） |
+| `last_seen_at` | datetime/float | 最近一次被对局引用的时间 |
+| `schema_version` | int | schema 版本，当前为 2（`TALENT_SNAPSHOT_SCHEMA_VERSION = 2`）；重刷保存时通过 `$set` 原地更新 `talents` 与 `schema_version` 以完成旧快照升级 |
 
 索引：
 
@@ -777,6 +778,12 @@
 用途：JJC 对局数据同步旧角色队列。当前运行时代码不再以该集合作为主队列；集合保留为 `scripts/migrate_jjc_sync_identity_queue.py` 的迁移源和代码版本回滚前反向同步目标。
 
 业务主键：`identity_key`。旧集合没有 `identity_id`，不能被当前 identity-id 队列代码直接作为运行时集合使用。
+
+索引：
+
+| 索引名 | 字段 | 约束 |
+|---|---|---|
+| `idx_identity_key` | `identity_key` | unique（`src/infra/mongo.py:_ensure_indexes()` 启动时唯一保留声明的迁移幂等索引；其余 7 个历史运行索引不再在启动时重复声明，线上已有索引不主动删除以保证回滚兼容） |
 
 ### `jjc_sync_match_seen`
 
@@ -1104,7 +1111,7 @@
 | `queue_front_order` | string/null | 未消费排名批次的顺序；最新优先，普通任务缺失或为 null |
 | `queue_front_rank` | int/null | 同批次按原始榜单名次升序；普通任务缺失或为 null |
 
-两集合新增 `idx_status_ranking_front`：`status ASC, queue_front_order DESC, queue_front_rank ASC, priority DESC, queued_at ASC, identity_key ASC, _id ASC`。旧索引保留。worker 领取、队列分页的状态分组、位置计算共用上述顺序；普通记录缺新字段时继续按 priority/FIFO。Mongo 只在状态 queued 时领取，角色 next_sync_after 不阻止显式排名请求。
+`jjc_sync_identity_queue` 新增 `idx_status_ranking_front`：`status ASC, queue_front_order DESC, queue_front_rank ASC, priority DESC, queued_at ASC, identity_key ASC, _id ASC`（`jjc_sync_role_queue` 的启动期索引声明已收敛为仅维护 `idx_identity_key` unique，线上存量旧索引不主动删除）。worker 领取、队列分页的状态分组、位置计算共用上述顺序；普通记录缺新字段时继续按 priority/FIFO。Mongo 只在状态 queued 时领取，角色 next_sync_after 不阻止显式排名请求。
 
 每轮排名统计产生独立请求上下文，在 QQ/定时入口传给保存补偿；不依赖 cache_time 唯一性。同一角色非 disabled/syncing 时立即 queued，清角色冷却，保留失败审计与既有水位。syncing 只写 pending；有效租约释放 CAS 比较 request_order，有 pending 则发布本轮结果并 queued，否则按原冷却/失败规则释放并清 front。过期恢复逐文档执行同样 CAS，保留最新请求。ranking_request_order 不随成功清除，避免同轮保存补偿重复执行。
 
@@ -1115,11 +1122,17 @@
 
 `jjc_match_detail` 新增根字段 `equipment_read_time_v1`、`equipment_read_valid_v1`、`equipment_winner_gids_v1`、`equipment_match_id_v1`。`src/utils/jjc_equipment_time.py` 的 `equipment_source_index` 在主表保存时与原文原子写入；未知/冲突形状保持无有效证书。`build_equipment_source_update_pipeline` 提供 Mongo 4.4 保守回填表达式。它们只派生读索引元数据，不改对局事实、参与者投影或同步水位。
 
-必须预先准备以下非唯一索引（开启新开关前备份、受控回填并核对执行计划）：
+必须预先准备以下非唯一索引（代码定义位于 `src/infra/mongo.py:EQUIPMENT_READ_V1_INDEXES`，开启新开关前应备份、受控回填并核对执行计划）：
 
 - `idx_equipment_winner_latest_v1`: `equipment_winner_gids_v1:1, equipment_read_time_v1:-1, equipment_match_id_v1:-1, _id:1`。
 - `idx_equipment_team1_state_time_source_v1`: `data.detail.team1.players_info.global_id:1, equipment_read_valid_v1:1, equipment_read_time_v1:1, _id:1`。
 - `idx_equipment_team2_state_time_source_v1`: 同上一索引，将 team1 换成 team2。
+
+代码入口与启动行为（`src/infra/mongo.py`）：
+
+- `verify_equipment_read_indexes(db) -> dict`：只读读取 `db["jjc_match_detail"].index_information()`，返回 `{"ready": bool, "missing": [...], "mismatched": [...]}`，供开启开关前预检使用。
+- `ensure_equipment_read_indexes(db)`：幂等创建上述 3 个非唯一索引。
+- `_ensure_indexes(db)`：仅当 `config.JJC_RANKING_LOCAL_WIN_EQUIPMENT_ENABLED == 1` 时自动调用 `ensure_equipment_read_indexes(db)`；默认关闭（`0`）时不自动建索引以避免大表首次构建阻塞启动，开启开关的新环境或恢复库则可在启动时自动补齐索引，避免 `hint` 缺失报错。
 
 查询先按角色取有证书的最新胜场源 ID，同时完整收集未认证、当前异常及未来时间证据，再分块按物理 `_id` 读取原文并验证原文与元数据。每角色 limit 1 仅用于已证明合法胜场的最大值计算；异常证据不截断，最终全榜仍完整。源消失或版本变化使本次视图失败。
 

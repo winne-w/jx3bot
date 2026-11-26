@@ -70,6 +70,10 @@ class JjcSyncStaleMatchDetailLeaseError(JjcSyncStaleLeaseError):
 class JjcSyncMatchDetailClaimError(RuntimeError):
     """对局详情领取失败，应中断当前角色并等待后续重试。"""
 
+    def __init__(self, *args: Any, retry_after: Optional[float] = None) -> None:
+        super().__init__(*args)
+        self.retry_after = retry_after
+
 
 def _coerce_int(value: Any) -> Optional[int]:
     if value is None or isinstance(value, bool):
@@ -1372,45 +1376,8 @@ class JjcMatchDataSyncService:
             name=name or None,
         )
         if isinstance(refreshed, dict):
-            await self._sync_identity_snapshot_if_available(refreshed)
             return refreshed
         return None
-
-    async def _sync_identity_snapshot_if_available(self, identity: Dict[str, Any]) -> None:
-        identity_id = self._extract_identity_id(identity)
-        if identity_id is None:
-            return
-        sync_snapshot = getattr(self._repo, "sync_identity_snapshot", None)
-        if callable(sync_snapshot):
-            try:
-                await sync_snapshot(identity=identity)
-            except TypeError:
-                await sync_snapshot(identity_id=identity_id, identity=identity)
-            except Exception as exc:
-                logger.warning("JJC 同步 identity 队列快照失败: identity_id={} error={}".format(identity_id, exc))
-            return
-        upsert_candidate = getattr(self._repo, "upsert_identity_queue_candidate", None)
-        if not callable(upsert_candidate):
-            return
-        try:
-            await upsert_candidate(
-                identity_id=identity_id,
-                identity_key=identity.get("identity_key"),
-                server=identity.get("server"),
-                name=identity.get("name"),
-                normalized_server=identity.get("normalized_server") or identity.get("server"),
-                normalized_name=identity.get("normalized_name") or identity.get("name"),
-                global_id=identity.get("global_id"),
-                global_role_id=identity.get("global_role_id"),
-                role_id=identity.get("role_id") or identity.get("game_role_id"),
-                game_role_id=identity.get("game_role_id") or identity.get("role_id"),
-                person_id=identity.get("person_id"),
-                zone=identity.get("zone"),
-                source="identity_refresh",
-                priority=0,
-            )
-        except Exception as exc:
-            logger.warning("JJC 更新 identity 队列候选快照失败: identity_id={} error={}".format(identity_id, exc))
 
     async def _release_role_interrupted(
         self,
@@ -1419,14 +1386,37 @@ class JjcMatchDataSyncService:
         requeue: bool = True,
         lease_owner: Optional[str] = None,
         identity_id: Optional[Any] = None,
+        next_sync_after: Optional[float] = None,
     ) -> bool:
         if identity_id is not None and hasattr(self._repo, "release_identity_interrupted"):
+            if next_sync_after is not None:
+                try:
+                    return await self._repo.release_identity_interrupted(
+                        identity_id=identity_id,
+                        reason=reason,
+                        requeue=requeue,
+                        lease_owner=lease_owner,
+                        next_sync_after=next_sync_after,
+                    )
+                except TypeError:
+                    pass
             return await self._repo.release_identity_interrupted(
                 identity_id=identity_id,
                 reason=reason,
                 requeue=requeue,
                 lease_owner=lease_owner,
             )
+        if next_sync_after is not None:
+            try:
+                return await self._repo.release_role_interrupted(
+                    identity_key=identity_key,
+                    reason=reason,
+                    requeue=requeue,
+                    lease_owner=lease_owner,
+                    next_sync_after=next_sync_after,
+                )
+            except TypeError:
+                pass
         return await self._repo.release_role_interrupted(
             identity_key=identity_key,
             reason=reason,
@@ -1911,11 +1901,14 @@ class JjcMatchDataSyncService:
                 reason=str(exc),
                 requeue=True,
                 lease_owner=lease_owner,
+                next_sync_after=exc.retry_after,
             )
             result["error"] = True
             result["interrupted"] = True
             result["error_type"] = "match_detail_claim_failed"
             result["message"] = str(exc)
+            if exc.retry_after is not None:
+                result["retry_after"] = exc.retry_after
             if not released:
                 result["stale_lease"] = True
             return result
@@ -2205,13 +2198,33 @@ class JjcMatchDataSyncService:
             action = str(detail_state.get("action") or "")
             if action == "skip":
                 return "skipped"
+            now = time.time()
+            retry_after: Optional[float] = None
+            if action != "claimable":
+                raw_retry_after = detail_state.get("detail_retry_after")
+                raw_lease_expires_at = detail_state.get("lease_expires_at")
+                if (
+                    status == "failed"
+                    and isinstance(raw_retry_after, (int, float))
+                    and not isinstance(raw_retry_after, bool)
+                    and raw_retry_after > now
+                ):
+                    retry_after = float(raw_retry_after)
+                elif (
+                    status in ("detail_syncing", "syncing")
+                    and isinstance(raw_lease_expires_at, (int, float))
+                    and not isinstance(raw_lease_expires_at, bool)
+                    and raw_lease_expires_at > now
+                ):
+                    retry_after = min(float(raw_lease_expires_at), now + 30.0)
             raise JjcSyncMatchDetailClaimError(
                 "match_detail_not_claimable: match_id={} owner={} status={} action={}".format(
                     match_id,
                     lease_owner,
                     status,
                     action or "unknown",
-                )
+                ),
+                retry_after=retry_after,
             )
 
         last_error = ""
@@ -2382,64 +2395,6 @@ class JjcMatchDataSyncService:
         raise RuntimeError(
             "match_detail_persistence_service is required when inspect_service.cache_repo is unavailable"
         )
-
-    async def _project_match_detail_if_configured(
-        self,
-        match_id: int,
-        payload: Dict[str, Any],
-    ) -> None:
-        if self._match_detail_projection_service is None:
-            return
-        projector = getattr(self._match_detail_projection_service, "project_payload", None)
-        if not callable(projector):
-            return
-        try:
-            result = projector(
-                match_id=match_id,
-                payload=payload,
-                source="match_detail_sync",
-                priority=-10,
-            )
-            if inspect.isawaitable(result):
-                await result
-        except Exception as exc:
-            logger.warning("JJC 对局详情身份投影失败: match_id={} error={}".format(match_id, exc))
-
-    async def _project_match_detail_participants_if_configured(
-        self,
-        match_id: int,
-        payload: Dict[str, Any],
-    ) -> None:
-        service = self._match_detail_participant_projection_service
-        if service is None:
-            return
-        projector = getattr(service, "project_payload", None)
-        if not callable(projector):
-            return
-        try:
-            result = projector(
-                match_id=match_id,
-                payload=payload,
-                source="sync_worker",
-            )
-            if inspect.isawaitable(result):
-                await result
-        except Exception as exc:
-            logger.warning("JJC 对局详情参与者投影失败: match_id={} error={}".format(match_id, exc))
-
-    async def _clear_match_detail_participants_if_configured(self, match_id: int) -> None:
-        service = self._match_detail_participant_projection_service
-        if service is None:
-            return
-        clearer = getattr(service, "clear_match", None)
-        if not callable(clearer):
-            return
-        try:
-            result = clearer(match_id)
-            if inspect.isawaitable(result):
-                await result
-        except Exception as exc:
-            logger.warning("JJC 对局详情参与者投影清理失败: match_id={} error={}".format(match_id, exc))
 
     async def _refresh_match_detail_participant_sync_status_if_configured(self, match_id: int) -> None:
         service = self._match_detail_participant_projection_service

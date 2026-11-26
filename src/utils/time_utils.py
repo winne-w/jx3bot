@@ -41,10 +41,17 @@ def time_ago_filter(timestamp: int) -> str:
     now = datetime.now()
     then = datetime.fromtimestamp(timestamp)
     time_difference = now - then
+    total_seconds = int(time_difference.total_seconds())
+
+    if total_seconds < 60:
+        return "刚刚"
+    if total_seconds < 3600:
+        minutes = total_seconds // 60
+        return f"{minutes}分钟前"
 
     years = time_difference.days // 365
     months = (time_difference.days % 365) // 30
-    days = time_difference.days % 30
+    days = (time_difference.days % 365) % 30
     hours = time_difference.seconds // 3600
 
     relative_time = []
@@ -56,5 +63,7 @@ def time_ago_filter(timestamp: int) -> str:
         relative_time.append(f"{days}天")
     if hours > 0:
         relative_time.append(f"{hours}小时")
+    if not relative_time:
+        return "刚刚"
     return "".join(relative_time) + "前"
 

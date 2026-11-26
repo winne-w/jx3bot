@@ -810,32 +810,58 @@ class JjcSyncRepo:
         reason: str,
         requeue: bool = True,
         lease_owner: Optional[str] = None,
+        next_sync_after: Optional[float] = None,
     ) -> bool:
         _identity_id = self._coerce_object_id(identity_id)
         if _identity_id is None:
             return False
         now = time.time()
-        set_fields: Dict[str, Any] = {
-            "status": "queued" if requeue else "pending",
-            "next_sync_after": None,
-            "lease_owner": None,
-            "lease_expires_at": None,
-            "interrupted_reason": reason,
-            "interrupted_at": now,
-            "updated_at": now,
-        }
-        if requeue:
-            set_fields["queued_at"] = now
-            set_fields["queue_batch_id"] = None
-            set_fields["queue_source"] = "interrupted"
+        delayed_requeue = (
+            requeue
+            and next_sync_after is not None
+            and not isinstance(next_sync_after, bool)
+            and float(next_sync_after) > now
+        )
+        if delayed_requeue:
+            assert next_sync_after is not None
+            set_fields: Dict[str, Any] = {
+                "status": "cooldown",
+                "next_sync_after": float(next_sync_after),
+                "lease_owner": None,
+                "lease_expires_at": None,
+                "interrupted_reason": reason,
+                "interrupted_at": now,
+                "updated_at": now,
+                "queued_at": None,
+                "queue_batch_id": None,
+                "queue_source": "interrupted",
+            }
+            keep_front = False
         else:
-            set_fields["queued_at"] = None
-            set_fields["queue_batch_id"] = None
-            set_fields["queue_mode"] = None
-            set_fields["queue_source"] = None
+            set_fields = {
+                "status": "queued" if requeue else "pending",
+                "next_sync_after": None,
+                "lease_owner": None,
+                "lease_expires_at": None,
+                "interrupted_reason": reason,
+                "interrupted_at": now,
+                "updated_at": now,
+            }
+            if requeue:
+                set_fields["queued_at"] = now
+                set_fields["queue_batch_id"] = None
+                set_fields["queue_source"] = "interrupted"
+            else:
+                set_fields["queued_at"] = None
+                set_fields["queue_batch_id"] = None
+                set_fields["queue_mode"] = None
+                set_fields["queue_source"] = None
+            keep_front = True
         try:
             return await self._release_queue_row(
-                self._leased_identity_filter(_identity_id, lease_owner, now=now), set_fields, keep_front=True,
+                self._leased_identity_filter(_identity_id, lease_owner, now=now),
+                set_fields,
+                keep_front=keep_front,
             )
         except Exception as exc:
             logger.warning("释放中断 identity 同步角色失败: identity_id={} error={}", identity_id, exc)
@@ -1107,6 +1133,7 @@ class JjcSyncRepo:
         reason: str,
         requeue: bool = True,
         lease_owner: Optional[str] = None,
+        next_sync_after: Optional[float] = None,
     ) -> bool:
         """释放被中断的角色，不增加 fail_count。"""
         identity_id = await self._resolve_identity_id_by_key(identity_key)
@@ -1116,31 +1143,57 @@ class JjcSyncRepo:
                 reason=reason,
                 requeue=requeue,
                 lease_owner=lease_owner,
+                next_sync_after=next_sync_after,
             )
 
         now = time.time()
-        set_fields: Dict[str, Any] = {
-            "status": "queued" if requeue else "pending",
-            "next_sync_after": None,
-            "lease_owner": None,
-            "lease_expires_at": None,
-            "interrupted_reason": reason,
-            "interrupted_at": now,
-            "updated_at": now,
-        }
-        if requeue:
-            set_fields["queued_at"] = now
-            set_fields["queue_batch_id"] = None
-            set_fields["queue_source"] = "interrupted"
+        delayed_requeue = (
+            requeue
+            and next_sync_after is not None
+            and not isinstance(next_sync_after, bool)
+            and float(next_sync_after) > now
+        )
+        if delayed_requeue:
+            assert next_sync_after is not None
+            set_fields: Dict[str, Any] = {
+                "status": "cooldown",
+                "next_sync_after": float(next_sync_after),
+                "lease_owner": None,
+                "lease_expires_at": None,
+                "interrupted_reason": reason,
+                "interrupted_at": now,
+                "updated_at": now,
+                "queued_at": None,
+                "queue_batch_id": None,
+                "queue_source": "interrupted",
+            }
+            keep_front = False
         else:
-            set_fields["queued_at"] = None
-            set_fields["queue_batch_id"] = None
-            set_fields["queue_mode"] = None
-            set_fields["queue_source"] = None
+            set_fields = {
+                "status": "queued" if requeue else "pending",
+                "next_sync_after": None,
+                "lease_owner": None,
+                "lease_expires_at": None,
+                "interrupted_reason": reason,
+                "interrupted_at": now,
+                "updated_at": now,
+            }
+            if requeue:
+                set_fields["queued_at"] = now
+                set_fields["queue_batch_id"] = None
+                set_fields["queue_source"] = "interrupted"
+            else:
+                set_fields["queued_at"] = None
+                set_fields["queue_batch_id"] = None
+                set_fields["queue_mode"] = None
+                set_fields["queue_source"] = None
+            keep_front = True
 
         try:
             return await self._release_queue_row(
-                self._leased_role_filter(identity_key, lease_owner, now=now), set_fields, keep_front=True,
+                self._leased_role_filter(identity_key, lease_owner, now=now),
+                set_fields,
+                keep_front=keep_front,
             )
         except Exception as exc:
             logger.warning(

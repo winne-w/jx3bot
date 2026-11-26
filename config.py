@@ -146,7 +146,7 @@ TUILAN_USER_AGENT = os.getenv("TUILAN_USER_AGENT", "okhttp/3.12.2")
 # MongoDB 连接串
 # 示例: mongodb://用户名:密码@地址:端口/数据库名?authSource=admin
 # 可通过环境变量 MONGO_URI 或 runtime_config.json 覆盖
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://root:password@127.0.0.1:27017/jx3bot?authSource=admin")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017/jx3bot")
 
 # Bot 内置 JJC 同步 worker 数量，0 表示关闭。
 JJC_SYNC_WORKER_COUNT = _env_int("JJC_SYNC_WORKER_COUNT", 0)

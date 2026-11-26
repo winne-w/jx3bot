@@ -158,9 +158,12 @@ def read_config_file():
         return {}
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
     except Exception as e:
         return f"读取配置文件失败: {e}"
+    if not isinstance(data, dict):
+        return "读取配置文件失败: 配置文件顶层必须是 JSON 对象"
+    return data
 
 # 写入运行时配置文件
 def write_config_file(content: dict):
@@ -334,7 +337,7 @@ async def handle_view_config(event):
     
     # 读取配置文件
     config_content = read_config_file()
-    if isinstance(config_content, str) and config_content.startswith("配置文件"):
+    if isinstance(config_content, str):
         await view_config_cmd.finish(config_content)
     
     # 解析配置内容，提取所有可查看配置项的当前有效值
@@ -376,7 +379,7 @@ async def handle_config(event, args=CommandArg()):
     
     # 读取当前配置
     config_content = read_config_file()
-    if isinstance(config_content, str) and config_content.startswith("配置文件"):
+    if isinstance(config_content, str):
         await config_cmd.finish(config_content)
     
     # 修改配置

@@ -987,7 +987,7 @@ class RoleIdentityRepo:
                 _snapshot_filter(existing),
                 {
                     "$set": set_fields,
-                    "$push": {"aliases": current_identity_key},
+                    "$addToSet": {"aliases": current_identity_key},
                 },
             )
         except DuplicateKeyError:
