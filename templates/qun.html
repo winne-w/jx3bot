@@ -2,479 +2,294 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>机器人功能卡片</title>
+    <meta name="viewport" content="width=760, initial-scale=1.0">
+    <title>群组功能帮助</title>
+    {% include "_partials/base_card_style.html" %}
     <style>
-        /* 重置页面元素以消除默认边距 */
-        *, *::before, *::after {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Microsoft YaHei', sans-serif;
-        }
-        
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: auto;
-            overflow: visible;
-            background: transparent;
-        }
-        
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-        }
-        
-        .card {
-            width: 820px;
-            margin: 0;
-            background-color: transparent;
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
-            overflow: hidden;
-            position: relative;
-            border-radius: 0; /* 直角边框 */
-        }
-        
-        /* 为整个卡片设置背景图片 */
-        .card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: url('http://127.0.0.1:8000/img/bg.jpg') center/cover no-repeat;
-            z-index: -1;
-            filter: brightness(0.85);
-        }
-        
-        .card-header {
-            position: relative;
-            color: white;
-            padding: 12px 15px;
+        .qun-head-top {
             display: flex;
             align-items: center;
-            background: linear-gradient(to bottom, 
-                rgba(0, 0, 0, 0.8) 0%,
-                rgba(0, 0, 0, 0.6) 70%, 
-                rgba(0, 0, 0, 0.4) 100%);
+            gap: 16px;
         }
-        
-        .group-avatar {
-            width: 48px;
-            height: 48px;
-            border-radius: 0; /* 直角头像 */
-            margin-right: 12px;
-            border: 2px solid rgba(255, 255, 255, 0.8);
+        .qun-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 16px;
+            border: 1px solid var(--jx3-border-strong);
             object-fit: cover;
-            position: relative;
-            z-index: 1;
+            flex-shrink: 0;
+            background: var(--jx3-surface-alt);
         }
-        
-        .group-info {
+        .qun-head-info {
+            min-width: 0;
             flex: 1;
-            position: relative;
-            z-index: 1;
         }
-        
-        .group-name {
+        .qun-runtime-grid {
+            margin-top: 18px;
+        }
+        .qun-runtime-grid .jx3-stat-val {
+            font-size: 22px;
+        }
+        .qun-push-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .qun-push-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 12px 16px;
+            background: var(--jx3-surface-alt);
+            border: 1px solid var(--jx3-border);
+            border-radius: var(--jx3-radius-md);
+        }
+        .qun-push-name {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--jx3-ink);
+        }
+        .qun-push-pill {
             font-size: 18px;
-            font-weight: bold;
-            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
-            letter-spacing: 0.5px;
+            padding: 4px 14px;
         }
-        
-        .bot-name {
-            font-size: 13px;
-            opacity: 1;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-            margin-top: 3px;
-            font-weight: 500;
-        }
-        
-        .card-body {
-            position: relative;
-            padding: 18px 20px;
-            background: linear-gradient(to bottom, 
-                rgba(255, 255, 255, 0.3) 0%, 
-                rgba(255, 255, 255, 0.5) 10%, 
-                rgba(255, 255, 255, 0.7) 30%, 
-                rgba(255, 255, 255, 0.85) 70%);
-        }
-        
-        .section {
-            margin-bottom: 20px;
-        }
-        
-        .section:last-child {
-            margin-bottom: 0;
-        }
-        
-        .section-title {
-            font-size: 15px;
-            font-weight: bold;
-            margin-bottom: 12px;
-            color: #5348c0;
-            padding: 6px 12px;
-            border-radius: 0; /* 直角标题 */
-            background-color: rgba(255, 255, 255, 0.85);
-            display: inline-flex;
-            align-items: center;
-            border-left: 4px solid rgba(115, 103, 240, 0.9);
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        }
-        
-        .section-icon {
-            margin-right: 5px;
+        .qun-push-tip {
             display: flex;
             align-items: center;
+            padding: 12px 16px;
+            background: var(--jx3-primary-soft);
+            border-radius: var(--jx3-radius-md);
+            color: var(--jx3-primary-ink);
+            font-size: 18px;
+            font-weight: 600;
+            line-height: 1.45;
         }
-        
-        .status-list {
+        .qun-cmd-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            column-gap: 105px;
-            row-gap: 14px;
-            font-size: 12px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
         }
-        
-        .status-item {
+        .qun-cmd-card {
+            background: var(--jx3-surface-alt);
+            border: 1px solid var(--jx3-border);
+            border-radius: var(--jx3-radius-md);
+            padding: 14px 16px;
             display: flex;
-            align-items: center;
-            padding: 10px 12px;
-            background-color: rgba(255, 255, 255, 0.85);
-            border-radius: 0; /* 直角状态项 */
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+            flex-direction: column;
+            gap: 6px;
         }
-        
-        .status-icon {
-            margin-right: 10px;
-            display: flex;
-            align-items: center;
+        .qun-cmd-name {
+            font-size: 21px;
+            font-weight: 800;
+            color: var(--jx3-primary-ink);
+            line-height: 1.3;
         }
-        
-        .status-icon svg {
-            width: 18px;
-            height: 18px;
-            fill: #5348c0;
-            opacity: 0.9;
-        }
-        
-        .status-name {
-            flex: 1;
-            font-weight: 600;
-            color: #222;
-            font-size: 13px;
-        }
-        
-        .status-value {
-            padding: 3px 8px;
-            border-radius: 0; /* 直角状态值 */
-            font-size: 13px;
-            font-weight: 600;
-            min-width: 46px;
-            text-align: center;
-        }
-        
-        .status-on {
-            background-color: #e8f5e9;
-            color: #1b5e20;
-            border: 1px solid #81c784;
-        }
-        
-        .status-off {
-            background-color: #ffebee;
-            color: #b71c1c;
-            border: 1px solid #e57373;
-        }
-        
-        .status-normal {
-            background-color: #e3f2fd;
-            color: #0d47a1;
-            border: 1px solid #64b5f6;
-        }
-        
-        .commands-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 14px;
-            margin-bottom: 0;
-        }
-        
-        .command-card {
-            background-color: rgba(255, 255, 255, 0.85);
-            border-radius: 0; /* 直角命令卡片 */
-            padding: 10px 12px;
-            font-size: 12px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-        }
-        
-        .command-name {
-            color: #5348c0;
-            font-weight: 600;
-            margin-bottom: 5px;
-            font-size: 14px;
-        }
-        
-        .command-usage {
-            color: #333;
-            font-size: 12px;
+        .qun-cmd-usage {
+            font-size: 18px;
+            color: var(--jx3-ink);
             line-height: 1.5;
-            font-weight: 500;
         }
-        
-        .quick-commands {
-            background-color: rgba(240, 240, 255, 0.9);
-            padding: 10px;
-            text-align: center;
-            font-size: 13px;
-            font-weight: 600;
-            color: #333;
-            border-top: 1px solid rgba(200, 200, 220, 0.7);
+        .qun-quick-bar {
+            margin-top: 16px;
+            padding-top: 14px;
+            border-top: 1px dashed var(--jx3-border-strong);
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
         }
-        
-        .quick-commands span {
-            display: inline-block;
-            margin: 0 5px;
-            color: #5348c0;
-            background-color: rgba(255, 255, 255, 0.7);
-            padding: 3px 8px;
-            border-radius: 0; /* 直角快速命令 */
-            border: 1px solid #d4d0f5;
-        }
-        
-        .footer {
-            background-color: rgba(248, 248, 248, 0.95);
-            padding: 10px;
-            text-align: center;
-            font-size: 11px;
-            font-weight: 500;
-            color: #555;
-            border-top: 1px solid rgba(200, 200, 200, 0.5);
+        .qun-quick-label {
+            font-size: 19px;
+            font-weight: 700;
+            color: var(--jx3-muted);
+            margin-right: 4px;
         }
     </style>
 </head>
 <body>
-    <div class="card">
-        <div class="card-header">
-            <img class="group-avatar" src="{{ group_avatar_url }}" alt="群头像">
-            <div class="group-info">
-                <div class="group-name">{{ group_name }}</div>
-                <div class="bot-name">已运行: {{ uptime }}  启动时间: {{ startup_time }}   连接次数: {{ connection_count }}  上次离线: {{ last_offline }}   离线持续: {{ offline_duration }}</div>
-            </div>
-        </div>
-        <div class="card-body">
-            <div class="section">
-                <div class="section-title">
-                    <span class="section-icon">
-                        <!-- 设置/齿轮图标 -->
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#5348c0">
-                            <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z" />
-                        </svg>
-                    </span>
-                    当前配置
+{% autoescape true %}
+<main class="jx3-shell">
+    <header class="jx3-header-card">
+        <div class="qun-head-top">
+            {% if group_avatar_url %}
+            <img class="qun-avatar" src="{{ group_avatar_url }}" alt="群头像" onerror="this.style.display='none'">
+            {% endif %}
+            <div class="qun-head-info">
+                <div class="jx3-title-row">
+                    <h1 class="jx3-title">{{ group_name }}</h1>
                 </div>
-                <div class="status-list">
-                    <div class="status-item">
-                        <span class="status-icon">
-                            <!-- 服务器图标 -->
-                            <svg viewBox="0 0 24 24">
-                                <path d="M4,1H20A1,1 0 0,1 21,2V6A1,1 0 0,1 20,7H4A1,1 0 0,1 3,6V2A1,1 0 0,1 4,1M4,9H20A1,1 0 0,1 21,10V14A1,1 0 0,1 20,15H4A1,1 0 0,1 3,14V10A1,1 0 0,1 4,9M4,17H20A1,1 0 0,1 21,18V22A1,1 0 0,1 20,23H4A1,1 0 0,1 3,22V18A1,1 0 0,1 4,17M9,5H10V3H9V5M9,13H10V11H9V13M9,21H10V19H9V21M5,3V5H7V3H5M5,11V13H7V11H5M5,19V21H7V19H5Z" />
-                            </svg>
-                        </span>
-                        <span class="status-name">服务器</span>
-                        <span class="status-value status-normal">{{ server }}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-icon">
-                            <!-- 开服推送图标（铃铛） -->
-                            <svg viewBox="0 0 24 24">
-                                <path d="M21,19V20H3V19L5,17V11C5,7.9 7.03,5.17 10,4.29C10,4.19 10,4.1 10,4A2,2 0 0,1 12,2A2,2 0 0,1 14,4C14,4.1 14,4.19 14,4.29C16.97,5.17 19,7.9 19,11V17L21,19M14,21A2,2 0 0,1 12,23A2,2 0 0,1 10,21" />
-                            </svg>
-                        </span>
-                        <span class="status-name">开服推送</span>
-                      <span class="status-value {{ 'status-on' if server_push == '开启' else 'status-off' }}">{{ server_push }}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-icon">
-                            <!-- 新闻推送图标（报纸） -->
-                            <svg viewBox="0 0 24 24">
-                                <path d="M20,11H4V8H20M20,15H13V13H20M20,19H13V17H20M11,19H4V13H11M20.33,4.67L18.67,3L17,4.67L15.33,3L13.67,4.67L12,3L10.33,4.67L8.67,3L7,4.67L5.33,3L3.67,4.67L2,3V19A2,2 0 0,0 4,21H20A2,2 0 0,0 22,19V3L20.33,4.67Z" />
-                            </svg>
-                        </span>
-                        <span class="status-name">新闻推送</span>
-                       <span class="status-value {{ 'status-on' if news_push == '开启' else 'status-off' }}">{{ news_push }}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-icon">
-                            <!-- 技改推送图标（扳手/更新） -->
-                            <svg viewBox="0 0 24 24">
-                                <path d="M12,16C13.1,16 14,16.9 14,18C14,19.1 13.1,20 12,20C10.9,20 10,19.1 10,18C10,16.9 10.9,16 12,16M12,10C13.1,10 14,10.9 14,12C14,13.1 13.1,14 12,14C10.9,14 10,13.1 10,12C10,10.9 10.9,10 12,10M12,4C13.1,4 14,4.9 14,6C14,7.1 13.1,8 12,8C10.9,8 10,7.1 10,6C10,4.9 10.9,4 12,4M6,16C7.1,16 8,16.9 8,18C8,19.1 7.1,20 6,20C4.9,20 4,19.1 4,18C4,16.9 4.9,16 6,16M6,10C7.1,10 8,10.9 8,12C8,13.1 7.1,14 6,14C4.9,14 4,13.1 4,12C4,10.9 4.9,10 6,10M6,4C7.1,4 8,4.9 8,6C8,7.1 7.1,8 6,8C4.9,8 4,7.1 4,6C4,4.9 4.9,4 6,4M18,16C19.1,16 20,16.9 20,18C20,19.1 19.1,20 18,20C16.9,20 16,19.1 16,18C16,16.9 16.9,16 18,16M18,10C19.1,10 20,10.9 20,12C20,13.1 19.1,14 18,14C16.9,14 16,13.1 16,12C16,10.9 16.9,10 18,10M18,4C19.1,4 20,4.9 20,6C20,7.1 19.1,8 18,8C16.9,8 16,7.1 16,6C16,4.9 16.9,4 18,4Z" />
-                            </svg>
-                        </span>
-                        <span class="status-name">技改推送</span>
-                       <span class="status-value {{ 'status-on' if records_push == '开启' else 'status-off' }}">{{ records_push }}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-icon">
-                            <!-- 日常推送图标（日历） -->
-                            <svg viewBox="0 0 24 24">
-                                <path d="M19,19H5V8H19M16,1V3H8V1H6V3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H18V1M17,12H12V17H17V12Z" />
-                            </svg>
-                        </span>
-                        <span class="status-name">日常推送</span>
-                       <span class="status-value {{ 'status-on' if daily_push == '开启' else 'status-off' }}">{{ daily_push }}</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-icon">
-                            <!-- 竞技排名推送图标（奖杯） -->
-                            <svg viewBox="0 0 24 24">
-                                <path d="M17,3V5H19V9H17C16.35,11 14.62,12.5 12.5,12.91L12.5,15H15V17H9V15H11.5V12.91C9.38,12.5 7.65,11 7,9H5V5H7V3H17M7,7H5V9H7V7M19,7H17V9H19V7Z" />
-                            </svg>
-                        </span>
-                        <span class="status-name">竞技排名推送</span>
-                       <span class="status-value {{ 'status-on' if ranking_push == '开启' else 'status-off' }}">{{ ranking_push }}</span>
-                    </div>
-                    <div class="status-item" style="background-color: rgba(248, 240, 255, 0.9); border: 1px dashed #9c71e0;">
-                        <span class="status-icon">
-                            <!-- 提示图标（信息） -->
-                            <svg viewBox="0 0 24 24">
-                                <path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z" />
-                            </svg>
-                        </span>
-                        <span class="status-name" style="font-size: 11px; color: #9c22b8; line-height: 1.4; font-weight: 600;">
-                            群管可输入命令开启或关闭<br>如: /新闻推送 关闭<br>防止炸群
-                        </span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="section">
-                <div class="section-title">
-                    <span class="section-icon">
-                        <!-- 命令/终端图标 -->
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#5348c0">
-                            <path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z" />
-                        </svg>
-                    </span>
-                    常用命令
-                </div>
-                <div class="commands-grid">
-                    <div class="command-card">
-                        <div class="command-name">资历查询</div>
-                        <div class="command-usage">资历 角色名<br>资历分布 服务器 角色名</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">奇遇查询</div>
-                        <div class="command-usage">奇遇 角色名<br>奇遇 服务器 角色名</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">竞技查询</div>
-                        <div class="command-usage">战绩 角色名<br>竞技 服务器 角色名</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">竞技排名</div>
-                        <div class="command-usage">竞技排名<br>竞技排名 拆分</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">装备查询</div>
-                        <div class="command-usage">装备 角色名<br>装备 角色名 奶秀 PVP<br>属性 服务器 角色名 bx PVE<br>装分 角色名 类型=通用<br>类型：PVE / PVP / 休闲 / 通用</div>
-                        <div class="command-name">角色在线查询</div>
-                        <div class="command-usage">在线 角色名<br>在线状态 服务器 角色名</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">名片查询</div>
-                        <div class="command-usage">名片 角色名<br>名片 服务器 角色名</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">百战查询</div>
-                        <div class="command-usage">百战<br>百战 角色名<br>百战 服务器 角色名</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">交易行</div>
-                        <div class="command-usage">物价 物品名<br>交易行 服务器 物品名</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">副本查询</div>
-                        <div class="command-usage">副本 角色名<br>秘境 服务器 角色名</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">烟花查询</div>
-                        <div class="command-usage">烟花 角色名<br>烟花 服务器 角色名</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">骗子查询</div>
-                        <div class="command-usage">骗子 角色UID<br>查人 角色UID<br>查询贴吧行骗信息</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">科举答题</div>
-                        <div class="command-usage">~！关键词<br>答题 关键词<br>支持模糊查询或拼音首字母</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">提醒管理</div>
-                        <div class="command-usage">提醒 YYYYMMDDHHMM 内容<br>提醒所有人 YYYYMMDDHHMM 内容<br>提醒列表<br>取消提醒（再回复序号）</div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- 万宝楼功能区域 -->
-            <div class="section">
-                <div class="section-title">
-                    <span class="section-icon">
-                        <!-- 商店/万宝楼图标 -->
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#5348c0">
-                            <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,0 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8Z" />
-                        </svg>
-                    </span>
-                    万宝楼功能
-                </div>
-                <div class="commands-grid">
-                    <div class="command-card">
-                        <div class="command-name">外观/物价查询</div>
-                        <div class="command-usage">外观 关键词<br>物价 关键词<br>搜索外观和价格信息</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">订阅管理</div>
-                        <div class="command-usage">订阅 价格阈值<br>设置价格提醒</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">我的订阅</div>
-                        <div class="command-usage">我的订阅<br>查看订阅列表</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">订阅价格</div>
-                        <div class="command-usage">订阅价格<br>查看价格详情</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">所有订阅</div>
-                        <div class="command-usage">所有订阅<br>查看所有配置</div>
-                    </div>
-                    <div class="command-card">
-                        <div class="command-name">取消订阅</div>
-                        <div class="command-usage">取消订阅 序号<br>取消指定订阅</div>
-                    </div>
+                <div class="jx3-pills">
+                    <span class="jx3-pill">绑定服务器：{{ server }}</span>
+                    {% if offline_duration and offline_duration != '无记录' %}
+                    <span class="jx3-pill jx3-pill--muted">上次离线持续：{{ offline_duration }}</span>
+                    {% endif %}
                 </div>
             </div>
         </div>
-        
-        <!-- 主动查询命令行 -->
-        <div class="quick-commands">
-            查询命令：
-            <span>百战</span>
-            <span>日常</span>
-            <span>开服</span>
-            <span>技改</span>
-            <span>更新</span>
-            <span>活动</span>
-            <span>奖励</span>
+        <div class="jx3-stat-grid jx3-cols-4 qun-runtime-grid">
+            <div class="jx3-stat-box">
+                <div class="jx3-stat-label">已运行</div>
+                <div class="jx3-stat-val">{{ uptime }}</div>
+            </div>
+            <div class="jx3-stat-box">
+                <div class="jx3-stat-label">连接次数</div>
+                <div class="jx3-stat-val">{{ connection_count }}</div>
+            </div>
+            <div class="jx3-stat-box">
+                <div class="jx3-stat-label">启动日期</div>
+                <div class="jx3-stat-val">{{ startup_time }}</div>
+            </div>
+            <div class="jx3-stat-box">
+                <div class="jx3-stat-label">上次离线</div>
+                <div class="jx3-stat-val">{{ last_offline }}</div>
+            </div>
         </div>
-        
-        <div class="footer">
-            使用 /帮助 查看更多命令 • 群已绑定服务器可省略服务器名 • GitHub: github.com/winne-w/jx3bot
+    </header>
+
+    <section class="jx3-card">
+        <div class="jx3-section-head">
+            <h2 class="jx3-section-title">群组推送配置</h2>
+            <span class="jx3-section-meta">绑定区服：{{ server }}</span>
         </div>
-    </div>
+        <div class="qun-push-grid">
+            <div class="qun-push-item">
+                <span class="qun-push-name">开服推送</span>
+                <span class="jx3-pill qun-push-pill {{ 'jx3-pill--success' if server_push == '开启' else 'jx3-pill--danger' }}">{{ server_push }}</span>
+            </div>
+            <div class="qun-push-item">
+                <span class="qun-push-name">新闻推送</span>
+                <span class="jx3-pill qun-push-pill {{ 'jx3-pill--success' if news_push == '开启' else 'jx3-pill--danger' }}">{{ news_push }}</span>
+            </div>
+            <div class="qun-push-item">
+                <span class="qun-push-name">技改推送</span>
+                <span class="jx3-pill qun-push-pill {{ 'jx3-pill--success' if records_push == '开启' else 'jx3-pill--danger' }}">{{ records_push }}</span>
+            </div>
+            <div class="qun-push-item">
+                <span class="qun-push-name">日常推送</span>
+                <span class="jx3-pill qun-push-pill {{ 'jx3-pill--success' if daily_push == '开启' else 'jx3-pill--danger' }}">{{ daily_push }}</span>
+            </div>
+            <div class="qun-push-item">
+                <span class="qun-push-name">竞技排名推送</span>
+                <span class="jx3-pill qun-push-pill {{ 'jx3-pill--success' if ranking_push == '开启' else 'jx3-pill--danger' }}">{{ ranking_push }}</span>
+            </div>
+            <div class="qun-push-tip">
+                群管可输入指令开关推送，如：/新闻推送 关闭
+            </div>
+        </div>
+    </section>
+
+    <section class="jx3-card">
+        <div class="jx3-section-head">
+            <h2 class="jx3-section-title">常用命令</h2>
+            <span class="jx3-section-meta">已绑定区服可省略服务器名</span>
+        </div>
+        <div class="qun-cmd-grid">
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">资历查询</div>
+                <div class="qun-cmd-usage">资历 角色名<br>资历分布 服务器 角色名</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">奇遇查询</div>
+                <div class="qun-cmd-usage">奇遇 角色名<br>奇遇 服务器 角色名</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">竞技查询</div>
+                <div class="qun-cmd-usage">战绩 角色名<br>竞技 服务器 角色名</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">竞技排名</div>
+                <div class="qun-cmd-usage">竞技排名<br>竞技排名 拆分</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">装备查询</div>
+                <div class="qun-cmd-usage">装备 角色名 · 装备 角色名 奶秀 PVP<br>属性 服务器 角色名 bx PVE<br>装分 角色名 类型=通用（PVE/PVP/休闲/通用）</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">角色在线查询</div>
+                <div class="qun-cmd-usage">在线 角色名<br>在线状态 服务器 角色名</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">名片查询</div>
+                <div class="qun-cmd-usage">名片 角色名<br>名片 服务器 角色名</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">百战查询</div>
+                <div class="qun-cmd-usage">百战<br>百战 角色名 · 百战 服务器 角色名</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">交易行</div>
+                <div class="qun-cmd-usage">物价 物品名<br>交易行 服务器 物品名</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">副本查询</div>
+                <div class="qun-cmd-usage">副本 角色名<br>秘境 服务器 角色名</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">烟花查询</div>
+                <div class="qun-cmd-usage">烟花 角色名<br>烟花 服务器 角色名</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">骗子查询</div>
+                <div class="qun-cmd-usage">骗子 角色UID · 查人 角色UID<br>查询贴吧行骗信息</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">科举答题</div>
+                <div class="qun-cmd-usage">~！关键词 · 答题 关键词<br>支持模糊查询或拼音首字母</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">提醒管理</div>
+                <div class="qun-cmd-usage">提醒 YYYYMMDDHHMM 内容<br>提醒所有人 YYYYMMDDHHMM 内容<br>提醒列表 · 取消提醒（再回复序号）</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="jx3-card">
+        <div class="jx3-section-head">
+            <h2 class="jx3-section-title">万宝楼功能</h2>
+            <span class="jx3-section-meta">外观行情与降价订阅</span>
+        </div>
+        <div class="qun-cmd-grid">
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">外观/物价查询</div>
+                <div class="qun-cmd-usage">外观 关键词 · 物价 关键词<br>搜索外观和价格信息</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">订阅管理</div>
+                <div class="qun-cmd-usage">订阅 价格阈值<br>设置当前查询外观降价提醒</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">我的订阅</div>
+                <div class="qun-cmd-usage">我的订阅<br>查看个人订阅列表</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">订阅价格</div>
+                <div class="qun-cmd-usage">订阅价格<br>查看订阅物品实时最低价</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">所有订阅</div>
+                <div class="qun-cmd-usage">所有订阅<br>查看全部用户订阅总览</div>
+            </div>
+            <div class="qun-cmd-card">
+                <div class="qun-cmd-name">取消订阅</div>
+                <div class="qun-cmd-usage">取消订阅 序号<br>取消指定价格订阅</div>
+            </div>
+        </div>
+        <div class="qun-quick-bar">
+            <span class="qun-quick-label">快捷查询：</span>
+            <span class="jx3-pill">百战</span>
+            <span class="jx3-pill">日常</span>
+            <span class="jx3-pill">开服</span>
+            <span class="jx3-pill">技改</span>
+            <span class="jx3-pill">更新</span>
+            <span class="jx3-pill">活动</span>
+            <span class="jx3-pill">奖励</span>
+        </div>
+    </section>
+
+    {% set footer_note = '使用 /帮助 查看更多命令 · 群已绑定服务器可省略服务器名 · github.com/winne-w/jx3bot' %}
+    {% include "_partials/card_footer.html" %}
+</main>
+{% endautoescape %}
 </body>
 </html>

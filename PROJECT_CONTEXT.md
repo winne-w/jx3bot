@@ -135,7 +135,7 @@ python -m py_compile <相关 service/storage 文件>
 
 ## 文档更新规则
 
-- `public/index.html` 与 `public/jjc-ranking-stats.html` 是同一个排名页面的两个入口，内容须保持一致；修改任一入口后同步另一个，并运行 `python -m unittest tests.test_jjc_data_center_navigation`。四个 JJC 页面统一由 `public/jjc-site.css` 控制内容最大宽度（1920px）与页面边距，不在单页覆盖 `.page` 宽度。
+- `public/index.html` 与 `public/jjc-ranking-stats.html` 是同一个排名页面的两个入口，内容须保持一致；修改任一入口后同步另一个，并运行 `python -m unittest tests.test_jjc_data_center_navigation`。公开四个 JJC 页面与隐藏监控页 `public/jjc-sync-queue.html` 统一由 `public/jjc-site.css` 控制清爽现代浅色设计变量、内容最大宽度（1920px）与页面边距，不在单页覆盖 `.page` 宽度；四个公开页面导航栏严格保持 `心法排名 / 对局查询 / 心法对阵` 三项，不暴露 `jjc-sync-queue.html` 链接。
 - 改动启动方式、端口、环境变量时，同时更新 `README.md`、`README-Docker.md`、`docs/references/runbook.md`。
 - 改动模块边界、目录职责时，同时更新 `project-architecture.md` 和 `docs/exec-plans/active/refactor-plan.md`。
 - 改动 API 路由时，同时更新 `README.md` 中的接口说明。
@@ -234,3 +234,7 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 读服务使用专用 Mongo 连接和 singleflight，在原 1.5 秒 Mongo、2 秒 socket、8 秒构建、10 秒请求预算内完成整榜；超时或证据不一致时明确失败，不截断成员或丢弃异常证据。`JJC_EQUIPMENT_MONGO_HOST` 默认为空，仅在有明确部署需要时覆盖装备读连接的主机，凭据仍取部署配置。
 
 开启前必须完成主表派生字段回填、索引校验与全榜只读预检。字段、索引及回滚限制见 `docs/design-docs/database-design.md` 和 `docs/references/runbook.md`。方案与验证记录见 `openspec/changes/jjc-ranking-local-latest-match/`；独立提交包验证见其中 `submission.md`。
+
+### 全站模板图片与 HTTP 页面视觉统一（unify-visual-style）
+
+全部 22 个活跃 QQ 图片模板（竞技排名合图及 8 拆分图、竞技/jjc、装备、奇遇、万宝楼、订阅列表、交易行、烟花、资历、百战及百战角色、副本、群帮助 `qun.html`）与全部 5 个 JJC 静态网页统一接入清爽现代浅色设计系统（`#F3F6FB` 云白底、`#FFFFFF` 纯白圆角卡、`#4F6EF7` 靛蓝主色、`tabular-nums` 等宽数字、统一 `【夏鸥】bot` 页脚）。QQ 模板复用 `templates/_partials/` 共享片段并显式开启 `{% autoescape true %}`，画布统一为 `width=760, height="ck"`（等效 `380px @2x` 移动端单列竖卡，输出 `1520px` 宽）；`src/infra/screenshot.py` 的 `jietu` 先设目标窄视口并等待 `<img>` 加载后再测 `scrollHeight`。`public/jjc-sync-queue.html` 接入 `jjc-site.css` 顶栏与标题区，但公开四页不暴露其导航入口。验证：`python -m unittest tests.test_visual_style_unification tests.test_jjc_data_center_navigation`。变更记录见 `openspec/changes/unify-visual-style/`。

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=760, initial-scale=1.0">
+    <title>万宝楼价格订阅总览</title>
+    {% include "_partials/base_card_style.html" %}
+    <style>
+        .sub-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+        .sub-chip {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 11px 14px;
+            background: var(--jx3-surface-alt);
+            border: 1px solid var(--jx3-border);
+            border-radius: var(--jx3-radius-md);
+            min-width: 0;
+        }
+        .sub-item-name {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--jx3-ink);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
+            flex: 1;
+        }
+        .sub-threshold {
+            flex-shrink: 0;
+            font-size: 18px;
+            padding: 4px 12px;
+            font-variant-numeric: tabular-nums;
+        }
+    </style>
+</head>
+<body>
+{% autoescape true %}
+<main class="jx3-shell">
+    <header class="jx3-header-card">
+        <div class="jx3-title-row">
+            <h1 class="jx3-title">万宝楼价格订阅总览</h1>
+            <span class="jx3-subtitle">降价监控</span>
+        </div>
+        <div class="jx3-pills">
+            <span class="jx3-pill">共 {{ total_users|default(grouped|length if grouped is defined and grouped is mapping else 0) }} 位用户</span>
+            <span class="jx3-pill jx3-pill--gold">{{ total_subs|default(total_subscriptions|default(subscriptions|length if subscriptions is defined else 0)) }} 条订阅</span>
+        </div>
+    </header>
+
+    {% if grouped is defined and grouped is mapping and grouped %}
+        {% for uid, user_subs in grouped.items() %}
+        <section class="jx3-card">
+            <div class="jx3-section-head">
+                <h2 class="jx3-section-title">用户 {{ uid }}</h2>
+                <span class="jx3-section-meta">{{ user_subs|length }} 条订阅</span>
+            </div>
+            <div class="sub-grid">
+                {% for sub in user_subs %}
+                <div class="sub-chip">
+                    <span class="sub-item-name">{{ sub.item_name|default('未知物品') }}</span>
+                    <span class="jx3-pill jx3-pill--gold sub-threshold">≤ ¥{{ sub.price_threshold|default(0) }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+    {% elif subscriptions is defined and subscriptions %}
+        <section class="jx3-card">
+            <div class="jx3-section-head">
+                <h2 class="jx3-section-title">全部订阅明细</h2>
+                <span class="jx3-section-meta">{{ subscriptions|length }} 条订阅</span>
+            </div>
+            <div class="jx3-list">
+                {% for sub in subscriptions %}
+                <div class="jx3-list-item">
+                    <span class="sub-item-name">
+                        {% if sub.user_id %}用户 {{ sub.user_id }} · {% endif %}{{ sub.item_name|default('未知物品') }}
+                    </span>
+                    <span class="jx3-pill jx3-pill--gold sub-threshold">≤ ¥{{ sub.price_threshold|default(0) }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+    {% else %}
+        <section class="jx3-card">
+            <div class="jx3-empty">当前没有任何用户订阅</div>
+        </section>
+    {% endif %}
+
+    {% include "_partials/card_footer.html" %}
+</main>
+{% endautoescape %}
+</body>
+</html>

@@ -1,0 +1,20 @@
+{% autoescape true %}
+<header class="jx3-header-card">
+    <div class="jx3-title-row">
+        <h1 class="jx3-title">{{ header_title }}</h1>
+        {% if header_sub %}<span class="jx3-subtitle">{{ header_sub }}</span>{% endif %}
+    </div>
+    {% if header_pills %}
+    <div class="jx3-pills">
+        {% for pill in header_pills %}
+        {% if pill %}
+        <span class="jx3-pill {{ pill.cls if pill is mapping and pill.cls else '' }}">{{ pill.text if pill is mapping else pill }}</span>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% if header_desc %}
+    <div class="jx3-header-desc">{{ header_desc }}</div>
+    {% endif %}
+</header>
+{% endautoescape %}
