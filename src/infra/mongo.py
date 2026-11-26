@@ -227,6 +227,9 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     # server_master_cache
     await _safe_index("server_master_cache", "key", name="idx_key", unique=True)
     await _safe_index("server_master_cache", "cached_at", name="idx_cached_at")
+    await _safe_index(
+        "server_master_cache", "expires_at_dt", name="idx_expires_at_dt", expireAfterSeconds=0
+    )
 
     # status_cache
     await _safe_index("status_cache", "cache_name", name="idx_cache_name", unique=True)
@@ -236,6 +239,9 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         "jjc_role_recent", [("server", 1), ("name", 1)], name="idx_server_name", unique=True
     )
     await _safe_index("jjc_role_recent", "cached_at", name="idx_cached_at")
+    await _safe_index(
+        "jjc_role_recent", "expires_at_dt", name="idx_expires_at_dt", expireAfterSeconds=0
+    )
 
     # jjc_match_detail
     await _safe_index("jjc_match_detail", "match_id", name="idx_match_id", unique=True)
@@ -320,7 +326,6 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         [("match_type", 1), ("detail_available", 1), ("match_time", 1), ("game_score", -1)],
         name="idx_available_time_game_score",
     )
-    await _safe_index("jjc_match_participants", "match_id", name="idx_match_id")
 
     # jjc_ranking_cache
     await _safe_index("jjc_ranking_cache", "cache_key", name="idx_cache_key", unique=True)
@@ -336,7 +341,6 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     )
 
     # wanbaolou_subscriptions
-    await _safe_index("wanbaolou_subscriptions", "user_id", name="idx_user_id")
     await _safe_index(
         "wanbaolou_subscriptions",
         [("user_id", 1), ("item_name", 1)],
@@ -386,6 +390,12 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
 
     # role_jjc_cache
     await _safe_index("role_jjc_cache", "identity_key", name="idx_identity_key", unique=True)
+    await _safe_index(
+        "role_jjc_cache",
+        "identity_id",
+        name="idx_identity_id",
+        partialFilterExpression={"identity_id": {"$exists": True}},
+    )
     await _safe_index("role_jjc_cache", "global_id", name="idx_global_id")
     await _safe_index("role_jjc_cache", "global_role_id", name="idx_global_role_id")
     await _safe_index(
@@ -460,6 +470,12 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
 
     # jjc_role_indicator
     await _safe_index("jjc_role_indicator", "cache_key", name="idx_cache_key", unique=True)
+    await _safe_index(
+        "jjc_role_indicator",
+        "identity_id",
+        name="idx_identity_id",
+        partialFilterExpression={"identity_id": {"$exists": True}},
+    )
     await _safe_index("jjc_role_indicator", "cached_at", name="idx_cached_at")
 
     # jjc_ranking_stat_summaries
@@ -484,12 +500,6 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         [("timestamp", 1), ("range", 1), ("lane", 1), ("kungfu", 1)],
         name="idx_timestamp_range_lane_kungfu",
         unique=True,
-    )
-    await _safe_index("jjc_ranking_stat_details", "timestamp", name="idx_timestamp")
-    await _safe_index(
-        "jjc_ranking_stat_details",
-        [("timestamp", 1), ("range", 1), ("lane", 1)],
-        name="idx_timestamp_range_lane",
     )
 
     # jjc_peak_score_rankings

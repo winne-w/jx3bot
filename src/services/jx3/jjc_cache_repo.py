@@ -146,10 +146,19 @@ class JjcCacheRepo:
             cached = await db.jjc_role_indicator.find_one({"cache_key": key})
             if cached:
                 sources.append(cached)
+        cached_role_jjc = None
+        identity_id = (
+            identity.get("_id")
+            if identity.get("_id") is not None
+            else identity.get("identity_id")
+        )
+        if identity_id is not None:
+            cached_role_jjc = await db.role_jjc_cache.find_one({"identity_id": identity_id})
+        if cached_role_jjc is None and identity_key:
+            cached_role_jjc = await db.role_jjc_cache.find_one({"identity_key": identity_key})
+        if cached_role_jjc:
+            sources.append(cached_role_jjc)
         if identity_key:
-            cached = await db.role_jjc_cache.find_one({"identity_key": identity_key})
-            if cached:
-                sources.append(cached)
             async for historical in db.role_identities_history.find({"identity_key": identity_key}).limit(32):
                 sources.append(historical)
         numeric_id = str(identity.get("global_id") or "")
@@ -172,6 +181,13 @@ class JjcCacheRepo:
     def _get_jjc_cache_repo(self):
         from src.storage.mongo_repos.role_jjc_cache_repo import RoleJjcCacheRepo
         return RoleJjcCacheRepo(db=self.db if self.db is not None else _get_db())
+
+    def _get_ranking_cache_repo(self):
+        from src.storage.mongo_repos.jjc_ranking_cache_repo import JjcRankingCacheRepo
+        return JjcRankingCacheRepo(
+            db=self.db,
+            cache_duration=self.jjc_ranking_cache_duration,
+        )
 
     async def resolve_role_identity(
         self,
@@ -224,8 +240,33 @@ class JjcCacheRepo:
             **({"preserve_id": True} if preserve_id else {}),
         )
 
-    async def load_new_kungfu_cache_raw(self, server: str, name: str) -> Optional[dict[str, Any]]:
+    async def load_new_kungfu_cache_raw(
+        self,
+        server: str,
+        name: str,
+        *,
+        identity: Optional[Dict[str, Any]] = None,
+        identity_id: Optional[Any] = None,
+    ) -> Optional[Dict[str, Any]]:
         jjc_repo = self._get_jjc_cache_repo()
+        resolved_identity_id = identity_id
+        if resolved_identity_id is None and isinstance(identity, dict):
+            resolved_identity_id = (
+                identity.get("_id")
+                if identity.get("_id") is not None
+                else identity.get("identity_id")
+            )
+        if resolved_identity_id is not None:
+            extra_kwargs: Dict[str, Any] = {"identity_id": resolved_identity_id}
+            if isinstance(identity, dict):
+                for key in ("zone", "game_role_id", "global_id", "global_role_id"):
+                    if identity.get(key) is not None:
+                        extra_kwargs[key] = identity.get(key)
+            return await jjc_repo.load_by_best_identity(
+                server=server,
+                name=name,
+                **extra_kwargs,
+            )
         return await jjc_repo.load_by_best_identity(server=server, name=name)
 
     @staticmethod
@@ -361,6 +402,145 @@ class JjcCacheRepo:
 
     # ---- 历史胜场心法兜底 ----
 
+    async def _try_aggregate_winning_kungfu_from_participants(
+        self,
+        *,
+        db: Any,
+        server: str,
+        name: str,
+        global_id: Optional[str],
+        season_start_ts: Optional[float],
+    ) -> Optional[Dict[str, Any]]:
+        if not global_id or not _is_replay_global_id(global_id):
+            return None
+        if getattr(db, "jjc_match_participants", None) is None:
+            return None
+
+        try:
+            from src.storage.mongo_repos.jjc_match_participant_repo import JjcMatchParticipantRepo
+
+            participant_repo = JjcMatchParticipantRepo(db=db)
+            aggregate_fn = getattr(participant_repo, "aggregate_winning_kungfu", None)
+            if not callable(aggregate_fn):
+                return None
+
+            season_start_int = int(season_start_ts) if season_start_ts is not None else None
+            raw_result = await aggregate_fn(
+                str(global_id).strip(),
+                season_start_time=season_start_int,
+                match_type=3,
+            )
+        except Exception as exc:
+            logger.warning("从 jjc_match_participants 聚合历史胜场心法失败，将回退 jjc_match_detail: {}", exc)
+            return None
+
+        rows: List[Dict[str, Any]] = []
+        if isinstance(raw_result, list):
+            rows = [item for item in raw_result if isinstance(item, dict)]
+        elif isinstance(raw_result, dict):
+            items = raw_result.get("items")
+            if isinstance(items, list):
+                rows = [item for item in items if isinstance(item, dict)]
+            elif raw_result.get("kungfu") or raw_result.get("_id"):
+                rows = [raw_result]
+
+        if not rows:
+            return None
+
+        qualified: List[Dict[str, Any]] = []
+        for row in rows:
+            kungfu_raw = row.get("kungfu") if row.get("kungfu") is not None else row.get("_id")
+            if not isinstance(kungfu_raw, str) or not kungfu_raw.strip():
+                continue
+            kungfu = kungfu_raw.strip()
+            wins_val = row.get("wins")
+            if wins_val is None:
+                wins_val = row.get("win_count")
+            if wins_val is None:
+                wins_val = row.get("count")
+            try:
+                wins = int(wins_val or 0)
+            except (TypeError, ValueError):
+                continue
+            if wins < 3:
+                continue
+
+            total_val = row.get("total")
+            if total_val is None:
+                total_val = row.get("total_count")
+            if total_val is None:
+                total_val = row.get("match_count")
+            try:
+                total = int(total_val) if total_val is not None else wins
+            except (TypeError, ValueError):
+                total = wins
+
+            latest_win_time = row.get("latest_win_time")
+            if latest_win_time is None:
+                latest_win_time = row.get("latest_match_time")
+            if latest_win_time is None:
+                latest_win_time = row.get("match_time")
+
+            latest_win_match_id = row.get("latest_win_match_id")
+            if latest_win_match_id is None:
+                latest_win_match_id = row.get("latest_match_id")
+            if latest_win_match_id is None:
+                latest_win_match_id = row.get("match_id")
+
+            win_samples = row.get("win_samples")
+            if not isinstance(win_samples, list):
+                win_samples = []
+
+            qualified.append({
+                "kungfu": kungfu,
+                "wins": wins,
+                "total": total,
+                "latest_win_time": latest_win_time,
+                "latest_win_match_id": latest_win_match_id,
+                "kungfu_id": row.get("kungfu_id"),
+                "win_samples": win_samples,
+            })
+
+        if not qualified:
+            return None
+
+        qualified.sort(
+            key=lambda item: (
+                -item["wins"],
+                -(item["latest_win_time"] if item["latest_win_time"] is not None else 0),
+                -item["total"],
+            )
+        )
+        best = qualified[0]
+
+        result: Dict[str, Any] = {
+            "server": server,
+            "name": name,
+            "kungfu": best["kungfu"],
+            "kungfu_selected_source": "cached_match_detail_win_history",
+            "found": True,
+            "cached_match_detail_win_count": best["wins"],
+            "cached_match_detail_total_count": best["total"],
+            "cached_match_detail_latest_win_match_id": best["latest_win_match_id"],
+            "cached_match_detail_latest_win_time": best["latest_win_time"],
+            "cached_match_detail_win_samples": best["win_samples"],
+        }
+        if best["kungfu_id"] is not None and best["kungfu_id"] != "":
+            result["kungfu_id"] = best["kungfu_id"]
+
+        logger.info(
+            "历史胜场心法兜底命中(jjc_match_participants): server={} name={} global_id={} "
+            "kungfu={} wins={} total={} latest_win_match_id={}",
+            server,
+            name,
+            global_id,
+            best["kungfu"],
+            best["wins"],
+            best["total"],
+            best["latest_win_match_id"],
+        )
+        return result
+
     async def get_kungfu_from_cached_match_detail_win_history(
         self,
         *,
@@ -382,6 +562,16 @@ class JjcCacheRepo:
                     "无法解析赛季开始时间，将不加时间过滤: season_start=%s",
                     season_start,
                 )
+
+        participants_result = await self._try_aggregate_winning_kungfu_from_participants(
+            db=db,
+            server=server,
+            name=name,
+            global_id=global_id,
+            season_start_ts=season_start_ts,
+        )
+        if participants_result is not None:
+            return participants_result
 
         query = _build_match_detail_win_history_query(
             server=server,
@@ -590,46 +780,34 @@ class JjcCacheRepo:
 
         return result
 
-    # ---- 排行榜缓存 (不变) ----
+    # ---- 排行榜缓存 (委托给 JjcRankingCacheRepo) ----
 
-    async def load_ranking_cache(self) -> Optional[dict[str, Any]]:
-        db = self.db if self.db is not None else _get_db()
-        try:
-            doc = await db.jjc_ranking_cache.find_one({"cache_key": "ranking"})
-        except Exception as exc:
-            logger.warning("读取竞技场排行榜缓存失败: {}", exc)
-            return None
-        if doc is None:
-            logger.info("竞技场排行榜缓存未命中 (MongoDB)")
-            return None
-        cache_time = doc.get("cache_time", 0)
-        if time.time() - cache_time >= self.jjc_ranking_cache_duration:
-            logger.info("竞技场排行榜缓存已过期 (MongoDB)")
-            return None
-        logger.info("使用 MongoDB 缓存的竞技场排行榜数据")
-        return doc.get("data")
+    async def load_ranking_cache(self) -> Optional[Dict[str, Any]]:
+        return await self._get_ranking_cache_repo().load_ranking_cache()
 
-    async def save_ranking_cache(self, ranking_result: dict[str, Any]) -> None:
-        db = self.db if self.db is not None else _get_db()
-        try:
-            await db.jjc_ranking_cache.update_one(
-                {"cache_key": "ranking"},
-                {"$set": {
-                    "cache_time": ranking_result.get("cache_time") or time.time(),
-                    "data": ranking_result,
-                    "created_at": datetime.now(timezone.utc),
-                }},
-                upsert=True,
-            )
-            logger.info("竞技场排行榜数据已保存到 MongoDB 缓存")
-        except Exception as exc:
-            logger.warning("保存竞技场排行榜缓存失败: {}", exc)
+    async def save_ranking_cache(self, ranking_result: Dict[str, Any]) -> None:
+        await self._get_ranking_cache_repo().save_ranking_cache(ranking_result)
 
     # ---- 心法/JJC 角色缓存 (灰度接入新集合) ----
 
-    async def load_kungfu_cache_raw(self, server: str, name: str) -> Optional[dict[str, Any]]:
+    async def load_kungfu_cache_raw(
+        self,
+        server: str,
+        name: str,
+        *,
+        identity: Optional[Dict[str, Any]] = None,
+        identity_id: Optional[Any] = None,
+    ) -> Optional[Dict[str, Any]]:
         try:
-            doc = await self.load_new_kungfu_cache_raw(server, name)
+            if identity is not None or identity_id is not None:
+                doc = await self.load_new_kungfu_cache_raw(
+                    server,
+                    name,
+                    identity=identity,
+                    identity_id=identity_id,
+                )
+            else:
+                doc = await self.load_new_kungfu_cache_raw(server, name)
             if doc is not None:
                 compat_doc = self._ensure_found_flag(self._new_doc_to_compat(doc))
                 logger.info(
@@ -644,9 +822,24 @@ class JjcCacheRepo:
         logger.info("心法原始缓存未命中新集合: server={} name={}", server, name)
         return None
 
-    async def load_kungfu_cache(self, server: str, name: str) -> Optional[dict[str, Any]]:
+    async def load_kungfu_cache(
+        self,
+        server: str,
+        name: str,
+        *,
+        identity: Optional[Dict[str, Any]] = None,
+        identity_id: Optional[Any] = None,
+    ) -> Optional[Dict[str, Any]]:
         try:
-            doc = await self.load_new_kungfu_cache_raw(server, name)
+            if identity is not None or identity_id is not None:
+                doc = await self.load_new_kungfu_cache_raw(
+                    server,
+                    name,
+                    identity=identity,
+                    identity_id=identity_id,
+                )
+            else:
+                doc = await self.load_new_kungfu_cache_raw(server, name)
             if doc is not None:
                 cached_data = self._ensure_found_flag(self._new_doc_to_compat(doc))
                 if "found" not in doc:
@@ -674,7 +867,7 @@ class JjcCacheRepo:
         logger.info("心法缓存未命中新集合: server={} name={} reason=cache_miss", server, name)
         return None
 
-    async def save_kungfu_cache(self, server: str, name: str, result: dict[str, Any]) -> None:
+    async def save_kungfu_cache(self, server: str, name: str, result: Dict[str, Any]) -> None:
         try:
             jjc_repo = self._get_jjc_cache_repo()
 
@@ -694,14 +887,22 @@ class JjcCacheRepo:
                 role_id=role_id,
                 person_id=person_id,
                 global_id=global_id,
+                preserve_id=True,
             )
             identity_key = identity["identity_key"]
+            identity_id = (
+                identity.get("_id")
+                if identity.get("_id") is not None
+                else identity.get("identity_id")
+            )
 
-            cache_data: dict[str, Any] = {
+            cache_data: Dict[str, Any] = {
                 "server": server,
                 "name": name,
                 "source": "ranking",
             }
+            if identity_id is not None:
+                cache_data["identity_id"] = identity_id
             _copy_if_present(result, cache_data, [
                 "zone", "game_role_id", "role_id", "global_id", "global_role_id",
                 "kungfu", "kungfu_id", "kungfu_pinyin",

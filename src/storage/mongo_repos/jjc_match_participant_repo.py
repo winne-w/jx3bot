@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import inspect
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import UpdateOne
 
 from src.infra.mongo import get_db as _get_db
 
@@ -286,8 +288,38 @@ class JjcMatchParticipantRepo:
             if not participants:
                 await db.jjc_match_participants.delete_many({"match_id": normalized_match_id})
                 return 0
+
+            incoming_cached_at: Optional[float] = None
+            for item in participants:
+                if not isinstance(item, dict):
+                    continue
+                raw_cached_at = item.get("cached_at")
+                if isinstance(raw_cached_at, (int, float)) and not isinstance(raw_cached_at, bool):
+                    val = float(raw_cached_at)
+                    if incoming_cached_at is None or val > incoming_cached_at:
+                        incoming_cached_at = val
+
+            if incoming_cached_at is not None:
+                find_one = getattr(db.jjc_match_participants, "find_one", None)
+                if callable(find_one):
+                    try:
+                        maybe_existing = find_one({"match_id": normalized_match_id}, {"cached_at": 1})
+                    except TypeError:
+                        maybe_existing = find_one({"match_id": normalized_match_id})
+                    if inspect.isawaitable(maybe_existing):
+                        existing = await maybe_existing
+                        if isinstance(existing, dict):
+                            existing_cached_at = existing.get("cached_at")
+                            if (
+                                isinstance(existing_cached_at, (int, float))
+                                and not isinstance(existing_cached_at, bool)
+                                and float(existing_cached_at) > incoming_cached_at
+                            ):
+                                return 0
+
             now = time.time()
-            current_global_ids = []
+            current_global_ids: List[str] = []
+            docs_to_write: List[Tuple[str, Dict[str, Any]]] = []
             for item in participants:
                 doc = dict(item)
                 doc["match_id"] = normalized_match_id
@@ -296,11 +328,36 @@ class JjcMatchParticipantRepo:
                 if not global_id:
                     continue
                 current_global_ids.append(global_id)
-                await db.jjc_match_participants.update_one(
-                    {"match_id": normalized_match_id, "global_id": global_id},
-                    {"$set": doc},
-                    upsert=True,
-                )
+                docs_to_write.append((global_id, doc))
+
+            used_bulk = False
+            bulk_write = getattr(db.jjc_match_participants, "bulk_write", None)
+            if docs_to_write and callable(bulk_write):
+                operations = [
+                    UpdateOne(
+                        {"match_id": normalized_match_id, "global_id": global_id},
+                        {"$set": doc},
+                        upsert=True,
+                    )
+                    for global_id, doc in docs_to_write
+                ]
+                try:
+                    maybe_bulk = bulk_write(operations, ordered=False)
+                    if inspect.isawaitable(maybe_bulk):
+                        await maybe_bulk
+                        used_bulk = True
+                except Exception as bulk_exc:
+                    logger.warning(
+                        f"批量写入 JJC 对局参与者投影失败，回退逐条写入: match_id={normalized_match_id} error={bulk_exc}"
+                    )
+
+            if not used_bulk:
+                for global_id, doc in docs_to_write:
+                    await db.jjc_match_participants.update_one(
+                        {"match_id": normalized_match_id, "global_id": global_id},
+                        {"$set": doc},
+                        upsert=True,
+                    )
             await db.jjc_match_participants.delete_many({
                 "match_id": normalized_match_id,
                 "global_id": {"$nin": current_global_ids},
@@ -529,6 +586,70 @@ class JjcMatchParticipantRepo:
                     score_type,
                     window_start,
                     window_end,
+                    exc,
+                )
+            )
+            raise
+
+    async def aggregate_winning_kungfu(
+        self,
+        global_id: str,
+        *,
+        season_start_time: Optional[int] = None,
+        match_type: int = 3,
+    ) -> List[Dict[str, Any]]:
+        target_global_id = self._pick_str(global_id)
+        if not target_global_id:
+            return []
+
+        match_query: Dict[str, Any] = {
+            "global_id": target_global_id,
+            "match_type": int(match_type),
+            "detail_available": True,
+            "won": True,
+            "kungfu": {"$type": "string", "$ne": ""},
+        }
+        target_season_start = self._coerce_int(season_start_time)
+        if target_season_start is not None:
+            match_query["match_time"] = {"$gte": target_season_start}
+
+        pipeline: List[Dict[str, Any]] = [
+            {"$match": match_query},
+            {"$sort": {"match_time": -1, "match_id": -1}},
+            {
+                "$group": {
+                    "_id": "$kungfu",
+                    "wins": {"$sum": 1},
+                    "latest_match_time": {"$first": "$match_time"},
+                    "latest_match_id": {"$first": "$match_id"},
+                }
+            },
+            {"$sort": {"wins": -1, "latest_match_time": -1, "latest_match_id": -1}},
+        ]
+
+        db = self._db()
+        try:
+            cursor = db.jjc_match_participants.aggregate(pipeline)
+            docs = await cursor.to_list(length=None)
+            items: List[Dict[str, Any]] = []
+            for doc in docs:
+                if not isinstance(doc, dict):
+                    continue
+                kungfu = self._pick_str(doc.get("kungfu"), doc.get("_id"))
+                if not kungfu:
+                    continue
+                items.append({
+                    "kungfu": kungfu,
+                    "wins": self._coerce_int(doc.get("wins")) or 0,
+                    "latest_match_time": self._coerce_int(doc.get("latest_match_time")),
+                    "latest_match_id": self._coerce_int(doc.get("latest_match_id")),
+                })
+            return items
+        except Exception as exc:
+            logger.warning(
+                "聚合 JJC 胜场心法失败: global_id={} match_type={} error={}".format(
+                    target_global_id,
+                    match_type,
                     exc,
                 )
             )

@@ -6,6 +6,7 @@ from bson import BSON
 from src.utils.jjc_equipment_candidates import build_local_win_candidate_pipeline
 from src.utils.jjc_equipment_time import (EQUIPMENT_TIME_FIELD, EQUIPMENT_VALID_FIELD,
     EQUIPMENT_WINNERS_FIELD, EQUIPMENT_MATCH_FIELD, equipment_source_index)
+import datetime
 import math
 import time
 from dataclasses import dataclass, field
@@ -238,11 +239,13 @@ class JjcInspectRepo:
 
     async def save_role_recent(self, server: str, name: str, payload: dict[str, Any]) -> None:
         db = self.db if self.db is not None else _get_db()
+        expires_at_dt = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=86400)
         try:
             await db.jjc_role_recent.update_one(
                 {"server": server, "name": name},
                 {"$set": {
                     "cached_at": payload.get("cached_at") or time.time(),
+                    "expires_at_dt": expires_at_dt,
                     "data": payload.get("data") or payload,
                 }},
                 upsert=True,
@@ -286,66 +289,70 @@ class JjcInspectRepo:
         data = payload.get("data") or payload
         mongo_data = copy.deepcopy(data)
         cached_at = payload.get("cached_at") or time.time()
-        await db.jjc_match_detail.update_one(
-            {"match_id": normalized_id},
-            {"$set": {
-                "cached_at": cached_at,
-                "data": mongo_data,
-                **equipment_source_index(normalized_id, mongo_data),
-            }},
-            upsert=True,
-        )
-
-        if data.get("unavailable"):
+        if data.get("unavailable") or self.snapshot_repo is None:
+            await db.jjc_match_detail.update_one(
+                {"match_id": normalized_id},
+                {"$set": {
+                    "cached_at": cached_at,
+                    "data": mongo_data,
+                    **equipment_source_index(normalized_id, mongo_data),
+                }},
+                upsert=True,
+            )
             return True
 
         compacted_data = copy.deepcopy(mongo_data)
+        snapshot_failed = False
+        snapshot_operations: List[Dict[str, Any]] = []
         try:
             snapshot_operations = self._prepare_snapshots(compacted_data)
         except Exception as exc:
+            snapshot_failed = True
             logger.bind(
                 match_id=normalized_id,
                 derivative_type="snapshots",
                 derivative_stage="prepare",
                 error=str(exc),
             ).warning("JJC 对局详情快照派生失败")
-            return True
 
-        try:
-            await self._save_snapshot_operations(snapshot_operations, cached_at)
-        except Exception as exc:
-            logger.bind(
-                match_id=normalized_id,
-                derivative_type="snapshots",
-                derivative_stage="save",
-                error=str(exc),
-            ).warning("JJC 对局详情快照派生失败")
-            return True
+        if not snapshot_failed and snapshot_operations:
+            try:
+                await self._save_snapshot_operations(snapshot_operations, cached_at)
+            except Exception as exc:
+                snapshot_failed = True
+                logger.bind(
+                    match_id=normalized_id,
+                    derivative_type="snapshots",
+                    derivative_stage="save",
+                    error=str(exc),
+                ).warning("JJC 对局详情快照派生失败")
 
-        if not snapshot_operations:
-            return True
+        if not snapshot_failed and snapshot_operations:
+            write_fields: Dict[str, Any] = {
+                "cached_at": cached_at,
+                "data": compacted_data,
+                "compacted": True,
+                **equipment_source_index(normalized_id, compacted_data),
+            }
+        elif snapshot_failed:
+            write_fields = {
+                "cached_at": cached_at,
+                "data": mongo_data,
+                "compacted": False,
+                **equipment_source_index(normalized_id, mongo_data),
+            }
+        else:
+            write_fields = {
+                "cached_at": cached_at,
+                "data": mongo_data,
+                **equipment_source_index(normalized_id, mongo_data),
+            }
 
-        try:
-            await db.jjc_match_detail.update_one(
-                {
-                    "match_id": normalized_id,
-                    "cached_at": cached_at,
-                    "data": mongo_data,
-                },
-                {"$set": {
-                    "cached_at": cached_at,
-                    "data": compacted_data,
-                    **equipment_source_index(normalized_id, compacted_data),
-                }},
-                upsert=False,
-            )
-        except Exception as exc:
-            logger.bind(
-                match_id=normalized_id,
-                derivative_type="snapshots",
-                derivative_stage="compact",
-                error=str(exc),
-            ).warning("JJC 对局详情快照派生失败")
+        await db.jjc_match_detail.update_one(
+            {"match_id": normalized_id},
+            {"$set": write_fields},
+            upsert=True,
+        )
         return True
 
 

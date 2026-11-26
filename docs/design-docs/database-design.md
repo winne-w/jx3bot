@@ -1,6 +1,6 @@
 # 数据库设计
 
-更新时间：2026-11-26
+更新时间：2026-11-27
 
 本文是当前项目数据库结构的维护文档。以后新增、删除、重命名集合或字段，调整索引、TTL、迁移脚本、存储归属时，必须同步更新本文。
 
@@ -19,7 +19,7 @@
 - **唯一索引变更保护**：`_ensure_indexes()`（`_safe_create_index`）在检测到已有同名索引的 `key`、`unique`、`expireAfterSeconds`、`partialFilterExpression` 任一与期望定义不一致时，若既有索引或期望索引任一为 `unique=True`，仅记录 `ERROR` 告警并直接跳过，**绝不自动执行 `drop_index` 或重建**，防止因存量重复数据重建失败导致唯一约束丢失；唯一索引演进必须通过受控运维或迁移脚本完成。仅新旧均为非唯一索引时才允许启动期自动 `drop_index` + `create_index` 收敛。
 - 有历史 JSON 或文件缓存需要迁移时，迁移脚本放在 `scripts/`，脚本说明要写明源路径、目标集合和幂等键。
 - 时间字段应优先使用 Unix 秒级时间戳；若使用 Mongo `datetime` 用于 TTL，必须在字段说明中明确类型和原因。
-- **TTL 字段约束**：MongoDB TTL 索引仅对 `Date` 类型字段生效，对 `float`/`int` 类型字段创建 TTL 索引实际不会触发自动删除。新建集合的 TTL 字段必须使用 `datetime` 类型；对数字时间戳字段（如 `server_master_cache.cached_at`、`jjc_role_recent.cached_at`）不得声明无效 `expireAfterSeconds`，应保持普通索引并由 repo 业务逻辑自行判断过期，或在后续演进中补充 `_dt` 后缀的 Date 冗余字段。
+- **TTL 字段约束**：MongoDB TTL 索引仅对 `Date` 类型字段生效，对 `float`/`int` 类型字段创建 TTL 索引实际不会触发自动删除。新建集合的 TTL 字段必须使用 `datetime` 类型；对数字时间戳字段（如 `server_master_cache.cached_at`、`jjc_role_recent.cached_at`）不得声明无效 `expireAfterSeconds`，应保持普通索引并由 repo 业务逻辑自行判断过期，同时通过 `expires_at_dt`（UTC `datetime`）+ `idx_expires_at_dt`（`expireAfterSeconds=0`）承载真正生效的数据库自动清理。
 - 群号、QQ 号等外部 ID 当前多数以字符串落库，新增字段应沿用对应集合已有类型，避免同一字段混用数字和字符串。
 
 ## 集合设计
@@ -134,8 +134,7 @@
 
 | 索引名 | 字段 | 约束 |
 |---|---|---|
-| `idx_user_id` | `user_id` | 普通索引 |
-| `idx_user_item` | `user_id`, `item_name` | unique |
+| `idx_user_item` | `user_id`, `item_name` | unique（同时覆盖 `user_id` 前缀查询；已移除冗余单字段索引 `idx_user_id`） |
 
 ### `status_cache`
 
@@ -178,16 +177,18 @@
 | `name` | string | 主服名称 |
 | `zone` | string | 大区 |
 | `server_id` | string | 区服 ID |
-| `cached_at` | int | 缓存写入时间 Unix 秒（过期由 repo 业务逻辑按 `ttl_seconds` 判断，不依赖 MongoDB TTL） |
+| `cached_at` | int | 缓存写入时间 Unix 秒（repo 业务逻辑按 `ttl_seconds` 判断过期） |
+| `expires_at_dt` | datetime | UTC 过期时间（`datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)`），驱动 MongoDB Date TTL 0 自动清理 |
 
 索引：
 
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_key` | `key` | unique |
-| `idx_cached_at` | `cached_at` | 普通索引（已移除无效的数字字段 `expireAfterSeconds`） |
+| `idx_cached_at` | `cached_at` | 普通索引（无无效的数字字段 `expireAfterSeconds`） |
+| `idx_expires_at_dt` | `expires_at_dt` | TTL 0 秒（Date 类型，到点自动过期） |
 
-说明：repo 内部按 `ttl_seconds` 主动判断过期并删除，不再对 `int` 类型的 `cached_at` 声明无效 TTL 参数。若后续需要数据库自动清理，应新增 Date 类型字段（如 `expires_at_dt`）承载真实 TTL。
+说明：repo 内部继续按 `cached_at` 与 `ttl_seconds` 主动判断过期并删除以兼容历史文档，同时写入 `expires_at_dt` 并通过 `idx_expires_at_dt`（`expireAfterSeconds=0`）由 MongoDB 自动清理过期文档。
 
 ### `kungfu_cache` **[LEGACY — 已删除]**
 
@@ -365,6 +366,7 @@
 |---|---|---|
 | `_id` | ObjectId | MongoDB 自动主键 |
 | `identity_key` | string | 关联 `role_identities.identity_key`，业务唯一 |
+| `identity_id` | ObjectId/null | 不可变关联 `role_identities._id`（可选，存在时纳入 partial 索引） |
 | `server` | string | 查询与展示冗余字段 |
 | `name` | string | 查询与展示冗余字段 |
 | `normalized_server` | string | 规范化服务器名，与 `role_identities` 对齐用于关联查询 |
@@ -403,6 +405,7 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_identity_key` | `identity_key` | unique |
+| `idx_identity_id` | `identity_id` | 普通索引，partial（`{"identity_id": {"$exists": True}}`） |
 | `idx_global_id` | `global_id` | 普通索引 |
 | `idx_global_role_id` | `global_role_id` | 普通索引 |
 | `idx_zone_game_role_id` | `zone`, `game_role_id` | 普通索引 |
@@ -450,7 +453,8 @@
 | `_id` | ObjectId | MongoDB 自动主键 |
 | `server` | string | 服务器名 |
 | `name` | string | 角色名 |
-| `cached_at` | float | 缓存时间 Unix 秒（过期由业务逻辑判断，不依赖 MongoDB TTL） |
+| `cached_at` | float | 缓存时间 Unix 秒（repo 业务逻辑按有效期判断） |
+| `expires_at_dt` | datetime | UTC 过期时间，驱动 MongoDB Date TTL 0 自动清理 |
 | `data` | object | 角色近期战绩结果 |
 | `data.current_season` | string | 生成缓存时的赛季名称，须与当前配置一致才复用 |
 | `data.season_start_time` | int | 生成缓存时的竞技场开赛边界，按北京时间零点计算，须与当前配置一致才复用 |
@@ -462,7 +466,8 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_server_name` | `server`, `name` | unique |
-| `idx_cached_at` | `cached_at` | 普通索引（已移除无效的数字字段 `expireAfterSeconds`；实际过期判断由业务逻辑完成） |
+| `idx_cached_at` | `cached_at` | 普通索引（无无效的数字字段 `expireAfterSeconds`） |
+| `idx_expires_at_dt` | `expires_at_dt` | TTL 0 秒（Date 类型，到点自动过期） |
 
 ### `jjc_role_indicator`
 
@@ -479,6 +484,7 @@
 |---|---|---|
 | `_id` | ObjectId | MongoDB 自动主键 |
 | `cache_key` | string | 缓存键，使用 `identity_key`（新数据如 `global_id:<global_id>`，历史兼容 `global:<global_role_id>`），业务唯一 |
+| `identity_id` | ObjectId/null | 不可变关联 `role_identities._id`（可选，存在时纳入 partial 索引） |
 | `identity_key` | string | 关联 `role_identities.identity_key` |
 | `server` | string | 服务器名 |
 | `name` | string | 角色名 |
@@ -495,6 +501,7 @@
 | 索引名 | 字段 | 约束 |
 |---|---|---|
 | `idx_cache_key` | `cache_key` | unique |
+| `idx_identity_id` | `identity_id` | 普通索引，partial（`{"identity_id": {"$exists": True}}`） |
 | `idx_cached_at` | `cached_at` | 普通索引（用于排查和后续清理；过期判断由业务逻辑完成，不依赖 TTL 索引） |
 
 写入来源：
@@ -633,12 +640,11 @@
 
 | 索引名 | 字段 | 约束 |
 |---|---|---|
-| `idx_match_global_id` | `match_id`, `global_id` | unique |
+| `idx_match_global_id` | `match_id`, `global_id` | unique（同时覆盖 `match_id` 前缀查询；已移除冗余单字段索引 `idx_match_id`） |
 | `idx_global_available_time` | `global_id`, `match_type`, `detail_available`, `match_time`, `match_id` | 普通复合索引，`match_time` 与 `match_id` 降序 |
 | `idx_global_season_available_time` | `global_id`, `season_id`, `match_type`, `detail_available`, `match_time`, `match_id` | 普通复合索引，供当前赛季角色已同步对局分页查询使用；`match_time` 与 `match_id` 降序 |
 | `idx_available_time_tuilan_score` | `match_type`, `detail_available`, `match_time`, `tuilan_score` | 普通复合索引，`tuilan_score` 降序 |
 | `idx_available_time_game_score` | `match_type`, `detail_available`, `match_time`, `game_score` | 普通复合索引，`game_score` 降序 |
-| `idx_match_id` | `match_id` | 普通索引 |
 
 说明：
 
@@ -982,9 +988,7 @@
 
 | 索引名 | 字段 | 约束 |
 |---|---|---|
-| `idx_timestamp_range_lane_kungfu` | `timestamp`, `range`, `lane`, `kungfu` | unique |
-| `idx_timestamp` | `timestamp` | 普通索引 |
-| `idx_timestamp_range_lane` | `timestamp`, `range`, `lane` | 普通复合索引 |
+| `idx_timestamp_range_lane_kungfu` | `timestamp`, `range`, `lane`, `kungfu` | unique（同时覆盖 `timestamp` 与 `timestamp, range, lane` 前缀查询；已移除冗余索引 `idx_timestamp`、`idx_timestamp_range_lane`） |
 
 ### `jjc_peak_score_rankings`
 
@@ -1095,6 +1099,7 @@
 |---|---|---|---|
 | `scripts/backfill_jjc_role_id_from_match_replay.py` | 已同步 JJC match/replay 身份补充 | `role_identities`, `jjc_sync_role_queue`, `jjc_match_detail` | `global_id`, `identity_key`, `match_id` |
 | `scripts/migrate_jjc_sync_identity_queue.py` | 旧 JJC 同步队列迁移到 identity-id 队列，或回滚前反向同步水位 | `role_identities`, `jjc_sync_identity_queue`, `jjc_sync_role_queue` | `identity_id`, `identity_key` |
+| `scripts/audit_mongo_indexes.py` | 只读巡检 `jjc_match_detail` `$indexStats` 命中率、装备读索引就绪状态与时间字段 BSON `$type` 分布（支持 `--mongo-uri` / `--json`） | 无（严格只读） | 只读 |
 
 ### 心法缓存缺失直接查询的存储约定（2026-11-06修正）
 

@@ -34,6 +34,15 @@ class RoleJjcCacheRepo:
 
     # ---- 读取 ----
 
+    async def load_by_identity_id(self, identity_id: Any) -> Optional[Dict[str, Any]]:
+        """按 role_identities._id (identity_id) 直接读取缓存。"""
+        if identity_id is None or identity_id == "":
+            return None
+        doc = await self._col().find_one({"identity_id": identity_id})
+        if doc:
+            doc.pop("_id", None)
+        return doc
+
     async def load_by_identity_key(self, identity_key: str) -> Optional[Dict[str, Any]]:
         """按 identity_key 直接读取缓存。"""
         doc = await self._col().find_one({"identity_key": identity_key})
@@ -49,8 +58,14 @@ class RoleJjcCacheRepo:
         game_role_id: Optional[str] = None,
         global_id: Optional[str] = None,
         global_role_id: Optional[str] = None,
+        identity_id: Optional[Any] = None,
     ) -> Optional[Dict[str, Any]]:
-        """按可用 ID 优先级查找 JJC 缓存：global_id > global_role_id > zone+game_role_id > server+name。"""
+        """按可用 ID 优先级查找 JJC 缓存：identity_id > global_id > global_role_id > zone+game_role_id > server+name。"""
+        if identity_id is not None and identity_id != "":
+            doc = await self.load_by_identity_id(identity_id)
+            if doc:
+                return doc
+
         replay_gid = (global_id or "").strip()
         if replay_gid:
             doc = await self._col().find_one({"global_id": replay_gid})
@@ -97,6 +112,8 @@ class RoleJjcCacheRepo:
         now = datetime.now(timezone.utc)
         set_fields = dict(cache_data)
         set_fields["identity_key"] = identity_key
+        if set_fields.get("identity_id") is None:
+            set_fields.pop("identity_id", None)
         set_fields.setdefault("checked_at", now)
         set_fields.setdefault("schema_version", SCHEMA_VERSION)
         # 写入规范化字段，按 server/name 查询时使用

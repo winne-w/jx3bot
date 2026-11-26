@@ -4,7 +4,7 @@ import time
 from uuid import uuid4
 from dataclasses import dataclass
 from re import escape as escape_regex
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -20,6 +20,23 @@ from src.domain.role_identity import (
     legacy_identity_keys,
     should_overwrite_profile_fields,
 )
+
+ROLE_FAIL_THRESHOLD: int = 3
+ROLE_FAIL_BACKOFF_SECONDS: int = 1800
+MATCH_DETAIL_FAIL_BACKOFF_SCHEDULE: Tuple[int, ...] = (300, 1800, 7200, 21600)
+
+
+def calculate_role_fail_backoff(fail_count: int) -> int:
+    """计算角色同步失败退避秒数（<3 次立即重试返回 0，>=3 次退避 30 分钟）。"""
+    if int(fail_count) >= ROLE_FAIL_THRESHOLD:
+        return ROLE_FAIL_BACKOFF_SECONDS
+    return 0
+
+
+def calculate_match_fail_backoff(fail_count: int) -> int:
+    """计算对局详情同步失败递增退避秒数（1=5min, 2=30min, 3=2h, 4+=6h 封顶）。"""
+    index = max(0, min(int(fail_count) - 1, len(MATCH_DETAIL_FAIL_BACKOFF_SCHEDULE) - 1))
+    return MATCH_DETAIL_FAIL_BACKOFF_SCHEDULE[index]
 
 
 @dataclass(frozen=True)
@@ -930,8 +947,9 @@ class JjcSyncRepo:
         if existing is not None:
             current_fail_count = existing.get("fail_count", 0) or 0
         new_fail_count = current_fail_count + 1
-        new_status = "failed" if new_fail_count >= 3 else "pending"
-        next_sync = now + 1800 if new_fail_count >= 3 else None
+        backoff_seconds = calculate_role_fail_backoff(new_fail_count)
+        new_status = "failed" if backoff_seconds > 0 else "pending"
+        next_sync = now + backoff_seconds if backoff_seconds > 0 else None
         try:
             return await self._release_queue_row(role_filter, {
                 "status": new_status,
@@ -1459,13 +1477,9 @@ class JjcSyncRepo:
             current_fail_count = existing.get("fail_count", 0) or 0
 
         new_fail_count = current_fail_count + 1
-
-        if new_fail_count >= 3:
-            new_status = "failed"
-            next_sync = now + 1800  # 30 分钟
-        else:
-            new_status = "pending"
-            next_sync = None
+        backoff_seconds = calculate_role_fail_backoff(new_fail_count)
+        new_status = "failed" if backoff_seconds > 0 else "pending"
+        next_sync = now + backoff_seconds if backoff_seconds > 0 else None
 
         try:
             return await self._release_queue_row(role_filter, {
@@ -2102,16 +2116,7 @@ class JjcSyncRepo:
             current_fail_count = existing.get("fail_count", 0) or 0
 
         new_fail_count = current_fail_count + 1
-
-        # 递增退避：1=5min, 2=30min, 3=2h, 4+=6h（封顶）
-        if new_fail_count <= 1:
-            retry_delay = 300
-        elif new_fail_count == 2:
-            retry_delay = 1800
-        elif new_fail_count == 3:
-            retry_delay = 7200
-        else:
-            retry_delay = 21600
+        retry_delay = calculate_match_fail_backoff(new_fail_count)
 
         try:
             result = await db.jjc_sync_match_seen.update_one(
