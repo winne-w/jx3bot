@@ -43,13 +43,12 @@ class RankingKungfuCacheTests(unittest.IsolatedAsyncioTestCase):
         self.policy = KungfuPolicy(SCOPE, refresh_seconds=100, max_stale_seconds=300,
                                    track_seconds=500)
         self.service = JjcRankingService(
-            token="", ticket="", jjc_query_url="", arena_time_tag_url="",
+               arena_time_tag_url="",
             arena_ranking_url="", match_detail_url="", jjc_ranking_cache_duration=3600,
             kungfu_cache_duration=3600, current_season="season-a",
             current_season_start="1970-01-01", kungfu_healer_list=["云裳心经"],
             kungfu_dps_list=["冰心诀"], kungfu_pinyin_to_chinese={"bingxin": "冰心诀"},
             tuilan_request=MagicMock(side_effect=AssertionError("no foreground kungfu request")),
-            defget_get=AsyncMock(side_effect=AssertionError("no foreground fallback")),
             identity_repo=self.identities, kungfu_refresh_repo=self.queue, kungfu_policy=self.policy,
             kungfu_query_service=self.direct)
         patches = [
@@ -139,7 +138,6 @@ class RankingKungfuCacheTests(unittest.IsolatedAsyncioTestCase):
         registered = self.queue.register.call_args.args[0]
         self.assertEqual({doc["_id"] for doc in registered}, {doc["_id"] for doc in docs})
         self.service.tuilan_request.assert_not_called()
-        self.service.defget_get.assert_not_awaited()
 
     async def test_cold_cache_read_does_not_enqueue_misses_for_async_completion(self):
         docs = [identity(i, include_result=False) for i in range(1000)]
@@ -149,7 +147,6 @@ class RankingKungfuCacheTests(unittest.IsolatedAsyncioTestCase):
                             for member in actual["members"]))
         self.assertEqual(self.queue.register.call_args.args[0], [])
         self.service.tuilan_request.assert_not_called()
-        self.service.defget_get.assert_not_awaited()
 
     async def test_identity_conflicts_keep_position_and_do_not_register_someone_else(self):
         docs = [identity(0), None, identity(2, include_result=False)]

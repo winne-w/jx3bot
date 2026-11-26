@@ -204,11 +204,11 @@ class TestRankingForceSync(unittest.IsolatedAsyncioTestCase):
 class TestRankingRunContext(unittest.IsolatedAsyncioTestCase):
     def service(self):
         from src.services.jx3.jjc_ranking import JjcRankingService
-        return JjcRankingService(token="",ticket="",jjc_query_url="",arena_time_tag_url="",
+        return JjcRankingService(arena_time_tag_url="",
             arena_ranking_url="",match_detail_url="",jjc_ranking_cache_duration=0,kungfu_cache_duration=0,
             current_season="fixture",current_season_start="2026-11-05",kungfu_healer_list=[],
             kungfu_dps_list=["fixture-kungfu"],kungfu_pinyin_to_chinese={},
-            tuilan_request=lambda *a: {},defget_get=AsyncMock())
+            tuilan_request=lambda *a: {})
 
     async def test_unknown_members_and_two_entries_share_one_run_but_next_run_is_new(self):
         from src.services.jx3.jjc_ranking import JjcRankingService

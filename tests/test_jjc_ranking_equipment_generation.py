@@ -27,12 +27,11 @@ def view_stats(view):
 
 
 def make_service(equipment_service):
-    service = JjcRankingService(token="", ticket="", jjc_query_url="", arena_time_tag_url="",
+    service = JjcRankingService(   arena_time_tag_url="",
         arena_ranking_url="", match_detail_url="", jjc_ranking_cache_duration=10,
         kungfu_cache_duration=10, current_season=SCOPE["season_id"], current_season_start="2027-01-15",
         kungfu_healer_list=["灵素"], kungfu_dps_list=["山居剑意"], kungfu_pinyin_to_chinese={},
-        tuilan_request=Mock(side_effect=AssertionError("upstream forbidden")),
-        defget_get=AsyncMock(side_effect=AssertionError("upstream forbidden")))
+        tuilan_request=Mock(side_effect=AssertionError("upstream forbidden")))
     # Frozen dataclass currently has no optional dependency; do not count TypeError as RED.
     object.__setattr__(service, "equipment_service", equipment_service)
     return service

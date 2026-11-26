@@ -7,12 +7,12 @@ from src.services.jx3.jjc_ranking import JjcRankingService
 class JjcRankingExplicitTagTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.service = JjcRankingService(
-            token="", ticket="", jjc_query_url="", arena_time_tag_url="",
+               arena_time_tag_url="",
             arena_ranking_url="", match_detail_url="",
             jjc_ranking_cache_duration=3600, kungfu_cache_duration=3600,
             current_season="S12", current_season_start="2026-04-24",
             kungfu_healer_list=[], kungfu_dps_list=[], kungfu_pinyin_to_chinese={},
-            tuilan_request=MagicMock(), defget_get=AsyncMock(),
+            tuilan_request=MagicMock(),
         )
         self.api = MagicMock()
         self.api.get_arena_time_tag.return_value = {
