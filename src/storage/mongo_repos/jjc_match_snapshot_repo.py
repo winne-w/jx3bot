@@ -9,7 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from nonebot import logger
 
 from src.infra.mongo import get_db as _get_db
-from src.services.jx3.match_detail_snapshots import TALENT_SNAPSHOT_SCHEMA_VERSION
+from src.domain.snapshots import TALENT_SNAPSHOT_SCHEMA_VERSION
 
 
 @dataclass(frozen=True)

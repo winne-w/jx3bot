@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from bson import ObjectId
 
-from src.services.jx3.jjc_kungfu_meta import get_jjc_kungfu_catalog
+from src.domain.kungfu_catalog import KUNGFU_BY_ID
 from src.services.jx3.jjc_kungfu_policy import KungfuPolicy, positive_integer, valid_timestamp
 from src.utils.jjc_display_identity import (
     duplicate_player as _duplicate_player, indicator_identity,
@@ -14,9 +14,7 @@ from src.utils.jjc_display_identity import (
 )
 
 LOCATOR_FIELDS = ("server", "name", "zone", "game_role_id", "role_id", "global_id", "global_role_id")
-_KUNGFUS = {str(item["id"]): item["id"] for item in get_jjc_kungfu_catalog()}
-# Raw aoxue evidence uses 10026; keep the legacy ranking catalog frozen.
-_KUNGFUS["10026"] = 10026
+_KUNGFUS = {str(kungfu_id): kungfu_id for kungfu_id in KUNGFU_BY_ID}
 
 
 def display_context(identity: Dict[str, Any], scope: Dict[str, Any]) -> Dict[str, Any]:

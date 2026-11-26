@@ -10,6 +10,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
+from src.domain.role_name import split_display_name, strip_server_suffix
+from src.domain.season import parse_season_start_timestamp
 from src.services.jx3.match_replay import MatchReplayClient
 from src.services.jx3.match_detail_persistence import MatchDetailPersistenceService
 from src.services.jx3.role_indicator import RoleIndicatorClient
@@ -284,17 +286,7 @@ def normalize_match_detail_role_name(role_name: Any, server: Any) -> str:
     若分割后右侧 trim 后等于 server trim 后且左侧非空，返回 trim 后的左侧；
     否则保持原 trim 后的角色名。
     """
-    name = str(role_name or "").strip()
-    server_name = str(server or "").strip()
-    if not name or "·" not in name:
-        return name
-
-    left, right = name.rsplit("·", 1)
-    left = left.strip()
-    right = right.strip()
-    if left and server_name and right == server_name:
-        return left
-    return name
+    return strip_server_suffix(role_name, server)
 
 
 def normalize_role_name(role_name: Any, server: Any) -> str:
@@ -308,16 +300,8 @@ def split_replay_role_name(role_name: Any, server: Any = "") -> Tuple[str, str]:
     replay 实测通常把服务器拼在 role_name 里，格式为 `角色名·服务器`，且没有独立
     server 字段。若调用方传入 server，则优先使用传入值。
     """
-    raw_name = str(role_name or "").strip()
-    raw_server = str(server or "").strip()
-    if raw_server:
-        return raw_server, normalize_role_name(raw_name, raw_server)
-    if "·" not in raw_name:
-        return "", raw_name
-    name_part, server_part = raw_name.rsplit("·", 1)
-    parsed_server = server_part.strip()
-    parsed_name = normalize_role_name(name_part.strip(), parsed_server)
-    return parsed_server, parsed_name
+    parsed_server, parsed_name = split_display_name(role_name, server)
+    return parsed_server, strip_server_suffix(parsed_name, parsed_server)
 
 
 def build_player_match_key(role_name: Any, server: Any) -> Optional[Tuple[str, str]]:
@@ -449,16 +433,6 @@ def extract_history_items(payload: dict) -> List[dict]:
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
     return []
-
-
-def parse_season_start_timestamp(season_start_str: str) -> int:
-    """将 "2026-04-24" 格式的日期字符串转为 Unix 时间戳（秒）。
-
-    使用北京时间（UTC+8）。
-    """
-    beijing_tz = timezone(timedelta(hours=8))
-    dt = datetime.strptime(season_start_str, "%Y-%m-%d").replace(tzinfo=beijing_tz)
-    return int(dt.timestamp())
 
 
 class JjcMatchDataSyncService:

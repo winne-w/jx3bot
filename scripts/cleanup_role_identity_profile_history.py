@@ -18,6 +18,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts._common.mongo import (  # noqa: E402
+    open_sync_client,
+    resolve_database,
+    resolve_mongo_uri,
+)
 from src.storage.mongo_repos.role_identity_repo import MATCH_DETAIL_IDENTITY_PROJECTION  # noqa: E402
 
 
@@ -26,28 +31,7 @@ def _log(message: str) -> None:
 
 
 def get_mongo_uri() -> str:
-    runtime_cfg_path = ROOT / "runtime_config.json"
-    if runtime_cfg_path.is_file():
-        try:
-            with open(str(runtime_cfg_path), "r", encoding="utf-8") as fh:
-                uri = json.load(fh).get("MONGO_URI")
-            if uri:
-                return str(uri)
-        except Exception:
-            pass
-
-    try:
-        from config import MONGO_URI  # type: ignore
-
-        if MONGO_URI:
-            return str(MONGO_URI)
-    except Exception:
-        pass
-
-    uri = os.getenv("MONGO_URI")
-    if uri:
-        return uri
-    raise RuntimeError("无法获取 MONGO_URI：runtime_config.json、config.MONGO_URI、环境变量均未配置")
+    return resolve_mongo_uri()
 
 
 def _get_db(client: MongoClient, db_name: Optional[str]) -> Any:
@@ -130,10 +114,10 @@ def collect_sample_stats(collection: Any, sample_size: int) -> Dict[str, Any]:
 
 def run(args: argparse.Namespace) -> int:
     mongo_uri = args.mongo_uri or get_mongo_uri()
-    client = MongoClient(mongo_uri, serverSelectionTimeoutMS=8000)
+    client = open_sync_client(mongo_uri)
     try:
         client.admin.command("ping")
-        db = _get_db(client, args.db_name)
+        db = resolve_database(client, mongo_uri, db_name=args.db_name)
         collection = db.role_identities
 
         query = {"profile_history": {"$exists": True}}

@@ -21,7 +21,7 @@ logger = foreground_safe_logger(logger, component="inspect_repo")
 
 from src.infra.mongo import get_db as _get_db
 from src.utils.jjc_indicator_cache import indicator_cache_age, normalize_indicator_scope
-from src.services.jx3.match_detail_snapshots import (
+from src.domain.snapshots import (
     TALENT_SNAPSHOT_SCHEMA_VERSION,
     build_equipment_snapshot,
     build_talent_snapshot,

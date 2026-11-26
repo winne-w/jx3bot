@@ -4,13 +4,13 @@ import math
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 
-from src.services.jx3.jjc_kungfu_meta import get_jjc_kungfu_catalog
+from src.domain.kungfu_catalog import KUNGFU_BY_ID
 from src.services.jx3.weapon_quality import is_jjc_legendary_weapon
 from src.utils.jjc_equipment_schema import content_revision, equipment_view_revision
 
 SOURCE = "local_win_v2"
 RANGES = {"top_50": 50, "top_100": 100, "top_200": 200, "top_1000": 1000}
-_KUNGFUS = {int(row["id"]) for row in get_jjc_kungfu_catalog()} | {10026}
+_KUNGFUS = frozenset(KUNGFU_BY_ID)
 
 
 def positive_int(value):

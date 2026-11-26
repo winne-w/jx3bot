@@ -6,9 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import sys
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -18,6 +16,17 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from scripts._common.mongo import (  # noqa: E402
+    open_async_client,
+    resolve_database,
+    resolve_mongo_uri,
+)
+
+try:
+    from src.domain.season import parse_season_start_timestamp  # noqa: E402
+except ImportError:
+    from src.services.jx3.jjc_match_data_sync import parse_season_start_timestamp  # noqa: E402
 
 
 def _log(message: str) -> None:
@@ -37,11 +46,6 @@ def _coerce_int(value: Any) -> Optional[int]:
         except ValueError:
             return None
     return None
-
-
-def parse_season_start_timestamp(season_start: str) -> int:
-    beijing_tz = timezone(timedelta(hours=8))
-    return int(datetime.strptime(season_start, "%Y-%m-%d").replace(tzinfo=beijing_tz).timestamp())
 
 
 def build_season_update(
@@ -85,19 +89,7 @@ def with_season_mismatch(query: Dict[str, Any], expected_season_id: Optional[str
 
 
 def get_mongo_uri() -> str:
-    runtime_config = ROOT / "runtime_config.json"
-    if runtime_config.is_file():
-        try:
-            payload = json.loads(runtime_config.read_text(encoding="utf-8"))
-            uri = payload.get("MONGO_URI") if isinstance(payload, dict) else None
-            if uri:
-                return str(uri)
-        except Exception:
-            pass
-
-    from config import MONGO_URI
-
-    return str(os.getenv("MONGO_URI") or MONGO_URI)
+    return resolve_mongo_uri()
 
 
 def get_db(client: AsyncIOMotorClient, db_name: Optional[str]) -> AsyncIOMotorDatabase:
@@ -139,9 +131,10 @@ async def run(args: argparse.Namespace) -> Dict[str, int]:
     if not current_season:
         raise RuntimeError("CURRENT_SEASON 不能为空")
 
-    client = AsyncIOMotorClient(args.mongo_uri or get_mongo_uri(), serverSelectionTimeoutMS=8000)
+    mongo_uri = args.mongo_uri or get_mongo_uri()
+    client = open_async_client(mongo_uri)
     try:
-        db = get_db(client, args.db_name)
+        db = resolve_database(client, mongo_uri, db_name=args.db_name)
         await db.command("ping")
         collection = db.jjc_match_participants
         stats = {

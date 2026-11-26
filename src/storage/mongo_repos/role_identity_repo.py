@@ -16,7 +16,7 @@ logger = foreground_safe_logger(logger, component="identity_repo")
 from pymongo.errors import DuplicateKeyError
 
 from src.infra.mongo import get_db as _get_db
-from src.services.jx3.role_identity_matching import (
+from src.domain.role_identity import (
     STRICT_QUERY_ID_REFRESH_SOURCE,
     build_guarded_profile_set_fields,
     build_identity_key as _build_role_identity_key,

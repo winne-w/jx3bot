@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse
 from nonebot import logger
 
 import config as cfg
-from config import KUNGFU_META
+from src.domain.kungfu_catalog import category_for_name
 from src.api.response import error_response, success_response
 from src.services.jx3.singletons import jjc_ranking_inspect_service
 from src.services.jx3.jjc_peak_score_ranking import JjcPeakScoreRankingService
@@ -30,12 +30,6 @@ _RANGE_LIMITS = {
     "top_200": 200,
     "top_100": 100,
     "top_50": 50,
-}
-
-_HEALER_KUNGFU_NAMES = {
-    str(meta.get("name"))
-    for meta in KUNGFU_META.values()
-    if isinstance(meta, dict) and meta.get("category") == "healer" and meta.get("name")
 }
 
 
@@ -155,6 +149,7 @@ def _build_peak_kungfu_statistics(items: List[Dict[str, Any]]) -> Dict[str, Any]
     lanes: Dict[str, Dict[str, Any]] = {
         "healer": {"distribution": {}, "valid_count": 0, "min_score": None},
         "dps": {"distribution": {}, "valid_count": 0, "min_score": None},
+        "tank": {"distribution": {}, "valid_count": 0, "min_score": None},
     }
     for item in items:
         if not isinstance(item, dict):
@@ -162,7 +157,8 @@ def _build_peak_kungfu_statistics(items: List[Dict[str, Any]]) -> Dict[str, Any]
         kungfu = str(item.get("kungfu") or "").strip()
         if not kungfu:
             kungfu = "未知心法"
-        lane_key = "healer" if kungfu in _HEALER_KUNGFU_NAMES else "dps"
+        category = category_for_name(kungfu)
+        lane_key = category if category in lanes else "dps"
         lane = lanes[lane_key]
         lane["distribution"][kungfu] = int(lane["distribution"].get(kungfu, 0)) + 1
         lane["valid_count"] += 1

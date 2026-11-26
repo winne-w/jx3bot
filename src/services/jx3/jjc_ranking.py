@@ -5,7 +5,7 @@ import copy
 import time
 from uuid import uuid4
 from weakref import WeakKeyDictionary
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
@@ -15,6 +15,7 @@ from src.utils.jjc_query_observability import foreground_safe_logger, observed_q
 logger = foreground_safe_logger(logger, component="ranking")
 import config as cfg
 
+from src.domain.kungfu_catalog import tank_names
 from src.services.jx3.indicator_utils import parse_3v3_indicator
 from src.services.jx3.role_identity_recovery import indicator_matches_request, recover_query_ids
 from src.services.jx3.kungfu import get_role_indicator, get_kungfu_detail_by_role_info, merge_replay_global_ids_into_match_detail
@@ -97,6 +98,10 @@ class JjcRankingService:
 
     foreground_client: Any = None
     query_context: Any = None
+    kungfu_tank_list: Optional[List[str]] = field(default_factory=tank_names)
+
+    def _tank_kungfu_list(self) -> List[str]:
+        return list(self.kungfu_tank_list) if self.kungfu_tank_list is not None else tank_names()
 
     def _ranking_kungfu_policy(self) -> KungfuPolicy:
         if self.kungfu_policy is not None:
@@ -151,7 +156,7 @@ class JjcRankingService:
         identities = await repo.resolve_ranking_identities_batch(self._ranking_identity_inputs(players))
         if len(identities) != len(players):
             raise ValueError("ranking identity batch must preserve every position")
-        valid_names = set(self.kungfu_healer_list + self.kungfu_dps_list)
+        valid_names = set(self.kungfu_healer_list + self.kungfu_dps_list + self._tank_kungfu_list())
         canonical_ids = {item["name"]: item["id"] for item in get_jjc_kungfu_catalog()}
         members = []
         for player, identity in zip(players, identities):
@@ -214,7 +219,7 @@ class JjcRankingService:
             if identity is not None and self.kungfu_query_service is not None:
                 saved = await self.kungfu_query_service.query_now(identity)
                 status = policy.evaluate(saved, time.time(),
-                    valid_names=set(self.kungfu_healer_list + self.kungfu_dps_list))
+                    valid_names=set(self.kungfu_healer_list + self.kungfu_dps_list + self._tank_kungfu_list()))
                 canonical = {item["name"]: item["id"] for item in get_jjc_kungfu_catalog()}
                 if (status["freshness"] == "unknown" or
                         canonical.get(saved["name"]) != saved["kungfu_id"]):
@@ -967,9 +972,11 @@ class JjcRankingService:
             summary_range: dict[str, Any] = {
                 key: value
                 for key, value in range_stats.items()
-                if key not in {"healer", "dps", "unknown_members"}
+                if key not in {"healer", "dps", "tank", "unknown_members"}
             }
-            for lane_name in ("healer", "dps"):
+            for lane_name in ("healer", "dps", "tank"):
+                if lane_name == "tank" and lane_name not in range_stats:
+                    continue
                 lane = range_stats.get(lane_name) or {}
                 if not isinstance(lane, dict):
                     summary_range[lane_name] = lane
@@ -1010,7 +1017,7 @@ class JjcRankingService:
             # Same-anchor recomputes (including rollback) must clear old unknown rows.
             detail_payloads.append({"range": range_key, "lane": "unknown", "kungfu": "unknown",
                                     "members": copy.deepcopy(range_stats.get("unknown_members") or [])})
-            for lane_name in ("healer", "dps"):
+            for lane_name in ("healer", "dps", "tank"):
                 lane = range_stats.get(lane_name) or {}
                 members_map = lane.get("members") or {}
                 if not isinstance(members_map, dict):
@@ -1539,19 +1546,24 @@ class JjcRankingService:
             def count_kungfu_by_rank(player_data: list[dict[str, Any]], max_rank: int) -> dict[str, Any]:
                 healer_kungfu = self.kungfu_healer_list
                 dps_kungfu = self.kungfu_dps_list
+                tank_kungfu = self._tank_kungfu_list()
 
                 healer_count: dict[str, int] = {}
                 dps_count: dict[str, int] = {}
+                tank_count: dict[str, int] = {}
 
                 healer_valid_count = 0
                 dps_valid_count = 0
+                tank_valid_count = 0
                 invalid_count = 0
                 invalid_details: list[str] = []
 
                 healer_first_rank: dict[str, int] = {}
                 dps_first_rank: dict[str, int] = {}
+                tank_first_rank: dict[str, int] = {}
                 healer_members: dict[str, list[dict[str, Any]]] = {}
                 dps_members: dict[str, list[dict[str, Any]]] = {}
+                tank_members: dict[str, list[dict[str, Any]]] = {}
 
                 overall_min_score = None
 
@@ -1561,6 +1573,9 @@ class JjcRankingService:
                 for kungfu in dps_kungfu:
                     dps_count[kungfu] = 0
                     dps_members[kungfu] = []
+                for kungfu in tank_kungfu:
+                    tank_count[kungfu] = 0
+                    tank_members[kungfu] = []
 
                 for player_item in player_data[:max_rank]:
                     score = self._coerce_score(player_item.get("score"))
@@ -1580,6 +1595,31 @@ class JjcRankingService:
                             if kungfu not in healer_first_rank:
                                 healer_first_rank[kungfu] = i + 1
                             healer_members[kungfu].append(
+                                {
+                                    "rank": i + 1,
+                                    "server": player_item.get("server", "未知"),
+                                    "name": player_item.get("name", "未知"),
+                                    "score": score,
+                                    "kungfu_id": player_item.get("kungfu_id"),
+                                    "game_role_id": player_item.get("game_role_id"),
+                                    "global_role_id": player_item.get("global_role_id"),
+                                    "global_id": player_item.get("global_id"),
+                                    "role_id": player_item.get("role_id"),
+                                    "zone": player_item.get("zone"),
+                                    "teammates": player_item.get("teammates"),
+                                    "weapon_icon": player_item.get("weapon_icon"),
+                                    "weapon_quality": player_item.get("weapon_quality"),
+                                    "weapon_name": player_item.get("weapon_name"),
+                                    **({field: copy.deepcopy(player_item.get(field)) for field in
+                                        _RANKING_KUNGFU_FIELDS} if use_local else {}),
+                                }
+                            )
+                        elif kungfu in tank_kungfu:
+                            tank_count[kungfu] = tank_count.get(kungfu, 0) + 1
+                            tank_valid_count += 1
+                            if kungfu not in tank_first_rank:
+                                tank_first_rank[kungfu] = i + 1
+                            tank_members[kungfu].append(
                                 {
                                     "rank": i + 1,
                                     "server": player_item.get("server", "未知"),
@@ -1654,6 +1694,9 @@ class JjcRankingService:
                 for i, kungfu in enumerate(dps_kungfu):
                     if kungfu not in dps_first_rank:
                         dps_first_rank[kungfu] = 9999 + i
+                for i, kungfu in enumerate(tank_kungfu):
+                    if kungfu not in tank_first_rank:
+                        tank_first_rank[kungfu] = 9999 + i
 
                 sorted_healer = sorted(
                     healer_count.items(),
@@ -1665,6 +1708,11 @@ class JjcRankingService:
                     key=lambda x: (x[1], -dps_first_rank[x[0]]),
                     reverse=True,
                 )
+                tank_list = sorted(
+                    tank_count.items(),
+                    key=lambda x: (x[1], -tank_first_rank[x[0]]),
+                    reverse=True,
+                )
 
                 if invalid_details:
                     logger.info(f"前{max_rank}名中无效数据角色（共{len(invalid_details)}个）")
@@ -1672,9 +1720,10 @@ class JjcRankingService:
                         logger.info(f"invalid: {detail}")
 
                 actual_count = len(player_data[:max_rank])
+                known_kungfus = healer_kungfu + dps_kungfu + tank_kungfu
                 cache_metadata = {"unknown_members": [dict(item, rank=index + 1)
                     for index, item in enumerate(player_data[:max_rank]) if not item.get("found")
-                    or item.get("kungfu") not in healer_kungfu + dps_kungfu]}
+                    or item.get("kungfu") not in known_kungfus]}
                 if use_local:
                     counts = {key: sum(item.get("kungfu_freshness") == key for item in player_data[:max_rank])
                               for key in ("fresh", "stale", "unknown")}
@@ -1702,10 +1751,18 @@ class JjcRankingService:
                         "min_score": overall_min_score,
                         "members": dps_members,
                     },
-                    "total_valid_count": healer_valid_count + dps_valid_count,
+                    "tank": {
+                        **({"equipment_incomplete": True} if use_local else {}),
+                        "valid_count": tank_valid_count,
+                        "distribution": dict(tank_list),
+                        "list": tank_list,
+                        "min_score": overall_min_score,
+                        "members": tank_members,
+                    },
+                    "total_valid_count": healer_valid_count + dps_valid_count + tank_valid_count,
                     "invalid_count": invalid_count,
                     "invalid_details": invalid_details,
-                    "unclassified_count": (actual_count if use_local else max_rank) - (healer_valid_count + dps_valid_count + invalid_count),
+                    "unclassified_count": (actual_count if use_local else max_rank) - (healer_valid_count + dps_valid_count + tank_valid_count + invalid_count),
                 }
 
             logger.info("正在统计kungfu分布")
@@ -1723,9 +1780,13 @@ class JjcRankingService:
                 if self.equipment_service is None:
                     raise RuntimeError("equipment_service_unavailable")
                 frozen = copy.deepcopy(kungfu_results)
+                tank_list = self._tank_kungfu_list()
                 for member in frozen:
-                    member["lane"] = ("healer" if member.get("kungfu") in self.kungfu_healer_list else
-                                      "dps" if member.get("kungfu") in self.kungfu_dps_list else "unknown")
+                    member["lane"] = (
+                        "healer" if member.get("kungfu") in self.kungfu_healer_list else
+                        "tank" if member.get("kungfu") in tank_list else
+                        "dps" if member.get("kungfu") in self.kungfu_dps_list else "unknown"
+                    )
                 equipment_view = await self.equipment_service.build_frozen_view(
                     timestamp=int(ranking_data.get("cache_time") or time.time()), members=frozen)
                 equipment_expected = equipment_view.pop("_publication_expected", None)
