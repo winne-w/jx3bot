@@ -116,8 +116,22 @@ def _stringify_error_payload(payload: Any) -> str:
     return str(payload or "")
 
 
+def _is_tuilan_auth_exception(payload: Any) -> bool:
+    if not isinstance(payload, BaseException):
+        return False
+    try:
+        from src.infra.tuilan_errors import TuilanAuthError
+    except ImportError:
+        TuilanAuthError = None  # type: ignore[assignment]
+    if TuilanAuthError is not None and isinstance(payload, TuilanAuthError):
+        return True
+    return any(cls.__name__ == "TuilanAuthError" for cls in type(payload).__mro__)
+
+
 def is_tuilan_auth_error(payload: Any) -> bool:
-    """判断推栏响应是否属于需要全局暂停的鉴权类错误。"""
+    """判断推栏响应或异常是否属于需要全局暂停的鉴权类错误。"""
+    if _is_tuilan_auth_exception(payload):
+        return True
     if isinstance(payload, dict):
         code = _coerce_int(payload.get("code"))
         status_code = _coerce_int(payload.get("status_code"))
@@ -1271,7 +1285,7 @@ class JjcMatchDataSyncService:
                 server=server,
             )
         except Exception as exc:
-            if is_tuilan_auth_error(str(exc)):
+            if is_tuilan_auth_error(exc):
                 raise JjcSyncGlobalPauseError(
                     build_tuilan_auth_pause_reason(str(exc), context="role-indicator")
                 )
@@ -1945,7 +1959,7 @@ class JjcMatchDataSyncService:
                 identity_hints=hints,
             )
         except Exception as exc:
-            if is_tuilan_auth_error(str(exc)):
+            if is_tuilan_auth_error(exc):
                 raise JjcSyncGlobalPauseError(
                     build_tuilan_auth_pause_reason(str(exc), context="角色身份补全")
                 )
@@ -2308,7 +2322,7 @@ class JjcMatchDataSyncService:
             except JjcSyncStaleLeaseError:
                 raise
             except Exception as exc:
-                if is_tuilan_auth_error(str(exc)):
+                if is_tuilan_auth_error(exc):
                     raise JjcSyncGlobalPauseError(
                         build_tuilan_auth_pause_reason(str(exc), context="对局详情")
                     )
@@ -2409,7 +2423,7 @@ class JjcMatchDataSyncService:
                 if lease_renewer is not None:
                     await lease_renewer(False)
             except Exception as exc:
-                if is_tuilan_auth_error(str(exc)):
+                if is_tuilan_auth_error(exc):
                     raise JjcSyncGlobalPauseError(
                         build_tuilan_auth_pause_reason(str(exc), context="match-replay")
                     )
@@ -2574,7 +2588,7 @@ class JjcMatchDataSyncService:
                     if lease_renewer is not None:
                         await lease_renewer(False)
                 except Exception as exc:
-                    if is_tuilan_auth_error(str(exc)):
+                    if is_tuilan_auth_error(exc):
                         raise JjcSyncGlobalPauseError(
                             build_tuilan_auth_pause_reason(str(exc), context="role-indicator")
                         )

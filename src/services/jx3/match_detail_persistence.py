@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 try:
     from nonebot import logger  # type: ignore
@@ -100,6 +100,35 @@ class MatchDetailPersistenceService:
             % (match_id, source, self.schema, stage, str(error))
         )
 
+    async def _run_projection_stage(
+        self,
+        *,
+        match_id: Any,
+        source: str,
+        stage: str,
+        runner: Callable[[], Awaitable[Any]],
+    ) -> Tuple[Any, Optional[str]]:
+        try:
+            result = await runner()
+            error = _result_error(result)
+            if error is not None:
+                self._log_error(
+                    match_id=match_id,
+                    source=source,
+                    stage=stage,
+                    error=error,
+                )
+            return result, error
+        except Exception as exc:
+            error = str(exc)
+            self._log_error(
+                match_id=match_id,
+                source=source,
+                stage=stage,
+                error=error,
+            )
+            return None, error
+
     async def persist(
         self,
         match_id: Any,
@@ -145,93 +174,54 @@ class MatchDetailPersistenceService:
                 main_error=main_error,
             )
 
-        identity_result = None
-        identity_error = None
-        identity_attempted = self.identity_projector is not None
-        if self.identity_projector is not None:
-            try:
-                wrapped_data = payload.get("data")
-                identity_payload = wrapped_data if isinstance(wrapped_data, dict) else payload
-                identity_context = identity_projection_context(source)
-                identity_result = await self.identity_projector.project_payload(
-                    match_id=match_id,
-                    payload=copy.deepcopy(identity_payload),
-                    **identity_context,
-                )
-                identity_error = _result_error(identity_result)
-                if identity_error is not None:
-                    self._log_error(
-                        match_id=match_id,
-                        source=source,
-                        stage="identity",
-                        error=identity_error,
-                    )
-            except Exception as exc:
-                identity_error = str(exc)
-                self._log_error(
-                    match_id=match_id,
-                    source=source,
-                    stage="identity",
-                    error=identity_error,
-                )
+        async def _run_identity() -> Any:
+            wrapped_data = payload.get("data")
+            identity_payload = wrapped_data if isinstance(wrapped_data, dict) else payload
+            identity_context = identity_projection_context(source)
+            return await self.identity_projector.project_payload(
+                match_id=match_id,
+                payload=copy.deepcopy(identity_payload),
+                **identity_context,
+            )
 
-        participant_result = None
-        participant_error = None
-        participant_attempted = self.participant_projector is not None
-        if self.participant_projector is not None:
-            try:
-                if _is_unavailable(payload):
-                    participant_result = await self.participant_projector.clear_match(match_id)
-                else:
-                    participant_result = await self.participant_projector.project_payload(
-                        match_id=match_id,
-                        payload=copy.deepcopy(payload),
-                        seen_doc=copy.deepcopy(seen_doc),
-                        source=participant_detail_source(source),
-                    )
-                participant_error = _result_error(participant_result)
-                if participant_error is not None:
-                    self._log_error(
-                        match_id=match_id,
-                        source=source,
-                        stage="participant",
-                        error=participant_error,
-                    )
-            except Exception as exc:
-                participant_error = str(exc)
-                self._log_error(
-                    match_id=match_id,
-                    source=source,
-                    stage="participant",
-                    error=participant_error,
-                )
+        async def _run_participant() -> Any:
+            if _is_unavailable(payload):
+                return await self.participant_projector.clear_match(match_id)
+            return await self.participant_projector.project_payload(
+                match_id=match_id,
+                payload=copy.deepcopy(payload),
+                seen_doc=copy.deepcopy(seen_doc),
+                source=participant_detail_source(source),
+            )
 
-        fact_result = None
-        fact_error = None
-        fact_attempted = self.fact_projector is not None
-        if self.fact_projector is not None:
-            try:
-                fact_result = await self.fact_projector.project_payload(
-                    match_id=match_id,
-                    payload=copy.deepcopy(payload),
-                    source=source,
-                )
-                fact_error = _result_error(fact_result)
-                if fact_error is not None:
-                    self._log_error(
-                        match_id=match_id,
-                        source=source,
-                        stage="fact",
-                        error=fact_error,
-                    )
-            except Exception as exc:
-                fact_error = str(exc)
-                self._log_error(
+        async def _run_fact() -> Any:
+            return await self.fact_projector.project_payload(
+                match_id=match_id,
+                payload=copy.deepcopy(payload),
+                source=source,
+            )
+
+        stage_specs = (
+            ("identity", self.identity_projector, _run_identity),
+            ("participant", self.participant_projector, _run_participant),
+            ("fact", self.fact_projector, _run_fact),
+        )
+        outcomes: Dict[str, Tuple[bool, Any, Optional[str]]] = {}
+        for stage_name, projector, runner in stage_specs:
+            if projector is None:
+                outcomes[stage_name] = (False, None, None)
+            else:
+                stage_result, stage_error = await self._run_projection_stage(
                     match_id=match_id,
                     source=source,
-                    stage="fact",
-                    error=fact_error,
+                    stage=stage_name,
+                    runner=runner,
                 )
+                outcomes[stage_name] = (True, stage_result, stage_error)
+
+        identity_attempted, identity_result, identity_error = outcomes["identity"]
+        participant_attempted, participant_result, participant_error = outcomes["participant"]
+        fact_attempted, fact_result, fact_error = outcomes["fact"]
 
         return PersistMatchDetailResult(
             match_id=match_id,

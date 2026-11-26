@@ -11,11 +11,16 @@ from starlette.responses import JSONResponse
 from nonebot import logger
 
 import config as cfg
-from src.domain.kungfu_catalog import category_for_name
 from src.api.response import error_response, success_response
 from src.services.jx3.singletons import jjc_ranking_inspect_service
 from src.services.jx3.jjc_peak_score_ranking import JjcPeakScoreRankingService
 from src.services.jx3.jjc_ranking_display import DisplayRequestError, public_display_member
+from src.services.jx3.jjc_ranking_stats_query import (
+    RANGE_LIMITS,
+    build_peak_kungfu_statistics,
+    load_peak_score_doc,
+    normalize_optional_text,
+)
 from src.storage.mongo_repos.jjc_peak_score_ranking_repo import JjcPeakScoreRankingRepo
 from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo, EquipmentSnapshotError
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
@@ -25,12 +30,7 @@ from src.storage.mongo_repos.jjc_match_participant_repo import JjcMatchParticipa
 router = APIRouter(prefix="/api/jjc", tags=["jjc"])
 
 
-_RANGE_LIMITS = {
-    "top_1000": 1000,
-    "top_200": 200,
-    "top_100": 100,
-    "top_50": 50,
-}
+_RANGE_LIMITS = RANGE_LIMITS
 
 
 
@@ -145,33 +145,7 @@ async def _equipment_frozen(timestamp: int, expected_view_revision=None):
         return None, _equipment_failure(getattr(exc, "code", "read_failed"))
 
 
-def _build_peak_kungfu_statistics(items: List[Dict[str, Any]]) -> Dict[str, Any]:
-    lanes: Dict[str, Dict[str, Any]] = {
-        "healer": {"distribution": {}, "valid_count": 0, "min_score": None},
-        "dps": {"distribution": {}, "valid_count": 0, "min_score": None},
-        "tank": {"distribution": {}, "valid_count": 0, "min_score": None},
-    }
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        kungfu = str(item.get("kungfu") or "").strip()
-        if not kungfu:
-            kungfu = "未知心法"
-        category = category_for_name(kungfu)
-        lane_key = category if category in lanes else "dps"
-        lane = lanes[lane_key]
-        lane["distribution"][kungfu] = int(lane["distribution"].get(kungfu, 0)) + 1
-        lane["valid_count"] += 1
-        score = item.get("score")
-        if isinstance(score, (int, float)) and not isinstance(score, bool):
-            lane["min_score"] = score if lane["min_score"] is None else min(lane["min_score"], score)
-
-    for lane in lanes.values():
-        lane["list"] = sorted(lane["distribution"].items(), key=lambda pair: pair[1], reverse=True)
-        lane["legendary_count_map"] = {}
-        if lane["min_score"] is None:
-            lane["min_score"] = "-"
-    return lanes
+_build_peak_kungfu_statistics = build_peak_kungfu_statistics
 
 
 async def _load_peak_score_doc(
@@ -181,22 +155,19 @@ async def _load_peak_score_doc(
     range_key: str,
     version: int,
 ) -> Optional[Dict[str, Any]]:
-    limit = _RANGE_LIMITS.get(range_key)
-    if limit is None:
+    if range_key not in _RANGE_LIMITS:
         return None
-    try:
-        return await JjcPeakScoreRankingService(
-            ranking_stats_repo=JjcRankingStatsRepo(),
-            participant_repo=JjcMatchParticipantRepo(),
-            peak_repo=JjcPeakScoreRankingRepo(suppress_errors=False),
-        ).load_for_anchor(
-            anchor_timestamp=int(timestamp), score_type=score_type,
-            version=version, max_items=limit,
-        )
-    except Exception as exc:
-        logger.warning("JJC peak-score season read failed: anchor={} score_type={} error={}",
-                       timestamp, score_type, type(exc).__name__)
-        return None
+    return await load_peak_score_doc(
+        timestamp=timestamp,
+        score_type=score_type,
+        range_key=range_key,
+        version=version,
+        range_limits=_RANGE_LIMITS,
+        ranking_stats_repo=JjcRankingStatsRepo(),
+        participant_repo=JjcMatchParticipantRepo(),
+        peak_repo=JjcPeakScoreRankingRepo(suppress_errors=False),
+        service_cls=JjcPeakScoreRankingService,
+    )
 
 
 async def _read_snapshot_metadata(action, season, page, page_size, with_meta):
@@ -217,7 +188,7 @@ async def _read_snapshot_metadata_selected(action, season, page, page_size, with
         return success_response(await _snapshot_read_repo().list_seasons())
 
     if action == "season-history":
-        normalized_season = str(season or "").strip()
+        normalized_season = normalize_optional_text(season)
         if not normalized_season:
             return error_response("invalid_season")
         return success_response(
@@ -665,11 +636,11 @@ async def get_ranking_stats_role_recent(
         name=name,
         cursor=cursor,
         identity_hints={
-            "game_role_id": (game_role_id or "").strip() or None,
-            "global_role_id": (global_role_id or "").strip() or None,
-            "global_id": (global_id or "").strip() or None,
-            "role_id": (role_id or "").strip() or None,
-            "zone": (zone or "").strip() or None,
+            "game_role_id": normalize_optional_text(game_role_id),
+            "global_role_id": normalize_optional_text(global_role_id),
+            "global_id": normalize_optional_text(global_id),
+            "role_id": normalize_optional_text(role_id),
+            "zone": normalize_optional_text(zone),
         },
         force_refresh=force_refresh,
     )
@@ -698,11 +669,11 @@ async def get_ranking_stats_role_indicator(
     result = await jjc_ranking_inspect_service.get_role_indicator(
         server=server,
         name=name,
-        game_role_id=(game_role_id or "").strip() or None,
-        global_role_id=(global_role_id or "").strip() or None,
-        global_id=(global_id or "").strip() or None,
-        role_id=(role_id or "").strip() or None,
-        zone=(zone or "").strip() or None,
+        game_role_id=normalize_optional_text(game_role_id),
+        global_role_id=normalize_optional_text(global_role_id),
+        global_id=normalize_optional_text(global_id),
+        role_id=normalize_optional_text(role_id),
+        zone=normalize_optional_text(zone),
         force_refresh=force_refresh,
         identity_only=identity_only,
     )

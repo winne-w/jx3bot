@@ -1,5 +1,14 @@
 from src.infra.group_delivery import send_group_msg
+from src.infra.runtime_config import (
+    DEFAULT_RUNTIME_CONFIG_FILE,
+    mask_sensitive_value,
+    parse_config_value,
+    read_runtime_config,
+    to_legacy_schema,
+    write_runtime_config,
+)
 import os
+import signal
 import sys
 import json
 import time
@@ -14,78 +23,11 @@ import src.utils.shared_data
 
 
 # 运行时配置文件路径
-CONFIG_FILE = "runtime_config.json"
+CONFIG_FILE = DEFAULT_RUNTIME_CONFIG_FILE
 RESTART_FLAG_FILE = "restart_info.json"
 
 
-CONFIG_SCHEMA = {
-    "TOKEN": {
-        "type": str,
-        "sensitive": True,
-        "allow_modify": True,
-        "validate": None,
-    },
-    "TICKET": {
-        "type": str,
-        "sensitive": True,
-        "allow_modify": True,
-        "validate": None,
-    },
-    "MONGO_URI": {
-        "type": str,
-        "sensitive": True,
-        "allow_modify": False,
-        "validate": None,
-    },
-    "SESSION_data": {
-        "type": int,
-        "sensitive": False,
-        "allow_modify": True,
-        "validate": None,
-    },
-    "calendar_time": {
-        "type": int,
-        "sensitive": False,
-        "allow_modify": True,
-        "validate": None,
-    },
-    "STATUS_check_time": {
-        "type": int,
-        "sensitive": False,
-        "allow_modify": True,
-        "validate": None,
-    },
-    "JJC_SYNC_WORKER_COUNT": {
-        "type": int,
-        "sensitive": False,
-        "allow_modify": True,
-        "validate": lambda value: value >= 0,
-    },
-    "JJC_SYNC_DISPATCHER_ENABLED": {
-        "type": int,
-        "sensitive": False,
-        "allow_modify": True,
-        "validate": lambda value: value in (0, 1),
-    },
-    "JJC_SYNC_DISPATCHER_IDLE_SLEEP": {
-        "type": int,
-        "sensitive": False,
-        "allow_modify": True,
-        "validate": lambda value: value >= 1,
-    },
-    "JJC_SYNC_DISPATCHER_BATCH_SIZE": {
-        "type": int,
-        "sensitive": False,
-        "allow_modify": True,
-        "validate": lambda value: value >= 1,
-    },
-    "JJC_SYNC_DISPATCHER_TARGET_PER_WORKER": {
-        "type": int,
-        "sensitive": False,
-        "allow_modify": True,
-        "validate": lambda value: value >= 1,
-    },
-}
+CONFIG_SCHEMA = to_legacy_schema()
 
 
 def _modifiable_config_keys():
@@ -97,34 +39,11 @@ def _modifiable_config_keys():
 
 
 def _parse_config_value(key, raw_value):
-    schema = CONFIG_SCHEMA[key]
-    value_type = schema["type"]
-    if value_type is int:
-        try:
-            value = int(raw_value)
-        except ValueError:
-            return None, "数值类型配置项需要整数"
-    elif value_type is str:
-        value = str(raw_value)
-    else:
-        try:
-            value = value_type(raw_value)
-        except (TypeError, ValueError):
-            return None, "配置项类型转换失败"
-
-    validate = schema.get("validate")
-    if validate is not None and not validate(value):
-        return None, "配置项值不合法"
-    return value, None
+    return parse_config_value(key, raw_value)
 
 
 def _mask_sensitive_value(value):
-    if value is None or value == "":
-        return "未配置"
-    text = str(value)
-    if len(text) <= 3:
-        return "已配置"
-    return f"{text[:3]}***"
+    return mask_sensitive_value(value)
 
 
 def _get_effective_config_value(runtime_config, key):
@@ -154,27 +73,13 @@ pending_restart_info = None
 
 # 读取运行时配置文件
 def read_config_file():
-    if not os.path.exists(CONFIG_FILE):
-        return {}
-    try:
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except Exception as e:
-        return f"读取配置文件失败: {e}"
-    if not isinstance(data, dict):
-        return "读取配置文件失败: 配置文件顶层必须是 JSON 对象"
-    return data
+    return read_runtime_config(CONFIG_FILE)
 
 # 写入运行时配置文件
 def write_config_file(content: dict):
-    try:
-        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(content, f, ensure_ascii=False, indent=2)
-        return True
-    except Exception as e:
-        return f"写入配置文件失败: {e}"
+    return write_runtime_config(CONFIG_FILE, content)
 
-# 记录重启信息并执行重启
+# 记录重启信息并执行优雅重启
 async def restart_bot(group_id=None, user_id=None, reason="手动重启"):
     try:
         # 记录重启信息
@@ -182,40 +87,35 @@ async def restart_bot(group_id=None, user_id=None, reason="手动重启"):
             "time": time.strftime("%Y-%m-%d %H:%M:%S"),
             "reason": reason
         }
-        
+
         if group_id:
             restart_info["group_id"] = group_id
         if user_id:
             restart_info["user_id"] = user_id
-        
+
         # 写入重启信息到标记文件
         with open(RESTART_FLAG_FILE, "w", encoding="utf-8") as f:
             json.dump(restart_info, f, ensure_ascii=False, indent=2)
-        
-        logger.info(f"已记录重启信息: {restart_info}")
 
-        # 使用子进程启动新实例
-        logger.info("准备重启机器人...")
-        
-        # 获取当前脚本路径
-        current_path = os.path.abspath(sys.argv[0])
-        
+        logger.info(f"已记录重启信息: {restart_info}")
+        logger.info("准备优雅重启机器人...")
+
         # 等待2秒，确保消息发送完成
         await asyncio.sleep(2)
-        
-        # 创建一个新的进程来启动机器人
-        if sys.platform == 'win32':
-            # Windows平台
-            subprocess.Popen(f'python "{current_path}"', shell=True)
-        else:
-            # Linux/MacOS平台
-            subprocess.Popen(f'python3 "{current_path}" &', shell=True)
-        
-        # 退出当前进程
-        logger.info("即将退出当前进程...")
-        await asyncio.sleep(1)
-        os._exit(0)
-        
+
+        # 仅在显式开启自拉起开关时以无 shell 方式启动新进程
+        if os.getenv("JX3BOT_SELF_SPAWN_RESTART", "").strip() == "1":
+            current_path = os.path.abspath(sys.argv[0])
+            subprocess.Popen([sys.executable, current_path])
+            logger.info("已拉起新进程，等待当前进程优雅退出...")
+            await asyncio.sleep(1)
+
+        # 触发优雅关闭，交由 Docker restart: always / systemd 等进程管理器拉起
+        logger.info("即将触发当前进程优雅退出...")
+        if sys.platform == "win32" or not hasattr(signal, "SIGTERM"):
+            sys.exit(0)
+        os.kill(os.getpid(), signal.SIGTERM)
+
     except Exception as e:
         logger.exception(f"重启失败: {e}")
         return f"重启失败: {e}"

@@ -5,23 +5,21 @@ from typing import Any, Optional
 import config as cfg
 from nonebot import logger
 
+from src.infra.managed_task import LoopLocal
 from src.storage.mongo_repos.jjc_kungfu_refresh_repo import QueueIntegrityError
 
 _task: Optional[asyncio.Task] = None
-_start_lock: Optional[asyncio.Lock] = None
-_lock_loop: Optional[asyncio.AbstractEventLoop] = None
+_lifecycle_lock_local: LoopLocal[asyncio.Lock] = LoopLocal(asyncio.Lock)
 
 
 def _lifecycle_lock() -> asyncio.Lock:
     # Python 3.9 locks bind to the loop at construction, so do not create one
     # during module import. Reinitializing after a stopped loop also aids tests.
-    global _start_lock, _lock_loop
-    loop = asyncio.get_running_loop()
-    if _start_lock is None or _lock_loop is not loop:
+    def _check_cross_loop() -> None:
         if _task is not None and not _task.done():
             raise RuntimeError("kungfu consumer belongs to another event loop")
-        _start_lock, _lock_loop = asyncio.Lock(), loop
-    return _start_lock
+
+    return _lifecycle_lock_local.get(on_loop_change=_check_cross_loop)
 
 
 async def _run(service: Any) -> None:

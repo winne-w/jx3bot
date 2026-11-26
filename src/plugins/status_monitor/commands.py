@@ -1,4 +1,5 @@
 import time
+from typing import Any, Dict, Optional
 
 import httpx
 from nonebot import on_command, on_regex
@@ -198,229 +199,92 @@ async def handle_kf_query(event: GroupMessageEvent):
         await gtekf_cmd.send("查询服务器状态时出错，请联系管理员")
 
 
-kftoggle_cmd = on_command("开服推送", priority=5)
+_PUSH_TOGGLE_DEFAULTS: Dict[str, bool] = {
+    "开服推送": True,
+    "新闻推送": True,
+    "福利推送": True,
+    "技改推送": True,
+    "日常推送": True,
+    "竞技排名推送": False,
+}
+_PUSH_TOGGLE_KEYS = frozenset(_PUSH_TOGGLE_DEFAULTS.keys())
 
 
-@kftoggle_cmd.handle()
-async def kfhandle_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = await group_config_repo.load()
-    gid = str(event.group_id)
-    status = args.extract_plain_text().strip()
+def _normalize_group_entry(
+    entry: Any,
+    key: str,
+    default_enabled: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """将旧格式群配置（list 或不含 servers 的 dict）归一化为标准结构。"""
+    resolved_default = (
+        _PUSH_TOGGLE_DEFAULTS.get(key, True)
+        if default_enabled is None
+        else default_enabled
+    )
 
-    if not status:
-        await kftoggle_cmd.finish("用法: /开服推送 开启/关闭")
+    if isinstance(entry, list):
+        return {"servers": list(entry), key: resolved_default}
 
-    if gid not in cfg:
-        await kftoggle_cmd.finish("请先绑定服务器，如: /绑定 梦江南")
+    if isinstance(entry, dict):
+        if "servers" not in entry:
+            servers = [k for k in entry if k not in _PUSH_TOGGLE_KEYS]
+            normalized: Dict[str, Any] = {"servers": servers}
+            for toggle_key in _PUSH_TOGGLE_KEYS:
+                if toggle_key in entry:
+                    normalized[toggle_key] = entry[toggle_key]
+            normalized.setdefault(key, resolved_default)
+            return normalized
+        if key not in entry:
+            entry[key] = resolved_default
+        return entry
 
-    if isinstance(cfg[gid], list):
-        servers = cfg[gid]
-        cfg[gid] = {"servers": servers, "开服推送": True}
-    elif isinstance(cfg[gid], dict) and "servers" not in cfg[gid]:
-        servers = []
-        for key in cfg[gid]:
-            if key != "开服推送":
-                servers.append(key)
-        cfg[gid] = {"servers": servers, "开服推送": cfg[gid].get("开服推送", True)}
-
-    if status == "开启":
-        cfg[gid]["开服推送"] = True
-        await group_config_repo.save(cfg)
-        await kftoggle_cmd.finish("已开启本群开服推送功能")
-    elif status == "关闭":
-        cfg[gid]["开服推送"] = False
-        await group_config_repo.save(cfg)
-        await kftoggle_cmd.finish("已关闭本群开服推送功能")
-    else:
-        await kftoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
+    return {"servers": [], key: resolved_default}
 
 
-xwtoggle_cmd = on_command("新闻推送", priority=5)
+def _register_push_toggle(
+    command_name: str,
+    config_key: str,
+    label: str,
+    default_enabled: Optional[bool] = None,
+):
+    cmd = on_command(command_name, priority=5)
+
+    @cmd.handle()
+    async def _handle_toggle(event: GroupMessageEvent, args=CommandArg()):
+        cfg = await group_config_repo.load()
+        gid = str(event.group_id)
+        status = args.extract_plain_text().strip()
+
+        if not status:
+            await cmd.finish(f"用法: /{command_name} 开启/关闭")
+
+        if gid not in cfg:
+            await cmd.finish("请先绑定服务器，如: /绑定 梦江南")
+
+        cfg[gid] = _normalize_group_entry(
+            cfg[gid], config_key, default_enabled=default_enabled
+        )
+
+        if status == "开启":
+            cfg[gid][config_key] = True
+            await group_config_repo.save(cfg)
+            await cmd.finish(f"已开启本群{label}功能")
+        elif status == "关闭":
+            cfg[gid][config_key] = False
+            await group_config_repo.save(cfg)
+            await cmd.finish(f"已关闭本群{label}功能")
+        else:
+            await cmd.finish("参数错误，请使用'开启'或'关闭'")
+
+    return cmd
 
 
-@xwtoggle_cmd.handle()
-async def xwhandle_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = await group_config_repo.load()
-    gid = str(event.group_id)
-    status = args.extract_plain_text().strip()
-
-    if not status:
-        await xwtoggle_cmd.finish("用法: /新闻推送 开启/关闭")
-
-    if gid not in cfg:
-        await xwtoggle_cmd.finish("请先绑定服务器，如: /绑定 梦江南")
-
-    if isinstance(cfg[gid], list):
-        servers = cfg[gid]
-        cfg[gid] = {"servers": servers, "新闻推送": True}
-    elif isinstance(cfg[gid], dict) and "servers" not in cfg[gid]:
-        servers = []
-        for key in cfg[gid]:
-            if key != "新闻推送":
-                servers.append(key)
-        cfg[gid] = {"servers": servers, "新闻推送": cfg[gid].get("新闻推送", True)}
-
-    if status == "开启":
-        cfg[gid]["新闻推送"] = True
-        await group_config_repo.save(cfg)
-        await xwtoggle_cmd.finish("已开启本群新闻推送功能")
-    elif status == "关闭":
-        cfg[gid]["新闻推送"] = False
-        await group_config_repo.save(cfg)
-        await xwtoggle_cmd.finish("已关闭本群新闻推送功能")
-    else:
-        await xwtoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
-
-
-xwtoggle_cmd = on_command("福利推送", priority=5)
-
-
-@xwtoggle_cmd.handle()
-async def welfare_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = await group_config_repo.load()
-    gid = str(event.group_id)
-    status = args.extract_plain_text().strip()
-
-    if not status:
-        await xwtoggle_cmd.finish("用法: /福利推送 开启/关闭")
-
-    if gid not in cfg:
-        await xwtoggle_cmd.finish("请先绑定服务器，如: /绑定 梦江南")
-
-    if isinstance(cfg[gid], list):
-        servers = cfg[gid]
-        cfg[gid] = {"servers": servers, "福利推送": True}
-    elif isinstance(cfg[gid], dict) and "servers" not in cfg[gid]:
-        servers = []
-        for key in cfg[gid]:
-            if key != "福利推送":
-                servers.append(key)
-        cfg[gid] = {"servers": servers, "福利推送": cfg[gid].get("福利推送", True)}
-
-    if status == "开启":
-        cfg[gid]["福利推送"] = True
-        await group_config_repo.save(cfg)
-        await xwtoggle_cmd.finish("已开启本群福利推送功能")
-    elif status == "关闭":
-        cfg[gid]["福利推送"] = False
-        await group_config_repo.save(cfg)
-        await xwtoggle_cmd.finish("已关闭本群福利推送功能")
-    else:
-        await xwtoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
-
-
-jgtoggle_cmd = on_command("技改推送", priority=5)
-
-
-@jgtoggle_cmd.handle()
-async def jghandle_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = await group_config_repo.load()
-    gid = str(event.group_id)
-    status = args.extract_plain_text().strip()
-
-    if not status:
-        await jgtoggle_cmd.finish("用法: /技改推送 开启/关闭")
-
-    if gid not in cfg:
-        await jgtoggle_cmd.finish("请先绑定服务器，如: /绑定 梦江南")
-
-    if isinstance(cfg[gid], list):
-        servers = cfg[gid]
-        cfg[gid] = {"servers": servers, "技改推送": True}
-    elif isinstance(cfg[gid], dict) and "servers" not in cfg[gid]:
-        servers = []
-        for key in cfg[gid]:
-            if key != "技改推送":
-                servers.append(key)
-        cfg[gid] = {"servers": servers, "技改推送": cfg[gid].get("技改推送", True)}
-
-    if status == "开启":
-        cfg[gid]["技改推送"] = True
-        await group_config_repo.save(cfg)
-        await jgtoggle_cmd.finish("已开启本群技改推送功能")
-    elif status == "关闭":
-        cfg[gid]["技改推送"] = False
-        await group_config_repo.save(cfg)
-        await jgtoggle_cmd.finish("已关闭本群技改推送功能")
-    else:
-        await jgtoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
-
-
-rctoggle_cmd = on_command("日常推送", priority=5)
-
-
-@rctoggle_cmd.handle()
-async def rchandle_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = await group_config_repo.load()
-    gid = str(event.group_id)
-    status = args.extract_plain_text().strip()
-
-    if not status:
-        await rctoggle_cmd.finish("用法: /日常推送 开启/关闭")
-
-    if gid not in cfg:
-        await rctoggle_cmd.finish("请先绑定服务器，如: /绑定 梦江南")
-
-    if isinstance(cfg[gid], list):
-        servers = cfg[gid]
-        cfg[gid] = {"servers": servers, "日常推送": True}
-    elif isinstance(cfg[gid], dict) and "servers" not in cfg[gid]:
-        servers = []
-        for key in cfg[gid]:
-            if key != "日常推送":
-                servers.append(key)
-        cfg[gid] = {"servers": servers, "日常推送": cfg[gid].get("日常推送", True)}
-
-    if status == "开启":
-        cfg[gid]["日常推送"] = True
-        await group_config_repo.save(cfg)
-        await rctoggle_cmd.finish("已开启本群日常推送功能")
-    elif status == "关闭":
-        cfg[gid]["日常推送"] = False
-        await group_config_repo.save(cfg)
-        await rctoggle_cmd.finish("已关闭本群日常推送功能")
-    else:
-        await rctoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
-
-
-jjctoggle_cmd = on_command("竞技排名推送", priority=5)
-
-
-@jjctoggle_cmd.handle()
-async def jjchandle_toggle(event: GroupMessageEvent, args=CommandArg()):
-    cfg = await group_config_repo.load()
-    gid = str(event.group_id)
-    status = args.extract_plain_text().strip()
-
-    if not status:
-        await jjctoggle_cmd.finish("用法: /竞技排名推送 开启/关闭")
-
-    if gid not in cfg:
-        await jjctoggle_cmd.finish("请先绑定服务器，如: /绑定 梦江南")
-
-    if isinstance(cfg[gid], list):
-        servers = cfg[gid]
-        cfg[gid] = {"servers": servers, "竞技排名推送": False}
-    elif isinstance(cfg[gid], dict) and "servers" not in cfg[gid]:
-        servers = []
-        for key in cfg[gid]:
-            if key not in {"开服推送", "新闻推送", "技改推送", "福利推送", "日常推送", "竞技排名推送"}:
-                servers.append(key)
-        cfg[gid] = {"servers": servers, "竞技排名推送": cfg[gid].get("竞技排名推送", False)}
-
-    if isinstance(cfg[gid], dict) and "竞技排名推送" not in cfg[gid]:
-        cfg[gid]["竞技排名推送"] = False
-
-    if status == "开启":
-        cfg[gid]["竞技排名推送"] = True
-        await group_config_repo.save(cfg)
-        await jjctoggle_cmd.finish("已开启本群竞技排名推送功能")
-    elif status == "关闭":
-        cfg[gid]["竞技排名推送"] = False
-        await group_config_repo.save(cfg)
-        await jjctoggle_cmd.finish("已关闭本群竞技排名推送功能")
-    else:
-        await jjctoggle_cmd.finish("参数错误，请使用'开启'或'关闭'")
+kftoggle_cmd = _register_push_toggle("开服推送", "开服推送", "开服推送")
+xwtoggle_cmd = _register_push_toggle("新闻推送", "新闻推送", "新闻推送")
+fltoggle_cmd = _register_push_toggle("福利推送", "福利推送", "福利推送")
+jgtoggle_cmd = _register_push_toggle("技改推送", "技改推送", "技改推送")
+rctoggle_cmd = _register_push_toggle("日常推送", "日常推送", "日常推送")
+jjctoggle_cmd = _register_push_toggle("竞技排名推送", "竞技排名推送", "竞技排名推送")
 
 
 bind_cmd = on_command("绑定", priority=5)
