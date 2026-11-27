@@ -42,6 +42,7 @@ docker compose up --build -d
   - 可选 `JJC_SYNC_WORKER_COUNT=1`，让 bot 启动后内置 1 个 JJC 同步 worker；默认 `0` 不启动
   - 可选 `JJC_SYNC_DISPATCHER_ENABLED=1`，启用 bot 内置自动补队列 dispatcher；默认 `1`
   - 推栏请求沿用直连实现，无共享预算桶；签名密钥和设备 ID 有兼容默认值，可通过环境变量覆盖，`TICKET` 通过 `runtime_config.json` 配置
+  - 告警通知配置（支持环境变量或 `runtime_config.json`）：`STATUS_MONITOR_SMTP_SERVER`（默认 `smtp.163.com`）、`STATUS_MONITOR_SMTP_PORT`（默认 `465`）、`STATUS_MONITOR_SMTP_USERNAME`、`STATUS_MONITOR_SMTP_PASSWORD`、`STATUS_MONITOR_EMAIL_FROM`、`STATUS_MONITOR_EMAIL_TO`、`STATUS_MONITOR_EMAIL_SUBJECT`、`STATUS_MONITOR_OFFLINE_GRACE_SECONDS`（默认 `90`）、`STATUS_MONITOR_OFFLINE_FAIL_THRESHOLD`（默认 `2`）、`TUILAN_AUTH_ALERT_COOLDOWN_SECONDS`（默认 `3600`）
   - `JJC_LIVE_REFRESH_ENABLED=1` 才开启最新对局轻量刷新，并必须配置 `JJC_LIVE_SOURCE_SECRET`
 - 端口映射:
   - `5288:5288`
