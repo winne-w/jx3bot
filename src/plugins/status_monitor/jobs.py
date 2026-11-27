@@ -51,12 +51,20 @@ previous_news_ids = set()
 previous_records_ids = set()
 previous_codes_ids = set()
 last_status_ok = True
+_napcat_monitor_started_at = time.monotonic()
+_napcat_consecutive_failures = 0
+_napcat_offline_alert_sent = False
 jjc_peak_score_ranking_service = JjcPeakScoreRankingService()
 
 
 def set_bot_initialized(value: bool) -> None:
     global BOT_INITIALIZED
     BOT_INITIALIZED = value
+
+
+def reset_napcat_monitor_start() -> None:
+    global _napcat_monitor_started_at
+    _napcat_monitor_started_at = time.monotonic()
 
 
 async def notify_jjc_ranking_failure(bot, detail: str) -> None:
@@ -241,33 +249,121 @@ async def get_jx3box_data():
         return None
 
 
-@scheduler.scheduled_job("interval", seconds=60)
-async def mail_records():
-    global last_status_ok
+def _is_onebot_status_healthy(payload: object) -> tuple[bool, str]:
+    if not isinstance(payload, dict):
+        return False, f"get_status 返回非字典: {payload!r}"
 
-    data = await get_NapCat_data()
-
-    if data is None:
-        current_status_ok = False
-        status_info = "无法获取服务器状态，API请求失败"
+    # 兼容 OneBot V11 原始响应 {"status": "ok", "data": {"online": true, "good": true}}
+    # 以及 NoneBot bot.get_status() 已解包的 {"online": true, "good": true}
+    if "data" in payload and isinstance(payload.get("data"), dict):
+        outer_status = str(payload.get("status", "ok")).lower()
+        if outer_status != "ok":
+            return False, f"status={outer_status}"
+        inner = payload["data"]
     else:
-        current_status_ok = data.get("status", "").lower() == "ok"
-        status_info = json.dumps(data, ensure_ascii=False)
+        inner = payload
 
-    if last_status_ok and not current_status_ok:
-        logger.warning("status_monitor 检测到状态异常，发送邮件通知")
-        email_content = f"服务器状态异常！\n\n当前状态信息：\n{status_info}"
-        send_result = send_email_via_163(email_content)
+    online = inner.get("online")
+    good = inner.get("good")
+    if online is False or good is False:
+        return False, f"online={online}, good={good}"
+    if online is True and (good is True or good is None):
+        return True, f"online={online}, good={good}"
+    if good is True and online is None:
+        return True, f"online={online}, good={good}"
+    return False, f"状态字段异常: {json.dumps(inner, ensure_ascii=False)}"
+
+
+async def check_napcat_connection_status() -> tuple[bool, str, str]:
+    """基于 NoneBot 反向 WebSocket 连接与 bot.get_status() 检测 NapCat / QQ 在线状态。"""
+    driver = get_driver()
+    bots = getattr(driver, "bots", None) or {}
+    if not bots:
+        return False, "reverse_ws_disconnected", "未检测到已连接的 NapCat 机器人（反向 WebSocket 已断开或尚未连接）"
+
+    bot_items = list(bots.items())
+    for bot_id, bot in bot_items:
+        get_status = getattr(bot, "get_status", None)
+        if not callable(get_status):
+            continue
+        try:
+            raw_status = await asyncio.wait_for(get_status(), timeout=10.0)
+        except Exception as exc:
+            return False, "get_status_failed", f"Bot {bot_id} get_status 探测失败: {exc!r}"
+
+        healthy, detail = _is_onebot_status_healthy(raw_status)
+        if not healthy:
+            return False, "qq_offline", f"Bot {bot_id} QQ 掉线或状态异常（{detail}）"
+
+    bot_ids = ", ".join(str(bid) for bid, _ in bot_items)
+    return True, "ok", f"Bot {bot_ids} 在线正常"
+
+
+async def _send_status_email(content: str) -> bool:
+    return await asyncio.to_thread(send_email_via_163, content)
+
+
+@scheduler.scheduled_job("interval", seconds=60, max_instances=1)
+async def mail_records():
+    global last_status_ok, _napcat_consecutive_failures, _napcat_offline_alert_sent
+
+    current_status_ok, reason_code, status_info = await check_napcat_connection_status()
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    grace_seconds = max(0, int(getattr(cfg, "STATUS_MONITOR_OFFLINE_GRACE_SECONDS", 90) or 0))
+    fail_threshold = max(1, int(getattr(cfg, "STATUS_MONITOR_OFFLINE_FAIL_THRESHOLD", 2) or 1))
+
+    if current_status_ok:
+        _napcat_consecutive_failures = 0
+        if _napcat_offline_alert_sent:
+            recovery_content = (
+                f"NapCat / QQ 状态已恢复正常！\n\n"
+                f"恢复时间：{now_str}\n"
+                f"当前状态：{status_info}"
+            )
+            send_result = await _send_status_email(recovery_content)
+            if send_result:
+                logger.info("status_monitor 恢复邮件发送成功")
+                _napcat_offline_alert_sent = False
+            else:
+                logger.warning("status_monitor 恢复邮件发送失败")
+        last_status_ok = True
+        return
+
+    # 启动宽限期内（Bot 尚未完成首次连接）不触发离线邮件，避免重启误报
+    elapsed_since_start = time.monotonic() - _napcat_monitor_started_at
+    if not BOT_INITIALIZED and not _napcat_offline_alert_sent and elapsed_since_start < grace_seconds:
+        logger.info(
+            "status_monitor 启动宽限期内等待 NapCat 连接 ({:.0f}s/{}s): {}",
+            elapsed_since_start,
+            grace_seconds,
+            status_info,
+        )
+        return
+
+    _napcat_consecutive_failures += 1
+    last_status_ok = False
+    logger.warning(
+        "status_monitor 检测到 NapCat 状态异常 ({}/{}): reason={} detail={}",
+        _napcat_consecutive_failures,
+        fail_threshold,
+        reason_code,
+        status_info,
+    )
+
+    if _napcat_consecutive_failures >= fail_threshold and not _napcat_offline_alert_sent:
+        email_content = (
+            f"NapCat / QQ 掉线告警！\n\n"
+            f"检测时间：{now_str}\n"
+            f"异常类型：{reason_code}\n"
+            f"连续失败次数：{_napcat_consecutive_failures}\n"
+            f"当前状态信息：{status_info}"
+        )
+        send_result = await _send_status_email(email_content)
         if send_result:
-            logger.info("status_monitor 邮件发送成功")
+            _napcat_offline_alert_sent = True
+            logger.info("status_monitor 掉线告警邮件发送成功")
         else:
-            logger.warning("status_monitor 邮件发送失败")
-
-    elif not last_status_ok and current_status_ok:
-        recovery_content = "服务器状态已恢复正常！"
-        send_email_via_163(recovery_content)
-
-    last_status_ok = current_status_ok
+            logger.warning("status_monitor 掉线告警邮件发送失败")
 
 
 @scheduler.scheduled_job("interval", minutes=NEWS_records_time)
