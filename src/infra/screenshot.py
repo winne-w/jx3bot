@@ -2,50 +2,71 @@ from __future__ import annotations
 
 import os
 
+
 async def jietu(html_content, width, height):
     try:
         from playwright.async_api import async_playwright  # type: ignore
     except Exception as exc:  # pragma: no cover
         raise RuntimeError("缺少依赖 playwright：请安装 playwright 并执行 playwright install") from exc
 
+    target_width = int(width)
+    initial_height = 1080 if height == "ck" else max(1, int(height))
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page(
-            viewport={"width": 1920, "height": 1080},
+            viewport={"width": target_width, "height": initial_height},
             device_scale_factor=2,
         )
 
+        await page.set_viewport_size({"width": target_width, "height": initial_height})
+        await page.set_content(html_content)
         await page.evaluate(
             """() => {
                  return new Promise((resolve) => {
-                     const images = document.querySelectorAll('img');
+                     const images = Array.from(document.querySelectorAll('img'));
                      if (images.length === 0) return resolve(true);
 
+                     let settled = false;
                      let loaded = 0;
+                     const finish = () => {
+                         if (!settled) {
+                             settled = true;
+                             resolve(true);
+                         }
+                     };
+                     const timer = setTimeout(finish, 3000);
                      const checkLoaded = () => {
                          loaded++;
-                         if (loaded === images.length) resolve(true);
+                         if (loaded >= images.length) {
+                             clearTimeout(timer);
+                             finish();
+                         }
                      };
 
                      images.forEach(img => {
                          if (img.complete) checkLoaded();
                          else {
-                             img.addEventListener('load', checkLoaded);
-                             img.addEventListener('error', checkLoaded);
+                             img.addEventListener('load', checkLoaded, { once: true });
+                             img.addEventListener('error', checkLoaded, { once: true });
                          }
                      });
                  });
              }"""
         )
 
-        await page.set_content(html_content)
-        page_height = await page.evaluate("() => document.body.scrollHeight")
         if height == "ck":
-            height = page_height
-        await page.set_viewport_size({"width": width, "height": height})
-        screenshot_path = await page.screenshot(full_page=True)
+            page_height = await page.evaluate(
+                "() => Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)"
+            )
+            final_height = max(1, int(page_height))
+        else:
+            final_height = max(1, int(height))
+
+        await page.set_viewport_size({"width": target_width, "height": final_height})
+        screenshot_bytes = await page.screenshot(full_page=True)
         await browser.close()
-        return screenshot_path
+        return screenshot_bytes
 
 
 async def jx3web(url, selector, adjust_top=None, save_path=None):
@@ -85,30 +106,31 @@ async def jx3web(url, selector, adjust_top=None, save_path=None):
             const wrapper = document.createElement('div');
             wrapper.id = 'capture-wrapper';
             wrapper.style.width = element.offsetWidth + 'px';
+            wrapper.style.background = '#F3F6FB';
 
             element.parentNode.insertBefore(wrapper, element);
             wrapper.appendChild(element);
 
             const footer = document.createElement('div');
             footer.style.width = '100%';
-            footer.style.padding = '15px';
+            footer.style.padding = '15px 18px';
             footer.style.marginTop = '10px';
-            footer.style.background = '#f8f9fa';
-            footer.style.borderTop = '1px solid #eaeaea';
-            footer.style.fontFamily = \"'Microsoft YaHei', sans-serif\";
+            footer.style.background = '#F3F6FB';
+            footer.style.borderTop = '1px solid rgba(148, 163, 184, 0.22)';
+            footer.style.fontFamily = "'PingFang SC', 'Microsoft YaHei', sans-serif";
             footer.style.fontSize = '14px';
-            footer.style.color = '#555';
+            footer.style.color = '#64748B';
             footer.style.textAlign = 'center';
 
             const line1 = document.createElement('div');
-            line1.textContent = '【夏鸥】bot:';
-            line1.style.fontWeight = 'bold';
-            line1.style.marginBottom = '5px';
+            line1.textContent = '【夏鸥】bot';
+            line1.style.fontWeight = '700';
+            line1.style.color = '#3B5BDB';
+            line1.style.marginBottom = '4px';
             footer.appendChild(line1);
 
             const line2 = document.createElement('div');
             line2.textContent = '人间最美，不过鲸落，一念百草生，一念山河成。';
-            line2.style.fontStyle = 'italic';
             footer.appendChild(line2);
 
             wrapper.appendChild(footer);

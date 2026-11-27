@@ -1,23 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 
 @dataclass(frozen=True)
 class RenderSpec:
     template_name: str
-    context: dict[str, Any]
+    context: Dict[str, Any]
     width: int
-    height: int | str = "ck"
-    filters: dict[str, Callable[..., Any]] | None = None
-    prefix: str | None = "   查询结果"
+    height: Union[int, str] = "ck"
+    filters: Optional[Dict[str, Callable[..., Any]]] = None
+    prefix: Optional[str] = "   查询结果"
     at_user: bool = True
 
 
 def build_yanhua_spec(
     *,
-    data: dict[str, Any],
+    data: Dict[str, Any],
     role_name: str,
     server: str,
     time_filter: Callable[..., Any],
@@ -39,7 +39,7 @@ def build_yanhua_spec(
             "text": random_text,
             "qufu": server,
         },
-        width=1194,
+        width=760,
         height="ck",
         filters={"time": time_filter},
     )
@@ -47,7 +47,7 @@ def build_yanhua_spec(
 
 def build_qiyu_spec(
     *,
-    data: dict[str, Any],
+    data: Dict[str, Any],
     role_name: str,
     server: str,
     time_filter: Callable[..., Any],
@@ -72,7 +72,7 @@ def build_qiyu_spec(
             "cwqiyu": cwqiyu,
             "text": random_text,
         },
-        width=870,
+        width=760,
         height="ck",
         filters={"time": time_filter, "timejjc": jjc_time_filter},
     )
@@ -80,7 +80,7 @@ def build_qiyu_spec(
 
 def build_zhuangfen_spec(
     *,
-    data: dict[str, Any],
+    data: Dict[str, Any],
     role_name: str,
     server: str,
     random_text: str,
@@ -99,18 +99,18 @@ def build_zhuangfen_spec(
             "mpimg": mpimg,
             "menpai": menpai,
         },
-        width=1119,
-        height=1300,
+        width=760,
+        height="ck",
     )
 
 
 def build_fuben_spec(
     *,
-    data: dict[str, Any],
+    data: Dict[str, Any],
     role_name: str,
     server: str,
     random_text: str,
-) -> RenderSpec | None:
+) -> Optional[RenderSpec]:
     payload = data["data"]
     if not payload.get("data"):
         return None
@@ -118,21 +118,21 @@ def build_fuben_spec(
     return RenderSpec(
         template_name="副本查询.html",
         context={"items": payload, "id": role_name, "qufu": server, "text": random_text},
-        width=800,
+        width=760,
         height="ck",
     )
 
 
 def build_jjc_spec_or_text(
     *,
-    data: dict[str, Any],
+    data: Dict[str, Any],
     role_name: str,
     server: str,
     time_filter: Callable[..., Any],
     jjc_time_filter: Callable[..., Any],
     duration_filter: Callable[..., Any],
     random_text: str,
-) -> tuple[RenderSpec | None, str | None]:
+) -> Tuple[Optional[RenderSpec], Optional[str]]:
     payload = data["data"]
     performance = payload.get("performance", {})
     if not payload or (
@@ -146,7 +146,7 @@ def build_jjc_spec_or_text(
         RenderSpec(
             template_name="竞技查询.html",
             context={"items": payload, "id": role_name, "qufu": server, "text": random_text},
-            width=955,
+            width=760,
             height="ck",
             filters={"time": time_filter, "jjctime": jjc_time_filter, "duration": duration_filter},
         ),
@@ -154,7 +154,7 @@ def build_jjc_spec_or_text(
     )
 
 
-def build_baizhan_spec(*, result: dict[str, Any], random_text: str) -> RenderSpec:
+def build_baizhan_spec(*, result: Dict[str, Any], random_text: str) -> RenderSpec:
     return RenderSpec(
         template_name="百战查询.html",
         context={
@@ -163,12 +163,12 @@ def build_baizhan_spec(*, result: dict[str, Any], random_text: str) -> RenderSpe
             "items": result["items"],
             "text": random_text,
         },
-        width=1500,
+        width=760,
         height="ck",
     )
 
 
-def build_role_baizhan_spec(*, result: dict[str, Any], random_text: str) -> RenderSpec:
+def build_role_baizhan_spec(*, result: Dict[str, Any], random_text: str) -> RenderSpec:
     return RenderSpec(
         template_name="百战角色查询.html",
         context={
@@ -184,6 +184,6 @@ def build_role_baizhan_spec(*, result: dict[str, Any], random_text: str) -> Rend
             "update_time": result["update_time"],
             "text": random_text,
         },
-        width=640,
+        width=760,
         height="ck",
     )

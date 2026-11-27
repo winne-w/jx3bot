@@ -14,6 +14,23 @@ PAGES = {
 }
 NAV_HREFS = {"index.html", "jjc-synced-matches.html", "jjc-matchups.html"}
 SHELL_RULES = (".page", ".site-header", ".site-brand", ".site-nav", ".site-nav a")
+SYNC_QUEUE_BUSINESS_IDS = (
+    "statusFilter",
+    "modeFilter",
+    "serverSearch",
+    "nameSearch",
+    "pageSize",
+    "refreshButton",
+    "statusLine",
+    "summary",
+    "workerCount",
+    "workerRows",
+    "queueCount",
+    "queueRows",
+    "prevPage",
+    "pageInfo",
+    "nextPage",
+)
 
 
 class _PageParser(HTMLParser):
@@ -133,6 +150,58 @@ class JjcDataCenterNavigationTest(unittest.TestCase):
                 filename,
             )
             self.assertIn('ANNOUNCEMENT_API = "/jx3bot/api/announcements"', source, filename)
+
+    def test_public_pages_keep_sync_queue_entry_hidden(self):
+        for filename in PAGES:
+            source, parser, _ = self._load(filename)
+            self.assertNotIn("jjc-sync-queue.html", source, filename)
+            for tag, attrs in parser.attrs_by_tag:
+                if tag == "a":
+                    self.assertNotIn("jjc-sync-queue.html", attrs.get("href") or "", filename)
+
+    def test_sync_queue_page_adopts_shared_light_shell_without_public_current_marker(self):
+        source, parser, text = self._load("jjc-sync-queue.html")
+        self.assertIn("JJC 数据中心", html.unescape(text))
+
+        nav_links = {
+            attrs.get("href")
+            for tag, attrs in parser.attrs_by_tag
+            if tag == "a" and attrs.get("href") in NAV_HREFS
+        }
+        self.assertEqual(NAV_HREFS, nav_links)
+
+        current = [
+            attrs.get("href")
+            for tag, attrs in parser.attrs_by_tag
+            if tag == "a" and attrs.get("aria-current") == "page"
+        ]
+        self.assertEqual([], current)
+
+        self.assertRegex(source, r'class=["\'][^"\']*\bpage-title-region\b[^"\']*["\']')
+
+        links = [
+            attrs
+            for tag, attrs in parser.attrs_by_tag
+            if tag == "link" and attrs.get("href") == "jjc-site.css"
+        ]
+        self.assertEqual(1, len(links))
+        self.assertEqual("stylesheet", links[0].get("rel"))
+        link_match = re.search(r'<link\b[^>]*href=["\']jjc-site\.css["\'][^>]*>', source)
+        self.assertIsNotNone(link_match)
+        self.assertGreater(link_match.start(), source.rindex("</style>"))
+
+        self.assertRegex(
+            source,
+            r"@media\s*\(max-width:\s*\d+px\)[\s\S]*?\.site-header\s*\{[^}]*flex-direction\s*:\s*column",
+        )
+
+        ids = {
+            attrs.get("id")
+            for _, attrs in parser.attrs_by_tag
+            if attrs.get("id")
+        }
+        for dom_id in SYNC_QUEUE_BUSINESS_IDS:
+            self.assertIn(dom_id, ids, "missing sync queue business id: %s" % dom_id)
 
 
 if __name__ == "__main__":

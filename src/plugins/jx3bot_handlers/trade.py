@@ -101,6 +101,6 @@ def register(jiayi_matcher: Any, env: Environment) -> None:
                 "text": suijitext(),
                 "Desc": description,
             },
-            width=800,
+            width=760,
             height="ck",
         )

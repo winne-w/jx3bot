@@ -1,0 +1,57 @@
+{
+  "date": "2026-11-25",
+  "state": "local_complete_not_deployed",
+  "versions": {
+    "py313": "Python 3.13.2",
+    "py39": "Python 3.9.25"
+  },
+  "private_evidence": "/home/songjingjing/.cache/remove-kungfu-jx3api-fallback-20261125",
+  "tests": {
+    "py313": {
+      "count": 372,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 20.941
+    },
+    "py39": {
+      "count": 372,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 23.409
+    }
+  },
+  "independent_review": "no actionable introduced findings; 47 focused tests passed",
+  "py_compile": "both versions passed",
+  "git_diff_check": "passed",
+  "singleton_constructor_ast": "passed without runtime initialization",
+  "source_old_fallback_references": 0,
+  "sha256": {
+    "PROJECT_CONTEXT.md": "9b47f7f4b1adfc25677bc5b70b46297b686e09fd2585a97ad2cb18252f865d7e",
+    "openspec/specs/jjc-ranking/spec.md": "b9031dda6120b1291c03c22274bec42012e886c183f72f62b733fb747a1ff894",
+    "src/services/jx3/jjc_ranking.py": "3e791bd6a9067babb30d1c9eb8c43934b03b9dc5041d6e47d1b795d0ee389a9d",
+    "src/services/jx3/singletons.py": "cbfaa42ce8c6c37cfd3d2ec9228383eeffc9d39f45005a4368076ea5567c27ea",
+    "tests/benchmark_jjc_ranking_kungfu_cache.py": "7f5af38d86d667a476bbc57ac28a028f260b96d0a05a910f7e909628f3c70cc3",
+    "tests/jjc_role_query_integration_fixtures.py": "ebbaad6bf9a58c6682984a82459bb9f386c96c2daa504dbe0cb51d89c6103e67",
+    "tests/test_jjc_foreground_recovery.py": "8a621694de2a0a30df19607dd20d9e4538f8dc073268a2ed001b8c96079d0295",
+    "tests/test_jjc_kungfu_refresh_integration.py": "338b8ca81594fce0bf5b1f1566919ff5fa30bca8e22b05787dcdd6a6de9bd3e7",
+    "tests/test_jjc_ranking_equipment_generation.py": "26a91d861dbe67cd79d4c4968b9e60a011e8bd47d08a00cb2836ee65a02c2e55",
+    "tests/test_jjc_ranking_explicit_tag.py": "cf4e81e8d4e3bb8a65b6686398f4a11a51182fe41d6a947c9a0e328004d64ad8",
+    "tests/test_jjc_ranking_force_sync.py": "1a02894893333313595da96c1c0fb39a74fb1ceaccdd9534f48f732120762b35",
+    "tests/test_jjc_ranking_history_win_kungfu.py": "7543420f23d392004015aa011da037061012fbe51a722057ace7c9d9b099bae1",
+    "tests/test_jjc_ranking_inspect.py": "1ad5bfe1935604801cdb7ff0c4c47c9edb53dc4e9c404a2bfa726f5d99573510",
+    "tests/test_jjc_ranking_kungfu_cache.py": "28d193b298bd23b19daa5df91180811227d6736e5de2031f05723d048b49b8c3",
+    "tests/test_jjc_ranking_raw.py": "5a8041b338a4bacae7ea7aefcc16632048c4ef98f78e7a1b0ba6984118724c20",
+    "tests/test_jjc_ranking_stats_repo.py": "6eab28a15f5694d1a773b22ee53b614e25cd1a68bc99162d9a3c24bee8b82ca7",
+    "tests/test_jjc_role_query_budget.py": "e0c90311d4691cb5d70e91eb7f221233fcadf123bde91efd430262d499344300",
+    "tests/test_jjc_weapon_quality.py": "3c1a69ee6dfe7798e26ec6f99fd12558723607f8a2381d5b3635401a0ce7cbc4",
+    "docs/exec-plans/index.md": "60a4a2c241ee541c6042f38b59fb10224d66921fff7ba8013836283eff58c36f",
+    "tests/test_jjc_kungfu_no_jx3api_fallback.py": "f56d17bb35a375925005d94ff50d5b994c959a12b51aaefbd8bb8b14ace98994"
+  },
+  "limits": [
+    "no upstream or production Mongo checks",
+    "not committed or deployed",
+    "pre-existing dirty workspace preserved; incremental patch against before snapshot"
+  ]
+}

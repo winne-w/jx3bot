@@ -135,7 +135,7 @@ python -m py_compile <相关 service/storage 文件>
 
 ## 文档更新规则
 
-- `public/index.html` 与 `public/jjc-ranking-stats.html` 是同一个排名页面的两个入口，内容须保持一致；修改任一入口后同步另一个，并运行 `python -m unittest tests.test_jjc_data_center_navigation`。四个 JJC 页面统一由 `public/jjc-site.css` 控制内容最大宽度（1920px）与页面边距，不在单页覆盖 `.page` 宽度。
+- `public/index.html` 与 `public/jjc-ranking-stats.html` 是同一个排名页面的两个入口，内容须保持一致；修改任一入口后同步另一个，并运行 `python -m unittest tests.test_jjc_data_center_navigation`。公开四个 JJC 页面与隐藏监控页 `public/jjc-sync-queue.html` 统一由 `public/jjc-site.css` 控制清爽现代浅色设计变量、内容最大宽度（1920px）与页面边距，不在单页覆盖 `.page` 宽度；四个公开页面导航栏严格保持 `心法排名 / 对局查询 / 心法对阵` 三项，不暴露 `jjc-sync-queue.html` 链接。
 - 改动启动方式、端口、环境变量时，同时更新 `README.md`、`README-Docker.md`、`docs/references/runbook.md`。
 - 改动模块边界、目录职责时，同时更新 `project-architecture.md` 和 `docs/exec-plans/active/refactor-plan.md`。
 - 改动 API 路由时，同时更新 `README.md` 中的接口说明。
@@ -234,3 +234,17 @@ JJC 大橙武以 `weapon_quality == 5`（接受字符串或整数）且武器名
 读服务使用专用 Mongo 连接和 singleflight，在原 1.5 秒 Mongo、2 秒 socket、8 秒构建、10 秒请求预算内完成整榜；超时或证据不一致时明确失败，不截断成员或丢弃异常证据。`JJC_EQUIPMENT_MONGO_HOST` 默认为空，仅在有明确部署需要时覆盖装备读连接的主机，凭据仍取部署配置。
 
 开启前必须完成主表派生字段回填、索引校验与全榜只读预检。字段、索引及回滚限制见 `docs/design-docs/database-design.md` 和 `docs/references/runbook.md`。方案与验证记录见 `openspec/changes/jjc-ranking-local-latest-match/`；独立提交包验证见其中 `submission.md`。
+
+### 心法查询取消 JX3API 兜底（2026-11-25，本地完成，未部署）
+
+排名兼容心法查询保留现有缓存优先选项和推栏查询。榜单失败、角色不匹配、身份缺失、心法为空或异常时直接使用既有本地当前赛季胜场推断；不再请求JX3API或解析其竞技历史作为心法来源。未找到合法结果时返回kungfu=None、found=False及kungfu_unknown_reason=kungfu_unavailable，不写空心法缓存覆盖旧值。推栏成功资料及缓存预热保留，身份有效角色不因心法未知而停止同步。普通竞技查询与区服解析继续沿用各自原有JX3API能力，旧缓存和历史快照不清理。
+
+JjcRankingService已移除专用token/ticket/jjc_query_url/defget_get注入和无独立调用的update_kungfu_cache。需求及验证见openspec/changes/remove-kungfu-jx3api-fallback/，Python3.13和3.9定向回归各372项通过；当前仅本地修改，线上尚未发布。
+
+### 心法兜底移除已正式发布（2026-11-25）
+
+用户后续明确授权PR与生产发布，PR #17（fix/remove-kungfu-jx3api-fallback）保持打开；正式环境两文件最小补丁已应用并重启验证，当前心法查询不再回退JX3API。四个新进程worker在线，公网元数据读取正常，源码/配置守卫和短时观察通过。既有推栏403导致的全局同步暂停保留，不代表恢复同步或鉴权修复。完整发布和回滚证据见openspec/changes/remove-kungfu-jx3api-fallback/06-delivery.md，本节优先于此前“未部署”记录。
+
+### 全站模板图片与 HTTP 页面视觉统一（unify-visual-style，2026-11-26）
+
+全部 22 个活跃 QQ 图片模板（竞技排名合图及 8 拆分图、竞技/jjc、装备、奇遇、万宝楼、订阅列表、交易行、烟花、资历、百战及百战角色、副本、群帮助 `qun.html`）与全部 5 个 JJC 静态网页统一接入清爽现代浅色设计系统（`#F3F6FB` 云白底、`#FFFFFF` 纯白圆角卡、`#4F6EF7` 靛蓝主色、`tabular-nums` 等宽数字、统一 `【夏鸥】bot` 页脚）。QQ 模板复用 `templates/_partials/` 共享片段并显式开启 `{% autoescape true %}`，画布统一为 `width=760, height="ck"`（等效 `380px @2x` 移动端单列竖卡，输出 `1520px` 宽）；`src/infra/screenshot.py` 的 `jietu` 先设目标窄视口并等待 `<img>` 加载后再测 `scrollHeight`。`public/jjc-sync-queue.html` 接入 `jjc-site.css` 顶栏与标题区，但公开四页不暴露其导航入口。验证：`python -m unittest tests.test_visual_style_unification tests.test_jjc_data_center_navigation`。变更记录见 `openspec/changes/unify-visual-style/`；提交 `15577ad` 已于 2026-11-26 14:02+08 部署线上并验收通过。

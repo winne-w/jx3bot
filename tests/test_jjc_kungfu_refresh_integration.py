@@ -48,14 +48,13 @@ class RefreshIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.upstream = SimpleNamespace(attempt_timeout=25, query=AsyncMock(side_effect=self.query))
         self.refresh = JjcKungfuRefreshService(self.roles, self.queue, self.upstream,
             self.policy, {"bingxin": "冰心诀", "yunchang": "云裳心经"}, clock=lambda: self.now)
-        self.ranking = JjcRankingService(token="", ticket="", jjc_query_url="",
+        self.ranking = JjcRankingService(
             arena_time_tag_url="", arena_ranking_url="", match_detail_url="",
             jjc_ranking_cache_duration=3600, kungfu_cache_duration=3600,
             current_season="season-a", current_season_start="1970-01-01",
             kungfu_healer_list=["云裳心经"], kungfu_dps_list=["冰心诀"],
             kungfu_pinyin_to_chinese={"bingxin": "冰心诀", "yunchang": "云裳心经"},
             tuilan_request=Mock(side_effect=AssertionError("foreground queried upstream")),
-            defget_get=AsyncMock(side_effect=AssertionError("foreground used fallback")),
             identity_repo=self.roles, kungfu_refresh_repo=self.queue, kungfu_policy=self.policy,
             kungfu_query_service=self.refresh)
         for patcher in [
@@ -139,7 +138,6 @@ class RefreshIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.upstream.query.assert_awaited()
         self.assertEqual(self.upstream.query.await_count, 2)
         self.ranking.tuilan_request.assert_not_called()
-        self.ranking.defget_get.assert_not_awaited()
         await self.assert_watermarks_unchanged()
 
     async def test_query_timeout_preserves_last_success_and_recovers_after_retry(self):

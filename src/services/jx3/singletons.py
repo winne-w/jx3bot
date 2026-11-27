@@ -7,7 +7,6 @@ import config as cfg
 from jinja2 import Environment, FileSystemLoader
 
 from src.domain.kungfu_catalog import KUNGFU_BY_PINYIN, dps_names, healer_names, tank_names
-from src.infra.jx3api_get import get
 from src.infra.tuilan_foreground_client import TuilanForegroundClient
 from src.storage.mongo_repos.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
@@ -161,9 +160,6 @@ jjc_ranking_equipment_service = JjcRankingEquipmentViewService(
 
 jjc_ranking_service = JjcRankingService(
     equipment_service=jjc_ranking_equipment_service,
-    token=cfg.TOKEN,
-    ticket=cfg.TICKET,
-    jjc_query_url=cfg.API_URLS["竞技查询"],
     arena_time_tag_url=cfg.API_URLS["竞技场时间查询"],
     arena_ranking_url=cfg.API_URLS["竞技场排行榜查询"],
     match_detail_url=cfg.API_URLS["竞技场战局详情"],
@@ -175,7 +171,6 @@ jjc_ranking_service = JjcRankingService(
     kungfu_dps_list=KUNGFU_DPS_LIST,
     kungfu_pinyin_to_chinese=KUNGFU_PINYIN_TO_CHINESE,
     tuilan_request=tuilan_request,
-    defget_get=get,
     match_replay_url=cfg.API_URLS["竞技场战局回放"],
     match_detail_projection_service=match_detail_identity_projection_service,
     match_detail_participant_projection_service=match_detail_participant_projection_service,

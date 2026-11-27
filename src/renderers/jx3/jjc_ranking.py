@@ -101,7 +101,7 @@ async def render_combined_ranking_image(
             "coverage_labels": {k: _coverage_label(v) for k, v in stats.items() if isinstance(v, dict)},
             "equipment_incomplete": any(_equipment_incomplete(v) for v in stats.values() if isinstance(v, dict)),
         },
-        width=1120,
+        width=760,
         height="ck",
     )
 
@@ -229,7 +229,7 @@ async def send_split_ranking_images(
                     "coverage_label": _coverage_label(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
                     "equipment_incomplete": _equipment_incomplete(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
                 },
-                width=800,
+                width=760,
                 height="ck",
             )
             await bot.send(event, MessageSegment.image(image_bytes))

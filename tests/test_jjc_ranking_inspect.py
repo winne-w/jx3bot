@@ -303,9 +303,6 @@ class WarmupJjcRankingService(JjcRankingService):
         match_replay_url: Optional[str] = None,
     ) -> None:
         super().__init__(
-            token="",
-            ticket="",
-            jjc_query_url="",
             arena_time_tag_url="",
             arena_ranking_url="",
             match_detail_url="",
@@ -317,7 +314,6 @@ class WarmupJjcRankingService(JjcRankingService):
             kungfu_dps_list=[],
             kungfu_pinyin_to_chinese={"huajian": "花间游"},
             tuilan_request=tuilan_request or MagicMock(),
-            defget_get=MagicMock(),
             match_replay_url=match_replay_url,
             match_detail_projection_service=projection_service,
             match_detail_persistence_service=persistence_service,
@@ -468,9 +464,6 @@ class TestRankingWarmupInspectCache(unittest.IsolatedAsyncioTestCase):
             participant_projector=None,
         )
         service = JjcRankingService(
-            token="",
-            ticket="",
-            jjc_query_url="",
             arena_time_tag_url="",
             arena_ranking_url="",
             match_detail_url="",
@@ -482,7 +475,6 @@ class TestRankingWarmupInspectCache(unittest.IsolatedAsyncioTestCase):
             kungfu_dps_list=[],
             kungfu_pinyin_to_chinese={},
             tuilan_request=MagicMock(),
-            defget_get=MagicMock(),
             match_detail_persistence_service=persistence_service,
             inspect_repo=inspect_repo,
         )
