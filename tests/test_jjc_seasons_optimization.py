@@ -81,6 +81,8 @@ class TestJjcRankingStatsRepoSeasonsAggregate(unittest.IsolatedAsyncioTestCase):
         cursors = []
 
         def agg_factory(pipeline, kwargs):
+            if pipeline and "$project" in pipeline[-1]:
+                return _AsyncCursor([])
             cursor = _AsyncCursor([
                 {"_id": "苍生铸世", "latest_timestamp": 500},
                 {"_id": 17, "latest_timestamp": 300},
@@ -104,8 +106,8 @@ class TestJjcRankingStatsRepoSeasonsAggregate(unittest.IsolatedAsyncioTestCase):
             ],
             "default_season": "苍生铸世",
         })
-        self.assertEqual(len(col.agg_calls), 1)
-        pipeline, kwargs = col.agg_calls[0]
+        self.assertEqual(len(col.agg_calls), 2)
+        pipeline, kwargs = col.agg_calls[-1]
         self.assertEqual(kwargs.get("maxTimeMS"), 1500)
         self.assertEqual(kwargs.get("batchSize"), 512)
         self.assertEqual(pipeline[-2], {"$group": {"_id": "$current_season", "latest_timestamp": {"$max": "$timestamp"}}})
@@ -113,7 +115,7 @@ class TestJjcRankingStatsRepoSeasonsAggregate(unittest.IsolatedAsyncioTestCase):
 
     async def test_list_seasons_aggregate_type_error_fallback(self):
         col = _AggregateCollection(
-            lambda p, k: _AsyncCursor([{"_id": "苍生铸世", "latest_timestamp": 400}]),
+            lambda p, k: _AsyncCursor([]) if (p and "$project" in p[-1]) else _AsyncCursor([{"_id": "苍生铸世", "latest_timestamp": 400}]),
             accept_kwargs=False,
         )
         db = SimpleNamespace(name="test_agg_no_kwargs", jjc_ranking_stat_summaries=col)
@@ -121,8 +123,48 @@ class TestJjcRankingStatsRepoSeasonsAggregate(unittest.IsolatedAsyncioTestCase):
 
         result = await repo.list_seasons()
         self.assertEqual(result["default_season"], "苍生铸世")
-        self.assertEqual(len(col.agg_calls), 1)
-        self.assertEqual(col.agg_calls[0][1], {})
+        self.assertEqual(len(col.agg_calls), 2)
+        self.assertEqual(col.agg_calls[-1][1], {})
+
+    async def test_v2_metadata_projection_validation_accepts_valid_and_rejects_corrupt(self):
+        from tests.test_jjc_ranking_equipment_publish import candidate
+        from tests.jjc_equipment_fixtures import TIMESTAMP
+
+        valid_doc = candidate(timestamp=TIMESTAMP)
+        ev = valid_doc["equipment_view"]
+        projected = {
+            "timestamp": valid_doc["timestamp"],
+            "schema_version": valid_doc["schema_version"],
+            "equipment_complete": valid_doc["equipment_complete"],
+            "equipment_source": valid_doc["equipment_source"],
+            "ranking_display_kind": valid_doc["ranking_display_kind"],
+            "current_season": valid_doc["current_season"],
+            "kungfu_cache_scope": valid_doc["kungfu_cache_scope"],
+            "equipment_view_revision": valid_doc["equipment_view_revision"],
+            "member_revision": valid_doc["member_revision"],
+            "doc_bson_size": 1024,
+            "ev_is_obj": True,
+            "ev_timestamp": ev["timestamp"],
+            "ev_source": ev["source"],
+            "ev_scope": ev["scope"],
+            "ev_member_revision": ev["member_revision"],
+            "ev_view_revision": ev["equipment_view_revision"],
+            "ev_range_counts": {k: v["N"] for k, v in ev["ranges"].items()},
+            "ev_member_count": len(ev["members"]),
+        }
+        self.assertEqual(JjcRankingStatsRepo._validate_equipment_metadata_projection(projected), TIMESTAMP)
+        for field, bad_value in (
+            ("equipment_complete", False),
+            ("equipment_source", "legacy_v1"),
+            ("ev_is_obj", False),
+            ("equipment_view_revision", "damaged"),
+            ("ev_member_count", len(ev["members"]) - 1),
+            ("current_season", "wrong-season"),
+            ("doc_bson_size", 9 * 1024 * 1024),
+        ):
+            broken = dict(projected)
+            broken[field] = bad_value
+            self.assertIsNone(JjcRankingStatsRepo._validate_equipment_metadata_projection(broken), msg=field)
 
     async def test_list_seasons_fallback_to_find_when_aggregate_absent(self):
         find_calls = []

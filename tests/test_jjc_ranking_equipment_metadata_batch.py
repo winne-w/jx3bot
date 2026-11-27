@@ -52,18 +52,14 @@ class MetadataBatchMongo(unittest.IsolatedAsyncioTestCase):
     def reset(self):self.wire.started_rows.clear();self.wire.replies.clear()
     def assert_transport(self, *, mode=None):
         finds=[cmd for name,cmd in self.wire.started_rows if name=='find']
-        full=[cmd for cmd in finds if cmd.get('filter')=={'schema_version':2} or cmd.get('filter',{}).get('schema_version')==2]
-        self.assertEqual(1,len(full));self.assertEqual(16,full[0].get('batchSize'))
+        aggs=[cmd for name,cmd in self.wire.started_rows if name=='aggregate']
         if mode=='seasons':
-            aggs=[cmd for name,cmd in self.wire.started_rows if name=='aggregate']
-            self.assertEqual(1,len(finds));self.assertEqual(1,len(aggs))
-            self.assertTrue(0<aggs[0].get('maxTimeMS',1501)<=1500)
-            self.assertEqual(512,(aggs[0].get('cursor') or {}).get('batchSize'))
+            self.assertEqual(0,len(finds));self.assertEqual(2,len(aggs))
         else:
-            self.assertEqual(2,len(finds))
-            lean=[cmd for cmd in finds if cmd not in full]
-            self.assertEqual(1,len(lean));self.assertEqual(512,lean[0].get('batchSize'));self.assertTrue(lean[0].get('projection'))
-        self.assertTrue(all(0<cmd.get('maxTimeMS',1501)<=1500 for cmd in finds))
+            self.assertEqual(1,len(aggs));self.assertEqual(1,len(finds))
+            self.assertEqual(512,finds[0].get('batchSize'));self.assertTrue(finds[0].get('projection'))
+        self.assertTrue(all(0<cmd.get('maxTimeMS',1501)<=1500 for cmd in finds+aggs))
+        self.assertTrue(all((cmd.get('cursor') or {}).get('batchSize')==512 for cmd in aggs))
         self.assertFalse(any(name in ('getMore','killCursors') for name,cmd in self.wire.started_rows))
     async def test_416_complete_metadata_rows_use_one_lean_batch_in_all_five_modes(self):
         expected=list(range(TIMESTAMP+415,TIMESTAMP-1,-1))

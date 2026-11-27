@@ -18,7 +18,7 @@ from nonebot import logger
 from src.infra.mongo import get_db as _get_db
 from src.utils.jjc_equipment_schema import content_revision
 from src.utils.jjc_equipment_schema import (
-    MAX_SNAPSHOT_BSON_BYTES, SOURCE, exact_legacy_guard, validate_equipment_view,
+    MAX_SNAPSHOT_BSON_BYTES, RANGES, SOURCE, exact_legacy_guard, validate_equipment_view,
 )
 
 
@@ -673,27 +673,143 @@ class JjcRankingStatsRepo:
         """Bound every metadata cursor and close on success, fault or cancellation."""
         return [doc for doc, _ in await self._metadata_rows_with_sizes(cursor, batch_size=batch_size)]
 
+    @staticmethod
+    def _validate_equipment_metadata_projection(doc: Dict[str, Any]) -> Optional[int]:
+        """Validate a server-side projected V2 summary without transferring equipment_view.members."""
+        if not isinstance(doc, dict):
+            return None
+        timestamp = doc.get("timestamp")
+        if (
+            not isinstance(timestamp, int)
+            or isinstance(timestamp, bool)
+            or not 0 < timestamp <= 9223372036854775807
+            or type(doc.get("schema_version")) is not int
+            or doc["schema_version"] != 2
+            or doc.get("equipment_complete") is not True
+            or doc.get("equipment_source") != SOURCE
+            or doc.get("ranking_display_kind") not in ("current", "historical")
+            or doc.get("ev_is_obj") is not True
+            or doc.get("ev_timestamp") != timestamp
+            or doc.get("ev_source") != SOURCE
+        ):
+            return None
+        scope = doc.get("ev_scope")
+        if (
+            not isinstance(scope, dict)
+            or doc.get("kungfu_cache_scope") != scope
+            or doc.get("current_season") != scope.get("season_id")
+            or scope.get("pvp_type") != 3
+            or not scope.get("season_start")
+        ):
+            return None
+        member_rev = doc.get("member_revision")
+        view_rev = doc.get("equipment_view_revision")
+        if (
+            not isinstance(member_rev, str)
+            or not member_rev
+            or not isinstance(view_rev, str)
+            or not view_rev
+            or doc.get("ev_member_revision") != member_rev
+            or doc.get("ev_view_revision") != view_rev
+        ):
+            return None
+        doc_bson_size = doc.get("doc_bson_size")
+        if (
+            type(doc_bson_size) is not int
+            or not 0 < doc_bson_size <= MAX_SNAPSHOT_BSON_BYTES
+        ):
+            return None
+        member_count = doc.get("ev_member_count")
+        range_counts = doc.get("ev_range_counts")
+        if (
+            type(member_count) is not int
+            or member_count <= 0
+            or not isinstance(range_counts, dict)
+        ):
+            return None
+        for range_key, limit in RANGES.items():
+            count = range_counts.get(range_key)
+            if type(count) is not int or not 0 <= count <= min(member_count, limit):
+                return None
+        if range_counts.get("top_1000") != member_count:
+            return None
+        return timestamp
+
     async def _readable_snapshot_query(self, db, *, season_values=None) -> Dict[str, Any]:
         """Validate bounded V2 payloads before exposing metadata/counts."""
-        query = {"schema_version": 2}
+        query: Dict[str, Any] = {"schema_version": 2}
         if season_values is not None:
             query["current_season"] = {"$in": season_values}
-        timestamps = []
+        timestamps: List[int] = []
         started = time.monotonic()
-        for doc, doc_size in await self._metadata_rows_with_sizes(db.jjc_ranking_stat_summaries.find(query)):
-            if time.monotonic() - started > METADATA_READ_TIMEOUT:
-                raise EquipmentSnapshotError("read_failed")
-            if doc.get("schema_version", 1) != 2:
-                continue
+        collection = db.jjc_ranking_stat_summaries
+        aggregate_fn = getattr(collection, "aggregate", None)
+        if callable(aggregate_fn):
+            pipeline = [
+                {"$match": query},
+                {
+                    "$project": {
+                        "_id": 0,
+                        "timestamp": 1,
+                        "schema_version": 1,
+                        "equipment_complete": 1,
+                        "equipment_source": 1,
+                        "ranking_display_kind": 1,
+                        "current_season": 1,
+                        "kungfu_cache_scope": 1,
+                        "equipment_view_revision": 1,
+                        "member_revision": 1,
+                        "doc_bson_size": {"$bsonSize": "$$ROOT"},
+                        "ev_is_obj": {"$eq": [{"$type": "$equipment_view"}, "object"]},
+                        "ev_timestamp": "$equipment_view.timestamp",
+                        "ev_source": "$equipment_view.source",
+                        "ev_scope": "$equipment_view.scope",
+                        "ev_member_revision": "$equipment_view.member_revision",
+                        "ev_view_revision": "$equipment_view.equipment_view_revision",
+                        "ev_range_counts": {
+                            range_key: "$equipment_view.ranges.{}.N".format(range_key)
+                            for range_key in RANGES
+                        },
+                        "ev_member_count": {
+                            "$cond": [
+                                {"$isArray": "$equipment_view.members"},
+                                {"$size": "$equipment_view.members"},
+                                -1,
+                            ]
+                        },
+                    }
+                },
+            ]
+            max_time_ms = max(1, int(METADATA_READ_TIMEOUT * 1000))
             try:
-                self._validate_equipment_document(
-                    doc, doc.get("timestamp"), allow_historical=True, bson_size=doc_size
+                cursor = aggregate_fn(
+                    pipeline,
+                    maxTimeMS=max_time_ms,
+                    batchSize=METADATA_LEAN_BATCH_SIZE,
                 )
-            except EquipmentSnapshotError:
-                continue
-            if time.monotonic() - started > METADATA_READ_TIMEOUT:
-                raise EquipmentSnapshotError("read_failed")
-            timestamps.append(doc["timestamp"])
+            except TypeError:
+                cursor = aggregate_fn(pipeline)
+            for doc in await self._metadata_rows(cursor, batch_size=METADATA_LEAN_BATCH_SIZE):
+                if time.monotonic() - started > METADATA_READ_TIMEOUT:
+                    raise EquipmentSnapshotError("read_failed")
+                valid_ts = self._validate_equipment_metadata_projection(doc)
+                if valid_ts is not None:
+                    timestamps.append(valid_ts)
+        else:
+            for doc, doc_size in await self._metadata_rows_with_sizes(collection.find(query)):
+                if time.monotonic() - started > METADATA_READ_TIMEOUT:
+                    raise EquipmentSnapshotError("read_failed")
+                if doc.get("schema_version", 1) != 2:
+                    continue
+                try:
+                    self._validate_equipment_document(
+                        doc, doc.get("timestamp"), allow_historical=True, bson_size=doc_size
+                    )
+                except EquipmentSnapshotError:
+                    continue
+                if time.monotonic() - started > METADATA_READ_TIMEOUT:
+                    raise EquipmentSnapshotError("read_failed")
+                timestamps.append(doc["timestamp"])
         if time.monotonic() - started > METADATA_READ_TIMEOUT:
             raise EquipmentSnapshotError("read_failed")
         return {"$or": [{"schema_version": {"$exists": False}}, {"schema_version": 1},
