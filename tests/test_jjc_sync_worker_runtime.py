@@ -145,23 +145,94 @@ class TestJjcSyncWorkerRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(task.cancelled())
 
     async def test_worker_exception_is_caught(self) -> None:
-        class FailingService:
+        class RecoveringService:
             def __init__(self) -> None:
-                self.calls = 0
+                self.worker_calls = 0
+                self.dispatcher_calls = 0
+                self.worker_restarted = asyncio.Event()
+                self.dispatcher_restarted = asyncio.Event()
 
-            async def run_worker(self, **kwargs: Any) -> None:
-                self.calls += 1
-                raise RuntimeError("boom")
+            async def run_worker(self, **kwargs: Any) -> Dict[str, Any]:
+                self.worker_calls += 1
+                if self.worker_calls == 1:
+                    raise RuntimeError("worker boom")
+                self.worker_restarted.set()
+                await asyncio.Event().wait()
+                return {"error": False}
 
-        service = FailingService()
-        module = self._load_runtime(1, service)
+            async def run_dispatcher(self, **kwargs: Any) -> Dict[str, Any]:
+                self.dispatcher_calls += 1
+                if self.dispatcher_calls == 1:
+                    raise RuntimeError("dispatcher boom")
+                self.dispatcher_restarted.set()
+                await asyncio.Event().wait()
+                return {"error": False}
+
+        service = RecoveringService()
+        module = self._load_runtime(1, service, dispatcher_enabled=1)
+        module._RESTART_BACKOFF_INITIAL = 0.01
 
         await module.start_jjc_sync_workers()
-        await asyncio.sleep(0)
+        await module.start_jjc_sync_dispatcher()
+        await asyncio.wait_for(service.worker_restarted.wait(), timeout=1.0)
+        await asyncio.wait_for(service.dispatcher_restarted.wait(), timeout=1.0)
 
-        self.assertEqual(service.calls, 1)
-        self.assertTrue(module._TASKS[0].done())
-        self.assertIsNone(module._TASKS[0].exception())
+        self.assertGreaterEqual(service.worker_calls, 2)
+        self.assertGreaterEqual(service.dispatcher_calls, 2)
+        worker_task = module._TASKS[0]
+        dispatcher_task = module._DISPATCHER_TASKS[0]
+        self.assertFalse(worker_task.done())
+        self.assertFalse(dispatcher_task.done())
+
+        await module.stop_jjc_sync_workers()
+        await module.stop_jjc_sync_dispatcher()
+
+        self.assertEqual(module._TASKS, [])
+        self.assertEqual(module._DISPATCHER_TASKS, [])
+        self.assertTrue(worker_task.cancelled())
+        self.assertTrue(dispatcher_task.cancelled())
+
+    async def test_worker_auto_paused_and_error_summary_remain_supervised(self) -> None:
+        class SummaryService:
+            def __init__(self) -> None:
+                self.worker_calls = 0
+                self.dispatcher_calls = 0
+                self.worker_steady = asyncio.Event()
+                self.dispatcher_steady = asyncio.Event()
+
+            async def run_worker(self, **kwargs: Any) -> Dict[str, Any]:
+                self.worker_calls += 1
+                if self.worker_calls == 1:
+                    return {"error": False, "stopped_reason": "auto_paused"}
+                if self.worker_calls == 2:
+                    return {"error": True, "message": "sync_dependencies_not_configured"}
+                self.worker_steady.set()
+                await asyncio.Event().wait()
+                return {"error": False}
+
+            async def run_dispatcher(self, **kwargs: Any) -> Dict[str, Any]:
+                self.dispatcher_calls += 1
+                if self.dispatcher_calls == 1:
+                    return {"error": True, "message": "dispatcher_error"}
+                self.dispatcher_steady.set()
+                await asyncio.Event().wait()
+                return {"error": False}
+
+        service = SummaryService()
+        module = self._load_runtime(1, service, dispatcher_enabled=1)
+        module._RESTART_BACKOFF_INITIAL = 0.01
+        module._AUTO_PAUSED_SLEEP_SECONDS = 0.01
+
+        await module.start_jjc_sync_workers()
+        await module.start_jjc_sync_dispatcher()
+        await asyncio.wait_for(service.worker_steady.wait(), timeout=1.0)
+        await asyncio.wait_for(service.dispatcher_steady.wait(), timeout=1.0)
+
+        self.assertEqual(service.worker_calls, 3)
+        self.assertEqual(service.dispatcher_calls, 2)
+
+        await module.stop_jjc_sync_workers()
+        await module.stop_jjc_sync_dispatcher()
 
     async def test_stop_cancels_running_tasks(self) -> None:
         service = _FakeService()

@@ -84,15 +84,12 @@ class EquipmentTimeAtomicWriterTests(unittest.IsolatedAsyncioTestCase):
     async def test_raw_and_compact_each_atomically_set_time_and_preserve_cas(self):
         repo,collection=self.make();payload=self.payload();original=deepcopy(payload)
         self.assertTrue(await repo.save_match_detail(900,payload))
-        self.assertEqual(2,collection.update_one.await_count)
-        raw,compact=collection.update_one.await_args_list
-        for call in (raw,compact):
-            self.assertIn("data",call.args[1]["$set"])
-            self.assertEqual(STAMP,call.args[1]["$set"].get("equipment_read_time_v1"))
-        self.assertEqual({"match_id":900},raw.args[0]);self.assertTrue(raw.kwargs["upsert"])
-        self.assertEqual({"match_id":900,"cached_at":payload["cached_at"],"data":original["data"]},compact.args[0])
-        self.assertFalse(compact.kwargs["upsert"])
-        self.assertIn("armors",raw.args[1]["$set"]["data"]["detail"]["team1"]["players_info"][0])
+        self.assertEqual(1,collection.update_one.await_count)
+        compact=collection.update_one.await_args_list[0]
+        self.assertIn("data",compact.args[1]["$set"])
+        self.assertEqual(STAMP,compact.args[1]["$set"].get("equipment_read_time_v1"))
+        self.assertEqual({"match_id":900},compact.args[0]);self.assertTrue(compact.kwargs["upsert"])
+        self.assertTrue(compact.args[1]["$set"].get("compacted"))
         self.assertNotIn("armors",compact.args[1]["$set"]["data"]["detail"]["team1"]["players_info"][0])
         self.assertEqual(original,payload)
 
@@ -110,7 +107,7 @@ class EquipmentTimeAtomicWriterTests(unittest.IsolatedAsyncioTestCase):
         collection.update_one.reset_mock()
         changed=self.payload();changed["data"]["detail"]["match_time"]=STAMP+1
         await repo.save_match_detail(900,changed)
-        self.assertEqual(2,collection.update_one.await_count)
+        self.assertEqual(1,collection.update_one.await_count)
         for call in collection.update_one.await_args_list:
             fields=call.args[1]["$set"]
             self.assertIn("equipment_read_time_v1",fields,"unknown must overwrite a previously certified timestamp")

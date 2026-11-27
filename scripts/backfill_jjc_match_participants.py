@@ -17,6 +17,11 @@ if str(ROOT) not in sys.path:
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase  # noqa: E402
 
+from scripts._common.mongo import (  # noqa: E402
+    open_async_client,
+    resolve_database,
+    resolve_mongo_uri,
+)
 from src.storage.mongo_repos.jjc_match_participant_repo import JjcMatchParticipantRepo  # noqa: E402
 
 
@@ -25,28 +30,7 @@ def _log(message: str) -> None:
 
 
 def get_mongo_uri() -> str:
-    runtime_cfg_path = ROOT / "runtime_config.json"
-    if runtime_cfg_path.is_file():
-        try:
-            with open(str(runtime_cfg_path), "r", encoding="utf-8") as fh:
-                uri = json.load(fh).get("MONGO_URI")
-            if uri:
-                return str(uri)
-        except Exception:
-            pass
-
-    try:
-        from config import MONGO_URI  # type: ignore
-
-        if MONGO_URI:
-            return str(MONGO_URI)
-    except Exception:
-        pass
-
-    uri = os.getenv("MONGO_URI")
-    if uri:
-        return uri
-    raise RuntimeError("无法获取 MONGO_URI：runtime_config.json、config.MONGO_URI、环境变量均未配置")
+    return resolve_mongo_uri()
 
 
 def get_db(client: AsyncIOMotorClient, db_name: Optional[str]) -> AsyncIOMotorDatabase:
@@ -222,8 +206,9 @@ async def process_logged_batch(
 async def run(args: argparse.Namespace) -> Dict[str, int]:
     client = None
     try:
-        client = AsyncIOMotorClient(args.mongo_uri or get_mongo_uri(), serverSelectionTimeoutMS=8000)
-        db = get_db(client, args.db_name)
+        mongo_uri = args.mongo_uri or get_mongo_uri()
+        client = open_async_client(mongo_uri)
+        db = resolve_database(client, mongo_uri, db_name=args.db_name)
         repo = JjcMatchParticipantRepo(db=db)
         query = build_query(args)
         projection = {

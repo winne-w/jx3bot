@@ -149,7 +149,7 @@ TUILAN_USER_AGENT = os.getenv("TUILAN_USER_AGENT", "okhttp/3.12.2")
 # MongoDB 连接串
 # 示例: mongodb://用户名:密码@地址:端口/数据库名?authSource=admin
 # 可通过环境变量 MONGO_URI 或 runtime_config.json 覆盖
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://root:password@127.0.0.1:27017/jx3bot?authSource=admin")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://127.0.0.1:27017/jx3bot")
 
 # Bot 内置 JJC 同步 worker 数量，0 表示关闭。
 JJC_SYNC_WORKER_COUNT = _env_int("JJC_SYNC_WORKER_COUNT", 0)
@@ -201,37 +201,10 @@ JJC_LEGENDARY_WEAPON_NAMES = [
 CURRENT_SEASON = "苍生铸世"
 CURRENT_SEASON_START = "2026-11-05"
 
+from src.domain.kungfu_catalog import build_kungfu_meta
+
 # 心法拼音映射及分类
-KUNGFU_META = {
-    "lijing": {"name": "离经易道", "category": "healer"},
-    "zixia": {"name": "紫霞功", "category": "dps"},
-    "beiao": {"name": "北傲诀", "category": "dps"},
-    "lingsu": {"name": "灵素", "category": "healer"},
-    "huajian": {"name": "花间游", "category": "dps"},
-    "fenshan": {"name": "分山劲", "category": "dps"},
-    "taixu": {"name": "太虚剑意", "category": "dps"},
-    "zhoutian": {"name": "周天功", "category": "dps"},
-    "butian": {"name": "补天诀", "category": "healer"},
-    "bingxin": {"name": "冰心诀", "category": "dps"},
-    "xiangzhi": {"name": "相知", "category": "healer"},
-    "jingyu": {"name": "惊羽诀", "category": "dps"},
-    "fenying": {"name": "焚影圣诀", "category": "dps"},
-    "wufang": {"name": "无方", "category": "dps"},
-    "yunshang": {"name": "云裳心经", "category": "healer"},
-    "taixuan": {"name": "太玄经", "category": "dps"},
-    "dujing": {"name": "毒经", "category": "dps"},
-    "gufeng": {"name": "孤锋诀", "category": "dps"},
-    "tianluo": {"name": "天罗诡道", "category": "dps"},
-    "yijin": {"name": "易筋经", "category": "dps"},
-    "aoxue": {"name": "傲血战意", "category": "dps"},
-    "mowen": {"name": "莫问", "category": "dps"},
-    "xiaochen": {"name": "笑尘诀", "category": "dps"},
-    "yinlong": {"name": "隐龙诀", "category": "dps"},
-    "linghai": {"name": "凌海诀", "category": "dps"},
-    "cangjian": {"name": "山居剑意", "category": "dps"},
-    "shanhai": {"name": "山海心诀", "category": "dps"},
-    "youluo": {"name": "幽罗引", "category": "dps"},
-}
+KUNGFU_META = build_kungfu_meta()
 
 # 运行时可覆盖配置（由 /修改配置 写入）
 RUNTIME_CONFIG_FILE = "runtime_config.json"

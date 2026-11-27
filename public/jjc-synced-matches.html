@@ -1035,6 +1035,7 @@
         <span class="floating-feedback-text">反馈</span>
     </div>
 
+    <script src="jjc-common.js"></script>
     <script>
         const BASE_API = "/jx3bot/api/jjc/ranking-stats";
         const ANNOUNCEMENT_API = "/jx3bot/api/announcements";
@@ -1298,6 +1299,9 @@
         }
 
         function escapeHtml(value) {
+            if (window.JjcCommon && typeof window.JjcCommon.escapeHtml === "function") {
+                return window.JjcCommon.escapeHtml(value);
+            }
             return String(value ?? "")
                 .replaceAll("&", "&amp;")
                 .replaceAll("<", "&lt;")

@@ -4,12 +4,18 @@ import socket
 from typing import List
 
 import config as cfg
+from src.infra.managed_task import supervise_forever
 from src.services.jx3.singletons import jjc_match_data_sync_service
 
 logger = logging.getLogger(__name__)
 
 _TASKS: List[asyncio.Task] = []
 _DISPATCHER_TASKS: List[asyncio.Task] = []
+
+_RESTART_BACKOFF_INITIAL = 1.0
+_RESTART_BACKOFF_MAX = 60.0
+_HEALTHY_RESET_SECONDS = 60.0
+_AUTO_PAUSED_SLEEP_SECONDS = 10.0
 
 
 def _build_worker_id(index: int) -> str:
@@ -18,24 +24,30 @@ def _build_worker_id(index: int) -> str:
 
 
 async def _run_worker(worker_id: str) -> None:
-    try:
-        await jjc_match_data_sync_service.run_worker(
+    await supervise_forever(
+        lambda: jjc_match_data_sync_service.run_worker(
             mode="full",
             worker_id=worker_id,
-        )
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        logger.exception(f"Bot-managed JJC sync worker exited with error: worker_id={worker_id}")
+        ),
+        name=f"Bot-managed JJC sync worker (worker_id={worker_id})",
+        logger_obj=logger,
+        initial_backoff=_RESTART_BACKOFF_INITIAL,
+        max_backoff=_RESTART_BACKOFF_MAX,
+        healthy_reset_seconds=_HEALTHY_RESET_SECONDS,
+        auto_paused_sleep=_AUTO_PAUSED_SLEEP_SECONDS,
+    )
 
 
 async def _run_dispatcher() -> None:
-    try:
-        await jjc_match_data_sync_service.run_dispatcher()
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        logger.exception("Bot-managed JJC sync dispatcher exited with error")
+    await supervise_forever(
+        lambda: jjc_match_data_sync_service.run_dispatcher(),
+        name="Bot-managed JJC sync dispatcher",
+        logger_obj=logger,
+        initial_backoff=_RESTART_BACKOFF_INITIAL,
+        max_backoff=_RESTART_BACKOFF_MAX,
+        healthy_reset_seconds=_HEALTHY_RESET_SECONDS,
+        auto_paused_sleep=_AUTO_PAUSED_SLEEP_SECONDS,
+    )
 
 
 async def start_jjc_sync_workers() -> None:

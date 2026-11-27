@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -9,7 +10,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from nonebot import logger
 
 from src.infra.mongo import get_db as _get_db
-from src.services.jx3.match_detail_snapshots import TALENT_SNAPSHOT_SCHEMA_VERSION
+from src.domain.snapshots import TALENT_SNAPSHOT_SCHEMA_VERSION
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class JjcMatchSnapshotRepo:
     ) -> None:
         db = self.db if self.db is not None else _get_db()
         now = datetime.datetime.now(datetime.timezone.utc)
+        last_seen_at = float(seen_at) if seen_at is not None else time.time()
         try:
             await db.jjc_equipment_snapshot.update_one(
                 {"snapshot_hash": snapshot_hash},
@@ -31,7 +33,7 @@ class JjcMatchSnapshotRepo:
                         "schema_version": 1,
                     },
                     "$set": {
-                        "last_seen_at": seen_at if seen_at is not None else now,
+                        "last_seen_at": last_seen_at,
                     },
                 },
                 upsert=True,
@@ -45,17 +47,18 @@ class JjcMatchSnapshotRepo:
     ) -> None:
         db = self.db if self.db is not None else _get_db()
         now = datetime.datetime.now(datetime.timezone.utc)
+        last_seen_at = float(seen_at) if seen_at is not None else time.time()
         try:
             await db.jjc_talent_snapshot.update_one(
                 {"snapshot_hash": snapshot_hash},
                 {
                     "$setOnInsert": {
-                        "talents": talents,
                         "created_at": now,
-                        "schema_version": TALENT_SNAPSHOT_SCHEMA_VERSION,
                     },
                     "$set": {
-                        "last_seen_at": seen_at if seen_at is not None else now,
+                        "talents": talents,
+                        "schema_version": TALENT_SNAPSHOT_SCHEMA_VERSION,
+                        "last_seen_at": last_seen_at,
                     },
                 },
                 upsert=True,

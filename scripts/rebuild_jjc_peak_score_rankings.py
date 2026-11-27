@@ -28,6 +28,11 @@ SAFE_VALIDATION_ERRORS = {
     "invalid_snapshot_context",
 }
 
+from scripts._common.mongo import (  # noqa: E402
+    open_async_client,
+    resolve_database,
+    resolve_mongo_uri,
+)
 from src.services.jx3.jjc_peak_score_ranking import (  # noqa: E402
     AGGREGATION_SCOPE,
     SCORE_TYPES,
@@ -40,18 +45,7 @@ from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo  
 
 def get_mongo_uri() -> str:
     """Follow explicit environment, runtime override, then config; never log the URI."""
-    uri = os.getenv("MONGO_URI")
-    if uri:
-        return uri
-    runtime_config = ROOT / "runtime_config.json"
-    if runtime_config.is_file():
-        payload = json.loads(runtime_config.read_text(encoding="utf-8"))
-        uri = payload.get("MONGO_URI") if isinstance(payload, dict) else None
-        if uri:
-            return str(uri)
-    from config import MONGO_URI
-
-    return str(MONGO_URI)
+    return resolve_mongo_uri()
 
 
 def get_db(client: Any, db_name: Optional[str]) -> Any:
@@ -209,9 +203,10 @@ def exit_code_for_report(report: Dict[str, Any]) -> int:
 
 
 async def _run_connected(args: argparse.Namespace) -> Dict[str, Any]:
-    client = AsyncIOMotorClient(get_mongo_uri(), serverSelectionTimeoutMS=8000, maxPoolSize=4)
+    mongo_uri = get_mongo_uri()
+    client = open_async_client(mongo_uri, maxPoolSize=4)
     try:
-        db = get_db(client, args.db_name)
+        db = resolve_database(client, mongo_uri, db_name=args.db_name)
         await db.command("ping")
         return await run(args, db)
     finally:

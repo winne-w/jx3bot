@@ -25,6 +25,13 @@ from bson import json_util
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts._common.mongo import (  # noqa: E402
+    open_async_client,
+    resolve_database,
+    resolve_db_name,
+    resolve_mongo_uri,
+)
+
 JSON_OPTIONS = json_util.JSONOptions(tz_aware=True)
 ID_FIELDS = ("game_role_id", "role_id", "global_role_id_refreshed_at",
              "global_role_id_refresh_source", "updated_at")
@@ -115,7 +122,7 @@ def load_manifest(path, expected_hash=None):
 
 def validate_target(uri, confirm_target, *, write=False):
     parsed = urlsplit(uri)
-    database = unquote(parsed.path.lstrip("/"))
+    database = resolve_db_name(uri, default="")
     if parsed.scheme != "mongodb" or not parsed.hostname or not re.fullmatch(r"[A-Za-z0-9_-]+", database):
         raise ValueError("unsupported database target")
     target = "%s:%s/%s" % (parsed.hostname, parsed.port or 27017, database)
@@ -318,7 +325,6 @@ def make_parser():
 
 async def run(args):
     import config as cfg
-    from motor.motor_asyncio import AsyncIOMotorClient
     from src.services.jx3.role_identity_recovery import recover_query_ids
     from src.services.jx3.role_indicator import RoleIndicatorClient
     from src.services.jx3.match_replay import MatchReplayClient
@@ -327,7 +333,8 @@ async def run(args):
     from src.utils.tuilan_request import tuilan_request
 
     writing = args.command == "apply" or (args.command == "rollback" and args.rollback_apply)
-    target = validate_target(cfg.MONGO_URI, args.confirm_target, write=writing)
+    mongo_uri = resolve_mongo_uri(getattr(cfg, "MONGO_URI", None))
+    target = validate_target(mongo_uri, args.confirm_target, write=writing)
     if writing and not args.yes:
         raise ValueError("write requires --yes")
     run_dir = validate_run_directory(args.run_dir or args.output) if (args.run_dir or args.output) else None
@@ -337,8 +344,8 @@ async def run(args):
         raise ValueError("limit <=20, calls <=120 and interval >=1 required")
     if args.resume_from and args.resume_from.resolve() != run_dir:
         raise ValueError("resume must use original run directory")
-    client = AsyncIOMotorClient(cfg.MONGO_URI, serverSelectionTimeoutMS=5000, tz_aware=True)
-    db = client[unquote(urlsplit(cfg.MONGO_URI).path.lstrip("/"))]
+    client = open_async_client(mongo_uri, server_selection_timeout_ms=5000, tz_aware=True)
+    db = resolve_database(client, mongo_uri)
     repo = RoleIdentityRepo(db=db)
     try:
         with operation_lock(run_dir):

@@ -515,6 +515,7 @@
         </div>
     </main>
 
+    <script src="jjc-common.js"></script>
     <script>
         (function () {
             const state = {
@@ -572,6 +573,9 @@
             };
 
             function escapeHtml(value) {
+                if (window.JjcCommon && typeof window.JjcCommon.escapeHtml === "function") {
+                    return window.JjcCommon.escapeHtml(value);
+                }
                 return String(value == null ? "" : value)
                     .replace(/&/g, "&amp;")
                     .replace(/</g, "&lt;")

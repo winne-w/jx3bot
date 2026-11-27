@@ -10,6 +10,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
+from src.domain.role_name import split_display_name, strip_server_suffix
+from src.domain.season import parse_season_start_timestamp
 from src.services.jx3.match_replay import MatchReplayClient
 from src.services.jx3.match_detail_persistence import MatchDetailPersistenceService
 from src.services.jx3.role_indicator import RoleIndicatorClient
@@ -70,6 +72,10 @@ class JjcSyncStaleMatchDetailLeaseError(JjcSyncStaleLeaseError):
 class JjcSyncMatchDetailClaimError(RuntimeError):
     """对局详情领取失败，应中断当前角色并等待后续重试。"""
 
+    def __init__(self, *args: Any, retry_after: Optional[float] = None) -> None:
+        super().__init__(*args)
+        self.retry_after = retry_after
+
 
 def _coerce_int(value: Any) -> Optional[int]:
     if value is None or isinstance(value, bool):
@@ -110,8 +116,22 @@ def _stringify_error_payload(payload: Any) -> str:
     return str(payload or "")
 
 
+def _is_tuilan_auth_exception(payload: Any) -> bool:
+    if not isinstance(payload, BaseException):
+        return False
+    try:
+        from src.infra.tuilan_errors import TuilanAuthError
+    except ImportError:
+        TuilanAuthError = None  # type: ignore[assignment]
+    if TuilanAuthError is not None and isinstance(payload, TuilanAuthError):
+        return True
+    return any(cls.__name__ == "TuilanAuthError" for cls in type(payload).__mro__)
+
+
 def is_tuilan_auth_error(payload: Any) -> bool:
-    """判断推栏响应是否属于需要全局暂停的鉴权类错误。"""
+    """判断推栏响应或异常是否属于需要全局暂停的鉴权类错误。"""
+    if _is_tuilan_auth_exception(payload):
+        return True
     if isinstance(payload, dict):
         code = _coerce_int(payload.get("code"))
         status_code = _coerce_int(payload.get("status_code"))
@@ -280,17 +300,7 @@ def normalize_match_detail_role_name(role_name: Any, server: Any) -> str:
     若分割后右侧 trim 后等于 server trim 后且左侧非空，返回 trim 后的左侧；
     否则保持原 trim 后的角色名。
     """
-    name = str(role_name or "").strip()
-    server_name = str(server or "").strip()
-    if not name or "·" not in name:
-        return name
-
-    left, right = name.rsplit("·", 1)
-    left = left.strip()
-    right = right.strip()
-    if left and server_name and right == server_name:
-        return left
-    return name
+    return strip_server_suffix(role_name, server)
 
 
 def normalize_role_name(role_name: Any, server: Any) -> str:
@@ -304,16 +314,8 @@ def split_replay_role_name(role_name: Any, server: Any = "") -> Tuple[str, str]:
     replay 实测通常把服务器拼在 role_name 里，格式为 `角色名·服务器`，且没有独立
     server 字段。若调用方传入 server，则优先使用传入值。
     """
-    raw_name = str(role_name or "").strip()
-    raw_server = str(server or "").strip()
-    if raw_server:
-        return raw_server, normalize_role_name(raw_name, raw_server)
-    if "·" not in raw_name:
-        return "", raw_name
-    name_part, server_part = raw_name.rsplit("·", 1)
-    parsed_server = server_part.strip()
-    parsed_name = normalize_role_name(name_part.strip(), parsed_server)
-    return parsed_server, parsed_name
+    parsed_server, parsed_name = split_display_name(role_name, server)
+    return parsed_server, strip_server_suffix(parsed_name, parsed_server)
 
 
 def build_player_match_key(role_name: Any, server: Any) -> Optional[Tuple[str, str]]:
@@ -445,16 +447,6 @@ def extract_history_items(payload: dict) -> List[dict]:
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
     return []
-
-
-def parse_season_start_timestamp(season_start_str: str) -> int:
-    """将 "2026-04-24" 格式的日期字符串转为 Unix 时间戳（秒）。
-
-    使用北京时间（UTC+8）。
-    """
-    beijing_tz = timezone(timedelta(hours=8))
-    dt = datetime.strptime(season_start_str, "%Y-%m-%d").replace(tzinfo=beijing_tz)
-    return int(dt.timestamp())
 
 
 class JjcMatchDataSyncService:
@@ -1293,7 +1285,7 @@ class JjcMatchDataSyncService:
                 server=server,
             )
         except Exception as exc:
-            if is_tuilan_auth_error(str(exc)):
+            if is_tuilan_auth_error(exc):
                 raise JjcSyncGlobalPauseError(
                     build_tuilan_auth_pause_reason(str(exc), context="role-indicator")
                 )
@@ -1372,45 +1364,8 @@ class JjcMatchDataSyncService:
             name=name or None,
         )
         if isinstance(refreshed, dict):
-            await self._sync_identity_snapshot_if_available(refreshed)
             return refreshed
         return None
-
-    async def _sync_identity_snapshot_if_available(self, identity: Dict[str, Any]) -> None:
-        identity_id = self._extract_identity_id(identity)
-        if identity_id is None:
-            return
-        sync_snapshot = getattr(self._repo, "sync_identity_snapshot", None)
-        if callable(sync_snapshot):
-            try:
-                await sync_snapshot(identity=identity)
-            except TypeError:
-                await sync_snapshot(identity_id=identity_id, identity=identity)
-            except Exception as exc:
-                logger.warning("JJC 同步 identity 队列快照失败: identity_id={} error={}".format(identity_id, exc))
-            return
-        upsert_candidate = getattr(self._repo, "upsert_identity_queue_candidate", None)
-        if not callable(upsert_candidate):
-            return
-        try:
-            await upsert_candidate(
-                identity_id=identity_id,
-                identity_key=identity.get("identity_key"),
-                server=identity.get("server"),
-                name=identity.get("name"),
-                normalized_server=identity.get("normalized_server") or identity.get("server"),
-                normalized_name=identity.get("normalized_name") or identity.get("name"),
-                global_id=identity.get("global_id"),
-                global_role_id=identity.get("global_role_id"),
-                role_id=identity.get("role_id") or identity.get("game_role_id"),
-                game_role_id=identity.get("game_role_id") or identity.get("role_id"),
-                person_id=identity.get("person_id"),
-                zone=identity.get("zone"),
-                source="identity_refresh",
-                priority=0,
-            )
-        except Exception as exc:
-            logger.warning("JJC 更新 identity 队列候选快照失败: identity_id={} error={}".format(identity_id, exc))
 
     async def _release_role_interrupted(
         self,
@@ -1419,14 +1374,37 @@ class JjcMatchDataSyncService:
         requeue: bool = True,
         lease_owner: Optional[str] = None,
         identity_id: Optional[Any] = None,
+        next_sync_after: Optional[float] = None,
     ) -> bool:
         if identity_id is not None and hasattr(self._repo, "release_identity_interrupted"):
+            if next_sync_after is not None:
+                try:
+                    return await self._repo.release_identity_interrupted(
+                        identity_id=identity_id,
+                        reason=reason,
+                        requeue=requeue,
+                        lease_owner=lease_owner,
+                        next_sync_after=next_sync_after,
+                    )
+                except TypeError:
+                    pass
             return await self._repo.release_identity_interrupted(
                 identity_id=identity_id,
                 reason=reason,
                 requeue=requeue,
                 lease_owner=lease_owner,
             )
+        if next_sync_after is not None:
+            try:
+                return await self._repo.release_role_interrupted(
+                    identity_key=identity_key,
+                    reason=reason,
+                    requeue=requeue,
+                    lease_owner=lease_owner,
+                    next_sync_after=next_sync_after,
+                )
+            except TypeError:
+                pass
         return await self._repo.release_role_interrupted(
             identity_key=identity_key,
             reason=reason,
@@ -1911,11 +1889,14 @@ class JjcMatchDataSyncService:
                 reason=str(exc),
                 requeue=True,
                 lease_owner=lease_owner,
+                next_sync_after=exc.retry_after,
             )
             result["error"] = True
             result["interrupted"] = True
             result["error_type"] = "match_detail_claim_failed"
             result["message"] = str(exc)
+            if exc.retry_after is not None:
+                result["retry_after"] = exc.retry_after
             if not released:
                 result["stale_lease"] = True
             return result
@@ -1978,7 +1959,7 @@ class JjcMatchDataSyncService:
                 identity_hints=hints,
             )
         except Exception as exc:
-            if is_tuilan_auth_error(str(exc)):
+            if is_tuilan_auth_error(exc):
                 raise JjcSyncGlobalPauseError(
                     build_tuilan_auth_pause_reason(str(exc), context="角色身份补全")
                 )
@@ -2205,13 +2186,33 @@ class JjcMatchDataSyncService:
             action = str(detail_state.get("action") or "")
             if action == "skip":
                 return "skipped"
+            now = time.time()
+            retry_after: Optional[float] = None
+            if action != "claimable":
+                raw_retry_after = detail_state.get("detail_retry_after")
+                raw_lease_expires_at = detail_state.get("lease_expires_at")
+                if (
+                    status == "failed"
+                    and isinstance(raw_retry_after, (int, float))
+                    and not isinstance(raw_retry_after, bool)
+                    and raw_retry_after > now
+                ):
+                    retry_after = float(raw_retry_after)
+                elif (
+                    status in ("detail_syncing", "syncing")
+                    and isinstance(raw_lease_expires_at, (int, float))
+                    and not isinstance(raw_lease_expires_at, bool)
+                    and raw_lease_expires_at > now
+                ):
+                    retry_after = min(float(raw_lease_expires_at), now + 30.0)
             raise JjcSyncMatchDetailClaimError(
                 "match_detail_not_claimable: match_id={} owner={} status={} action={}".format(
                     match_id,
                     lease_owner,
                     status,
                     action or "unknown",
-                )
+                ),
+                retry_after=retry_after,
             )
 
         last_error = ""
@@ -2321,7 +2322,7 @@ class JjcMatchDataSyncService:
             except JjcSyncStaleLeaseError:
                 raise
             except Exception as exc:
-                if is_tuilan_auth_error(str(exc)):
+                if is_tuilan_auth_error(exc):
                     raise JjcSyncGlobalPauseError(
                         build_tuilan_auth_pause_reason(str(exc), context="对局详情")
                     )
@@ -2383,64 +2384,6 @@ class JjcMatchDataSyncService:
             "match_detail_persistence_service is required when inspect_service.cache_repo is unavailable"
         )
 
-    async def _project_match_detail_if_configured(
-        self,
-        match_id: int,
-        payload: Dict[str, Any],
-    ) -> None:
-        if self._match_detail_projection_service is None:
-            return
-        projector = getattr(self._match_detail_projection_service, "project_payload", None)
-        if not callable(projector):
-            return
-        try:
-            result = projector(
-                match_id=match_id,
-                payload=payload,
-                source="match_detail_sync",
-                priority=-10,
-            )
-            if inspect.isawaitable(result):
-                await result
-        except Exception as exc:
-            logger.warning("JJC 对局详情身份投影失败: match_id={} error={}".format(match_id, exc))
-
-    async def _project_match_detail_participants_if_configured(
-        self,
-        match_id: int,
-        payload: Dict[str, Any],
-    ) -> None:
-        service = self._match_detail_participant_projection_service
-        if service is None:
-            return
-        projector = getattr(service, "project_payload", None)
-        if not callable(projector):
-            return
-        try:
-            result = projector(
-                match_id=match_id,
-                payload=payload,
-                source="sync_worker",
-            )
-            if inspect.isawaitable(result):
-                await result
-        except Exception as exc:
-            logger.warning("JJC 对局详情参与者投影失败: match_id={} error={}".format(match_id, exc))
-
-    async def _clear_match_detail_participants_if_configured(self, match_id: int) -> None:
-        service = self._match_detail_participant_projection_service
-        if service is None:
-            return
-        clearer = getattr(service, "clear_match", None)
-        if not callable(clearer):
-            return
-        try:
-            result = clearer(match_id)
-            if inspect.isawaitable(result):
-                await result
-        except Exception as exc:
-            logger.warning("JJC 对局详情参与者投影清理失败: match_id={} error={}".format(match_id, exc))
-
     async def _refresh_match_detail_participant_sync_status_if_configured(self, match_id: int) -> None:
         service = self._match_detail_participant_projection_service
         if service is None:
@@ -2480,7 +2423,7 @@ class JjcMatchDataSyncService:
                 if lease_renewer is not None:
                     await lease_renewer(False)
             except Exception as exc:
-                if is_tuilan_auth_error(str(exc)):
+                if is_tuilan_auth_error(exc):
                     raise JjcSyncGlobalPauseError(
                         build_tuilan_auth_pause_reason(str(exc), context="match-replay")
                     )
@@ -2645,7 +2588,7 @@ class JjcMatchDataSyncService:
                     if lease_renewer is not None:
                         await lease_renewer(False)
                 except Exception as exc:
-                    if is_tuilan_auth_error(str(exc)):
+                    if is_tuilan_auth_error(exc):
                         raise JjcSyncGlobalPauseError(
                             build_tuilan_auth_pause_reason(str(exc), context="role-indicator")
                         )

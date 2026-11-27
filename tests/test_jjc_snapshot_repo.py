@@ -112,12 +112,64 @@ class TestSaveTalentSnapshot(unittest.IsolatedAsyncioTestCase):
         call_args, _ = col.update_one.call_args
         update_doc = call_args[1]
         assert "$setOnInsert" in update_doc
-        assert "talents" in update_doc["$setOnInsert"]
-        assert update_doc["$setOnInsert"]["schema_version"] == TALENT_SNAPSHOT_SCHEMA_VERSION
-        assert "talents" not in update_doc.get("$set", {})
-        assert "schema_version" not in update_doc.get("$set", {})
+        assert set(update_doc["$setOnInsert"].keys()) == {"created_at"}
+        assert "talents" in update_doc["$set"]
+        assert update_doc["$set"]["talents"] == [{"level": 2}, {"level": 1}]
+        assert update_doc["$set"]["schema_version"] == TALENT_SNAPSHOT_SCHEMA_VERSION
         assert "last_seen_at" in update_doc["$set"]
         assert update_doc["$set"]["last_seen_at"] == 1234567890.0
+
+    async def test_set_on_insert_and_set_have_disjoint_keys_and_upgrade_v1(self):
+        import datetime as dt
+
+        stored: Dict[str, Dict[str, Any]] = {
+            "hash_v1": {
+                "snapshot_hash": "hash_v1",
+                "talents": [{"level": 1, "name": "旧顺序"}],
+                "schema_version": 1,
+                "created_at": dt.datetime(2026, 5, 1, tzinfo=dt.timezone.utc),
+                "last_seen_at": 100.0,
+            }
+        }
+
+        col = MagicMock()
+
+        async def _apply_update_one(filter_doc, update_doc, upsert=False):
+            set_on_insert_keys = set(update_doc.get("$setOnInsert", {}).keys())
+            set_keys = set(update_doc.get("$set", {}).keys())
+            if set_on_insert_keys & set_keys:
+                raise ValueError(f"Updating the path would create a conflict: {set_on_insert_keys & set_keys}")
+
+            key = filter_doc["snapshot_hash"]
+            if key not in stored:
+                if not upsert:
+                    return MagicMock()
+                doc = dict(filter_doc)
+                doc.update(update_doc.get("$setOnInsert", {}))
+                doc.update(update_doc.get("$set", {}))
+                stored[key] = doc
+            else:
+                stored[key].update(update_doc.get("$set", {}))
+            return MagicMock()
+
+        col.update_one = MagicMock(side_effect=_apply_update_one)
+        db = MagicMock()
+        db.jjc_talent_snapshot = col
+
+        repo = JjcMatchSnapshotRepo(db=db)
+        new_talents = [{"level": 2, "name": "奇穴B"}, {"level": 1, "name": "奇穴A"}]
+        await repo.save_talent_snapshot("hash_v1", new_talents, seen_at=200.0)
+        await repo.save_talent_snapshot("hash_new", new_talents, seen_at=300.0)
+
+        assert stored["hash_v1"]["schema_version"] == TALENT_SNAPSHOT_SCHEMA_VERSION
+        assert stored["hash_v1"]["talents"] == new_talents
+        assert stored["hash_v1"]["last_seen_at"] == 200.0
+        assert stored["hash_v1"]["created_at"] == dt.datetime(2026, 5, 1, tzinfo=dt.timezone.utc)
+
+        assert stored["hash_new"]["schema_version"] == TALENT_SNAPSHOT_SCHEMA_VERSION
+        assert stored["hash_new"]["talents"] == new_talents
+        assert stored["hash_new"]["last_seen_at"] == 300.0
+        assert stored["hash_new"]["created_at"] is not None
 
 
 class TestLoadEquipmentSnapshots(unittest.IsolatedAsyncioTestCase):

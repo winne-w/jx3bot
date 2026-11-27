@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional, Tuple, Union
 
+from src.domain.role_identity import classify_replay_player_match
+from src.domain.role_name import split_display_name
 from src.services.jx3.jjc_kungfu_classifier import select_kungfu
 
 try:
@@ -132,14 +134,12 @@ def _pick_text(*values: Any) -> Optional[str]:
     return None
 
 
-def _split_replay_role_name(role_name: Any) -> tuple[Optional[str], Optional[str]]:
+def _split_replay_role_name(role_name: Any, server: Any = "") -> Tuple[Optional[str], Optional[str]]:
     text = _pick_text(role_name)
     if not text:
-        return None, None
-    if "·" not in text:
-        return None, text
-    name, replay_server = text.split("·", 1)
-    return replay_server.strip() or None, name.strip() or None
+        return _pick_text(server), None
+    replay_server, name = split_display_name(text, server)
+    return replay_server or None, name or None
 
 
 def _extract_replay_players(replay_resp: dict[str, Any]) -> list[dict[str, Any]]:
@@ -157,21 +157,15 @@ def _replay_player_matches_role(
     role_name: Optional[str],
     server: Optional[str],
 ) -> bool:
-    replay_role_id = _pick_text(player.get("role_id"), player.get("roleId"))
-    replay_server, replay_name = _split_replay_role_name(player.get("role_name") or player.get("roleName"))
-    player_name = _pick_text(replay_name, player.get("person_name"), player.get("name"))
-    if role_id and replay_role_id == str(role_id):
-        if role_name and player_name and player_name != role_name:
-            return False
-        if server and replay_server and replay_server != server:
-            return False
-        return True
-
-    if not role_name or not player_name or player_name != role_name:
-        return False
-    if server and replay_server and replay_server != server:
-        return False
-    return True
+    return (
+        classify_replay_player_match(
+            player,
+            role_id=role_id,
+            role_name=role_name,
+            server=server,
+        )
+        is not None
+    )
 
 
 def extract_global_id_from_match_replay(
@@ -215,10 +209,14 @@ def merge_replay_global_ids_into_match_detail(
             if not isinstance(player, dict):
                 continue
             detail_role_id = _pick_text(player.get("role_id"), player.get("roleId"))
-            detail_name = _pick_text(player.get("role_name"), player.get("person_name"))
-            if detail_name and "·" in detail_name:
-                detail_name = detail_name.split("·")[0]
             detail_server = _pick_text(player.get("server"))
+            raw_detail_name = _pick_text(player.get("role_name"), player.get("person_name"))
+            if raw_detail_name:
+                parsed_server, parsed_name = split_display_name(raw_detail_name, detail_server or "")
+                detail_server = detail_server or parsed_server or None
+                detail_name = parsed_name or None
+            else:
+                detail_name = None
             for replay_player in replay_players:
                 global_id = _pick_text(
                     replay_player.get("global_id"),

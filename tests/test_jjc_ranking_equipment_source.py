@@ -146,14 +146,14 @@ class EquipmentSourceWriterTests(unittest.IsolatedAsyncioTestCase):
         row=corpus.canonical(900,STAMP);payload={"cached_at":1234567890,"data":row["data"]}
         original=deepcopy(payload);repo,collection=self.repo()
         await repo.save_match_detail("900",payload)
-        self.assertEqual(2,collection.update_one.await_count)
-        for call in collection.update_one.await_args_list:
-            fields=call.args[1]["$set"]
-            self.assertTrue(FIELDS.issubset(fields))
-            self.assertEqual(expected(row),{key:fields[key] for key in FIELDS})
-        compact=collection.update_one.await_args_list[1]
-        self.assertEqual({"match_id":900,"cached_at":original["cached_at"],"data":original["data"]},compact.args[0])
-        self.assertFalse(compact.kwargs["upsert"])
+        self.assertEqual(1,collection.update_one.await_count)
+        compact=collection.update_one.await_args_list[0]
+        fields=compact.args[1]["$set"]
+        self.assertTrue(FIELDS.issubset(fields))
+        self.assertEqual(expected(row),{key:fields[key] for key in FIELDS})
+        self.assertEqual({"match_id":900},compact.args[0])
+        self.assertTrue(compact.kwargs["upsert"])
+        self.assertTrue(fields.get("compacted"))
         self.assertEqual(original,payload)
 
     async def test_snapshot_failure_still_has_complete_raw_index(self):

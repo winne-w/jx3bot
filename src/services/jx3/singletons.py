@@ -6,12 +6,14 @@ import time
 import config as cfg
 from jinja2 import Environment, FileSystemLoader
 
+from src.domain.kungfu_catalog import KUNGFU_BY_PINYIN, dps_names, healer_names, tank_names
 from src.infra.tuilan_foreground_client import TuilanForegroundClient
 from src.storage.mongo_repos.group_config_repo import GroupConfigRepo
 from src.services.jx3.jjc_ranking_inspect import JjcRankingInspectService
 from src.services.jx3.jjc_ranking import JjcRankingService
 from src.services.jx3.jjc_matchup import JjcMatchupService
-from src.services.jx3.jjc_match_data_sync import JjcMatchDataSyncService, parse_season_start_timestamp
+from src.domain.season import parse_season_start_timestamp
+from src.services.jx3.jjc_match_data_sync import JjcMatchDataSyncService
 from src.storage.mongo_repos.jjc_sync_repo import JjcSyncRepo
 from src.services.jx3.jjc_cache_repo import JjcCacheRepo
 from src.services.jx3.kungfu import get_role_indicator
@@ -33,11 +35,27 @@ from src.utils.tuilan_request import tuilan_request
 env = Environment(loader=FileSystemLoader("templates"))
 group_config_repo = GroupConfigRepo()
 
-KUNGFU_PINYIN_TO_CHINESE = {key: value["name"] for key, value in cfg.KUNGFU_META.items()}
-KUNGFU_HEALER_LIST = [
-    value["name"] for value in cfg.KUNGFU_META.values() if value.get("category") == "healer"
-]
-KUNGFU_DPS_LIST = [value["name"] for value in cfg.KUNGFU_META.values() if value.get("category") == "dps"]
+KUNGFU_PINYIN_TO_CHINESE = (
+    {key: value["name"] for key, value in cfg.KUNGFU_META.items()}
+    if getattr(cfg, "KUNGFU_META", None)
+    else {pinyin: spec.name for pinyin, spec in KUNGFU_BY_PINYIN.items()}
+)
+KUNGFU_NAME_MAP = KUNGFU_PINYIN_TO_CHINESE
+KUNGFU_HEALER_LIST = (
+    [value["name"] for value in cfg.KUNGFU_META.values() if value.get("category") == "healer"]
+    if getattr(cfg, "KUNGFU_META", None)
+    else healer_names()
+)
+KUNGFU_DPS_LIST = (
+    [value["name"] for value in cfg.KUNGFU_META.values() if value.get("category") == "dps"]
+    if getattr(cfg, "KUNGFU_META", None)
+    else dps_names()
+)
+KUNGFU_TANK_LIST = (
+    [value["name"] for value in cfg.KUNGFU_META.values() if value.get("category") == "tank"]
+    if getattr(cfg, "KUNGFU_META", None)
+    else tank_names()
+)
 
 JJC_RANKING_CACHE_DURATION = 7200  # 缓存时间2小时（秒）
 KUNGFU_CACHE_DURATION = 7 * 24 * 60 * 60  # 心法缓存有效期一周（秒）
@@ -162,6 +180,7 @@ jjc_ranking_service = JjcRankingService(
     kungfu_refresh_repo=jjc_kungfu_refresh_repo,
     kungfu_query_service=jjc_kungfu_refresh_service,
     kungfu_policy=policy_from_config,
+    kungfu_tank_list=KUNGFU_TANK_LIST,
 )
 
 match_detail_client = MatchDetailClient(

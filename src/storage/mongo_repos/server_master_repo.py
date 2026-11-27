@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from nonebot import logger
@@ -13,7 +14,7 @@ class ServerMasterCacheRepo:
     db: AsyncIOMotorDatabase
     ttl_seconds: int = field(default=7 * 24 * 60 * 60)  # 7 天
 
-    async def get(self, key: str) -> Optional[dict[str, Any]]:
+    async def get(self, key: str) -> Optional[Dict[str, Any]]:
         doc = await self.db.server_master_cache.find_one({"key": key})
         if doc is None:
             return None
@@ -33,7 +34,8 @@ class ServerMasterCacheRepo:
             "id": doc.get("server_id", ""),
         }
 
-    async def put(self, key: str, entry: dict[str, Any]) -> None:
+    async def put(self, key: str, entry: Dict[str, Any]) -> None:
+        now_dt = datetime.now(timezone.utc)
         await self.db.server_master_cache.update_one(
             {"key": key},
             {
@@ -42,6 +44,7 @@ class ServerMasterCacheRepo:
                     "zone": entry.get("zone", ""),
                     "server_id": entry.get("id", ""),
                     "cached_at": int(time.time()),
+                    "expires_at_dt": now_dt + timedelta(seconds=self.ttl_seconds),
                 }
             },
             upsert=True,

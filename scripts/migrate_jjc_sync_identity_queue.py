@@ -373,42 +373,21 @@ def _utc_datetime(ts: float) -> Any:
 
 
 def get_mongo_uri() -> str:
-    runtime_cfg_path = ROOT / "runtime_config.json"
-    if runtime_cfg_path.is_file():
-        try:
-            with open(str(runtime_cfg_path), "r", encoding="utf-8") as fh:
-                uri = json.load(fh).get("MONGO_URI")
-            if uri:
-                return str(uri)
-        except Exception:
-            pass
-
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    try:
-        from config import MONGO_URI  # type: ignore
+    from scripts._common.mongo import resolve_mongo_uri
 
-        if MONGO_URI:
-            return str(MONGO_URI)
-    except Exception:
-        pass
-
-    uri = os.getenv("MONGO_URI")
-    if uri:
-        return uri
-    raise RuntimeError("无法获取 MONGO_URI：runtime_config.json、config.MONGO_URI、环境变量均未配置")
+    return resolve_mongo_uri()
 
 
 def get_db(mongo_uri: Optional[str], db_name: Optional[str]) -> Any:
-    from pymongo import MongoClient
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from scripts._common.mongo import open_sync_client, resolve_database
 
-    client = MongoClient(mongo_uri or get_mongo_uri())
-    if db_name:
-        return client[db_name]
-    default_db = client.get_default_database(default=None)
-    if default_db is not None:
-        return default_db
-    return client["jx3bot"]
+    resolved_uri = mongo_uri or get_mongo_uri()
+    client = open_sync_client(resolved_uri)
+    return resolve_database(client, resolved_uri, db_name=db_name)
 
 
 def find_identity_doc(db: Any, queue_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:

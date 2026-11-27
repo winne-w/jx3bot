@@ -1,13 +1,43 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from nonebot import logger
 
 _client: Optional[AsyncIOMotorClient] = None
 _db: Optional[AsyncIOMotorDatabase] = None
+
+EQUIPMENT_READ_V1_INDEXES: Tuple[Tuple[str, List[Tuple[str, int]]], ...] = (
+    (
+        "idx_equipment_winner_latest_v1",
+        [
+            ("equipment_winner_gids_v1", 1),
+            ("equipment_read_time_v1", -1),
+            ("equipment_match_id_v1", -1),
+            ("_id", 1),
+        ],
+    ),
+    (
+        "idx_equipment_team1_state_time_source_v1",
+        [
+            ("data.detail.team1.players_info.global_id", 1),
+            ("equipment_read_valid_v1", 1),
+            ("equipment_read_time_v1", 1),
+            ("_id", 1),
+        ],
+    ),
+    (
+        "idx_equipment_team2_state_time_source_v1",
+        [
+            ("data.detail.team2.players_info.global_id", 1),
+            ("equipment_read_valid_v1", 1),
+            ("equipment_read_time_v1", 1),
+            ("_id", 1),
+        ],
+    ),
+)
 
 
 async def init_mongo(uri: str) -> AsyncIOMotorDatabase:
@@ -69,31 +99,38 @@ async def health_check() -> dict:
     return result
 
 
-async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
-    """幂等创建所有集合的索引。已存在的索引会被跳过，数据冲突仅警告不阻塞。"""
+async def _safe_create_index(
+    db: AsyncIOMotorDatabase,
+    collection_name: str,
+    keys: Any,
+    *,
+    name: str,
+    **kwargs: Any,
+) -> None:
     from pymongo.errors import DuplicateKeyError, OperationFailure
 
-    async def _safe_index(collection_name: str, keys, *, name: str, **kwargs):
-        col = db[collection_name]
-        try:
-            indexes = await col.index_information()
-            existing = indexes.get(name)
-            if existing is not None:
-                desired_keys = keys if isinstance(keys, list) else [(keys, 1)]
-                desired_unique = bool(kwargs.get("unique", False))
-                desired_expire = kwargs.get("expireAfterSeconds")
-                desired_partial = kwargs.get("partialFilterExpression")
-                existing_unique = bool(existing.get("unique", False))
-                existing_expire = existing.get("expireAfterSeconds")
-                existing_partial = existing.get("partialFilterExpression")
-                if (
-                    existing.get("key") != desired_keys
-                    or existing_unique != desired_unique
-                    or existing_expire != desired_expire
-                    or existing_partial != desired_partial
-                ):
-                    logger.warning(
-                        "索引定义变更，准备重建: collection={} index={} old_keys={} new_keys={} old_unique={} new_unique={} old_expire={} new_expire={} old_partial={} new_partial={}",
+    col = db[collection_name]
+    try:
+        indexes = await col.index_information()
+        existing = indexes.get(name)
+        if existing is not None:
+            desired_keys = keys if isinstance(keys, list) else [(keys, 1)]
+            desired_unique = bool(kwargs.get("unique", False))
+            desired_expire = kwargs.get("expireAfterSeconds")
+            desired_partial = kwargs.get("partialFilterExpression")
+            existing_keys = list(existing.get("key") or [])
+            existing_unique = bool(existing.get("unique", False))
+            existing_expire = existing.get("expireAfterSeconds")
+            existing_partial = existing.get("partialFilterExpression")
+            if (
+                existing_keys != desired_keys
+                or existing_unique != desired_unique
+                or existing_expire != desired_expire
+                or existing_partial != desired_partial
+            ):
+                if existing_unique or desired_unique:
+                    logger.error(
+                        "唯一索引定义不一致，禁止自动删除重建: collection={} index={} old_keys={} new_keys={} old_unique={} new_unique={} old_expire={} new_expire={} old_partial={} new_partial={}",
                         collection_name,
                         name,
                         existing.get("key"),
@@ -105,14 +142,79 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
                         existing_partial,
                         desired_partial,
                     )
-                    await col.drop_index(name)
-            await col.create_index(keys, name=name, **kwargs)
-        except DuplicateKeyError:
-            logger.warning(f"索引创建跳过(数据冲突): collection={collection_name} index={name}")
-        except OperationFailure as exc:
-            if "already exists" in str(exc).lower() or exc.code == 85:
-                return  # 索引已存在，正常
-            logger.warning(f"索引创建失败: collection={collection_name} index={name} error={exc}")
+                    return
+                logger.warning(
+                    "索引定义变更，准备重建: collection={} index={} old_keys={} new_keys={} old_unique={} new_unique={} old_expire={} new_expire={} old_partial={} new_partial={}",
+                    collection_name,
+                    name,
+                    existing.get("key"),
+                    desired_keys,
+                    existing_unique,
+                    desired_unique,
+                    existing_expire,
+                    desired_expire,
+                    existing_partial,
+                    desired_partial,
+                )
+                await col.drop_index(name)
+        await col.create_index(keys, name=name, **kwargs)
+    except DuplicateKeyError:
+        logger.warning(f"索引创建跳过(数据冲突): collection={collection_name} index={name}")
+    except OperationFailure as exc:
+        if "already exists" in str(exc).lower() or exc.code == 85:
+            return  # 索引已存在，正常
+        logger.warning(f"索引创建失败: collection={collection_name} index={name} error={exc}")
+
+
+async def ensure_equipment_read_indexes(db: AsyncIOMotorDatabase) -> None:
+    """幂等创建 jjc_match_detail 本地最新胜场装备读索引（v1）。"""
+    for index_name, keys in EQUIPMENT_READ_V1_INDEXES:
+        await _safe_create_index(db, "jjc_match_detail", keys, name=index_name)
+
+
+async def verify_equipment_read_indexes(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
+    """只读校验 jjc_match_detail 本地最新胜场装备读索引是否就绪。"""
+    indexes = await db["jjc_match_detail"].index_information()
+    missing: List[str] = []
+    mismatched: List[Dict[str, Any]] = []
+    for index_name, desired_keys in EQUIPMENT_READ_V1_INDEXES:
+        existing = indexes.get(index_name)
+        if existing is None:
+            missing.append(index_name)
+            continue
+        existing_keys = list(existing.get("key") or [])
+        existing_unique = bool(existing.get("unique", False))
+        existing_expire = existing.get("expireAfterSeconds")
+        existing_partial = existing.get("partialFilterExpression")
+        if (
+            existing_keys != desired_keys
+            or existing_unique
+            or existing_expire is not None
+            or existing_partial is not None
+        ):
+            mismatched.append(
+                {
+                    "name": index_name,
+                    "expected_key": list(desired_keys),
+                    "actual_key": existing_keys,
+                    "unique": existing_unique,
+                    "expireAfterSeconds": existing_expire,
+                    "partialFilterExpression": existing_partial,
+                }
+            )
+    return {
+        "ready": not missing and not mismatched,
+        "missing": missing,
+        "mismatched": mismatched,
+    }
+
+
+async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
+    """幂等创建所有集合的索引。已存在的索引会被跳过，数据冲突仅警告不阻塞。"""
+    import config as cfg
+
+    async def _safe_index(collection_name: str, keys, *, name: str, **kwargs):
+        await _safe_create_index(db, collection_name, keys, name=name, **kwargs)
 
     # This optional queue has strict index contracts. Its runtime validates them
     # again before consuming, so a failure must not disable existing features.
@@ -124,7 +226,10 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
 
     # server_master_cache
     await _safe_index("server_master_cache", "key", name="idx_key", unique=True)
-    await _safe_index("server_master_cache", "cached_at", name="idx_cached_at", expireAfterSeconds=604800)
+    await _safe_index("server_master_cache", "cached_at", name="idx_cached_at")
+    await _safe_index(
+        "server_master_cache", "expires_at_dt", name="idx_expires_at_dt", expireAfterSeconds=0
+    )
 
     # status_cache
     await _safe_index("status_cache", "cache_name", name="idx_cache_name", unique=True)
@@ -133,7 +238,10 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await _safe_index(
         "jjc_role_recent", [("server", 1), ("name", 1)], name="idx_server_name", unique=True
     )
-    await _safe_index("jjc_role_recent", "cached_at", name="idx_cached_at", expireAfterSeconds=86400)
+    await _safe_index("jjc_role_recent", "cached_at", name="idx_cached_at")
+    await _safe_index(
+        "jjc_role_recent", "expires_at_dt", name="idx_expires_at_dt", expireAfterSeconds=0
+    )
 
     # jjc_match_detail
     await _safe_index("jjc_match_detail", "match_id", name="idx_match_id", unique=True)
@@ -166,6 +274,8 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     await _safe_index(
         "jjc_match_detail", "data.replay.data.players.global_role_id", name="idx_replay_player_global_role_id"
     )
+    if int(getattr(cfg, "JJC_RANKING_LOCAL_WIN_EQUIPMENT_ENABLED", 0) or 0) == 1:
+        await ensure_equipment_read_indexes(db)
 
     # jjc_match_facts
     await _safe_index("jjc_match_facts", "match_id", name="idx_match_id", unique=True)
@@ -216,7 +326,6 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         [("match_type", 1), ("detail_available", 1), ("match_time", 1), ("game_score", -1)],
         name="idx_available_time_game_score",
     )
-    await _safe_index("jjc_match_participants", "match_id", name="idx_match_id")
 
     # jjc_ranking_cache
     await _safe_index("jjc_ranking_cache", "cache_key", name="idx_cache_key", unique=True)
@@ -232,7 +341,6 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     )
 
     # wanbaolou_subscriptions
-    await _safe_index("wanbaolou_subscriptions", "user_id", name="idx_user_id")
     await _safe_index(
         "wanbaolou_subscriptions",
         [("user_id", 1), ("item_name", 1)],
@@ -282,6 +390,12 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
 
     # role_jjc_cache
     await _safe_index("role_jjc_cache", "identity_key", name="idx_identity_key", unique=True)
+    await _safe_index(
+        "role_jjc_cache",
+        "identity_id",
+        name="idx_identity_id",
+        partialFilterExpression={"identity_id": {"$exists": True}},
+    )
     await _safe_index("role_jjc_cache", "global_id", name="idx_global_id")
     await _safe_index("role_jjc_cache", "global_role_id", name="idx_global_role_id")
     await _safe_index(
@@ -294,32 +408,8 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     )
     await _safe_index("role_jjc_cache", "checked_at", name="idx_checked_at", expireAfterSeconds=604800)
 
-    # jjc_sync_role_queue
-    await _safe_index(
-        "jjc_sync_role_queue",
-        [("status", 1), ("queue_front_order", -1), ("queue_front_rank", 1),
-         ("priority", -1), ("queued_at", 1), ("identity_key", 1), ("_id", 1)],
-        name="idx_status_ranking_front",
-    )
+    # jjc_sync_role_queue（旧队列仅在启动时保留迁移幂等唯一索引，其余历史索引不重复声明、不主动删除）
     await _safe_index("jjc_sync_role_queue", "identity_key", name="idx_identity_key", unique=True)
-    await _safe_index(
-        "jjc_sync_role_queue",
-        [("status", 1), ("priority", 1), ("next_sync_after", 1)],
-        name="idx_status_priority_next_sync_after",
-    )
-    await _safe_index(
-        "jjc_sync_role_queue",
-        [("status", 1), ("priority", -1), ("queued_at", 1)],
-        name="idx_status_priority_queued_at",
-    )
-    await _safe_index(
-        "jjc_sync_role_queue",
-        [("normalized_server", 1), ("normalized_name", 1)],
-        name="idx_normalized_server_name",
-    )
-    await _safe_index("jjc_sync_role_queue", "global_id", name="idx_global_id")
-    await _safe_index("jjc_sync_role_queue", "global_role_id", name="idx_global_role_id")
-    await _safe_index("jjc_sync_role_queue", "lease_expires_at", name="idx_lease_expires_at")
 
     # jjc_sync_identity_queue
     await _safe_index(
@@ -380,6 +470,12 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
 
     # jjc_role_indicator
     await _safe_index("jjc_role_indicator", "cache_key", name="idx_cache_key", unique=True)
+    await _safe_index(
+        "jjc_role_indicator",
+        "identity_id",
+        name="idx_identity_id",
+        partialFilterExpression={"identity_id": {"$exists": True}},
+    )
     await _safe_index("jjc_role_indicator", "cached_at", name="idx_cached_at")
 
     # jjc_ranking_stat_summaries
@@ -414,12 +510,6 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         [("timestamp", 1), ("range", 1), ("lane", 1), ("kungfu", 1)],
         name="idx_timestamp_range_lane_kungfu",
         unique=True,
-    )
-    await _safe_index("jjc_ranking_stat_details", "timestamp", name="idx_timestamp")
-    await _safe_index(
-        "jjc_ranking_stat_details",
-        [("timestamp", 1), ("range", 1), ("lane", 1)],
-        name="idx_timestamp_range_lane",
     )
 
     # jjc_peak_score_rankings

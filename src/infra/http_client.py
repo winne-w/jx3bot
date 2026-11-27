@@ -1,17 +1,57 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
+import email.utils
 import time
-from typing import Any, Mapping
+from typing import Any, Dict, Mapping, Optional
 
 import httpx
-import email.utils
-import datetime
 from nonebot import logger
 from src.utils.jjc_query_observability import (foreground_safe_logger, query_stage,
     query_outbound, query_failure)
 
 logger = foreground_safe_logger(logger, component="http")
+
+_REAL_ASYNC_CLIENT = httpx.AsyncClient
+_SHARED_ASYNC_CLIENTS: Dict[bool, httpx.AsyncClient] = {}
+_SHARED_ASYNC_CLIENT_LOOPS: Dict[bool, asyncio.AbstractEventLoop] = {}
+
+
+def _get_shared_async_client(verify: bool) -> httpx.AsyncClient:
+    verify_key = bool(verify)
+    loop = asyncio.get_running_loop()
+    client = _SHARED_ASYNC_CLIENTS.get(verify_key)
+    client_loop = _SHARED_ASYNC_CLIENT_LOOPS.get(verify_key)
+    if client is not None and not client.is_closed and client_loop is loop:
+        return client
+    client = _REAL_ASYNC_CLIENT(verify=verify_key)
+    _SHARED_ASYNC_CLIENTS[verify_key] = client
+    _SHARED_ASYNC_CLIENT_LOOPS[verify_key] = loop
+    return client
+
+
+async def close_shared_async_clients() -> None:
+    try:
+        current_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    items = list(_SHARED_ASYNC_CLIENTS.items())
+    loops = dict(_SHARED_ASYNC_CLIENT_LOOPS)
+    _SHARED_ASYNC_CLIENTS.clear()
+    _SHARED_ASYNC_CLIENT_LOOPS.clear()
+
+    for verify_key, client in items:
+        if client.is_closed:
+            continue
+        client_loop = loops.get(verify_key)
+        if client_loop is not None and current_loop is not None and client_loop is not current_loop:
+            continue
+        try:
+            await client.aclose()
+        except Exception as exc:
+            logger.warning(f"failed to close shared async http client: verify={verify_key} error={exc}")
 
 
 def _retry_after_seconds(value):
@@ -36,7 +76,7 @@ class HttpClient:
         retries: int = 2,
         backoff_seconds: float = 0.5,
         verify: bool = True,
-        default_headers: Mapping[str, str] | None = None,
+        default_headers: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.timeout = timeout
         self.retries = retries
@@ -49,18 +89,18 @@ class HttpClient:
         method: str,
         url: str,
         *,
-        params: Mapping[str, Any] | None = None,
-        headers: Mapping[str, str] | None = None,
-        json_body: Any | None = None,
-        content: bytes | None = None,
-        timeout: float | None = None,
-        verify: bool | None = None,
-    ) -> dict[str, Any]:
+        params: Optional[Mapping[str, Any]] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        json_body: Optional[Any] = None,
+        content: Optional[bytes] = None,
+        timeout: Optional[float] = None,
+        verify: Optional[bool] = None,
+    ) -> Dict[str, Any]:
         merged_headers = dict(self.default_headers)
         if headers:
             merged_headers.update(headers)
 
-        last_error: str | None = None
+        last_error: Optional[str] = None
         for attempt in range(self.retries + 1):
             try:
                 with httpx.Client(
@@ -112,25 +152,25 @@ class HttpClient:
         method: str,
         url: str,
         *,
-        params: Mapping[str, Any] | None = None,
-        headers: Mapping[str, str] | None = None,
-        json_body: Any | None = None,
-        content: bytes | None = None,
-        timeout: float | None = None,
-        verify: bool | None = None,
-    ) -> dict[str, Any]:
+        params: Optional[Mapping[str, Any]] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        json_body: Optional[Any] = None,
+        content: Optional[bytes] = None,
+        timeout: Optional[float] = None,
+        verify: Optional[bool] = None,
+    ) -> Dict[str, Any]:
         merged_headers = dict(self.default_headers)
         if headers:
             merged_headers.update(headers)
 
-        last_error: str | None = None
+        effective_verify = self.verify if verify is None else verify
+        effective_timeout = timeout or self.timeout
+
+        last_error: Optional[str] = None
         for attempt in range(self.retries + 1):
             try:
-                async with httpx.AsyncClient(
-                    timeout=timeout or self.timeout,
-                    verify=self.verify if verify is None else verify,
-                    headers=merged_headers,
-                ) as client:
+                if httpx.AsyncClient is _REAL_ASYNC_CLIENT:
+                    client = _get_shared_async_client(effective_verify)
                     query_outbound()
                     with query_stage("http"):
                         response = await client.request(
@@ -139,7 +179,24 @@ class HttpClient:
                             params=params,
                             json=json_body,
                             content=content,
+                            headers=merged_headers,
+                            timeout=effective_timeout,
                         )
+                else:
+                    async with httpx.AsyncClient(
+                        timeout=effective_timeout,
+                        verify=effective_verify,
+                        headers=merged_headers,
+                    ) as client:
+                        query_outbound()
+                        with query_stage("http"):
+                            response = await client.request(
+                                method.upper(),
+                                url,
+                                params=params,
+                                json=json_body,
+                                content=content,
+                            )
                 if response.status_code >= 400:
                     query_failure("upstream_rejected")
                     error_result = {

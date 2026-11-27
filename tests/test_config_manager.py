@@ -1,17 +1,35 @@
 import importlib.util
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
+
+
+class _FinishedSignal(Exception):
+    def __init__(self, message: Any = None) -> None:
+        super().__init__(str(message))
+        self.message = message
 
 
 class _FakeCommand:
+    def __init__(self) -> None:
+        self.finished_messages: List[Any] = []
+        self.sent_messages: List[Any] = []
+
     def handle(self) -> Any:
         def decorator(func: Any) -> Any:
             return func
 
         return decorator
+
+    async def finish(self, message: Any = None) -> None:
+        self.finished_messages.append(message)
+        raise _FinishedSignal(message)
+
+    async def send(self, message: Any = None) -> None:
+        self.sent_messages.append(message)
 
 
 class _FakeDriver:
@@ -167,6 +185,72 @@ class TestConfigManagerSchema(unittest.TestCase):
 
         self.assertIn("MONGO_URI = mon***", text)
         self.assertNotIn("mongodb://user:password@localhost:27017/jx3bot", text)
+
+
+class _FakeEvent:
+    def __init__(self, user_id: str = "1") -> None:
+        self._user_id = user_id
+
+    def get_user_id(self) -> str:
+        return self._user_id
+
+
+class _FakeArgs:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def extract_plain_text(self) -> str:
+        return self._text
+
+
+class TestConfigManagerReadErrors(unittest.IsolatedAsyncioTestCase):
+    async def test_corrupted_json_returns_error_in_view_and_modify(self) -> None:
+        module = _load_config_manager()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "runtime_config.json"
+            config_path.write_text("{invalid json", encoding="utf-8")
+            module.CONFIG_FILE = str(config_path)
+
+            read_result = module.read_config_file()
+            self.assertIsInstance(read_result, str)
+            self.assertTrue(read_result.startswith("读取配置文件失败:"))
+
+            with self.assertRaises(_FinishedSignal) as view_ctx:
+                await module.handle_view_config(_FakeEvent("1"))
+            self.assertTrue(str(view_ctx.exception.message).startswith("读取配置文件失败:"))
+
+            with self.assertRaises(_FinishedSignal) as mod_ctx:
+                await module.handle_config(_FakeEvent("1"), args=_FakeArgs("SESSION_data=600"))
+            self.assertTrue(str(mod_ctx.exception.message).startswith("读取配置文件失败:"))
+
+    async def test_non_dict_top_level_json_returns_error_in_view_and_modify(self) -> None:
+        module = _load_config_manager()
+        for raw_json in ("[1, 2, 3]", "123", '"hello"'):
+            with self.subTest(raw_json=raw_json):
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    config_path = Path(tmp_dir) / "runtime_config.json"
+                    config_path.write_text(raw_json, encoding="utf-8")
+                    module.CONFIG_FILE = str(config_path)
+
+                    read_result = module.read_config_file()
+                    self.assertEqual(read_result, "读取配置文件失败: 配置文件顶层必须是 JSON 对象")
+
+                    with self.assertRaises(_FinishedSignal) as view_ctx:
+                        await module.handle_view_config(_FakeEvent("1"))
+                    self.assertEqual(
+                        view_ctx.exception.message,
+                        "读取配置文件失败: 配置文件顶层必须是 JSON 对象",
+                    )
+
+                    with self.assertRaises(_FinishedSignal) as mod_ctx:
+                        await module.handle_config(
+                            _FakeEvent("1"),
+                            args=_FakeArgs("SESSION_data=600"),
+                        )
+                    self.assertEqual(
+                        mod_ctx.exception.message,
+                        "读取配置文件失败: 配置文件顶层必须是 JSON 对象",
+                    )
 
 
 if __name__ == "__main__":

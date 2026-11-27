@@ -72,7 +72,7 @@ class KungfuPolicy:
 def policy_from_config() -> KungfuPolicy:
     """Resolve and validate only when this optional feature is used."""
     import config as cfg
-    from src.services.jx3.jjc_match_data_sync import parse_season_start_timestamp
+    from src.domain.season import parse_season_start_timestamp
     return KungfuPolicy(
         make_scope(cfg.CURRENT_SEASON, parse_season_start_timestamp(cfg.CURRENT_SEASON_START)),
         refresh_seconds=cfg.JJC_KUNGFU_REFRESH_SECONDS,
