@@ -145,6 +145,24 @@
             display: none;
         }
 
+        .status-retry-btn {
+            margin-left: 10px;
+            padding: 4px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(79, 110, 247, 0.35);
+            background: #ffffff;
+            color: var(--accent, #4f6ef7);
+            font-size: 0.84rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+
+        .status-retry-btn:hover {
+            background: rgba(79, 110, 247, 0.08);
+            border-color: rgba(79, 110, 247, 0.6);
+        }
+
         .history-controls {
             display: flex;
             flex-wrap: wrap;
@@ -3587,14 +3605,68 @@
             }
         }
 
-        async function loadDateList() {
-            try {
-                const response = await fetch(seasonsApiUrl, { cache: "no-store" });
+        const SEASONS_RETRY_DELAYS_MS = [400, 1000];
+        let seasonsRequestId = 0;
+
+        function isRetryableSeasonsStatus(status) {
+            return status === 502 || status === 503 || status === 504;
+        }
+
+        function delayMs(ms) {
+            return new Promise(function (resolve) {
+                setTimeout(resolve, ms);
+            });
+        }
+
+        async function fetchSeasonsWithRetry(requestId) {
+            let lastError = null;
+            const totalAttempts = SEASONS_RETRY_DELAYS_MS.length + 1;
+            for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+                if (requestId !== seasonsRequestId) {
+                    return null;
+                }
+                if (attempt > 0) {
+                    listContainer.classList.remove("error");
+                    listContainer.innerHTML = `<span class="muted">服务繁忙，正在重试加载赛季列表（第 ${attempt + 1}/${totalAttempts} 次）...</span>`;
+                    await delayMs(SEASONS_RETRY_DELAYS_MS[attempt - 1]);
+                    if (requestId !== seasonsRequestId) {
+                        return null;
+                    }
+                }
+                let response;
+                try {
+                    response = await fetch(seasonsApiUrl, { cache: "no-store" });
+                } catch (networkError) {
+                    lastError = networkError;
+                    if (attempt < totalAttempts - 1) {
+                        continue;
+                    }
+                    throw networkError;
+                }
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                    const httpError = new Error(`HTTP ${response.status}`);
+                    httpError.retryable = isRetryableSeasonsStatus(response.status);
+                    if (httpError.retryable && attempt < totalAttempts - 1) {
+                        lastError = httpError;
+                        continue;
+                    }
+                    throw httpError;
                 }
                 const payload = await response.json();
-                const data = unwrapResponse(payload);
+                return unwrapResponse(payload);
+            }
+            throw lastError || new Error("未知错误");
+        }
+
+        async function loadDateList() {
+            const requestId = ++seasonsRequestId;
+            listContainer.classList.remove("error");
+            listContainer.innerHTML = `<span class="muted">正在加载赛季列表...</span>`;
+            try {
+                const data = await fetchSeasonsWithRetry(requestId);
+                if (requestId !== seasonsRequestId || data === null) {
+                    return;
+                }
                 availableSeasons = data && Array.isArray(data.seasons) ? data.seasons : [];
                 const defaultSeason = data && typeof data.default_season === "string"
                     ? data.default_season : "";
@@ -3604,7 +3676,21 @@
                 }
                 await loadSeasonHistory(defaultSeason);
             } catch (error) {
-                listContainer.textContent = `获取赛季列表失败：${error.message || error}`;
+                if (requestId !== seasonsRequestId) {
+                    return;
+                }
+                listContainer.innerHTML = "";
+                const msgNode = document.createElement("span");
+                msgNode.textContent = `获取赛季列表失败：${error.message || error}`;
+                const retryBtn = document.createElement("button");
+                retryBtn.type = "button";
+                retryBtn.className = "status-retry-btn";
+                retryBtn.textContent = "重试";
+                retryBtn.addEventListener("click", function () {
+                    loadDateList();
+                });
+                listContainer.appendChild(msgNode);
+                listContainer.appendChild(retryBtn);
                 listContainer.classList.add("error");
             }
         }

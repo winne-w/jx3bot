@@ -493,6 +493,16 @@ async def _ensure_indexes(db: AsyncIOMotorDatabase) -> None:
         [("current_season", 1), ("default_week", 1)],
         name="idx_current_season_default_week",
     )
+    await _safe_index(
+        "jjc_ranking_stat_summaries",
+        [("schema_version", 1), ("current_season", 1), ("timestamp", -1)],
+        name="idx_schema_version_season_timestamp",
+    )
+    await _safe_index(
+        "jjc_ranking_stat_summaries",
+        [("current_season", 1), ("timestamp", -1)],
+        name="idx_current_season_timestamp",
+    )
 
     # jjc_ranking_stat_details
     await _safe_index(

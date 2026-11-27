@@ -40,6 +40,7 @@ def _make_mock_collection(
     count: object = None,
 ) -> MagicMock:
     col = MagicMock()
+    col.aggregate = None
     col.update_one = AsyncMock()
     col.find_one = AsyncMock()
     if find_results is not None:
