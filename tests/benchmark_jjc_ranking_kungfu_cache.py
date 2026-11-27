@@ -57,7 +57,6 @@ async def run():
                     counts = actual["kungfu_statistics"]["top_1000"]["kungfu_cache"]
                     assert counts["total"] == 1000 and counts["coverage"] == ({"hot":1.0,"half_missing":0.5}.get(case,0.0)), counts
                 fixture.service.tuilan_request.assert_not_called()
-                fixture.service.defget_get.assert_not_awaited()
                 results.append({"case": case, "members": 1000, "runs": 30,
                     "p50_ms": round(median(durations), 3),
                     "p95_ms": round(sorted(durations)[math.ceil(.95 * len(durations)) - 1], 3),

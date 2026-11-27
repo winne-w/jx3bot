@@ -739,9 +739,6 @@ class TestRankingStatsSyncQueue(unittest.IsolatedAsyncioTestCase):
                 return {"status": "queued"}
 
         service = JjcRankingService(
-            token="",
-            ticket="",
-            jjc_query_url="",
             arena_time_tag_url="",
             arena_ranking_url="",
             match_detail_url="",
@@ -753,7 +750,6 @@ class TestRankingStatsSyncQueue(unittest.IsolatedAsyncioTestCase):
             kungfu_dps_list=[],
             kungfu_pinyin_to_chinese={},
             tuilan_request=lambda url, payload: {},
-            defget_get=AsyncMock(),
         )
         detail_payloads = [
             {

@@ -1,0 +1,108 @@
+{
+  "pr": "https://github.com/winne-w/jx3bot/pull/17",
+  "code_commit": "6c4d1155772936847848210c8ea9d4513216f81a",
+  "state": "production_deployed",
+  "restart_at": "2026-11-25T22:38:09+08:00",
+  "container_started_at": "2026-11-25T14:38:10.309565968Z",
+  "ready_at": "2026-11-25T22:39:17+08:00",
+  "product_files": {
+    "src/services/jx3/jjc_ranking.py": {
+      "before": "cfa368b1a6cb0fed2bd1c6528e5db46d16802b974928a292b9039803d8396029",
+      "after": "fe97e24dfd53d59ca951e62f946a346f0a1fc648f40172b6c502ced3867f63fd"
+    },
+    "src/services/jx3/singletons.py": {
+      "before": "8c47d7a1c4919af37991a2f81bee3d110da9abc7541f8331f8b342e193a60f28",
+      "after": "ea35ec34a186551b476aa2a162eafc748351e32db5a181fa2fc25b1475020734"
+    }
+  },
+  "source_config_guards": 197,
+  "observation_seconds": 129.154,
+  "samples": [
+    {
+      "index": 0,
+      "epoch": 1795617613.157937,
+      "elapsed_seconds": 1.858,
+      "running": true,
+      "started": "2026-11-25T14:38:10.309565968Z",
+      "restart_count": 0,
+      "workers_online": 4,
+      "paused": true,
+      "oom": false,
+      "public_metadata": {
+        "http": 200,
+        "status_code": 0
+      }
+    },
+    {
+      "index": 1,
+      "epoch": 1795617645.072384,
+      "elapsed_seconds": 33.658,
+      "running": true,
+      "started": "2026-11-25T14:38:10.309565968Z",
+      "restart_count": 0,
+      "workers_online": 4,
+      "paused": true,
+      "oom": false,
+      "public_metadata": {
+        "http": 200,
+        "status_code": 0
+      }
+    },
+    {
+      "index": 2,
+      "epoch": 1795617676.8395877,
+      "elapsed_seconds": 65.425,
+      "running": true,
+      "started": "2026-11-25T14:38:10.309565968Z",
+      "restart_count": 0,
+      "workers_online": 4,
+      "paused": true,
+      "oom": false,
+      "public_metadata": {
+        "http": 200,
+        "status_code": 0
+      }
+    },
+    {
+      "index": 3,
+      "epoch": 1795617708.578945,
+      "elapsed_seconds": 97.329,
+      "running": true,
+      "started": "2026-11-25T14:38:10.309565968Z",
+      "restart_count": 0,
+      "workers_online": 4,
+      "paused": true,
+      "oom": false,
+      "public_metadata": {
+        "http": 200,
+        "status_code": 0
+      }
+    },
+    {
+      "index": 4,
+      "epoch": 1795617740.4879766,
+      "elapsed_seconds": 129.154,
+      "running": true,
+      "started": "2026-11-25T14:38:10.309565968Z",
+      "restart_count": 0,
+      "workers_online": 4,
+      "paused": true,
+      "oom": false,
+      "public_metadata": {
+        "http": 200,
+        "status_code": 0
+      }
+    }
+  ],
+  "startup_complete": true,
+  "traceback_import_errors": [],
+  "prior_queue_paused": true,
+  "queue_pause_preserved": true,
+  "worker_count": 4,
+  "same_container_image": true,
+  "rollback_used": false,
+  "old_process_stop": "SIGTERM; 60 seconds later SIGKILL, exit137; new process initialized successfully",
+  "backup_directory": "/root/jx3bot-releases/remove-kungfu-jx3api-20261125",
+  "rollback_tool_sha256": "fc6f45b5fc38177b4ef1499a740c5347b5ba9c33f98c671179d5b29a9259a1d8",
+  "test_limit": "PR expanded326 retains exact27 baseline failure IDs; original integration372 passed both versions, clean PR focused47 passed both; production image isolated47 passed. No forced character/ranking upstream queries."
+}
