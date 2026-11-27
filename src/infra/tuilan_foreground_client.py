@@ -8,6 +8,7 @@ from weakref import WeakKeyDictionary, WeakSet
 import httpx
 import anyio
 
+from src.utils.tuilan_auth_alert import maybe_notify_tuilan_auth_error
 from src.utils.tuilan_request import build_tuilan_request
 from src.utils.jjc_query_observability import observed_query_stage, query_outbound, query_failure
 
@@ -77,7 +78,12 @@ class TuilanForegroundClient:
             try:
                 if response.status_code >= 400:
                     query_failure("upstream_rejected")
-                    return {"error": "upstream_rejected", "status_code": response.status_code}
+                    rejected = {"error": "upstream_rejected", "status_code": response.status_code}
+                    maybe_notify_tuilan_auth_error(
+                        source=f"TuilanForegroundClient:{endpoint}",
+                        response=rejected,
+                    )
+                    return rejected
                 body = await response.aread()
                 try:
                     result = json.loads(body)
@@ -87,6 +93,10 @@ class TuilanForegroundClient:
                 if not isinstance(result, dict):
                     query_failure("invalid_response")
                     return {"error": "invalid_response"}
+                maybe_notify_tuilan_auth_error(
+                    source=f"TuilanForegroundClient:{endpoint}",
+                    response=result,
+                )
                 return result
             finally:
                 # Scope cancellation closes IO once. Repeated cancellation of

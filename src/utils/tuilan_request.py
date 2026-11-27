@@ -7,6 +7,7 @@ from collections import OrderedDict
 import config as cfg
 
 from src.infra.http_client import HttpClient
+from src.utils.tuilan_auth_alert import maybe_notify_tuilan_auth_error
 
 # 忽略SSL警告
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -131,13 +132,17 @@ def tuilan_request(url, params=None):
         else:
             data_bytes = raw_json
 
-        return http_client.request_json("POST", url, headers=headers, content=data_bytes, verify=False)
+        result = http_client.request_json("POST", url, headers=headers, content=data_bytes, verify=False)
+        maybe_notify_tuilan_auth_error(source=url, response=result)
+        return result
     except UnicodeEncodeError as e:
         logger.warning(f"tuilan_request 编码错误: {e}")
         # 尝试使用不同的编码方式
         try:
             data_bytes = raw_json.encode('utf-8', errors='ignore')
-            return http_client.request_json("POST", url, headers=headers, content=data_bytes, verify=False)
+            result = http_client.request_json("POST", url, headers=headers, content=data_bytes, verify=False)
+            maybe_notify_tuilan_auth_error(source=url, response=result)
+            return result
         except Exception as e2:
             logger.warning(f"tuilan_request 备用编码也失败: {e2}")
             return {"error": f"编码错误: {e}"}

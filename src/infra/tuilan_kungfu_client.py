@@ -8,6 +8,7 @@ import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 from src.infra.http_client import HttpClient
+from src.utils.tuilan_auth_alert import is_tuilan_auth_error, maybe_notify_tuilan_auth_error
 from src.utils.tuilan_request import build_tuilan_request
 from src.utils.jjc_display_identity import indicator_identity, needs_replay
 
@@ -123,12 +124,8 @@ class TuilanKungfuClient:
         if status == 429 or code == 429:
             return KungfuQueryError("rate_limited", self._retry_after(response.get("retry_after")))
         failed = bool(response.get("error")) or status not in (None, 0, 200) or code != 0
-        message = _text(response.get("msg") or response.get("message")).lower()
-        if (status in (401, 403) or code in (401, 403)
-                or (failed and any(marker in message for marker in (
-                    "请重新登录", "请先登录", "未登录", "登录失效", "登录过期", "票据失效", "票据错误",
-                    "ticket invalid", "ticket expired", "invalid ticket", "expired ticket",
-                    "token invalid", "token expired", "not logged in")))):
+        if is_tuilan_auth_error(response):
+            maybe_notify_tuilan_auth_error(source="TuilanKungfuClient", response=response, force=True)
             return KungfuQueryError("authentication_failed", 300, auth=True)
         if failed:
             error = response.get("error")

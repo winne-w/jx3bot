@@ -4,7 +4,6 @@ import json
 import re
 import time
 from datetime import datetime
-from functools import wraps
 
 import config as cfg
 import httpx
@@ -52,12 +51,20 @@ previous_news_ids = set()
 previous_records_ids = set()
 previous_codes_ids = set()
 last_status_ok = True
+_napcat_monitor_started_at = time.monotonic()
+_napcat_consecutive_failures = 0
+_napcat_offline_alert_sent = False
 jjc_peak_score_ranking_service = JjcPeakScoreRankingService()
 
 
 def set_bot_initialized(value: bool) -> None:
     global BOT_INITIALIZED
     BOT_INITIALIZED = value
+
+
+def reset_napcat_monitor_start() -> None:
+    global _napcat_monitor_started_at
+    _napcat_monitor_started_at = time.monotonic()
 
 
 async def notify_jjc_ranking_failure(bot, detail: str) -> None:
@@ -83,26 +90,6 @@ def log_startup() -> None:
     logger.info("status_monitor 新闻监控已启动，API: {} 延时{}分钟", NEWS_API_URL, NEWS_records_time)
     logger.info("status_monitor 技改监控已启动，API: {} 延时{}分钟", SKILL_records_URL, NEWS_records_time)
     logger.info("status_monitor 日常监控已启动，每天{}点推送", calendar_time)
-
-
-def prevent_duplicate_runs(timeout_seconds=60):
-    def decorator(func):
-        last_run = 0
-
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            nonlocal last_run
-            current_time = time.time()
-
-            if current_time - last_run > timeout_seconds:
-                last_run = current_time
-                return await func(*args, **kwargs)
-            else:
-                logger.debug("status_monitor skip duplicate run: {}", func.__name__)
-
-        return wrapper
-
-    return decorator
 
 
 def format_time(timestamp):
@@ -262,33 +249,121 @@ async def get_jx3box_data():
         return None
 
 
-@scheduler.scheduled_job("interval", seconds=60)
-async def mail_records():
-    global last_status_ok
+def _is_onebot_status_healthy(payload: object) -> tuple[bool, str]:
+    if not isinstance(payload, dict):
+        return False, f"get_status 返回非字典: {payload!r}"
 
-    data = await get_NapCat_data()
-
-    if data is None:
-        current_status_ok = False
-        status_info = "无法获取服务器状态，API请求失败"
+    # 兼容 OneBot V11 原始响应 {"status": "ok", "data": {"online": true, "good": true}}
+    # 以及 NoneBot bot.get_status() 已解包的 {"online": true, "good": true}
+    if "data" in payload and isinstance(payload.get("data"), dict):
+        outer_status = str(payload.get("status", "ok")).lower()
+        if outer_status != "ok":
+            return False, f"status={outer_status}"
+        inner = payload["data"]
     else:
-        current_status_ok = data.get("status", "").lower() == "ok"
-        status_info = json.dumps(data, ensure_ascii=False)
+        inner = payload
 
-    if last_status_ok and not current_status_ok:
-        logger.warning("status_monitor 检测到状态异常，发送邮件通知")
-        email_content = f"服务器状态异常！\n\n当前状态信息：\n{status_info}"
-        send_result = send_email_via_163(email_content)
+    online = inner.get("online")
+    good = inner.get("good")
+    if online is False or good is False:
+        return False, f"online={online}, good={good}"
+    if online is True and (good is True or good is None):
+        return True, f"online={online}, good={good}"
+    if good is True and online is None:
+        return True, f"online={online}, good={good}"
+    return False, f"状态字段异常: {json.dumps(inner, ensure_ascii=False)}"
+
+
+async def check_napcat_connection_status() -> tuple[bool, str, str]:
+    """基于 NoneBot 反向 WebSocket 连接与 bot.get_status() 检测 NapCat / QQ 在线状态。"""
+    driver = get_driver()
+    bots = getattr(driver, "bots", None) or {}
+    if not bots:
+        return False, "reverse_ws_disconnected", "未检测到已连接的 NapCat 机器人（反向 WebSocket 已断开或尚未连接）"
+
+    bot_items = list(bots.items())
+    for bot_id, bot in bot_items:
+        get_status = getattr(bot, "get_status", None)
+        if not callable(get_status):
+            continue
+        try:
+            raw_status = await asyncio.wait_for(get_status(), timeout=10.0)
+        except Exception as exc:
+            return False, "get_status_failed", f"Bot {bot_id} get_status 探测失败: {exc!r}"
+
+        healthy, detail = _is_onebot_status_healthy(raw_status)
+        if not healthy:
+            return False, "qq_offline", f"Bot {bot_id} QQ 掉线或状态异常（{detail}）"
+
+    bot_ids = ", ".join(str(bid) for bid, _ in bot_items)
+    return True, "ok", f"Bot {bot_ids} 在线正常"
+
+
+async def _send_status_email(content: str) -> bool:
+    return await asyncio.to_thread(send_email_via_163, content)
+
+
+@scheduler.scheduled_job("interval", seconds=60, max_instances=1)
+async def mail_records():
+    global last_status_ok, _napcat_consecutive_failures, _napcat_offline_alert_sent
+
+    current_status_ok, reason_code, status_info = await check_napcat_connection_status()
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    grace_seconds = max(0, int(getattr(cfg, "STATUS_MONITOR_OFFLINE_GRACE_SECONDS", 90) or 0))
+    fail_threshold = max(1, int(getattr(cfg, "STATUS_MONITOR_OFFLINE_FAIL_THRESHOLD", 2) or 1))
+
+    if current_status_ok:
+        _napcat_consecutive_failures = 0
+        if _napcat_offline_alert_sent:
+            recovery_content = (
+                f"NapCat / QQ 状态已恢复正常！\n\n"
+                f"恢复时间：{now_str}\n"
+                f"当前状态：{status_info}"
+            )
+            send_result = await _send_status_email(recovery_content)
+            if send_result:
+                logger.info("status_monitor 恢复邮件发送成功")
+                _napcat_offline_alert_sent = False
+            else:
+                logger.warning("status_monitor 恢复邮件发送失败")
+        last_status_ok = True
+        return
+
+    # 启动宽限期内（Bot 尚未完成首次连接）不触发离线邮件，避免重启误报
+    elapsed_since_start = time.monotonic() - _napcat_monitor_started_at
+    if not BOT_INITIALIZED and not _napcat_offline_alert_sent and elapsed_since_start < grace_seconds:
+        logger.info(
+            "status_monitor 启动宽限期内等待 NapCat 连接 ({:.0f}s/{}s): {}",
+            elapsed_since_start,
+            grace_seconds,
+            status_info,
+        )
+        return
+
+    _napcat_consecutive_failures += 1
+    last_status_ok = False
+    logger.warning(
+        "status_monitor 检测到 NapCat 状态异常 ({}/{}): reason={} detail={}",
+        _napcat_consecutive_failures,
+        fail_threshold,
+        reason_code,
+        status_info,
+    )
+
+    if _napcat_consecutive_failures >= fail_threshold and not _napcat_offline_alert_sent:
+        email_content = (
+            f"NapCat / QQ 掉线告警！\n\n"
+            f"检测时间：{now_str}\n"
+            f"异常类型：{reason_code}\n"
+            f"连续失败次数：{_napcat_consecutive_failures}\n"
+            f"当前状态信息：{status_info}"
+        )
+        send_result = await _send_status_email(email_content)
         if send_result:
-            logger.info("status_monitor 邮件发送成功")
+            _napcat_offline_alert_sent = True
+            logger.info("status_monitor 掉线告警邮件发送成功")
         else:
-            logger.warning("status_monitor 邮件发送失败")
-
-    elif not last_status_ok and current_status_ok:
-        recovery_content = "服务器状态已恢复正常！"
-        send_email_via_163(recovery_content)
-
-    last_status_ok = current_status_ok
+            logger.warning("status_monitor 掉线告警邮件发送失败")
 
 
 @scheduler.scheduled_job("interval", minutes=NEWS_records_time)
@@ -496,8 +571,7 @@ async def check_event_codes():
             logger.warning("status_monitor 检查活动码出错: {}", e)
 
 
-@scheduler.scheduled_job("interval", minutes=STATUS_check_time)
-@prevent_duplicate_runs(timeout_seconds=3600)
+@scheduler.scheduled_job("interval", minutes=STATUS_check_time, max_instances=1)
 async def check_status():
     global previous_status
     try:
@@ -543,10 +617,10 @@ async def check_status():
             await CacheManager.save_cache(status_history, "status_history")
             return
 
-        changed_servers = []
+        changed_servers = set()
         for server, status in current.items():
             if server in previous_status and previous_status[server] != status:
-                changed_servers.append(server)
+                changed_servers.add(server)
 
                 if server not in status_history:
                     status_history[server] = {"last_maintenance": None, "last_open": None}
@@ -564,61 +638,63 @@ async def check_status():
             if get_driver().bots:
                 bot = list(get_driver().bots.values())[0]
                 groups_config = await group_config_repo.load()
+                target_groups = [
+                    (gid, bound_server)
+                    for gid, config in groups_config.items()
+                    if isinstance(config, dict)
+                    and config.get("开服推送", True) is not False
+                    and isinstance((bound_server := config.get("servers")), str)
+                    and bound_server in changed_servers
+                ]
 
-                for gid, config in groups_config.items():
+                if target_groups:
                     try:
-                        if not isinstance(config, dict) or config.get("开服推送", True) is False:
-                            continue
-
-                        bound_server = config.get("servers", "")
-                        if not bound_server or bound_server not in changed_servers:
-                            continue
-
-                        try:
-                            banben = await get_server_banben()
-                            banben = extract_version(banben)
-                        except Exception as e:
-                            logger.warning("status_monitor 获取版本号失败: {}", e)
-                            banben = "未知"
-
-                        server_info = current_details[bound_server]
-                        zone = server_info["zone"]
-                        if zone.endswith("区"):
-                            zone = zone[:-1] + "大区"
-                        status = server_info.get("legacyStatus", server_info["status"])
-
-                        server_history = status_history.get(
-                            bound_server, {"last_maintenance": None, "last_open": None}
-                        )
-                        last_maintenance_time = server_history.get("last_maintenance")
-                        last_open_time = server_history.get("last_open")
-
-                        maintenance_time_str = (
-                            "无记录" if last_maintenance_time is None else format_time(last_maintenance_time)
-                        )
-                        open_time_str = "无记录" if last_open_time is None else format_time(last_open_time)
-
-                        if status == 1:
-                            message = (
-                                f"{zone}：{bound_server}「 已开服 」\n"
-                                f"开服时间：{open_time_str}\n"
-                                f"维护时间：{maintenance_time_str}"
-                            )
-                        else:
-                            message = (
-                                f"{zone}：{bound_server}「 维护中 」\n"
-                                f"维护时间：{maintenance_time_str}\n"
-                                f"上次开服：{open_time_str}"
-                            )
-
-                        if banben != "未知":
-                            message += f"\n最新版本：{banben}"
-
-                        await send_group_msg(bot, group_id=int(gid), message=message)
-                        logger.info("status_monitor 向群{}推送服务器状态变化: {}", gid, bound_server)
-                        await asyncio.sleep(0.5)
+                        banben = await get_server_banben()
+                        banben = extract_version(banben)
                     except Exception as e:
-                        logger.warning("status_monitor 向群{}推送服务器状态失败: {}", gid, e)
+                        logger.warning("status_monitor 获取版本号失败: {}", e)
+                        banben = "未知"
+
+                    for gid, bound_server in target_groups:
+                        try:
+                            server_info = current_details[bound_server]
+                            zone = server_info["zone"]
+                            if zone.endswith("区"):
+                                zone = zone[:-1] + "大区"
+                            status = server_info.get("legacyStatus", server_info["status"])
+
+                            server_history = status_history.get(
+                                bound_server, {"last_maintenance": None, "last_open": None}
+                            )
+                            last_maintenance_time = server_history.get("last_maintenance")
+                            last_open_time = server_history.get("last_open")
+
+                            maintenance_time_str = (
+                                "无记录" if last_maintenance_time is None else format_time(last_maintenance_time)
+                            )
+                            open_time_str = "无记录" if last_open_time is None else format_time(last_open_time)
+
+                            if status == 1:
+                                message = (
+                                    f"{zone}：{bound_server}「 已开服 」\n"
+                                    f"开服时间：{open_time_str}\n"
+                                    f"维护时间：{maintenance_time_str}"
+                                )
+                            else:
+                                message = (
+                                    f"{zone}：{bound_server}「 维护中 」\n"
+                                    f"维护时间：{maintenance_time_str}\n"
+                                    f"上次开服：{open_time_str}"
+                                )
+
+                            if banben != "未知":
+                                message += f"\n最新版本：{banben}"
+
+                            await send_group_msg(bot, group_id=int(gid), message=message)
+                            logger.info("status_monitor 向群{}推送服务器状态变化: {}", gid, bound_server)
+                            await asyncio.sleep(0.5)
+                        except Exception as e:
+                            logger.warning("status_monitor 向群{}推送服务器状态失败: {}", gid, e)
 
         previous_status = current
         await CacheManager.save_cache(previous_status, "server_status")

@@ -117,7 +117,8 @@ async def get(
             headers["token"] = token
         else:
             params["token"] = token
-    if ticket and (not is_jx3api_url(url) or urlsplit(url).path.rstrip("/") == "/arena/recent"):
+    sent_ticket = bool(ticket and (not is_jx3api_url(url) or urlsplit(url).path.rstrip("/") == "/arena/recent"))
+    if sent_ticket:
         params["ticket"] = ticket
     if zili:
         params["class"] = zili
@@ -132,6 +133,10 @@ async def get(
     request_options = {"headers": headers} if headers else {}
     data = await http_client.arequest_json("GET", url, params=params, verify=False, **request_options)
     data = normalize_jx3api_response(url, data)
+    if sent_ticket:
+        from src.utils.tuilan_auth_alert import maybe_notify_tuilan_auth_error
+
+        maybe_notify_tuilan_auth_error(source=url, response=data, strict_tuilan_only=True)
     if isinstance(data, dict) and not data.get("error"):
         _cache.set(cache_key, data)
     return data

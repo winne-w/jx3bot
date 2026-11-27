@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import smtplib
+from typing import Optional
 
 import config as cfg
 import httpx
-from email.message import EmailMessage
 from nonebot import logger
 
+from src.infra.email_notify import send_email_async, send_email_via_163
 
-async def get_NapCat_data() -> dict | None:
+
+async def get_NapCat_data() -> Optional[dict]:
     napcat_addr = getattr(cfg, "STATUS_MONITOR_NAPCAT_ADDR", "") or ""
     if not napcat_addr:
         raise RuntimeError("未配置 STATUS_MONITOR_NAPCAT_ADDR（示例：http://172.17.0.1:3001）")
@@ -17,7 +18,7 @@ async def get_NapCat_data() -> dict | None:
 
     napcat_status_url = f"{napcat_base_url}/get_status"
     try:
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
             response = await client.get(napcat_status_url)
             if response.status_code != 200:
                 logger.warning(
@@ -30,34 +31,4 @@ async def get_NapCat_data() -> dict | None:
         return None
 
 
-def send_email_via_163(content: str) -> bool:
-    smtp_username = getattr(cfg, "STATUS_MONITOR_SMTP_USERNAME", "") or ""
-    smtp_password = getattr(cfg, "STATUS_MONITOR_SMTP_PASSWORD", "") or getattr(cfg, "mail", "") or ""
-    email_from = getattr(cfg, "STATUS_MONITOR_EMAIL_FROM", "") or smtp_username
-    email_to = getattr(cfg, "STATUS_MONITOR_EMAIL_TO", "")
-    email_subject = getattr(cfg, "STATUS_MONITOR_EMAIL_SUBJECT", "服务器状态提醒")
-    smtp_server = getattr(cfg, "STATUS_MONITOR_SMTP_SERVER", "smtp.163.com")
-    port = int(getattr(cfg, "STATUS_MONITOR_SMTP_PORT", 465))
-
-    if not smtp_username or not smtp_password or not email_from or not email_to:
-        logger.warning("status_monitor 邮件配置不完整，跳过发送")
-        return False
-
-    msg = EmailMessage()
-    msg["Subject"] = email_subject
-    msg["From"] = email_from
-    if isinstance(email_to, (list, tuple, set)):
-        msg["To"] = ",".join(map(str, email_to))
-    else:
-        msg["To"] = str(email_to)
-    msg.set_content(content)
-
-    try:
-        with smtplib.SMTP_SSL(smtp_server, port) as server:
-            server.login(smtp_username, smtp_password)
-            server.send_message(msg)
-            logger.info("status_monitor 邮件发送成功")
-            return True
-    except Exception as exc:
-        logger.warning("status_monitor 发送邮件失败: {}", exc)
-        return False
+__all__ = ["get_NapCat_data", "send_email_via_163", "send_email_async"]
