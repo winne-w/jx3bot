@@ -348,6 +348,7 @@ async def setup_alias_refresh_job(scheduler) -> None:
             minutes=config.alias_refresh_minutes,
             id="wanbaolou_alias_refresh",
             replace_existing=True,
+            max_instances=1,
         )
         logger.info(
             "[alias] scheduled cache refresh every {} minutes",

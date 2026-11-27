@@ -843,20 +843,31 @@ async def check_price_alerts():
         return
 
     logger.info("开始检查价格提醒 ({} 个订阅)", len(all_subs))
+    price_cache: Dict[str, Any] = {}
 
     for sub in all_subs:
         try:
-            item_name = sub["item_name"]
+            raw_item_name = sub.get("item_name")
+            if not isinstance(raw_item_name, str) or not raw_item_name.strip():
+                continue
+            item_name = raw_item_name.strip()
             threshold = sub["price_threshold"]
             user_id = sub["user_id"]
 
-            sale_items = await api.get_item_list(
-                item_name=item_name,
-                sort_type=1,
-                status_filter=2,
-                page=1,
-                page_size=1
-            )
+            if item_name not in price_cache:
+                try:
+                    price_cache[item_name] = await api.get_item_list(
+                        item_name=item_name,
+                        sort_type=1,
+                        status_filter=2,
+                        page=1,
+                        page_size=1
+                    )
+                except Exception as fetch_exc:
+                    logger.error(f"查询外观【{item_name}】价格失败: {str(fetch_exc)}")
+                    price_cache[item_name] = None
+
+            sale_items = price_cache[item_name]
 
             if sale_items and sale_items.get('parsed_items') and len(sale_items['parsed_items']) > 0:
                 lowest_price = sale_items['parsed_items'][0]['price']
@@ -880,7 +891,7 @@ async def check_price_alerts():
                             message=message
                         )
 
-                    await _repo().remove(user_id, item_name)
+                    await _repo().remove(user_id, raw_item_name)
                     logger.info("已通知用户 {} 关于 {} 的价格提醒 ({} <= {})，该提醒已删除",
                                 user_id, item_name, lowest_price, threshold)
 
@@ -896,5 +907,12 @@ async def init_subscription_system():
     """初始化订阅系统"""
     logger.info("初始化价格订阅系统...")
     # 启动定期检查任务
-    scheduler.add_job(check_price_alerts, "interval", minutes=wanbaolou)
+    scheduler.add_job(
+        check_price_alerts,
+        "interval",
+        minutes=wanbaolou,
+        id="wanbaolou_price_alerts",
+        replace_existing=True,
+        max_instances=1,
+    )
     logger.info("价格订阅系统初始化完成")

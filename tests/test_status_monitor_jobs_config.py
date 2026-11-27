@@ -54,6 +54,37 @@ class StatusMonitorJobsConfigTests(unittest.TestCase):
         self.assertEqual(keywords["minutes"].id, "STATUS_check_time")
         self.assertEqual(ast.literal_eval(keywords["max_instances"]), 1)
 
+    def test_push_daily_gte_uses_configured_hour_and_max_instances(self) -> None:
+        target = self._find_async_job("push_daily_gte")
+        self.assertEqual(len(target.decorator_list), 1)
+        decorator = self._assert_scheduled_job_call(target.decorator_list[0])
+        self.assertEqual(ast.literal_eval(decorator.args[0]), "cron")
+
+        keywords = {
+            keyword.arg: keyword.value
+            for keyword in decorator.keywords
+            if keyword.arg is not None
+        }
+        self.assertIsInstance(keywords["hour"], ast.Name)
+        self.assertEqual(keywords["hour"].id, "_DAILY_GTE_HOUR")
+        self.assertEqual(ast.literal_eval(keywords["minute"]), 0)
+        self.assertEqual(ast.literal_eval(keywords["max_instances"]), 1)
+
+    def test_polling_jobs_declare_max_instances_one(self) -> None:
+        for job_name in ("check_records", "check_news", "check_event_codes"):
+            target = self._find_async_job(job_name)
+            decorator = self._assert_scheduled_job_call(target.decorator_list[0])
+            keywords = {
+                keyword.arg: keyword.value
+                for keyword in decorator.keywords
+                if keyword.arg is not None
+            }
+            self.assertEqual(
+                ast.literal_eval(keywords["max_instances"]),
+                1,
+                f"{job_name} should declare max_instances=1",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@ import json
 import re
 import time
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import config as cfg
 import httpx
@@ -44,6 +44,24 @@ except Exception:
     SKILL_records_URL = ""
     calendar_URL = ""
     jx3box_URL = ""
+
+
+def _resolve_daily_gte_hour(value: Any, default: int = 9) -> int:
+    if isinstance(value, (bool, float)):
+        logger.warning("status_monitor 非法 calendar_time 配置 {!r}，回退默认值 {}", value, default)
+        return default
+    try:
+        hour = int(value)
+    except (TypeError, ValueError):
+        logger.warning("status_monitor 非法 calendar_time 配置 {!r}，回退默认值 {}", value, default)
+        return default
+    if 0 <= hour <= 23:
+        return hour
+    logger.warning("status_monitor calendar_time 超出 0-23 范围 ({!r})，回退默认值 {}", value, default)
+    return default
+
+
+_DAILY_GTE_HOUR = _resolve_daily_gte_hour(calendar_time)
 
 
 BOT_INITIALIZED = False
@@ -171,7 +189,7 @@ def log_startup() -> None:
     logger.info("status_monitor 开服监控已启动，API: {} 延时{}分钟", STATUS_check_API, STATUS_check_time)
     logger.info("status_monitor 新闻监控已启动，API: {} 延时{}分钟", NEWS_API_URL, NEWS_records_time)
     logger.info("status_monitor 技改监控已启动，API: {} 延时{}分钟", SKILL_records_URL, NEWS_records_time)
-    logger.info("status_monitor 日常监控已启动，每天{}点推送", calendar_time)
+    logger.info("status_monitor 日常监控已启动，每天{}点推送", _DAILY_GTE_HOUR)
 
 
 def format_time(timestamp):
@@ -448,7 +466,7 @@ async def mail_records():
             logger.warning("status_monitor 掉线告警邮件发送失败")
 
 
-@scheduler.scheduled_job("interval", minutes=NEWS_records_time)
+@scheduler.scheduled_job("interval", minutes=NEWS_records_time, max_instances=1)
 async def check_records():
     if BOT_INITIALIZED:
         global previous_records_ids
@@ -478,38 +496,45 @@ async def check_records():
             if new_records_ids:
                 logger.info("status_monitor 检测到{}条新增技改", len(new_records_ids))
 
+                bots = get_driver().bots
+                if not bots:
+                    logger.warning(
+                        "status_monitor QQ 未连接，暂缓推进技改缓存，等待重连后补推{}条新增技改",
+                        len(new_records_ids),
+                    )
+                    return
+
                 new_records = [
                     record
                     for record in current_records
                     if str(record.get("id", "")) in new_records_ids
                 ]
 
-                if get_driver().bots:
-                    bot = list(get_driver().bots.values())[0]
-                    groups_config = await group_config_repo.load()
+                bot = list(bots.values())[0]
+                groups_config = await group_config_repo.load()
 
-                    for gid, config in groups_config.items():
-                        try:
-                            if not isinstance(config, dict) or config.get("技改推送", False) is False:
-                                continue
+                for gid, config in groups_config.items():
+                    try:
+                        if not isinstance(config, dict) or config.get("技改推送", False) is False:
+                            continue
 
-                            for record in new_records:
-                                record_class = "官方公告"
-                                title = record.get("title", "无标题")
-                                url = record.get("url", "")
-                                date = format_time(record.get("time", 0))
+                        for record in new_records:
+                            record_class = "官方公告"
+                            title = record.get("title", "无标题")
+                            url = record.get("url", "")
+                            date = format_time(record.get("time", 0))
 
-                                message = (
-                                    f"{record_class}\n"
-                                    f"标题：{title}\n"
-                                    f"链接：{url}\n"
-                                    f"日期：{date}"
-                                )
+                            message = (
+                                f"{record_class}\n"
+                                f"标题：{title}\n"
+                                f"链接：{url}\n"
+                                f"日期：{date}"
+                            )
 
-                                await send_group_msg(bot, group_id=int(gid), message=message)
-                                logger.info("status_monitor 向群{}推送技改: {}", gid, title)
-                        except Exception as e:
-                            logger.warning("status_monitor 向群{}推送技改失败: {}", gid, e)
+                            await send_group_msg(bot, group_id=int(gid), message=message)
+                            logger.info("status_monitor 向群{}推送技改: {}", gid, title)
+                    except Exception as e:
+                        logger.warning("status_monitor 向群{}推送技改失败: {}", gid, e)
 
             previous_records_ids = current_records_ids
             await save_id_set(previous_records_ids, "records_ids")
@@ -517,7 +542,7 @@ async def check_records():
             logger.warning("status_monitor 检查技改出错: {}", e)
 
 
-@scheduler.scheduled_job("interval", minutes=NEWS_records_time)
+@scheduler.scheduled_job("interval", minutes=NEWS_records_time, max_instances=1)
 async def check_news():
     if BOT_INITIALIZED:
         global previous_news_ids
@@ -553,34 +578,42 @@ async def check_news():
             new_news_ids = current_news_ids - previous_news_ids
             if new_news_ids:
                 logger.info("status_monitor 检测到{}条新增新闻", len(new_news_ids))
+
+                bots = get_driver().bots
+                if not bots:
+                    logger.warning(
+                        "status_monitor QQ 未连接，暂缓推进新闻缓存，等待重连后补推{}条新增新闻",
+                        len(new_news_ids),
+                    )
+                    return
+
                 new_news = [news for news in current_news if str(news["id"]) in new_news_ids]
 
-                if get_driver().bots:
-                    bot = list(get_driver().bots.values())[0]
-                    groups_config = await group_config_repo.load()
+                bot = list(bots.values())[0]
+                groups_config = await group_config_repo.load()
 
-                    for gid, config in groups_config.items():
-                        try:
-                            if not isinstance(config, dict) or config.get("新闻推送", False) is False:
-                                continue
+                for gid, config in groups_config.items():
+                    try:
+                        if not isinstance(config, dict) or config.get("新闻推送", False) is False:
+                            continue
 
-                            for news in new_news:
-                                news_class = news.get("type", "公告")
-                                title = news.get("title", "无标题")
-                                url = news.get("url", "")
-                                date = news.get("date", "")
+                        for news in new_news:
+                            news_class = news.get("type", "公告")
+                            title = news.get("title", "无标题")
+                            url = news.get("url", "")
+                            date = news.get("date", "")
 
-                                message = (
-                                    f"{news_class}\n"
-                                    f"标题：{title}\n"
-                                    f"链接：{url}\n"
-                                    f"日期：{date}"
-                                )
+                            message = (
+                                f"{news_class}\n"
+                                f"标题：{title}\n"
+                                f"链接：{url}\n"
+                                f"日期：{date}"
+                            )
 
-                                await send_group_msg(bot, group_id=int(gid), message=message)
-                                logger.info("status_monitor 向群{}推送新闻: {}", gid, title)
-                        except Exception as e:
-                            logger.warning("status_monitor 向群{}推送新闻失败: {}", gid, e)
+                            await send_group_msg(bot, group_id=int(gid), message=message)
+                            logger.info("status_monitor 向群{}推送新闻: {}", gid, title)
+                    except Exception as e:
+                        logger.warning("status_monitor 向群{}推送新闻失败: {}", gid, e)
 
             previous_news_ids = current_news_ids
             await save_id_set(previous_news_ids, "news_ids")
@@ -588,7 +621,7 @@ async def check_news():
             logger.warning("status_monitor 检查新闻出错: {}", e)
 
 
-@scheduler.scheduled_job("interval", minutes=200)
+@scheduler.scheduled_job("interval", minutes=200, max_instances=1)
 async def check_event_codes():
     if BOT_INITIALIZED:
         global previous_codes_ids
@@ -619,16 +652,25 @@ async def check_event_codes():
             new_codes_ids = current_codes_ids - previous_codes_ids
             if new_codes_ids:
                 logger.info("status_monitor 检测到{}条新增活动码", len(new_codes_ids))
-                new_codes = [code for code in current_codes if code["ID"] in new_codes_ids]
+                active_new_codes = [
+                    code
+                    for code in current_codes
+                    if code["ID"] in new_codes_ids and code.get("status") != 0
+                ]
 
-                if get_driver().bots:
+                if active_new_codes:
+                    bots = get_driver().bots
+                    if not bots:
+                        logger.warning(
+                            "status_monitor QQ 未连接，暂缓推进活动码缓存，等待重连后补推{}条有效活动码",
+                            len(active_new_codes),
+                        )
+                        return
+
                     groups_config = await group_config_repo.load()
-                    bot = list(get_driver().bots.values())[0]
+                    bot = list(bots.values())[0]
 
-                    for code in new_codes:
-                        if code["status"] == 0:
-                            continue
-
+                    for code in active_new_codes:
                         title = code.get("title", "未知活动")
                         desc = code.get("desc", "无描述")
                         created_at = code.get("created_at", "").replace("T", " ").replace("Z", "")
@@ -785,25 +827,32 @@ async def check_status():
         logger.warning("status_monitor 开服检查出错: {}", e)
 
 
-@scheduler.scheduled_job("cron", hour=9, minute=0)
+@scheduler.scheduled_job("cron", hour=_DAILY_GTE_HOUR, minute=0, max_instances=1)
 async def push_daily_gte():
     if BOT_INITIALIZED:
         try:
-            if not get_driver().bots:
+            bots = get_driver().bots
+            if not bots:
                 return
-            bot = list(get_driver().bots.values())[0]
+            bot = list(bots.values())[0]
             groups_config = await group_config_repo.load()
+            gte_cache: Dict[str, Optional[dict]] = {}
 
             for gid, config in groups_config.items():
                 try:
                     if not isinstance(config, dict) or config.get("日常推送", False) is False:
                         continue
 
-                    server = config.get("servers", "")
+                    raw_server = config.get("servers", "")
+                    if not isinstance(raw_server, str):
+                        continue
+                    server = raw_server.strip()
                     if not server:
                         continue
 
-                    gte_data = await get_gte_data(url=calendar_URL, server=server)
+                    if server not in gte_cache:
+                        gte_cache[server] = await get_gte_data(url=calendar_URL, server=server)
+                    gte_data = gte_cache[server]
                     if not gte_data:
                         continue
                     message = format_gte_message(gte_data)
