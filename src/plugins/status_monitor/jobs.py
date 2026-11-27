@@ -5,6 +5,7 @@ import re
 import time
 from datetime import datetime
 from functools import wraps
+from typing import List, Optional
 
 import config as cfg
 import httpx
@@ -60,6 +61,33 @@ def set_bot_initialized(value: bool) -> None:
     BOT_INITIALIZED = value
 
 
+def _get_admin_qq_list() -> List[int]:
+    raw_admins = getattr(cfg, "ADMIN_QQ", None)
+    if raw_admins is None:
+        return []
+    if isinstance(raw_admins, (int, str)):
+        candidates = [raw_admins]
+    else:
+        try:
+            candidates = list(raw_admins)
+        except TypeError:
+            logger.warning("status_monitor ADMIN_QQ 配置不可迭代: {!r}", raw_admins)
+            return []
+
+    admins: List[int] = []
+    seen = set()
+    for item in candidates:
+        try:
+            qq = int(str(item).strip())
+        except (TypeError, ValueError):
+            logger.warning("status_monitor 忽略非法 ADMIN_QQ 配置项: {!r}", item)
+            continue
+        if qq not in seen:
+            seen.add(qq)
+            admins.append(qq)
+    return admins
+
+
 async def notify_jjc_ranking_failure(bot, detail: str) -> None:
     message = f"竞技排名定时任务统计失败：{detail}"
     if bot is None:
@@ -67,15 +95,69 @@ async def notify_jjc_ranking_failure(bot, detail: str) -> None:
     if bot is None:
         logger.warning("status_monitor QQ 未连接，无法私聊管理员: {}", message)
         return
-    for admin_qq in getattr(cfg, "ADMIN_QQ", []):
+    admin_qqs = _get_admin_qq_list()
+    if not admin_qqs:
+        logger.warning("status_monitor 未配置有效 ADMIN_QQ，无法私聊管理员: {}", message)
+        return
+    for admin_qq in admin_qqs:
         try:
-            await bot.send_private_msg(user_id=int(admin_qq), message=message)
+            await bot.send_private_msg(user_id=admin_qq, message=message)
         except Exception as exc:
             logger.warning(
                 "status_monitor 通知竞技排名统计失败给管理员{}时出错: {}",
                 admin_qq,
                 exc,
             )
+
+
+async def notify_jjc_ranking_missing_kungfu(
+    bot, missing_kungfu_lines, week_info: Optional[str] = None
+) -> None:
+    if not missing_kungfu_lines:
+        return
+    if bot is None:
+        bot = next(iter(get_driver().bots.values()), None)
+    if bot is None:
+        logger.warning("status_monitor QQ 未连接，无法私聊管理员未查询到心法的角色")
+        return
+
+    admin_qqs = _get_admin_qq_list()
+    if not admin_qqs:
+        logger.warning(
+            "status_monitor 未配置有效 ADMIN_QQ，无法私聊未查询到心法的角色（共{}人）",
+            len(missing_kungfu_lines),
+        )
+        return
+
+    prefix = f"【每日竞技排名定时任务（{week_info}）】" if week_info else "【每日竞技排名定时任务】"
+    chunk_size = 100
+    total_lines = len(missing_kungfu_lines)
+    chunks: List[str] = []
+    for start in range(0, total_lines, chunk_size):
+        end = min(start + chunk_size, total_lines)
+        chunk_header = f"{prefix}未查询到心法的角色（共{total_lines}人，第{start + 1}-{end}名）"
+        chunk_message = "\n".join(missing_kungfu_lines[start:end])
+        chunks.append(f"{chunk_header}\n{chunk_message}")
+
+    total_admins = len(admin_qqs)
+    total_chunks = len(chunks)
+    for admin_idx, admin_qq in enumerate(admin_qqs):
+        for chunk_idx, chunk in enumerate(chunks, start=1):
+            try:
+                await bot.send_private_msg(user_id=admin_qq, message=chunk)
+            except Exception as exc:
+                logger.warning(
+                    "status_monitor 通知未查询到心法的角色给管理员{}（第{}/{}片）时出错: {}",
+                    admin_qq,
+                    chunk_idx,
+                    total_chunks,
+                    exc,
+                )
+                break
+            has_more_chunks = chunk_idx < total_chunks
+            has_more_admins = admin_idx + 1 < total_admins
+            if has_more_chunks or has_more_admins:
+                await asyncio.sleep(0.5)
 
 
 def log_startup() -> None:
@@ -745,8 +827,10 @@ async def push_daily_jjc_ranking():
         # 采集可能耗时较长，发送前重新获取连接状态。
         bot = next(iter(get_driver().bots.values()), None)
         if bot is None:
-            logger.info("status_monitor 竞技排名统计流程完成，QQ 未连接，跳过群推送")
+            logger.info("status_monitor 竞技排名统计流程完成，QQ 未连接，跳过群推送与管理员私聊")
             return
+
+        missing_kungfu_lines = ranking_data.get("missing_kungfu_lines") or []
 
         groups_config = await group_config_repo.load()
         target_groups = [
@@ -756,6 +840,8 @@ async def push_daily_jjc_ranking():
         ]
         if not target_groups:
             logger.info("status_monitor 竞技排名统计流程完成，没有开启竞技排名推送的群组")
+            if missing_kungfu_lines:
+                await notify_jjc_ranking_missing_kungfu(bot, missing_kungfu_lines, week_info=week_info)
             return
 
         payload = await render_combined_ranking_image(
@@ -769,6 +855,8 @@ async def push_daily_jjc_ranking():
         if not payload:
             logger.warning("status_monitor 渲染竞技场统计图失败")
             await notify_jjc_ranking_failure(bot, "渲染竞技场统计图失败")
+            if missing_kungfu_lines:
+                await notify_jjc_ranking_missing_kungfu(bot, missing_kungfu_lines, week_info=week_info)
             return
 
         summary_text = (
@@ -776,7 +864,6 @@ async def push_daily_jjc_ranking():
             f"统计范围：{payload['scope_desc']}\n"
             f"统计完成！共处理 {payload['total_valid_data']} 条有效数据（{payload['processed_label']}）"
         )
-        missing_kungfu_lines = ranking_data.get("missing_kungfu_lines", [])
 
         for gid in target_groups:
             try:
@@ -784,22 +871,13 @@ async def push_daily_jjc_ranking():
                     group_id=int(gid), message=MessageSegment.image(payload["image_bytes"])
                 )
                 await send_group_msg(bot, group_id=int(gid), message=summary_text)
-                if missing_kungfu_lines:
-                    chunk_size = 100
-                    total_lines = len(missing_kungfu_lines)
-                    for start in range(0, total_lines, chunk_size):
-                        end = min(start + chunk_size, total_lines)
-                        chunk_header = f"未查询到心法的角色（共{total_lines}人，第{start + 1}-{end}名）"
-                        chunk_message = "\n".join(missing_kungfu_lines[start:end])
-                        await send_group_msg(bot,
-                            group_id=int(gid),
-                            message=f"{chunk_header}\n{chunk_message}",
-                        )
-                        await asyncio.sleep(0.5)
                 logger.info("status_monitor 向群{}推送每日竞技排名统计", gid)
                 await asyncio.sleep(0.5)
             except Exception as e:
                 logger.warning("status_monitor 向群{}推送竞技排名统计失败: {}", gid, e)
+
+        if missing_kungfu_lines:
+            await notify_jjc_ranking_missing_kungfu(bot, missing_kungfu_lines, week_info=week_info)
 
     except Exception as e:
         logger.warning("status_monitor 每日竞技排名推送任务出错: {}", e)
