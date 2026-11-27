@@ -4,7 +4,6 @@ import json
 import re
 import time
 from datetime import datetime
-from functools import wraps
 
 import config as cfg
 import httpx
@@ -83,26 +82,6 @@ def log_startup() -> None:
     logger.info("status_monitor 新闻监控已启动，API: {} 延时{}分钟", NEWS_API_URL, NEWS_records_time)
     logger.info("status_monitor 技改监控已启动，API: {} 延时{}分钟", SKILL_records_URL, NEWS_records_time)
     logger.info("status_monitor 日常监控已启动，每天{}点推送", calendar_time)
-
-
-def prevent_duplicate_runs(timeout_seconds=60):
-    def decorator(func):
-        last_run = 0
-
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            nonlocal last_run
-            current_time = time.time()
-
-            if current_time - last_run > timeout_seconds:
-                last_run = current_time
-                return await func(*args, **kwargs)
-            else:
-                logger.debug("status_monitor skip duplicate run: {}", func.__name__)
-
-        return wrapper
-
-    return decorator
 
 
 def format_time(timestamp):
@@ -496,8 +475,7 @@ async def check_event_codes():
             logger.warning("status_monitor 检查活动码出错: {}", e)
 
 
-@scheduler.scheduled_job("interval", minutes=STATUS_check_time)
-@prevent_duplicate_runs(timeout_seconds=3600)
+@scheduler.scheduled_job("interval", minutes=STATUS_check_time, max_instances=1)
 async def check_status():
     global previous_status
     try:
@@ -543,10 +521,10 @@ async def check_status():
             await CacheManager.save_cache(status_history, "status_history")
             return
 
-        changed_servers = []
+        changed_servers = set()
         for server, status in current.items():
             if server in previous_status and previous_status[server] != status:
-                changed_servers.append(server)
+                changed_servers.add(server)
 
                 if server not in status_history:
                     status_history[server] = {"last_maintenance": None, "last_open": None}
@@ -564,61 +542,63 @@ async def check_status():
             if get_driver().bots:
                 bot = list(get_driver().bots.values())[0]
                 groups_config = await group_config_repo.load()
+                target_groups = [
+                    (gid, bound_server)
+                    for gid, config in groups_config.items()
+                    if isinstance(config, dict)
+                    and config.get("开服推送", True) is not False
+                    and isinstance((bound_server := config.get("servers")), str)
+                    and bound_server in changed_servers
+                ]
 
-                for gid, config in groups_config.items():
+                if target_groups:
                     try:
-                        if not isinstance(config, dict) or config.get("开服推送", True) is False:
-                            continue
-
-                        bound_server = config.get("servers", "")
-                        if not bound_server or bound_server not in changed_servers:
-                            continue
-
-                        try:
-                            banben = await get_server_banben()
-                            banben = extract_version(banben)
-                        except Exception as e:
-                            logger.warning("status_monitor 获取版本号失败: {}", e)
-                            banben = "未知"
-
-                        server_info = current_details[bound_server]
-                        zone = server_info["zone"]
-                        if zone.endswith("区"):
-                            zone = zone[:-1] + "大区"
-                        status = server_info.get("legacyStatus", server_info["status"])
-
-                        server_history = status_history.get(
-                            bound_server, {"last_maintenance": None, "last_open": None}
-                        )
-                        last_maintenance_time = server_history.get("last_maintenance")
-                        last_open_time = server_history.get("last_open")
-
-                        maintenance_time_str = (
-                            "无记录" if last_maintenance_time is None else format_time(last_maintenance_time)
-                        )
-                        open_time_str = "无记录" if last_open_time is None else format_time(last_open_time)
-
-                        if status == 1:
-                            message = (
-                                f"{zone}：{bound_server}「 已开服 」\n"
-                                f"开服时间：{open_time_str}\n"
-                                f"维护时间：{maintenance_time_str}"
-                            )
-                        else:
-                            message = (
-                                f"{zone}：{bound_server}「 维护中 」\n"
-                                f"维护时间：{maintenance_time_str}\n"
-                                f"上次开服：{open_time_str}"
-                            )
-
-                        if banben != "未知":
-                            message += f"\n最新版本：{banben}"
-
-                        await send_group_msg(bot, group_id=int(gid), message=message)
-                        logger.info("status_monitor 向群{}推送服务器状态变化: {}", gid, bound_server)
-                        await asyncio.sleep(0.5)
+                        banben = await get_server_banben()
+                        banben = extract_version(banben)
                     except Exception as e:
-                        logger.warning("status_monitor 向群{}推送服务器状态失败: {}", gid, e)
+                        logger.warning("status_monitor 获取版本号失败: {}", e)
+                        banben = "未知"
+
+                    for gid, bound_server in target_groups:
+                        try:
+                            server_info = current_details[bound_server]
+                            zone = server_info["zone"]
+                            if zone.endswith("区"):
+                                zone = zone[:-1] + "大区"
+                            status = server_info.get("legacyStatus", server_info["status"])
+
+                            server_history = status_history.get(
+                                bound_server, {"last_maintenance": None, "last_open": None}
+                            )
+                            last_maintenance_time = server_history.get("last_maintenance")
+                            last_open_time = server_history.get("last_open")
+
+                            maintenance_time_str = (
+                                "无记录" if last_maintenance_time is None else format_time(last_maintenance_time)
+                            )
+                            open_time_str = "无记录" if last_open_time is None else format_time(last_open_time)
+
+                            if status == 1:
+                                message = (
+                                    f"{zone}：{bound_server}「 已开服 」\n"
+                                    f"开服时间：{open_time_str}\n"
+                                    f"维护时间：{maintenance_time_str}"
+                                )
+                            else:
+                                message = (
+                                    f"{zone}：{bound_server}「 维护中 」\n"
+                                    f"维护时间：{maintenance_time_str}\n"
+                                    f"上次开服：{open_time_str}"
+                                )
+
+                            if banben != "未知":
+                                message += f"\n最新版本：{banben}"
+
+                            await send_group_msg(bot, group_id=int(gid), message=message)
+                            logger.info("status_monitor 向群{}推送服务器状态变化: {}", gid, bound_server)
+                            await asyncio.sleep(0.5)
+                        except Exception as e:
+                            logger.warning("status_monitor 向群{}推送服务器状态失败: {}", gid, e)
 
         previous_status = current
         await CacheManager.save_cache(previous_status, "server_status")
