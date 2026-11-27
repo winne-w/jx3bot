@@ -196,9 +196,6 @@ class TestDomainKungfuCatalog(unittest.TestCase):
 
     def test_count_kungfu_by_rank_places_tanks_in_tank_lane(self) -> None:
         service = JjcRankingService(
-            token="",
-            ticket="",
-            jjc_query_url="",
             arena_time_tag_url="",
             arena_ranking_url="",
             match_detail_url="",
@@ -210,7 +207,6 @@ class TestDomainKungfuCatalog(unittest.TestCase):
             kungfu_dps_list=dps_names(),
             kungfu_pinyin_to_chinese={p: s.name for p, s in KUNGFU_BY_PINYIN.items()},
             tuilan_request=lambda url, params: {},
-            defget_get=AsyncMock(return_value={}),
         )
 
         players = [

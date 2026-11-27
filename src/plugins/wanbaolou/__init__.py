@@ -32,7 +32,10 @@ def _repo() -> WanbaolouSubRepo:
 # 导出主要功能函数，方便直接导入使用
 # 创建全局API实例（禁用SSL验证）
 api = JX3TradeAPI(verify_ssl=False)
-env = Environment(loader=FileSystemLoader('templates'), autoescape=True)
+try:
+    from src.services.jx3.singletons import jinja_env as env
+except Exception:
+    env = Environment(loader=FileSystemLoader('templates'), autoescape=True)
 
 
 # 导出获取物品列表的方法（带解析功能）
@@ -110,7 +113,7 @@ driver = get_driver()
 
 # 全局变量存储搜索结果
 # 常量定义
-SEARCH_TIMEOUT = 30  # 搜索结果有效期5分钟
+SEARCH_TIMEOUT = 30  # 搜索结果有效期30秒
 SESSION_TIMEOUT = SEARCH_TIMEOUT  # 确保两个超时时间一致
 NOTIFIED_USERS = set()  # 已通知的用户集合
 # 全局变量定义（放在代码顶部，其他全局变量旁边）
@@ -700,8 +703,8 @@ my_xsubscriptions = on_regex(r"^订阅价格$", priority=5, block=True)
 
 
 @my_xsubscriptions.handle()
-async def handle_my_subscriptions(bot: Bot, event: Event, matcher: Matcher):
-    """处理查看我的订阅命令"""
+async def handle_my_subscription_prices(bot: Bot, event: Event, matcher: Matcher):
+    """处理查看订阅价格命令"""
     user_id = str(event.user_id)
     await bot.send(event, Message(f"正在为您查询,订阅价格！"))
 

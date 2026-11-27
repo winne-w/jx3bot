@@ -1,12 +1,23 @@
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Dict, List, Tuple
 
 from jinja2 import Environment
 from nonebot import logger
 from nonebot.adapters.onebot.v11 import Bot, Event, MessageSegment
 
 from src.services.jx3.weapon_quality import extract_member_weapon_name, is_jjc_legendary_weapon
+
+_SPLIT_RANKING_TEMPLATE = "竞技场心法排名_分段.html"
+_SPLIT_RANKING_SCOPES: Tuple[Tuple[str, str], ...] = (
+    ("top_200", "前200"),
+    ("top_100", "前100"),
+    ("top_50", "前50"),
+)
+_SPLIT_RANKING_LANES: Tuple[Tuple[str, str, bool], ...] = (
+    ("healer", "奶妈", True),
+    ("dps", "DPS", False),
+)
 
 
 def _prepare_template_data(
@@ -156,78 +167,48 @@ async def send_split_ranking_images(
     show_legendary: bool,
 ) -> None:
     has_top_1000 = "top_1000" in stats
-    ranking_configs = []
-    if has_top_1000:
-        ranking_configs.extend(
-            [
+    scopes: List[Tuple[str, str]] = (
+        [("top_1000", "前1000")] if has_top_1000 else []
+    ) + list(_SPLIT_RANKING_SCOPES)
+
+    ranking_configs: List[Dict[str, Any]] = []
+    for scope_key, scope_label in scopes:
+        scope_stats = stats.get(scope_key, {})
+        for lane_key, lane_label, is_healer in _SPLIT_RANKING_LANES:
+            ranking_configs.append(
                 {
-                    "name": "前1000奶妈",
-                    "template": "竞技场心法排名_前1000奶妈.html",
-                    "data_key": "top_1000_healer",
-                    "data": _prepare_template_data(stats.get("top_1000", {}), "healer"),
-                },
-                {
-                    "name": "前1000DPS",
-                    "template": "竞技场心法排名_前1000DPS.html",
-                    "data_key": "top_1000_dps",
-                    "data": _prepare_template_data(stats.get("top_1000", {}), "dps"),
-                },
-            ]
-        )
-    ranking_configs.extend(
-        [
-            {
-                "name": "前200奶妈",
-                "template": "竞技场心法排名_前200奶妈.html",
-                "data_key": "top_200_healer",
-                "data": _prepare_template_data(stats.get("top_200", {}), "healer"),
-            },
-            {
-                "name": "前200DPS",
-                "template": "竞技场心法排名_前200DPS.html",
-                "data_key": "top_200_dps",
-                "data": _prepare_template_data(stats.get("top_200", {}), "dps"),
-            },
-            {
-                "name": "前100奶妈",
-                "template": "竞技场心法排名_前100奶妈.html",
-                "data_key": "top_100_healer",
-                "data": _prepare_template_data(stats.get("top_100", {}), "healer"),
-            },
-            {
-                "name": "前100DPS",
-                "template": "竞技场心法排名_前100DPS.html",
-                "data_key": "top_100_dps",
-                "data": _prepare_template_data(stats.get("top_100", {}), "dps"),
-            },
-            {
-                "name": "前50奶妈",
-                "template": "竞技场心法排名_前50奶妈.html",
-                "data_key": "top_50_healer",
-                "data": _prepare_template_data(stats.get("top_50", {}), "healer"),
-            },
-            {
-                "name": "前50DPS",
-                "template": "竞技场心法排名_前50DPS.html",
-                "data_key": "top_50_dps",
-                "data": _prepare_template_data(stats.get("top_50", {}), "dps"),
-            },
-        ]
-    )
+                    "name": f"{scope_label}{lane_label}",
+                    "scope_key": scope_key,
+                    "template": _SPLIT_RANKING_TEMPLATE,
+                    "data_key": f"{scope_key}_{lane_key}",
+                    "data": _prepare_template_data(scope_stats, lane_key),
+                    "page_title": f"{scope_label}{lane_label}心法排名",
+                    "pill_label": f"{scope_label} {lane_label}心法分布",
+                    "section_title": f"{scope_label} {lane_label}心法",
+                    "is_healer": is_healer,
+                }
+            )
 
     images_sent = 0
     for i, config in enumerate(ranking_configs, 1):
         try:
+            scope_stats = stats.get(config["scope_key"], {})
+            equipment_incomplete = _equipment_incomplete(scope_stats)
             image_bytes = await render_template_image(
                 env,
                 config["template"],
                 {
                     "current_season": current_season,
                     "week_info": week_info,
+                    "page_title": config["page_title"],
+                    "pill_label": config["pill_label"],
+                    "section_title": config["section_title"],
+                    "lane_items": config["data"],
+                    "is_healer": config["is_healer"],
                     config["data_key"]: config["data"],
-                    "show_legendary": show_legendary and not _equipment_incomplete(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
-                    "coverage_label": _coverage_label(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
-                    "equipment_incomplete": _equipment_incomplete(stats.get(config["data_key"].rsplit("_", 1)[0], {})),
+                    "show_legendary": show_legendary and not equipment_incomplete,
+                    "coverage_label": _coverage_label(scope_stats),
+                    "equipment_incomplete": equipment_incomplete,
                 },
                 width=760,
                 height="ck",

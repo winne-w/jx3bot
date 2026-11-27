@@ -48,6 +48,10 @@ async def _shutdown_jjc_resources():
         from src.infra.http_client import close_shared_async_clients
         await close_shared_async_clients()
 
+    async def close_browser():
+        from src.infra.screenshot import close_browser_pool
+        await close_browser_pool()
+
     async def stop_equipment():
         import sys
         assembly = sys.modules.get("src.services.jx3.singletons")
@@ -63,7 +67,7 @@ async def _shutdown_jjc_resources():
     stops = (("equipment", stop_equipment), ("foreground", lambda: stop_jjc_foreground(jjc_foreground_client)),
              ("kungfu", stop_kungfu_refresh), ("dispatcher", stop_jjc_sync_dispatcher),
              ("workers", stop_jjc_sync_workers), ("live", stop_live_refresh), ("mongo", close_mongo),
-             ("http_client", close_http))
+             ("http_client", close_http), ("browser_pool", close_browser))
     for component, stop in stops:
         try:
             complete = await stop()

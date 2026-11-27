@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ (page_title or '竞技场心法排名') | e }}</title>
+    {% include "_partials/base_card_style.html" %}
+</head>
+<body>
+{% from "_partials/ranking_lane_card.html" import render_lane_section %}
+{% autoescape true %}
+    <div class="jx3-shell">
+        <header class="jx3-header-card">
+            <div class="jx3-title-row">
+                <h1 class="jx3-title">竞技场心法排名统计</h1>
+                <span class="jx3-subtitle">{{ current_season }}{{ week_info }}</span>
+            </div>
+            <div class="jx3-pills">
+                <span class="jx3-pill">{{ pill_label }}（{{ current_season }}{{ week_info }}）</span>
+            </div>
+            <div class="jx3-header-desc">{{ coverage_label if coverage_label else '心法覆盖率未记录' }}</div>
+            {% if equipment_incomplete %}<div class="jx3-notice">装备数据不完整，橙武占比暂不展示</div>{% endif %}
+        </header>
+
+        <section class="jx3-card">
+            {{ render_lane_section(section_title, lane_items, show_legendary, is_healer) | safe }}
+        </section>
+
+        {% set footer_note = current_season ~ week_info ~ ' · 竞技场心法分布统计' %}
+        {% include "_partials/card_footer.html" %}
+    </div>
+{% endautoescape %}
+</body>
+</html>

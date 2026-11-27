@@ -1671,6 +1671,7 @@
         <span class="floating-feedback-text">反馈</span>
     </div>
 
+    <script src="jjc-common.js"></script>
     <script src="jjc-equipment-view.js?contract=2"></script>
     <script>
         const BASE_API = "/jx3bot/api/jjc/ranking-stats";
@@ -2109,6 +2110,9 @@
         const legendaryToggle = toggleContainer.querySelector("#legendary-toggle");
 
         function escapeHtml(value) {
+            if (window.JjcCommon && typeof window.JjcCommon.escapeHtml === "function") {
+                return window.JjcCommon.escapeHtml(value);
+            }
             return String(value ?? "")
                 .replaceAll("&", "&amp;")
                 .replaceAll("<", "&lt;")
