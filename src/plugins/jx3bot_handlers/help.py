@@ -76,7 +76,7 @@ def register(
                     "offline_duration": offline_duration_str,
                     "last_connect": datetime.fromtimestamp(bot_status["last_connect_time"]).strftime("%Y-%m-%d"),
                 },
-                width=810,
+                width=760,
                 height="ck",
             )
         except Exception as e:

@@ -2,196 +2,130 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=760, initial-scale=1.0">
     <title>角色百战信息</title>
+    {% include "_partials/base_card_style.html" %}
     <style>
-        :root {
-            --bg-gradient: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);
-            --card-bg: rgba(255,255,255,0.95);
-            --text-main: #2c3e50;
-            --text-sub: #6b7f99;
-            --accent: #89C4F4;
-            --accent-2: #7BEDFF;
-            --border: rgba(137, 196, 244, 0.25);
-            --shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+        .bz-skill-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: "Microsoft YaHei", sans-serif;
-            background: var(--bg-gradient);
-            color: var(--text-main);
-            padding: 10px;
-        }
-        .wrap {
-            width: 100%;
-            max-width: 608px;
-            margin: 0 auto;
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 14px;
-            box-shadow: var(--shadow);
-        }
-        .title {
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--text-main);
-            margin-bottom: 8px;
+        .bz-skill-item {
             display: flex;
             align-items: center;
             gap: 10px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid rgba(137, 196, 244, 0.25);
-        }
-        .title img { width: 30px; height: 30px; }
-        .sub {
-            display: flex;
-            gap: 8px;
-            color: var(--text-sub);
-            font-size: 12px;
-            margin-bottom: 10px;
-            flex-wrap: wrap;
-        }
-        .sub span {
-            background: rgba(137, 196, 244, 0.12);
-            border: 1px solid rgba(137, 196, 244, 0.18);
-            border-radius: 12px;
-            padding: 2px 8px;
-        }
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 6px;
-            margin-bottom: 10px;
-        }
-        .stat {
-            background: rgba(137, 196, 244, 0.10);
-            border: 1px solid rgba(137, 196, 244, 0.20);
-            border-radius: 10px;
             padding: 10px 12px;
-        }
-        .stat .label { color: var(--text-sub); font-size: 13px; margin-bottom: 4px; }
-        .stat .value { color: #23364f; font-size: 22px; font-weight: 700; line-height: 1.1; }
-        .skill-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin: 4px 0 8px;
-            color: #35506f;
-            font-size: 12px;
-        }
-        .skill-grid {
-            display: grid;
-            grid-template-columns: repeat(6, 96px);
-            justify-content: center;
-            gap: 3px;
-        }
-        .skill {
-            background: rgba(255,255,255,0.88);
-            border: 1px solid rgba(137, 196, 244, 0.25);
-            border-radius: 8px;
-            padding: 3px;
-            display: flex;
-            align-items: center;
-            min-height: 34px;
-        }
-        .skill img {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-            margin-right: 3px;
-            flex-shrink: 0;
-            background: #dbe9f8;
-        }
-        .skill-main {
+            background: var(--jx3-surface-alt);
+            border: 1px solid var(--jx3-border);
+            border-radius: var(--jx3-radius-md);
             min-width: 0;
-            width: 100%;
         }
-        .skill-name {
-            color: #2d4766;
-            font-size: 9px;
-            line-height: 1.2;
-            max-width: 5.1em;
+        .bz-skill-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            border: 1px solid var(--jx3-border-strong);
+            object-fit: cover;
+            flex-shrink: 0;
+            background: var(--jx3-surface);
+        }
+        .bz-skill-info {
+            min-width: 0;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .bz-skill-name {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--jx3-ink);
+            line-height: 1.25;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            margin-bottom: 1px;
         }
-        .skill-meta {
-            display: flex;
-            justify-content: flex-start;
-            color: #6f86a5;
-            font-size: 9px;
-            gap: 4px;
-        }
-        .lv {
-            color: #ff6b9a;
+        .bz-skill-lv {
+            align-self: flex-start;
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 9px;
+            border-radius: 999px;
+            font-size: 15px;
             font-weight: 700;
+            line-height: 1.3;
+            background: var(--jx3-primary-soft);
+            color: var(--jx3-primary-ink);
         }
-        .footer {
-            margin-top: 14px;
-            padding-top: 10px;
-            border-top: 1px dashed rgba(137, 196, 244, 0.45);
-            color: #6f86a5;
-            font-size: 12px;
-            text-align: right;
+        .bz-skill-lv.is-high {
+            background: var(--jx3-gold-soft);
+            color: var(--jx3-gold);
         }
     </style>
 </head>
 <body>
-<div class="wrap">
-    <div class="title">
-        <img src="http://127.0.0.1:8000/img/baizhan/logo.png" alt="logo">
-        <span>角色百战信息</span>
-    </div>
-    <div class="sub">
-        <span>角色：{{ role_name }}</span>
-        <span>区服：{{ server_name }}</span>
-        <span>大区：{{ zone_name }}</span>
-        <span>更新时间：{{ update_time }}</span>
-    </div>
-
-    <div class="stats">
-        <div class="stat">
-            <div class="label">精力值</div>
-            <div class="value">{{ game_energy }}</div>
+{% autoescape true %}
+<main class="jx3-shell">
+    <header class="jx3-header-card">
+        <div class="jx3-title-row">
+            <h1 class="jx3-title">{{ role_name }}</h1>
+            <span class="jx3-subtitle">{{ zone_name }}{% if zone_name and server_name %} · {% endif %}{{ server_name }}</span>
         </div>
-        <div class="stat">
-            <div class="label">耐力值</div>
-            <div class="value">{{ game_stamina }}</div>
+        <div class="jx3-pills">
+            <span class="jx3-pill">百战异闻录角色档案</span>
+            {% if update_time %}
+            <span class="jx3-pill jx3-pill--muted">更新：{{ update_time }}</span>
+            {% endif %}
         </div>
-        <div class="stat">
-            <div class="label">技能数量</div>
-            <div class="value">{{ skill_count }}</div>
-        </div>
-    </div>
+    </header>
 
-    <div class="skill-header">
-        <div>技能等级（按等级降序）</div>
-        <div>展示数量：{{ skills|length }}</div>
-    </div>
-
-    <div class="skill-grid">
-        {% for skill in skills %}
-        <div class="skill">
-            <img src="{{ skill.icon_url if skill.icon_url else 'http://127.0.0.1:8000/img/baizhan/logo.png' }}" alt="{{ skill.name }}">
-            <div class="skill-main">
-                <div class="skill-name" title="{{ skill.name }}">
-                    {% if skill.name|length > 5 %}
-                        {{ skill.name[:5] }}…
-                    {% else %}
-                        {{ skill.name }}
-                    {% endif %}
-                </div>
-                <div class="skill-meta">
-                    <span class="lv">{{ skill.level_text }}</span>
-                </div>
+    <section class="jx3-card">
+        <div class="jx3-stat-grid jx3-cols-3">
+            <div class="jx3-stat-box">
+                <div class="jx3-stat-label">精力值</div>
+                <div class="jx3-stat-val">{{ game_energy }}</div>
+            </div>
+            <div class="jx3-stat-box">
+                <div class="jx3-stat-label">耐力值</div>
+                <div class="jx3-stat-val">{{ game_stamina }}</div>
+            </div>
+            <div class="jx3-stat-box">
+                <div class="jx3-stat-label">技能数量</div>
+                <div class="jx3-stat-val">{{ skill_count }}</div>
             </div>
         </div>
-        {% endfor %}
-    </div>
+    </section>
 
-    <div class="footer">{{ text }}</div>
-</div>
+    <section class="jx3-card">
+        <div class="jx3-section-head">
+            <h2 class="jx3-section-title">百战技能列表</h2>
+            <span class="jx3-section-meta">按重数降序 · 展示 {{ skills|length if skills else 0 }} 项</span>
+        </div>
+        {% if skills %}
+        <div class="bz-skill-grid">
+            {% for skill in skills %}
+            {% set icon_src = skill.icon_url or skill.icon %}
+            <div class="bz-skill-item">
+                {% if icon_src %}
+                <img class="bz-skill-icon" src="{{ icon_src }}" alt="{{ skill.name }}" onerror="this.style.display='none'">
+                {% endif %}
+                <div class="bz-skill-info">
+                    <div class="bz-skill-name">{{ skill.name }}</div>
+                    <span class="bz-skill-lv {{ 'is-high' if skill.level is number and skill.level >= 8 else '' }}">
+                        {{ skill.level_text if skill.level_text is defined and skill.level_text else ((skill.level ~ '重') if skill.level is defined and skill.level is not none else '-') }}
+                    </span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="jx3-empty">暂无百战技能记录</div>
+        {% endif %}
+    </section>
+
+    {% include "_partials/card_footer.html" %}
+</main>
+{% endautoescape %}
 </body>
 </html>

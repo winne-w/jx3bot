@@ -1,0 +1,6 @@
+{% autoescape true %}
+<footer class="jx3-footer">
+    <div class="jx3-footer-note">{{ footer_note if footer_note is defined and footer_note else (text if text is defined and text else '剑网 3 查询助手') }}</div>
+    <div class="jx3-footer-brand">【夏鸥】bot</div>
+</footer>
+{% endautoescape %}

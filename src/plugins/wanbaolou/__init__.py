@@ -32,7 +32,7 @@ def _repo() -> WanbaolouSubRepo:
 # 导出主要功能函数，方便直接导入使用
 # 创建全局API实例（禁用SSL验证）
 api = JX3TradeAPI(verify_ssl=False)
-env = Environment(loader=FileSystemLoader('templates'))
+env = Environment(loader=FileSystemLoader('templates'), autoescape=True)
 
 
 # 导出获取物品列表的方法（带解析功能）
@@ -213,6 +213,7 @@ async def check_timeouts():
                     img = await get_item_image(mingcheng)
                     template = env.get_template('万宝楼查询.html')
                     html_content = template.render(
+                        item_name=mingcheng,
                         header_image=img,
                         sale_total=sale_items.get('total_items', 0),
                         public_total=public_items.get('total_items', 0),
@@ -220,8 +221,9 @@ async def check_timeouts():
                         public_items=public_items.get('parsed_items', []),
                         is_subscribed=is_subscribed,  # 是否已订阅
                         subscribed_price=subscribed_price,  # 订阅价格阈值
+                        text=suijitext(),
                     )
-                    image_bytes = await jietu(html_content, 810, "ck")
+                    image_bytes = await jietu(html_content, 760, "ck")
 
                     # 发送消息
                     if group_id:
@@ -452,16 +454,17 @@ async def process_appearance_query(bot: Bot, event: Event, selected: dict, is_au
     img = await get_item_image(mingcheng)
     template = env.get_template('万宝楼查询.html')
     html_content = template.render(
+        item_name=mingcheng,
         header_image=img,
         sale_total=sale_items.get('total_items', 0),
         public_total=public_items.get('total_items', 0),
         sale_items=sale_items.get('parsed_items', []),
         public_items=public_items.get('parsed_items', []),
         is_subscribed=is_subscribed,  # 是否已订阅
-        subscribed_price=subscribed_price , # 订阅价格阈值
-        text=text
+        subscribed_price=subscribed_price,  # 订阅价格阈值
+        text=text,
     )
-    image_bytes = await jietu(html_content, 820, "ck")
+    image_bytes = await jietu(html_content, 760, "ck")
 
     # 发送结果
     await bot.send(
@@ -601,8 +604,14 @@ async def get_all_subscriptions(bot: Bot, event: Event):
     message += f"\n共有 {len(grouped)} 个用户，{total_subs} 个订阅"
 
     if len(message) > 1000:
-        html_content = f"<pre>{message}</pre>"
-        image_bytes = await jietu(html_content, 600, "ck")
+        template = env.get_template("订阅列表.html")
+        html_content = template.render(
+            grouped=grouped,
+            total_users=len(grouped),
+            total_subs=total_subs,
+            text=suijitext(),
+        )
+        image_bytes = await jietu(html_content, 760, "ck")
         await suoyou_config_cmd.finish(MessageSegment.image(image_bytes))
     else:
         await suoyou_config_cmd.finish(message)

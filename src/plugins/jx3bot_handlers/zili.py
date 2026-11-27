@@ -85,11 +85,12 @@ def register(zili_matcher: Any, zili_choice_matcher: Any, env: Environment, *, m
 
         tongji[0] = round((tongji[3] / tongji[4]) * 100, 2) if tongji[4] > 0 else 0
 
+        server_name = items.get("data", {}).get("serverName", "")
         image_bytes = await render_template_image(
             env,
             "资历查询.html",
-            {"text": text, "tongji": tongji, "items": data},
-            width=960,
+            {"text": text, "tongji": tongji, "qufu": server_name, "items": data},
+            width=760,
             height="ck",
         )
         await send_image(bot, event, image_bytes, at_user=False, prefix="   资历总览")
@@ -119,11 +120,12 @@ def register(zili_matcher: Any, zili_choice_matcher: Any, env: Environment, *, m
         tongji[0] = round((tongji[3] / tongji[4]) * 100, 2) if tongji[4] > 0 else 0
 
         text = suijitext()
+        server_name = items.get("data", {}).get("serverName", "")
         image_bytes = await render_template_image(
             env,
             "资历查询.html",
-            {"text": text, "tongji": tongji, "zilizonglan": current_location, "items": current_data},
-            width=1120,
+            {"text": text, "tongji": tongji, "qufu": server_name, "zilizonglan": current_location, "items": current_data},
+            width=760,
             height="ck",
         )
         await send_image(bot, event, image_bytes, at_user=False, prefix=f"   当前位置: {current_location}")
@@ -168,17 +170,19 @@ def register(zili_matcher: Any, zili_choice_matcher: Any, env: Environment, *, m
 
         item_title = f"项目详情: {selected_key}"
         text = suijitext()
+        server_name = items.get("data", {}).get("serverName", "")
         image_bytes = await render_template_image(
             env,
             "资历查询.html",
             {
                 "text": text,
                 "tongji": tongji,
+                "qufu": server_name,
                 "zilizonglan": item_title,
                 "items": sub_dict,
                 "is_second_level": is_second_level,
             },
-            width=800,
+            width=760,
             height="ck",
         )
         await send_image(bot, event, image_bytes, at_user=False, prefix=f"   {selected_key} 详细信息")
@@ -230,20 +234,20 @@ def register(zili_matcher: Any, zili_choice_matcher: Any, env: Environment, *, m
         path = user_sessions[user_id]["nav_path"]
         current_location = " > ".join(path)
         text = suijitext()
-        width = 225 * len(my_dict) if is_second_level else 1120
-        height = 390 if is_second_level else "ck"
+        server_name = user_sessions[user_id]["items"].get("data", {}).get("serverName", "")
         image_bytes = await render_template_image(
             env,
             "资历查询.html",
             {
                 "text": text,
                 "tongji": tongji,
+                "qufu": server_name,
                 "zilizonglan": current_location,
                 "items": my_dict,
                 "is_second_level": is_second_level,
             },
-            width=width,
-            height=height,
+            width=760,
+            height="ck",
         )
         await send_image(bot, event, image_bytes, at_user=False, prefix=f"   {selected_key}")
 
@@ -326,7 +330,7 @@ def register(zili_matcher: Any, zili_choice_matcher: Any, env: Environment, *, m
             env,
             "资历查询.html",
             {"text": text, "tongji": tongji, "qufu": server, "items": my_dict},
-            width=960,
+            width=760,
             height="ck",
         )
         await send_image(bot, event, image_bytes, at_user=False, prefix="   查询结果")
@@ -420,11 +424,12 @@ def register(zili_matcher: Any, zili_choice_matcher: Any, env: Environment, *, m
                         tongji[4] += item["wdzl"]
                     tongji[0] = round((tongji[3] / tongji[4]) * 100, 2) if tongji[4] > 0 else 0
 
+                    server_name = items.get("data", {}).get("serverName", "")
                     image_bytes = await render_template_image(
                         env,
                         "资历查询.html",
-                        {"text": suijitext(), "tongji": tongji, "zilizonglan": "地图分布", "items": map_dict},
-                        width=1120,
+                        {"text": suijitext(), "tongji": tongji, "qufu": server_name, "zilizonglan": "地图分布", "items": map_dict},
+                        width=760,
                         height="ck",
                     )
                     await send_image(bot, event, image_bytes, at_user=False, prefix="   地图分布")
@@ -478,11 +483,12 @@ def register(zili_matcher: Any, zili_choice_matcher: Any, env: Environment, *, m
                         tongji[4] += item["wdzl"]
                     tongji[0] = round((tongji[3] / tongji[4]) * 100, 2) if tongji[4] > 0 else 0
 
+                    server_name = items.get("data", {}).get("serverName", "")
                     image_bytes = await render_template_image(
                         env,
                         "资历查询.html",
-                        {"text": suijitext(), "tongji": tongji, "zilizonglan": selected_key, "items": sub_dict},
-                        width=1120,
+                        {"text": suijitext(), "tongji": tongji, "qufu": server_name, "zilizonglan": selected_key, "items": sub_dict},
+                        width=760,
                         height="ck",
                     )
                     await send_image(bot, event, image_bytes, at_user=False, prefix=f"   {selected_key}")
@@ -528,16 +534,18 @@ def register(zili_matcher: Any, zili_choice_matcher: Any, env: Environment, *, m
                             tongji[4] += item["wdzl"]
                         tongji[0] = round((tongji[3] / tongji[4]) * 100, 2) if tongji[4] > 0 else 0
 
+                        server_name = items.get("data", {}).get("serverName", "")
                         image_bytes = await render_template_image(
                             env,
                             "资历查询.html",
                             {
                                 "text": suijitext(),
                                 "tongji": tongji,
+                                "qufu": server_name,
                                 "zilizonglan": "秘境分布",
                                 "items": dungeon_dict,
                             },
-                            width=1120,
+                            width=760,
                             height="ck",
                         )
                         await send_image(bot, event, image_bytes, at_user=False, prefix="   秘境分布")

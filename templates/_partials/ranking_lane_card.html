@@ -1,0 +1,42 @@
+{% macro render_lane_section(lane_title, rows, show_legendary, is_healer=False) %}
+{% autoescape true %}
+<div class="jx3-lane-block">
+    <div class="jx3-section-head">
+        <h2 class="jx3-section-title">{{ lane_title }}</h2>
+        {% if rows and rows[0][3] is not none %}
+        <span class="jx3-section-meta">入榜线 {{ rows[0][3] }}</span>
+        {% endif %}
+    </div>
+    {% if rows %}
+    {% set max_count = rows[0][1] if rows[0][1] is number and rows[0][1] > 0 else 1 %}
+    <div class="jx3-bar-list">
+        {% for kungfu, count, percent, min_score, legendary_percent in rows %}
+        {% set safe_count = count if count is number else 0 %}
+        {% set safe_cw = legendary_percent if legendary_percent is number else 0 %}
+        <div class="jx3-bar-item">
+            <div class="jx3-bar-top">
+                <span class="jx3-bar-name">{{ kungfu }}</span>
+                <span class="jx3-bar-stats">
+                    <strong class="jx3-bar-count">{{ safe_count }}</strong>
+                    <span class="jx3-bar-pct">{{ percent }}</span>
+                    {% if show_legendary and safe_cw > 0 %}
+                    <span class="jx3-bar-cw">橙 {{ "%.1f"|format(safe_cw) }}%</span>
+                    {% endif %}
+                </span>
+            </div>
+            <div class="jx3-bar-track">
+                <div class="bar-fill {{ 'is-healer' if is_healer else 'is-dps' }}" style="width:{{ (100.0 * safe_count / max_count)|round(2) if safe_count > 0 else 1.5 }}%;">
+                    {% if show_legendary %}
+                    <div class="bar-legendary" style="width:{{ safe_cw }}%;"></div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="jx3-empty">暂无统计数据</div>
+    {% endif %}
+</div>
+{% endautoescape %}
+{% endmacro %}
