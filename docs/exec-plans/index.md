@@ -16,6 +16,8 @@
 
 ## Completed
 
+- `completed/jjc-ranking-missing-kungfu-dm-plan.md`: JJC 排名定时任务缺失心法名单改私聊管理员计划；两轮独立 Review 通过，38 项 Python 3.9 单测通过。
+
 - `../../openspec/changes/archive/2026-11-24-kungfu-alias-search/tasks.md`: 33心法别名映射与装备命令解析。
 
 - `../../openspec/changes/archive/2026-11-24-equipment-mobile-and-loadout-filters/tasks.md`: 手机大字紧凑装备图片及心法/配装类型筛选。

@@ -261,6 +261,237 @@ class StatusMonitorJobsAdminNotificationTests(unittest.TestCase):
 
                 notify.assert_not_awaited()
 
+    def test_push_daily_jjc_ranking_sends_missing_kungfu_only_to_admins_once(self) -> None:
+        module = _load_jobs(admin_qq=[101, 202])
+        missing_lines = [
+            "1. 梦江南 角色A - id:1001",
+            "2. 唯满侠 角色B - id:1002",
+        ]
+        bot, notify = self._prepare_ranking_job(
+            module,
+            ranking_result={"code": 0, "defaultWeek": 1, "cache_time": 1},
+            ranking_data={
+                "kungfu_statistics": {"dps": {}},
+                "missing_kungfu_lines": missing_lines,
+            },
+            payload={
+                "image_bytes": b"png-bytes",
+                "scope_desc": "前200、前100、前50",
+                "total_valid_data": 198,
+                "processed_label": "前200名",
+            },
+        )
+        module.group_config_repo.load = AsyncMock(
+            return_value={
+                "123": {"竞技排名推送": True},
+                "456": {"竞技排名推送": True},
+            }
+        )
+        bot.get_group_list = AsyncMock(return_value=[{"group_id": 123}, {"group_id": 456}])
+
+        with unittest.mock.patch.object(module.asyncio, "sleep", AsyncMock()) as sleep_mock:
+            asyncio.run(module.push_daily_jjc_ranking())
+
+        notify.assert_not_awaited()
+        expected_summary = (
+            "⏰ 每日03:00/21:00竞技排名推送（第1周）\n"
+            "统计范围：前200、前100、前50\n"
+            "统计完成！共处理 198 条有效数据（前200名）"
+        )
+        self.assertEqual(
+            bot.send_group_msg.await_args_list,
+            [
+                unittest.mock.call(group_id=123, message=b"png-bytes"),
+                unittest.mock.call(group_id=123, message=expected_summary),
+                unittest.mock.call(group_id=456, message=b"png-bytes"),
+                unittest.mock.call(group_id=456, message=expected_summary),
+            ],
+        )
+
+        expected_private_msg = (
+            "【每日竞技排名定时任务（第1周）】未查询到心法的角色（共2人，第1-2名）\n"
+            "1. 梦江南 角色A - id:1001\n"
+            "2. 唯满侠 角色B - id:1002"
+        )
+        self.assertEqual(
+            bot.send_private_msg.await_args_list,
+            [
+                unittest.mock.call(user_id=101, message=expected_private_msg),
+                unittest.mock.call(user_id=202, message=expected_private_msg),
+            ],
+        )
+        # 2 个群各 sleep 1 次 + 2 个管理员之间 sleep 1 次（最后 1 条私聊后不再 sleep）
+        self.assertEqual(sleep_mock.await_count, 3)
+
+    def test_notify_jjc_ranking_missing_kungfu_chunks_and_continues_after_admin_error(self) -> None:
+        module = _load_jobs(admin_qq=[101, 202])
+        bot = _FakeBot()
+        bot.send_private_msg.side_effect = [RuntimeError("blocked"), None, None]
+        missing_lines = [f"{i}. 梦江南 角色{i} - id:{i}" for i in range(1, 102)]
+
+        with unittest.mock.patch.object(module.asyncio, "sleep", AsyncMock()) as sleep_mock:
+            asyncio.run(module.notify_jjc_ranking_missing_kungfu(bot, missing_lines, week_info="第3周"))
+
+        self.assertEqual(bot.send_private_msg.await_count, 3)
+        self.assertEqual(bot.send_private_msg.await_args_list[0].kwargs["user_id"], 101)
+        self.assertEqual(bot.send_private_msg.await_args_list[1].kwargs["user_id"], 202)
+        self.assertIn(
+            "【每日竞技排名定时任务（第3周）】未查询到心法的角色（共101人，第1-100名）",
+            bot.send_private_msg.await_args_list[1].kwargs["message"],
+        )
+        self.assertEqual(bot.send_private_msg.await_args_list[2].kwargs["user_id"], 202)
+        self.assertIn(
+            "【每日竞技排名定时任务（第3周）】未查询到心法的角色（共101人，第101-101名）",
+            bot.send_private_msg.await_args_list[2].kwargs["message"],
+        )
+        # 管理员 202 的第 1 片与第 2 片之间 sleep 1 次；最后一片后不 sleep
+        self.assertEqual(sleep_mock.await_count, 1)
+
+    def test_push_daily_jjc_ranking_sends_missing_kungfu_to_admins_when_no_target_groups(self) -> None:
+        module = _load_jobs(admin_qq=[101])
+        bot, notify = self._prepare_ranking_job(
+            module,
+            ranking_result={"code": 0, "defaultWeek": 1, "cache_time": 1},
+            ranking_data={
+                "kungfu_statistics": {"dps": {}},
+                "missing_kungfu_lines": ["1. 梦江南 角色A - id:1001"],
+            },
+        )
+        module.group_config_repo.load = AsyncMock(return_value={"123": {"竞技排名推送": False}})
+
+        with unittest.mock.patch.object(module.asyncio, "sleep", AsyncMock()) as sleep_mock:
+            asyncio.run(module.push_daily_jjc_ranking())
+
+        notify.assert_not_awaited()
+        bot.send_group_msg.assert_not_awaited()
+        bot.send_private_msg.assert_awaited_once_with(
+            user_id=101,
+            message="【每日竞技排名定时任务（第1周）】未查询到心法的角色（共1人，第1-1名）\n1. 梦江南 角色A - id:1001",
+        )
+        sleep_mock.assert_not_awaited()
+
+    def test_push_daily_jjc_ranking_skips_private_msg_when_missing_kungfu_empty_or_none(self) -> None:
+        for missing_value in ([], None):
+            with self.subTest(missing_value=missing_value):
+                module = _load_jobs(admin_qq=[101])
+                bot, notify = self._prepare_ranking_job(
+                    module,
+                    ranking_result={"code": 0, "defaultWeek": 1, "cache_time": 1},
+                    ranking_data={
+                        "kungfu_statistics": {"dps": {}},
+                        "missing_kungfu_lines": missing_value,
+                    },
+                    payload={
+                        "image_bytes": b"png-bytes",
+                        "scope_desc": "前200、前100、前50",
+                        "total_valid_data": 200,
+                        "processed_label": "前200名",
+                    },
+                )
+                bot.get_group_list = AsyncMock(return_value=[{"group_id": 123}])
+
+                with unittest.mock.patch.object(module.asyncio, "sleep", AsyncMock()):
+                    asyncio.run(module.push_daily_jjc_ranking())
+
+                notify.assert_not_awaited()
+                self.assertEqual(bot.send_group_msg.await_count, 2)
+                bot.send_private_msg.assert_not_awaited()
+
+    def test_push_daily_jjc_ranking_still_sends_missing_kungfu_when_render_fails_or_group_fails(self) -> None:
+        with self.subTest(case="render_fails"):
+            module = _load_jobs(admin_qq=[101])
+            bot, notify = self._prepare_ranking_job(
+                module,
+                ranking_result={"code": 0, "defaultWeek": 1, "cache_time": 1},
+                ranking_data={
+                    "kungfu_statistics": {"dps": {}},
+                    "missing_kungfu_lines": ["1. 梦江南 角色A - id:1001"],
+                },
+                payload=None,
+            )
+
+            with unittest.mock.patch.object(module.asyncio, "sleep", AsyncMock()):
+                asyncio.run(module.push_daily_jjc_ranking())
+
+            notify.assert_awaited_once()
+            bot.send_private_msg.assert_awaited_once_with(
+                user_id=101,
+                message="【每日竞技排名定时任务（第1周）】未查询到心法的角色（共1人，第1-1名）\n1. 梦江南 角色A - id:1001",
+            )
+
+        with self.subTest(case="group_fails"):
+            module = _load_jobs(admin_qq=[101])
+            bot, notify = self._prepare_ranking_job(
+                module,
+                ranking_result={"code": 0, "defaultWeek": 1, "cache_time": 1},
+                ranking_data={
+                    "kungfu_statistics": {"dps": {}},
+                    "missing_kungfu_lines": ["1. 梦江南 角色A - id:1001"],
+                },
+                payload={
+                    "image_bytes": b"png-bytes",
+                    "scope_desc": "前200、前100、前50",
+                    "total_valid_data": 199,
+                    "processed_label": "前200名",
+                },
+            )
+            bot.get_group_list = AsyncMock(side_effect=RuntimeError("group list unavailable"))
+
+            with unittest.mock.patch.object(module.asyncio, "sleep", AsyncMock()):
+                asyncio.run(module.push_daily_jjc_ranking())
+
+            notify.assert_not_awaited()
+            bot.send_group_msg.assert_not_awaited()
+            bot.send_private_msg.assert_awaited_once_with(
+                user_id=101,
+                message="【每日竞技排名定时任务（第1周）】未查询到心法的角色（共1人，第1-1名）\n1. 梦江南 角色A - id:1001",
+            )
+
+    def test_notify_jjc_ranking_missing_kungfu_handles_bot_and_admin_qq_edge_cases(self) -> None:
+        lines = ["1. 梦江南 角色A - id:1001"]
+
+        with self.subTest(case="bot_none_and_no_driver_bots"):
+            module = _load_jobs(admin_qq=[101], bots={})
+            asyncio.run(module.notify_jjc_ranking_missing_kungfu(None, lines))
+
+        with self.subTest(case="bot_none_uses_driver_bot"):
+            bot = _FakeBot()
+            module = _load_jobs(admin_qq=[101], bots={"default": bot})
+            with unittest.mock.patch.object(module.asyncio, "sleep", AsyncMock()):
+                asyncio.run(module.notify_jjc_ranking_missing_kungfu(None, lines))
+            bot.send_private_msg.assert_awaited_once_with(
+                user_id=101,
+                message="【每日竞技排名定时任务】未查询到心法的角色（共1人，第1-1名）\n1. 梦江南 角色A - id:1001",
+            )
+
+        with self.subTest(case="admin_qq_none_or_empty"):
+            for admin_val in (None, []):
+                bot = _FakeBot()
+                module = _load_jobs(admin_qq=[])
+                module.cfg.ADMIN_QQ = admin_val
+                asyncio.run(module.notify_jjc_ranking_missing_kungfu(bot, lines))
+                bot.send_private_msg.assert_not_awaited()
+
+        with self.subTest(case="admin_qq_single_str_and_dedup_invalid"):
+            bot = _FakeBot()
+            module = _load_jobs(admin_qq=[])
+            module.cfg.ADMIN_QQ = "303"
+            with unittest.mock.patch.object(module.asyncio, "sleep", AsyncMock()):
+                asyncio.run(module.notify_jjc_ranking_missing_kungfu(bot, lines))
+            bot.send_private_msg.assert_awaited_once_with(
+                user_id=303,
+                message="【每日竞技排名定时任务】未查询到心法的角色（共1人，第1-1名）\n1. 梦江南 角色A - id:1001",
+            )
+
+            bot2 = _FakeBot()
+            module.cfg.ADMIN_QQ = [101, "101", "invalid", 202]
+            with unittest.mock.patch.object(module.asyncio, "sleep", AsyncMock()):
+                asyncio.run(module.notify_jjc_ranking_missing_kungfu(bot2, lines))
+            self.assertEqual(
+                [call.kwargs["user_id"] for call in bot2.send_private_msg.await_args_list],
+                [101, 202],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
