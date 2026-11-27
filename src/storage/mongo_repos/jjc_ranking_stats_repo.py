@@ -7,7 +7,7 @@ from copy import deepcopy
 import datetime
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from bson import BSON, ObjectId
 from bson.errors import InvalidDocument
@@ -82,6 +82,7 @@ class JjcRankingStatsRepo:
     @staticmethod
     def _validate_equipment_document(
         document: Dict[str, Any], timestamp: int, *, allow_historical: bool = False,
+        bson_size: Optional[int] = None,
     ) -> None:
         try:
             if (not isinstance(timestamp, int) or isinstance(timestamp, bool)
@@ -101,7 +102,8 @@ class JjcRankingStatsRepo:
                     or document.get("current_season") != view["scope"]["season_id"]
                     or document.get("kungfu_cache_scope") != view["scope"]):
                 raise ValueError("invalid_snapshot_binding")
-            if len(BSON.encode(document)) > MAX_SNAPSHOT_BSON_BYTES:
+            encoded_size = bson_size if bson_size is not None else len(BSON.encode(document))
+            if encoded_size > MAX_SNAPSHOT_BSON_BYTES:
                 raise EquipmentSnapshotError("snapshot_too_large")
         except EquipmentSnapshotError:
             raise
@@ -639,10 +641,10 @@ class JjcRankingStatsRepo:
             except Exception as exc:
                 raise EquipmentSnapshotError("read_failed") from exc
 
-    async def _metadata_rows(self, cursor, *, batch_size=16):
+    async def _metadata_rows_with_sizes(self, cursor, *, batch_size=16) -> List[Tuple[Dict[str, Any], int]]:
         """Bound every metadata cursor and close on success, fault or cancellation."""
         started = time.monotonic()
-        rows = []
+        rows: List[Tuple[Dict[str, Any], int]] = []
         size = 0
         try:
             if type(batch_size) is not int or not 1 <= batch_size <= METADATA_LEAN_BATCH_SIZE:
@@ -654,10 +656,11 @@ class JjcRankingStatsRepo:
             async for doc in cursor:
                 if time.monotonic() - started > METADATA_READ_TIMEOUT:
                     raise EquipmentSnapshotError("read_failed")
-                size += len(BSON.encode(doc))
+                doc_size = len(BSON.encode(doc))
+                size += doc_size
                 if len(rows) >= METADATA_MAX_SCAN_DOCUMENTS or size > METADATA_MAX_SCAN_BYTES:
                     raise EquipmentSnapshotError("read_failed")
-                rows.append(doc)
+                rows.append((doc, doc_size))
             return rows
         except asyncio.CancelledError:
             raise
@@ -666,6 +669,10 @@ class JjcRankingStatsRepo:
         finally:
             await self._close_metadata_cursor(cursor)
 
+    async def _metadata_rows(self, cursor, *, batch_size=16):
+        """Bound every metadata cursor and close on success, fault or cancellation."""
+        return [doc for doc, _ in await self._metadata_rows_with_sizes(cursor, batch_size=batch_size)]
+
     async def _readable_snapshot_query(self, db, *, season_values=None) -> Dict[str, Any]:
         """Validate bounded V2 payloads before exposing metadata/counts."""
         query = {"schema_version": 2}
@@ -673,13 +680,15 @@ class JjcRankingStatsRepo:
             query["current_season"] = {"$in": season_values}
         timestamps = []
         started = time.monotonic()
-        for doc in await self._metadata_rows(db.jjc_ranking_stat_summaries.find(query)):
+        for doc, doc_size in await self._metadata_rows_with_sizes(db.jjc_ranking_stat_summaries.find(query)):
             if time.monotonic() - started > METADATA_READ_TIMEOUT:
                 raise EquipmentSnapshotError("read_failed")
             if doc.get("schema_version", 1) != 2:
                 continue
             try:
-                self._validate_equipment_document(doc, doc.get("timestamp"), allow_historical=True)
+                self._validate_equipment_document(
+                    doc, doc.get("timestamp"), allow_historical=True, bson_size=doc_size
+                )
             except EquipmentSnapshotError:
                 continue
             if time.monotonic() - started > METADATA_READ_TIMEOUT:
@@ -695,16 +704,40 @@ class JjcRankingStatsRepo:
         try:
             db = self.db if self.db is not None else _get_db()
             readable = await self._readable_snapshot_query(db)
-            cursor = db.jjc_ranking_stat_summaries.find(
-                readable,
-                {"current_season": 1, "timestamp": 1},
-            ).sort([("timestamp", -1)])
+            collection = db.jjc_ranking_stat_summaries
             latest_timestamps: Dict[str, int] = {}
-            for doc in await self._metadata_rows(cursor, batch_size=METADATA_LEAN_BATCH_SIZE):
-                season = _normalize_season(doc.get("current_season"))
-                timestamp = int(doc.get("timestamp") or 0)
-                if season and timestamp > latest_timestamps.get(season, 0):
-                    latest_timestamps[season] = timestamp
+            aggregate_fn = getattr(collection, "aggregate", None)
+            if callable(aggregate_fn):
+                pipeline = [
+                    {"$match": readable},
+                    {"$match": {"current_season": {"$nin": [None, ""]}}},
+                    {"$group": {"_id": "$current_season", "latest_timestamp": {"$max": "$timestamp"}}},
+                    {"$sort": {"latest_timestamp": -1}},
+                ]
+                max_time_ms = max(1, int(METADATA_READ_TIMEOUT * 1000))
+                try:
+                    cursor = aggregate_fn(
+                        pipeline,
+                        maxTimeMS=max_time_ms,
+                        batchSize=METADATA_LEAN_BATCH_SIZE,
+                    )
+                except TypeError:
+                    cursor = aggregate_fn(pipeline)
+                for doc in await self._metadata_rows(cursor, batch_size=METADATA_LEAN_BATCH_SIZE):
+                    season = _normalize_season(doc.get("_id"))
+                    timestamp = int(doc.get("latest_timestamp") or 0)
+                    if season and timestamp > latest_timestamps.get(season, 0):
+                        latest_timestamps[season] = timestamp
+            else:
+                cursor = collection.find(
+                    readable,
+                    {"current_season": 1, "timestamp": 1},
+                ).sort([("timestamp", -1)])
+                for doc in await self._metadata_rows(cursor, batch_size=METADATA_LEAN_BATCH_SIZE):
+                    season = _normalize_season(doc.get("current_season"))
+                    timestamp = int(doc.get("timestamp") or 0)
+                    if season and timestamp > latest_timestamps.get(season, 0):
+                        latest_timestamps[season] = timestamp
             seasons = [
                 {"name": name, "latest_timestamp": timestamp}
                 for name, timestamp in latest_timestamps.items()

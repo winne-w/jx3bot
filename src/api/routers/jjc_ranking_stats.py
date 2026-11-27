@@ -16,6 +16,7 @@ from src.api.response import error_response, success_response
 from src.services.jx3.singletons import jjc_ranking_inspect_service
 from src.services.jx3.jjc_peak_score_ranking import JjcPeakScoreRankingService
 from src.services.jx3.jjc_ranking_display import DisplayRequestError, public_display_member
+from src.services.jx3.jjc_seasons_cache import jjc_seasons_cache_service
 from src.storage.mongo_repos.jjc_peak_score_ranking_repo import JjcPeakScoreRankingRepo
 from src.storage.mongo_repos.jjc_ranking_stats_repo import JjcRankingStatsRepo, EquipmentSnapshotError
 from src.storage.mongo_repos.jjc_inspect_repo import JjcInspectRepo
@@ -215,10 +216,41 @@ async def _read_snapshot_metadata(action, season, page, page_size, with_meta):
         raise EquipmentSnapshotError("read_failed") from None
 
 
+def _seasons_cache_key(repo: Any) -> str:
+    db = getattr(repo, "db", None)
+    if db is None:
+        return "default"
+    db_type_name = type(db).__name__
+    if db_type_name == "_EquipmentReadDatabase":
+        return "equipment_read"
+    if db_type_name == "AsyncIOMotorDatabase":
+        db_name = getattr(db, "name", None)
+        if isinstance(db_name, str) and db_name:
+            return db_name
+    raw_dict = getattr(db, "__dict__", None)
+    if isinstance(raw_dict, dict):
+        raw_name = raw_dict.get("name")
+        if isinstance(raw_name, str) and raw_name:
+            return raw_name
+    return "{}:{}".format(type(db).__qualname__, id(db))
+
+
 async def _read_snapshot_metadata_selected(action, season, page, page_size, with_meta):
     """Preserve legacy metadata formats; strict V2 read failures reach HTTP 503."""
     if action == "seasons":
-        return success_response(await _snapshot_read_repo().list_seasons())
+        repo = _snapshot_read_repo()
+        if (
+            isinstance(JjcRankingStatsRepo, type)
+            and JjcRankingStatsRepo is not object
+            and isinstance(repo, JjcRankingStatsRepo)
+        ):
+            return success_response(
+                await jjc_seasons_cache_service.get_seasons(
+                    repo.list_seasons,
+                    cache_key=_seasons_cache_key(repo),
+                )
+            )
+        return success_response(await repo.list_seasons())
 
     if action == "season-history":
         normalized_season = str(season or "").strip()

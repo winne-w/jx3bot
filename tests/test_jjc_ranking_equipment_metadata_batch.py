@@ -50,12 +50,19 @@ class MetadataBatchMongo(unittest.IsolatedAsyncioTestCase):
         self.repo=JjcRankingStatsRepo(db=self.db,suppress_errors=False)
     async def cleanup(self):await self.client.drop_database(self.db.name);self.client.close()
     def reset(self):self.wire.started_rows.clear();self.wire.replies.clear()
-    def assert_transport(self):
-        finds=[cmd for name,cmd in self.wire.started_rows if name=='find'];self.assertEqual(2,len(finds))
+    def assert_transport(self, *, mode=None):
+        finds=[cmd for name,cmd in self.wire.started_rows if name=='find']
         full=[cmd for cmd in finds if cmd.get('filter')=={'schema_version':2} or cmd.get('filter',{}).get('schema_version')==2]
-        lean=[cmd for cmd in finds if cmd not in full]
         self.assertEqual(1,len(full));self.assertEqual(16,full[0].get('batchSize'))
-        self.assertEqual(1,len(lean));self.assertEqual(512,lean[0].get('batchSize'));self.assertTrue(lean[0].get('projection'))
+        if mode=='seasons':
+            aggs=[cmd for name,cmd in self.wire.started_rows if name=='aggregate']
+            self.assertEqual(1,len(finds));self.assertEqual(1,len(aggs))
+            self.assertTrue(0<aggs[0].get('maxTimeMS',1501)<=1500)
+            self.assertEqual(512,(aggs[0].get('cursor') or {}).get('batchSize'))
+        else:
+            self.assertEqual(2,len(finds))
+            lean=[cmd for cmd in finds if cmd not in full]
+            self.assertEqual(1,len(lean));self.assertEqual(512,lean[0].get('batchSize'));self.assertTrue(lean[0].get('projection'))
         self.assertTrue(all(0<cmd.get('maxTimeMS',1501)<=1500 for cmd in finds))
         self.assertFalse(any(name in ('getMore','killCursors') for name,cmd in self.wire.started_rows))
     async def test_416_complete_metadata_rows_use_one_lean_batch_in_all_five_modes(self):
@@ -72,7 +79,7 @@ class MetadataBatchMongo(unittest.IsolatedAsyncioTestCase):
                     result=await self.repo.list_timestamps(page=1,page_size=100);self.assertEqual(expected[:100],result['items']);self.assertEqual(416,result['total']);self.assertTrue(result['has_more'])
                 else:
                     result=await self.repo.list_timestamps(with_meta=True);self.assertEqual(expected[:100],[item['timestamp'] for item in result['items']]);self.assertEqual(416,result['total']);self.assertTrue(result['has_more'])
-                self.assert_transport()
+                self.assert_transport(mode=mode)
     async def test_exact_512_lean_wire_batch_gets_eof_without_losing_any_row(self):
         await self.db.jjc_ranking_stat_summaries.insert_many([{'timestamp':TIMESTAMP+i,'current_season':SCOPE['season_id']} for i in range(416,512)])
         self.reset();result=await self.repo.list_timestamps();self.assertEqual(list(range(TIMESTAMP+511,TIMESTAMP-1,-1)),result)

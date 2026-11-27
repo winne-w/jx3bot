@@ -955,6 +955,8 @@ class JjcRankingService:
                     else:
                         await repo.save_snapshot(timestamp=timestamp, summary_payload=summary_payload,
                             detail_payloads=detail_payloads, source="ranking_job")
+                from src.services.jx3.jjc_seasons_cache import jjc_seasons_cache_service
+                jjc_seasons_cache_service.invalidate()
                 await self._enqueue_ranking_members_for_sync(
                     detail_payloads=detail_payloads,
                     timestamp=timestamp,

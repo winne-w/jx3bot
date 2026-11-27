@@ -947,6 +947,8 @@
 | `idx_generated_at` | `generated_at` (降序) | 普通索引 |
 | `idx_ranking_cache_time` | `ranking_cache_time` (降序) | 普通索引 |
 | `idx_current_season_default_week` | `current_season`, `default_week` | 普通复合索引 |
+| `idx_schema_version_season_timestamp` | `schema_version`, `current_season`, `timestamp` (降序) | 普通复合索引，加速 V2 可读快照校验与按赛季聚合 |
+| `idx_current_season_timestamp` | `current_season`, `timestamp` (降序) | 普通复合索引，加速赛季列表与单赛季历史快照倒序读取 |
 
 ### `jjc_ranking_stat_details`
 
